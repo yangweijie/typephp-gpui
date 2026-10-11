@@ -81,6 +81,12 @@ function gpui_dialog_count(mixed $window): int {}
 /** 关闭最上层 dialog；成功返回 true。 */
 function gpui_close_dialog(mixed $window): bool {}
 
+/** 装原生 app 菜单条（macOS 系统菜单栏）。$menus=[[name,items=[[label,action?,separator?,disabled?,checked?]]]]；返回装入的菜单数。 */
+function gpui_set_app_menus(mixed $window, array $menus): int {}
+
+/** 读回已装 app 菜单数（验证用）。 */
+function gpui_app_menu_count(mixed $window): int {}
+
 /** 读取 checkbox/switch/slider 等元素的当前值。 */
 function gpui_element_value(mixed $window, string $id): mixed {}
 

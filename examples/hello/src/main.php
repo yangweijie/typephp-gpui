@@ -146,9 +146,25 @@ function runSelfTest(): void
     $err = $app->registeredError();
     $ok = $ok && $err !== '';
 
+    // 7) 原生 app 菜单条安装：setAppMenus → BaseSetAppMenus（深拷）→ appMenuCount 读回。
+    //    macOS 系统菜单栏在屏幕顶、--shot 抓不到，故用数量断言验证安装链路。
+    $menuN = $app->setAppMenus([
+        ['name' => 'File', 'items' => [
+            ['label' => 'New', 'action' => 'file.new'],
+            ['separator' => true],
+            ['label' => 'Quit', 'action' => 'app.quit'],
+        ]],
+        ['name' => 'Edit', 'items' => [
+            ['label' => 'Copy', 'action' => 'edit.copy'],
+            ['label' => 'Paste', 'action' => 'edit.paste'],
+        ]],
+    ]);
+    $menuCount = $app->appMenuCount();
+    $ok = $ok && $menuN === 2 && $menuCount === 2;
+
     echo $ok
-        ? "SELFTEST OK (input + click + timer hits={$timerHits} + dialog + registered-cb + err-channel)\n"
-        : "SELFTEST FAIL (input='{$got}' fired=" . ($fired ? '1' : '0') . " clicks={$clicks} timer={$timerHits} dlg=$before/$opened/$during/$after ddcb=" . ($ddFired ? '1' : '0') . "/{$ddFires} err='$err')\n";
+        ? "SELFTEST OK (input + click + timer hits={$timerHits} + dialog + registered-cb + err-channel + appmenu)\n"
+        : "SELFTEST FAIL (input='{$got}' fired=" . ($fired ? '1' : '0') . " clicks={$clicks} timer={$timerHits} dlg=$before/$opened/$during/$after ddcb=" . ($ddFired ? '1' : '0') . "/{$ddFires} err='$err' menu=$menuN/$menuCount)\n";
     $app->close();
     exit($ok ? 0 : 1);
 }

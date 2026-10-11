@@ -764,6 +764,46 @@ int gpui_shim_dialog_close(void* win) {
     return gpui::ShellRootCloseDialog(&cx) ? 1 : 0;
 }
 
+void gpui_shim_set_app_menus(void* win, const GpuiMenu* menus, int count) {
+    (void)win;
+    if (!g_app || count < 0) return;
+    // BaseSetAppMenus 深拷进自己的 arena，故 defs/rows 只需在本次调用内有效。
+    std::vector<gpui::MenuDef> defs(static_cast<size_t>(count));
+    std::vector<std::vector<gpui::MenuRow>> rows(static_cast<size_t>(count));
+    for (int i = 0; i < count; ++i) {
+        const GpuiMenu& m = menus[i];
+        int n = m.count > 0 ? m.count : 0;
+        rows[static_cast<size_t>(i)].assign(static_cast<size_t>(n), gpui::MenuRow{});
+        for (int j = 0; j < n; ++j) {
+            const GpuiMenuItem& it = m.items[j];
+            gpui::MenuRow& r = rows[static_cast<size_t>(i)][static_cast<size_t>(j)];
+            r.label = gpui::Str(it.label ? it.label : "");
+            r.action = (it.action && *it.action)
+                           ? gpui::shell::ShellActionOf(gpui::Str(it.action))
+                           : 0;
+            r.stroke = nullptr;  // 拷指针会悬垂，本版不支持快捷键
+            r.separator = it.separator != 0;
+            r.disabled = it.disabled != 0;
+            r.checked = it.checked != 0;
+        }
+        gpui::MenuDef& d = defs[static_cast<size_t>(i)];
+        d = gpui::MenuDef{};
+        d.name = gpui::Str(m.name ? m.name : "");
+        d.items = n > 0 ? rows[static_cast<size_t>(i)].data() : nullptr;
+        d.n = n;
+        d.disabled = m.disabled != 0;
+    }
+    gpui::BaseSetAppMenus(g_app, count > 0 ? defs.data() : nullptr, count);
+}
+
+int gpui_shim_app_menu_count(void* win) {
+    (void)win;
+    if (!g_app) return 0;
+    int n = 0;
+    gpui::BaseAppMenus(g_app, &n);
+    return n;
+}
+
 void gpui_shim_nullary_style(void* win, uint32_t spec, const char* name) {
     auto* box = static_cast<Box2*>(win);
     gpui::shell::SpecOp so;

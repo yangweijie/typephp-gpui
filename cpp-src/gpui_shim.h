@@ -104,6 +104,29 @@ int   gpui_shim_dialog_show(void* win, void* dlg, int escape_dismissable,
 int   gpui_shim_dialog_count(void* win);
 int   gpui_shim_dialog_close(void* win);
 
+/* 原生 app 菜单条（macOS 系统菜单栏，非窗口内 → --shot 抓不到，用 count 验证）。
+ * 绕开 catalog MenuBar 的 AppEffects/root-app 依赖，直接 BaseSetAppMenus。
+ * BaseSetAppMenus 深拷 name/label/submenu，故调用后 menus 可立即释放；但 stroke 只拷
+ * 指针（会悬垂），本版恒传 NULL（不支持快捷键）。 */
+typedef struct {
+    const char* label;
+    const char* action;   /* NULL = 无动作（纯标签/分隔符）；非空经 ShellActionOf 映射 */
+    int separator;
+    int disabled;
+    int checked;
+} GpuiMenuItem;
+
+typedef struct {
+    const char* name;
+    const GpuiMenuItem* items;
+    int count;
+    int disabled;
+} GpuiMenu;
+
+void gpui_shim_set_app_menus(void* win, const GpuiMenu* menus, int count);
+/* 读回已装菜单数（BaseAppMenus），验证安装。 */
+int  gpui_shim_app_menu_count(void* win);
+
 /* 渲染一帧 = 重放一遍扁平 spec 指令序列。begin 清空 arena。 */
 void gpui_shim_render_begin(void* win);
 /* 压入一个组件节点，返回其 spec id；kind 是字符串（div/text/button/...）。

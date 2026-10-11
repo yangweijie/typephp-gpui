@@ -174,6 +174,22 @@ final class App
         return (bool) \gpui_close_dialog($this->handle());
     }
 
+    /**
+     * 装原生 app 菜单条（macOS 系统菜单栏，非窗口内）。
+     * $menus = [['name'=>'File','items'=>[['label'=>'New','action'=>'file.new'],['separator'=>true],...]], ...]
+     * 带 action 的项点击后经基石旁路回 PHP：App->on($action, 'action', $handler)。返回装入菜单数。
+     */
+    public function setAppMenus(array $menus): int
+    {
+        return (int) \gpui_set_app_menus($this->handle(), $menus);
+    }
+
+    /** 读回已装 app 菜单数（验证安装）。 */
+    public function appMenuCount(): int
+    {
+        return (int) \gpui_app_menu_count($this->handle());
+    }
+
     public function checked(string $id): bool
     {
         return (bool) \gpui_element_value($this->handle(), $id);

@@ -43,6 +43,9 @@ namespace TypePHP\Gpui {
         /** @var int 模拟打开的 dialog 数 */
         public static int $dialogCount = 0;
 
+        /** app 菜单条：最近一次 set_app_menus 装入的菜单数 */
+        public static int $appMenuCount = 0;
+
         public static function reset(): void
         {
             self::$inputValues = [];
@@ -177,6 +180,17 @@ namespace {
             return true;
         }
         return false;
+    }
+
+    function gpui_set_app_menus(mixed $window, array $menus): int
+    {
+        FakeBridge::$appMenuCount = count($menus);
+        return FakeBridge::$appMenuCount;
+    }
+
+    function gpui_app_menu_count(mixed $window): int
+    {
+        return FakeBridge::$appMenuCount;
     }
 
     function gpui_element_value(mixed $window, string $id): mixed

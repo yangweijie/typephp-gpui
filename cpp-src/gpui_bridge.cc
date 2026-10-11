@@ -444,6 +444,66 @@ Bool php_gpui_close_dialog(Variant boxVar) {
     return win && gpui_shim_dialog_close(win) != 0;
 }
 
+// PHP 菜单定义 [{name, items:[{label, action?, separator?, disabled?, checked?}]}]
+// → GpuiMenu[]。字符串后备用 deque（元素地址跨 push_back 稳定），存活到 shim 调用返回。
+Int php_gpui_set_app_menus(Variant boxVar, Array menus) {
+    void* win = winOf(boxVar);
+    if (!win) return 0;
+    std::deque<std::string> strPool;
+    const size_t n = menus.count();
+    std::vector<GpuiMenu> defs(n);
+    std::vector<std::vector<GpuiMenuItem>> items(n);
+    for (size_t i = 0; i < n; ++i) {
+        Variant mv = menus.get(i);
+        if (!mv.isArray()) continue;
+        Array m = mv.toArray();
+        Variant nameV = m.get("name");
+        strPool.push_back(nameV.isString() ? std::string(nameV.toCString()) : std::string());
+        const char* namePtr = strPool.back().c_str();
+        Variant itemsV = m.get("items");
+        if (itemsV.isArray()) {
+            Array ia = itemsV.toArray();
+            const size_t k = ia.count();
+            items[i].assign(k, GpuiMenuItem{});
+            for (size_t j = 0; j < k; ++j) {
+                Variant iv = ia.get(j);
+                if (!iv.isArray()) continue;
+                Array it = iv.toArray();
+                GpuiMenuItem& g = items[i][j];
+                Variant lv = it.get("label");
+                strPool.push_back(lv.isString() ? std::string(lv.toCString()) : std::string());
+                g.label = strPool.back().c_str();
+                Variant av = it.get("action");
+                if (av.isString() && av.toCString()[0] != '\0') {
+                    strPool.push_back(std::string(av.toCString()));
+                    g.action = strPool.back().c_str();
+                } else {
+                    g.action = nullptr;
+                }
+                Variant sv = it.get("separator");
+                g.separator = (sv.isBool() && sv.toBool()) ? 1 : 0;
+                Variant dv = it.get("disabled");
+                g.disabled = (dv.isBool() && dv.toBool()) ? 1 : 0;
+                Variant cv = it.get("checked");
+                g.checked = (cv.isBool() && cv.toBool()) ? 1 : 0;
+            }
+        }
+        GpuiMenu& d = defs[i];
+        d.name = namePtr;
+        d.items = items[i].empty() ? nullptr : items[i].data();
+        d.count = (int)items[i].size();
+        Variant disV = m.get("disabled");
+        d.disabled = (disV.isBool() && disV.toBool()) ? 1 : 0;
+    }
+    gpui_shim_set_app_menus(win, n > 0 ? defs.data() : nullptr, (int)n);
+    return (Int)(int)n;
+}
+
+Int php_gpui_app_menu_count(Variant boxVar) {
+    void* win = winOf(boxVar);
+    return (Int)(win ? gpui_shim_app_menu_count(win) : 0);
+}
+
 Variant php_gpui_element_value(Variant boxVar, String id) {
     (void)boxVar;
     (void)id;  // Phase 4
