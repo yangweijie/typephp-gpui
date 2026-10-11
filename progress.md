@@ -427,3 +427,17 @@ Pest 57 → **65 例 / 296 断言**；shotdiff 18 树全绿（只有预期的 3 
 
 **本轮改动**：`.github/workflows/ci.yml`（php 8.5 + docs job + 头注释与理由）、
 `task_plan.md`（Phase 12 三项、P1 的 CI 行改口）、`findings.md`（两条实测结论）。
+
+### 第二跑就绿了（run `38140545523`，2026-10-11 12:46Z）
+
+两个 job 全过，且**逐条取到真实输出**而不是只看绿色：`composer install` 从 lock 装齐
+（那个腾讯镜像 dist URL 的风险没咬人，runner 在 southcentralus 照样拉得动）、
+**Pest 65 passed / 296 assertions**（与本地逐字一致）、PHPStan `[OK] No errors`、
+VitePress `build complete in 3.25s` + `built html pages: 10`。
+
+P1 的 CI 行因此从 `[~]` 转正为 `[x]`。剩两行 runner 侧待办（各一行改动，等确认）：
+`checkout@v4`/`setup-node@v4` 的 Node 20 deprecation 警告，与 `ubuntu-latest` 在
+2026-10-19 迁 Ubuntu 26（钉 `ubuntu-24.04` 或跟着迁，二选一）。
+
+**原生链仍然只在本地这台 mac 上验过**——六道门禁里的 3/4/5（shim_test / selftest / shotdiff）
+依赖 `GPUI_DIR`，托管 runner 拉不到 gpui-kit-cpp，这是设计上的排除，不是漏配。
