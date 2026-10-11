@@ -1,0 +1,42 @@
+name: CI
+
+# 现状：gpui-kit-cpp 无 git remote（本地源码树，见 GPUI.lock），托管 runner 无法拉取，
+# 故 bootstrap 构建 / --selftest / --shot / cmd/test-shim.sh 都依赖 GPUI_DIR，跑不了。
+# 本工作流只覆盖自足的 PHP 声明层（php -l + Pest/FakeBridge，不碰 gpui）。
+# 原生链在本地或有 GPUI_DIR 的 self-hosted runner 上跑：
+#   composer bootstrap && composer test:cpp && ./examples/hello/build/hello --selftest
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  php:
+    name: PHP lint + Pest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: none
+
+      - name: Composer install
+        run: composer install --no-interaction --prefer-dist
+
+      - name: Lint all PHP sources
+        run: |
+          fail=0
+          for f in $(find src tests examples bin php-src -type f \( -name '*.php' -o -name 'gpui' \)); do
+            php -l "$f" >/dev/null || { echo "lint fail: $f"; fail=1; }
+          done
+          # bin/gpui 无扩展名，单独 lint
+          php -l bin/gpui >/dev/null || fail=1
+          exit $fail
+
+      - name: Pest (FakeBridge, headless)
+        run: vendor/bin/pest

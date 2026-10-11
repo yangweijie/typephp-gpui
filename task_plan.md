@@ -87,9 +87,9 @@ Phase 4/5/6 主体完成（渲染 bug 修复、定时器、Slot+组件、Markdow
 - [x] **一键构建链**：`bin/gpui build` 补丁列表补 `patch-registered-cb.sh`（原漏）+ build 后 verifyPatches；`composer patch` 补 registered-cb，新增 `composer bootstrap`。`bin/gpui build hello` rc=0 端到端验证。
 
 **P1 — 质量门禁**
-- [ ] **C++ 侧测试**：shim/bridge（arena 字符串生命周期、`kindFromString`、`lookupCtor`、`toComponentArg` schema、回调路由）**零自动化测试**——bug #18 类回归无守卫。加独立 c++ 测试目标（或直接测 libgpui_shim.a 的纯函数）。
-- [ ] **--shot 基线 diff**：现在靠人眼 Read PNG。加参考图 + 像素/结构 diff 自动判定（plan 早已列为待办）。
-- [ ] **CI**：无 `.github`。跑 pest + 语法校验 + bootstrap 构建 + selftest + shot diff。
+- [x] **C++ 侧测试**（2026-10-11）：`tests/cpp/shim_test.cpp` `#include` 整个 gpui_shim.cpp，headless 测匿名命名空间纯函数——`kindFromString` 映射、`AStr` arena 拷贝（bug #18 守卫）、`toComponentArg` 各 SchemaKind + Enum 白名单 + Array/Optional/Callback、`buildComponentArgs` 元数补齐/缺必填返 -1。`cmd/test-shim.sh` 两步编链（-x 只作用 .cpp），`SHIM CPP TESTS OK`。composer `test:cpp` / `test:all`。
+- [x] **CI**（2026-10-11，部分）：`.github/workflows/ci.yml` 跑 `php -l` 全源 + Pest（自足，ubuntu runner）。**原生链（build/selftest/shot/test:cpp）依赖 gpui-kit-cpp 源码，托管 runner 拉不到 → 暂不进 CI**，本地/self-hosted 跑（workflow 顶部注明）。
+- [ ] **--shot 基线 diff**：现在靠人眼 Read PNG。加参考图 + 像素/结构 diff 自动判定。
 - [ ] **静态分析/风格**：PHP 无 phpstan/psalm/php-cs-fixer；C++ 无 clang-format/clang-tidy。
 
 **P2 — 覆盖面/DX/文档**
