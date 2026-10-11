@@ -1,0 +1,137 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+/**
+ * gpui — TypePHP-GPUI 打包 CLI。
+ *
+ * 用法：
+ *   gpui doctor              检查工具链（bun / clang / tpc / php-nano / frameworks）
+ *   gpui build [example]     按序跑补丁 → 生成 amalgam → 建 shim 库 → tpc nano 编译
+ *   gpui run [example]       编译并运行示例（默认 hello）
+ *   gpui shot [example]      编译并 --shot 出 PNG（默认 /tmp/<example>.png）
+ *   gpui selftest [example]  编译并跑 --selftest，rc=0 即通过
+ *   gpui new <app>           脚手架一个新应用（project.macos.yml + src/main.php）
+ *
+ * 约定：项目根 = 本文件所在仓库根（bin/ 的上级）。示例在 examples/<name>/。
+ */
+
+$root = dirname(__DIR__);
+$argvv = $argv;
+array_shift($argvv);
+$cmd = $argvv[0] ?? 'help';
+$args = array_slice($argvv, 1);
+
+function out(string $s): void { fwrite(STDOUT, $s . "\n"); }
+function err(string $s): void { fwrite(STDERR, $s . "\n"); }
+function ok(string $s): void { out("  \033[32m✓\033[0m $s"); }
+function bad(string $s): void { out("  \033[31m✗\033[0m $s"); }
+
+function which(string $bin): ?string {
+    $p = trim((string) @shell_exec('command -v ' . escapeshellarg($bin) . ' 2>/dev/null'));
+    return $p !== '' ? $p : null;
+}
+
+function run(string $cmd, ?string $cwd = null): int {
+    out("\033[2m$ $cmd\033[0m");
+    passthru($cmd, $code);
+    return $code;
+}
+
+switch ($cmd) {
+    case 'doctor': {
+        out('TypePHP-GPUI 工具链检查');
+        which('bun') ? ok('bun: ' . which('bun')) : bad('bun 未找到（生成 gpui-kit-cpp amalgam 需要）');
+        which('clang++') ? ok('clang++: ' . which('clang++')) : bad('clang++ 未找到');
+        $tpc = is_file("$root/vendor/bin/tpc.php") ? "$root/vendor/bin/tpc.php" : null;
+        $tpc ? ok('tpc: ' . $tpc) : bad('tpc 未找到（composer install）');
+        is_dir("$root/vendor/swoole/php-nano") ? ok('php-nano 已装') : bad('php-nano 未装（composer require swoole/php-nano）');
+        is_link("$root/vendor/gpui-kit-cpp") || is_dir("$root/vendor/gpui-kit-cpp")
+            ? ok('gpui-kit-cpp 源码就位') : bad('gpui-kit-cpp 未就位（vendor/gpui-kit-cpp）');
+        break;
+    }
+
+    case 'build':
+    case 'run':
+    case 'shot':
+    case 'selftest': {
+        $example = $args[0] ?? 'hello';
+        $yml = "$root/examples/$example/project.macos.yml";
+        if (!is_file($yml)) { err("找不到示例配置：$yml"); exit(1); }
+
+        // 1) 补丁（幂等）
+        foreach (['patch-nano.sh', 'patch-view.sh', 'patch-retained.sh', 'patch-focus.sh'] as $p) {
+            $rc = run("bash $root/cmd/$p");
+            if ($rc !== 0) { err("补丁失败：$p"); exit($rc); }
+        }
+        // 2) 生成 amalgam + 编译对象（gpui-kit-cpp 自带构建）
+        $gpui = "$root/vendor/gpui-kit-cpp";
+        $rc = run("cd " . escapeshellarg($gpui) . " && bun cmd/build.ts -rel hello_world");
+        // hello_world 的链接会因入口 main 被改名而失败（预期），只要 gpui.o 新即可。
+        $gpuiO = "$gpui/out/mac/rel/obj/gpui/gpui.o";
+        if (!is_file($gpuiO)) { err('amalgam 对象未生成：' . $gpuiO); exit(1); }
+        // 3) 建 shim 静态库
+        $rc = run("bash $root/cmd/build-shim.sh");
+        if ($rc !== 0) { err('build-shim 失败'); exit($rc); }
+        // 4) tpc nano 编译示例
+        $rc = run("php $root/vendor/bin/tpc.php " . escapeshellarg($yml) . " --nano");
+        if ($rc !== 0) { err('tpc 编译失败'); exit($rc); }
+        $bin = "$root/examples/$example/build/$example";
+        ok("构建完成：$bin");
+
+        if ($cmd === 'run') {
+            exit(run(escapeshellarg($bin)));
+        }
+        if ($cmd === 'shot') {
+            $path = $args[1] ?? "/tmp/$example.png";
+            exit(run(escapeshellarg($bin) . ' --shot ' . escapeshellarg($path)));
+        }
+        if ($cmd === 'selftest') {
+            exit(run(escapeshellarg($bin) . ' --selftest'));
+        }
+        break;
+    }
+
+    case 'new': {
+        $app = $args[0] ?? '';
+        if ($app === '') { err('用法：gpui new <app>'); exit(1); }
+        $dir = getcwd() . "/$app";
+        if (is_dir($dir)) { err("已存在：$dir"); exit(1); }
+        mkdir("$dir/src", 0755, true);
+        $yml = str_replace('gpui-hello', "gpui-$app", file_get_contents("$root/examples/hello/project.macos.yml"));
+        file_put_contents("$dir/project.macos.yml", $yml);
+        file_put_contents("$dir/src/main.php", <<<PHP
+<?php
+
+declare(strict_types=1);
+
+use TypePHP\\Gpui\\App;
+use TypePHP\\Gpui\\Element as El;
+
+function main(int \$argc, array \$argv): void
+{
+    \$app = new App();
+    \$app->run('$app', 800, 600, function (): El {
+        return El::vFlex([El::text('Hello from $app!')->font(24.0)->semibold()])
+            ->sizeFull()->itemsCenter()->justifyCenter();
+    });
+}
+PHP);
+        ok("已生成脚手架：$dir");
+        out("  下一步：把 $app 放进 examples/ 或调整 yml 路径后 gpui build");
+        break;
+    }
+
+    default:
+        out(<<<H
+gpui — TypePHP-GPUI 打包 CLI
+
+  gpui doctor              检查工具链
+  gpui build [example]     补丁→amalgam→shim 库→tpc nano 编译
+  gpui run [example]       编译并运行（默认 hello）
+  gpui shot [example]      编译并截图出 PNG
+  gpui selftest [example]  编译并跑 --selftest
+  gpui new <app>           脚手架新应用
+H);
+}

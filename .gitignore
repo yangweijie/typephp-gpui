@@ -1,0 +1,28 @@
+# Composer / PHP
+/vendor/
+composer.phar
+
+# tpc 生成物与构建产物
+/build/
+examples/*/build/
+examples/*/cache/
+.phpunit.cache/
+.phpunit.result.cache
+
+# gpui shim 静态库（cmd/build-shim.sh 产物）
+/cpp-src/build/
+
+# gpui-kit-cpp amalgam（由 bun cmd/build.ts 生成，勿入库）
+# 注：vendor/gpui-kit-cpp 是指向本地源码的符号链接，本身不入库。
+
+# 截图 / 临时
+*.png
+!docs/**/*.png
+/tmp/
+.probe/
+
+# 编辑器 / OS
+.DS_Store
+*.swp
+.idea/
+.vscode/

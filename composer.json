@@ -1,0 +1,55 @@
+{
+    "name": "yangweijie/typephp-gpui",
+    "description": "Native desktop GUI framework for PHP: TypePHP (AOT) + gpui-kit-cpp. Declarative element tree, GPU-accelerated rendering, one-command build.",
+    "type": "library",
+    "license": "MIT",
+    "keywords": [
+        "typephp", "aot", "gpui", "gpui-kit", "desktop", "gui", "native", "php", "cross-platform"
+    ],
+    "require": {
+        "php": ">=8.1",
+        "swoole/php-nano": "^1.1"
+    },
+    "require-dev": {
+        "pestphp/pest": "^5.3",
+        "phpunit/phpunit": "^13.0",
+        "swoole/typephp": ">=0.9"
+    },
+    "autoload": {
+        "psr-4": {
+            "TypePHP\\Gpui\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "TypePHP\\Gpui\\Tests\\": "tests/"
+        },
+        "files": [
+            "src/FakeBridge.php"
+        ]
+    },
+    "scripts": {
+        "test": "@php vendor/bin/pest",
+        "patch": "@bash cmd/patch-view.sh && @bash cmd/patch-nano.sh && @bash cmd/patch-retained.sh && @bash cmd/patch-focus.sh",
+        "build": "@php bin/gpui build",
+        "run": "@php bin/gpui run",
+        "doctor": "@php bin/gpui doctor",
+        "demo:build": "@php bin/gpui build hello"
+    },
+    "bin": [
+        "bin/gpui"
+    ],
+    "config": {
+        "sort-packages": true,
+        "allow-plugins": {
+            "pestphp/pest-plugin": true
+        }
+    },
+    "extra": {
+        "bridge": {
+            "stub": "php-src/gpui.stub.php",
+            "sources": ["cpp-src", "php-src"],
+            "gpui-kit-dir": "vendor/gpui-kit-cpp"
+        }
+    }
+}

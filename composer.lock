@@ -1,0 +1,4610 @@
+{
+    "_readme": [
+        "This file locks the dependencies of your project to a known state",
+        "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
+        "This file is @generated automatically"
+    ],
+    "content-hash": "12e31948410153d6d1cd9c983d1f7772",
+    "packages": [
+        {
+            "name": "swoole/php-nano",
+            "version": "v1.1.0",
+            "dist": {
+                "type": "zip",
+                "url": "https://mirrors.cloud.tencent.com/repository/composer/swoole/php-nano/v1.1.0/swoole-php-nano-v1.1.0.zip",
+                "reference": "c61f6d74d8d6a4f83156d50f918c39c1667d00f2",
+                "shasum": ""
+            },
+            "require": {
+                "php": ">=8.4"
+            },
+            "type": "library",
+            "extra": {
+                "branch-alias": {
+                    "dev-main": "8.6.x-dev",
+                    "dev-master": "8.6.x-dev"
+                },
+                "typephp-native": {
+                    "abi": 80600,
+                    "kind": "runtime",
+                    "defines": [
+                        "PCRE2_CODE_UNIT_WIDTH=8",
+                        "HAVE_BUNDLED_PCRE=1"
+                    ],
+                    "sources": [
+                        "Zend/zend_alloc.c",
+                        "Zend/zend_string.c",
+                        "Zend/zend_hash.c",
+                        "Zend/zend_hrtime.c",
+                        "Zend/zend_variables.c",
+                        "Zend/zend_sort.c",
+                        "Zend/zend_operators.c",
+                        "Zend/zend_gc.c",
+                        "Zend/zend_strtod.c",
+                        "Zend/zend_list.c",
+                        "Zend/zend.c",
+                        "Zend/zend_API.c",
+                        "Zend/zend_atomic.c",
+                        "Zend/zend_attributes.c",
+                        "Zend/zend_builtin_functions.c",
+                        "Zend/zend_closures.c",
+                        "Zend/zend_constants.c",
+                        "src/zend_compile_runtime.c",
+                        "src/zend_ini_parser_runtime.c",
+                        "Zend/zend_default_classes.c",
+                        "Zend/zend_enum.c",
+                        "Zend/zend_exceptions.c",
+                        "Zend/zend_execute_API.c",
+                        "Zend/zend_execute.c",
+                        "Zend/zend_extensions.c",
+                        "Zend/zend_float.c",
+                        "Zend/zend_frameless_function.c",
+                        "Zend/zend_inheritance.c",
+                        "Zend/zend_ini.c",
+                        "Zend/zend_interfaces.c",
+                        "Zend/zend_iterators.c",
+                        "Zend/zend_lazy_objects.c",
+                        "Zend/zend_llist.c",
+                        "Zend/zend_multibyte.c",
+                        "Zend/zend_object_handlers.c",
+                        "Zend/zend_objects_API.c",
+                        "Zend/zend_objects.c",
+                        "Zend/zend_observer.c",
+                        "Zend/zend_opcode.c",
+                        "Zend/zend_property_hooks.c",
+                        "Zend/zend_ptr_stack.c",
+                        "Zend/zend_smart_str.c",
+                        "Zend/zend_stack.c",
+                        "Zend/zend_stream.c",
+                        "src/zend_system_id_runtime.c",
+                        "Zend/zend_virtual_cwd.c",
+                        "Zend/zend_weakrefs.c",
+                        "ext/standard/array.c",
+                        "ext/standard/base64.c",
+                        "ext/standard/basic_functions.c",
+                        "ext/standard/credits.c",
+                        "ext/standard/css.c",
+                        "ext/standard/dir.c",
+                        "ext/standard/file.c",
+                        "ext/standard/filestat.c",
+                        "ext/standard/formatted_print.c",
+                        "ext/standard/html.c",
+                        "ext/standard/info.c",
+                        "ext/standard/incomplete_class.c",
+                        "ext/standard/math.c",
+                        "ext/standard/md5.c",
+                        "ext/standard/scanf.c",
+                        "ext/standard/sha1.c",
+                        "ext/standard/string.c",
+                        "ext/standard/strnatcmp.c",
+                        "ext/standard/streamsfuncs.c",
+                        "ext/standard/type.c",
+                        "ext/standard/url.c",
+                        "ext/standard/var.c",
+                        "ext/standard/var_unserializer.c",
+                        "ext/standard/versioning.c",
+                        "ext/bcmath/libbcmath/src/add.c",
+                        "ext/bcmath/libbcmath/src/compare.c",
+                        "ext/bcmath/libbcmath/src/convert.c",
+                        "ext/bcmath/libbcmath/src/div.c",
+                        "ext/bcmath/libbcmath/src/divmod.c",
+                        "ext/bcmath/libbcmath/src/doaddsub.c",
+                        "ext/bcmath/libbcmath/src/floor_or_ceil.c",
+                        "ext/bcmath/libbcmath/src/init.c",
+                        "ext/bcmath/libbcmath/src/int2num.c",
+                        "ext/bcmath/libbcmath/src/long2num.c",
+                        "ext/bcmath/libbcmath/src/nearzero.c",
+                        "ext/bcmath/libbcmath/src/neg.c",
+                        "ext/bcmath/libbcmath/src/num2long.c",
+                        "ext/bcmath/libbcmath/src/num2str.c",
+                        "ext/bcmath/libbcmath/src/raise.c",
+                        "ext/bcmath/libbcmath/src/raisemod.c",
+                        "ext/bcmath/libbcmath/src/recmul.c",
+                        "ext/bcmath/libbcmath/src/rmzero.c",
+                        "ext/bcmath/libbcmath/src/round.c",
+                        "ext/bcmath/libbcmath/src/sqrt.c",
+                        "ext/bcmath/libbcmath/src/str2num.c",
+                        "ext/bcmath/libbcmath/src/sub.c",
+                        "ext/bcmath/libbcmath/src/zero.c",
+                        "ext/date/php_date.c",
+                        "ext/date/php_time.c",
+                        "ext/date/time_duration.c",
+                        "ext/date/lib/astro.c",
+                        "ext/date/lib/dow.c",
+                        "ext/date/lib/duration.c",
+                        "ext/date/lib/parse_date.c",
+                        "ext/date/lib/parse_tz.c",
+                        "ext/date/lib/parse_posix.c",
+                        "ext/date/lib/timelib.c",
+                        "ext/date/lib/tm2unixtime.c",
+                        "ext/date/lib/unixtime2tm.c",
+                        "ext/date/lib/parse_iso_intervals.c",
+                        "ext/date/lib/interval.c",
+                        "ext/filter/callback_filter.c",
+                        "ext/filter/filter.c",
+                        "ext/filter/logical_filters.c",
+                        "ext/filter/sanitizing_filters.c",
+                        "ext/hash/hash.c",
+                        "ext/hash/hash_adler32.c",
+                        "ext/hash/hash_crc32.c",
+                        "ext/hash/hash_fnv.c",
+                        "ext/hash/hash_gost.c",
+                        "ext/hash/hash_haval.c",
+                        "ext/hash/hash_joaat.c",
+                        "ext/hash/hash_md.c",
+                        "ext/hash/hash_murmur.c",
+                        "ext/hash/hash_ripemd.c",
+                        "ext/hash/hash_sha.c",
+                        "ext/hash/hash_sha3.c",
+                        "ext/hash/hash_snefru.c",
+                        "ext/hash/hash_tiger.c",
+                        "ext/hash/hash_whirlpool.c",
+                        "ext/hash/hash_xxhash.c",
+                        "ext/hash/murmur/PMurHash.c",
+                        "ext/hash/murmur/PMurHash128.c",
+                        "ext/json/json.c",
+                        "ext/json/json_encoder.c",
+                        "ext/json/json_parser.tab.c",
+                        "ext/json/json_scanner.c",
+                        "ext/pcre/php_pcre.c",
+                        "ext/pcre/pcre2lib/pcre2_auto_possess.c",
+                        "ext/pcre/pcre2lib/pcre2_chartables.c",
+                        "ext/pcre/pcre2lib/pcre2_chkdint.c",
+                        "ext/pcre/pcre2lib/pcre2_compile.c",
+                        "ext/pcre/pcre2lib/pcre2_config.c",
+                        "ext/pcre/pcre2lib/pcre2_context.c",
+                        "ext/pcre/pcre2lib/pcre2_convert.c",
+                        "ext/pcre/pcre2lib/pcre2_dfa_match.c",
+                        "ext/pcre/pcre2lib/pcre2_error.c",
+                        "ext/pcre/pcre2lib/pcre2_extuni.c",
+                        "ext/pcre/pcre2lib/pcre2_find_bracket.c",
+                        "ext/pcre/pcre2lib/pcre2_jit_compile.c",
+                        "ext/pcre/pcre2lib/pcre2_maketables.c",
+                        "ext/pcre/pcre2lib/pcre2_match_data.c",
+                        "ext/pcre/pcre2lib/pcre2_match.c",
+                        "ext/pcre/pcre2lib/pcre2_newline.c",
+                        "ext/pcre/pcre2lib/pcre2_ord2utf.c",
+                        "ext/pcre/pcre2lib/pcre2_pattern_info.c",
+                        "ext/pcre/pcre2lib/pcre2_script_run.c",
+                        "ext/pcre/pcre2lib/pcre2_serialize.c",
+                        "ext/pcre/pcre2lib/pcre2_string_utils.c",
+                        "ext/pcre/pcre2lib/pcre2_study.c",
+                        "ext/pcre/pcre2lib/pcre2_substitute.c",
+                        "ext/pcre/pcre2lib/pcre2_substring.c",
+                        "ext/pcre/pcre2lib/pcre2_tables.c",
+                        "ext/pcre/pcre2lib/pcre2_ucd.c",
+                        "ext/pcre/pcre2lib/pcre2_valid_utf.c",
+                        "ext/pcre/pcre2lib/pcre2_xclass.c",
+                        "ext/reflection/php_reflection.c",
+                        "ext/random/csprng.c",
+                        "ext/random/engine_mt19937.c",
+                        "ext/random/engine_pcgoneseq128xslrr64.c",
+                        "ext/random/engine_secure.c",
+                        "ext/random/engine_user.c",
+                        "ext/random/engine_xoshiro256starstar.c",
+                        "ext/random/gammasection.c",
+                        "ext/random/random.c",
+                        "ext/random/randomizer.c",
+                        "ext/random/zend_utils.c",
+                        "ext/spl/php_spl.c",
+                        "ext/spl/spl_array.c",
+                        "ext/spl/spl_dllist.c",
+                        "ext/spl/spl_exceptions.c",
+                        "ext/spl/spl_fixedarray.c",
+                        "ext/spl/spl_functions.c",
+                        "ext/spl/spl_heap.c",
+                        "ext/spl/spl_iterators.c",
+                        "ext/spl/spl_observer.c",
+                        "main/spprintf.c",
+                        "main/snprintf.c",
+                        "main/network.c",
+                        "main/strlcpy.c",
+                        "main/strlcat.c",
+                        "main/explicit_bzero.c",
+                        "main/fopen_wrappers.c",
+                        "main/php_ini.c",
+                        "main/php_glob.c",
+                        "main/php_open_temporary_file.c",
+                        "main/reentrancy.c",
+                        "main/php_scandir.c",
+                        "main/safe_bcmp.c",
+                        "main/output.c",
+                        "main/streams/cast.c",
+                        "main/streams/filter.c",
+                        "main/streams/glob_wrapper.c",
+                        "main/streams/memory.c",
+                        "main/streams/mmap.c",
+                        "main/streams/plain_wrapper.c",
+                        "main/streams/stream_errors.c",
+                        "main/streams/streams.c",
+                        "main/streams/transports.c",
+                        "main/streams/xp_socket.c",
+                        "ext/standard/http_fopen_wrapper.c",
+                        "ext/standard/ftp_fopen_wrapper.c",
+                        "ext/lexbor/php_lexbor.c",
+                        "ext/lexbor/lexbor/core/array.c",
+                        "ext/lexbor/lexbor/core/array_obj.c",
+                        "ext/lexbor/lexbor/core/avl.c",
+                        "ext/lexbor/lexbor/core/bst.c",
+                        "ext/lexbor/lexbor/core/bst_map.c",
+                        "ext/lexbor/lexbor/core/conv.c",
+                        "ext/lexbor/lexbor/core/diyfp.c",
+                        "ext/lexbor/lexbor/core/dobject.c",
+                        "ext/lexbor/lexbor/core/dtoa.c",
+                        "ext/lexbor/lexbor/core/hash.c",
+                        "ext/lexbor/lexbor/core/in.c",
+                        "ext/lexbor/lexbor/core/mem.c",
+                        "ext/lexbor/lexbor/core/mraw.c",
+                        "ext/lexbor/lexbor/core/plog.c",
+                        "ext/lexbor/lexbor/core/print.c",
+                        "ext/lexbor/lexbor/core/serialize.c",
+                        "ext/lexbor/lexbor/core/shs.c",
+                        "ext/lexbor/lexbor/core/str.c",
+                        "ext/lexbor/lexbor/core/strtod.c",
+                        "ext/lexbor/lexbor/core/utils.c",
+                        "ext/lexbor/lexbor/encoding/decode.c",
+                        "ext/lexbor/lexbor/encoding/encode.c",
+                        "ext/lexbor/lexbor/encoding/encoding.c",
+                        "ext/lexbor/lexbor/encoding/multi.c",
+                        "ext/lexbor/lexbor/encoding/range.c",
+                        "ext/lexbor/lexbor/encoding/res.c",
+                        "ext/lexbor/lexbor/encoding/single.c",
+                        "ext/lexbor/lexbor/ports/posix/lexbor/core/memory.c",
+                        "ext/lexbor/lexbor/punycode/punycode.c",
+                        "ext/lexbor/lexbor/unicode/idna.c",
+                        "ext/lexbor/lexbor/unicode/unicode.c",
+                        "ext/lexbor/lexbor/url/url.c",
+                        "ext/uri/php_uri.c",
+                        "ext/uri/php_uri_common.c",
+                        "ext/uri/uri_parser_php_parse_url.c",
+                        "ext/uri/uri_parser_rfc3986.c",
+                        "ext/uri/uri_parser_whatwg.c",
+                        "ext/uri/uriparser/src/UriCommon.c",
+                        "ext/uri/uriparser/src/UriCompare.c",
+                        "ext/uri/uriparser/src/UriCopy.c",
+                        "ext/uri/uriparser/src/UriEscape.c",
+                        "ext/uri/uriparser/src/UriFile.c",
+                        "ext/uri/uriparser/src/UriIp4.c",
+                        "ext/uri/uriparser/src/UriIp4Base.c",
+                        "ext/uri/uriparser/src/UriMemory.c",
+                        "ext/uri/uriparser/src/UriNormalize.c",
+                        "ext/uri/uriparser/src/UriNormalizeBase.c",
+                        "ext/uri/uriparser/src/UriParse.c",
+                        "ext/uri/uriparser/src/UriParseBase.c",
+                        "ext/uri/uriparser/src/UriQuery.c",
+                        "ext/uri/uriparser/src/UriRecompose.c",
+                        "ext/uri/uriparser/src/UriResolve.c",
+                        "ext/uri/uriparser/src/UriSetFragment.c",
+                        "ext/uri/uriparser/src/UriSetHostAuto.c",
+                        "ext/uri/uriparser/src/UriSetHostCommon.c",
+                        "ext/uri/uriparser/src/UriSetHostIp4.c",
+                        "ext/uri/uriparser/src/UriSetHostIp6.c",
+                        "ext/uri/uriparser/src/UriSetHostIpFuture.c",
+                        "ext/uri/uriparser/src/UriSetHostRegName.c",
+                        "ext/uri/uriparser/src/UriSetPath.c",
+                        "ext/uri/uriparser/src/UriSetPort.c",
+                        "ext/uri/uriparser/src/UriSetQuery.c",
+                        "ext/uri/uriparser/src/UriSetScheme.c",
+                        "ext/uri/uriparser/src/UriSetUserInfo.c",
+                        "ext/uri/uriparser/src/UriShorten.c",
+                        "ext/uri/uriparser/src/UriVersion.c",
+                        "src/network_fallback.c",
+                        "ext/curl/interface.c",
+                        "ext/curl/multi.c",
+                        "ext/curl/share.c",
+                        "ext/curl/curl_file.c",
+                        "ext/openssl/openssl.c",
+                        "ext/openssl/openssl_pwhash.c",
+                        "ext/openssl/openssl_backend_common.c",
+                        "ext/openssl/openssl_backend_v1.c",
+                        "ext/openssl/openssl_backend_v3.c",
+                        "ext/openssl/xp_ssl.c",
+                        "src/bcmath.c",
+                        "src/core.cpp",
+                        "src/extension.cpp",
+                        "src/random.cpp",
+                        "src/time.cpp"
+                    ],
+                    "targets": [
+                        "linux",
+                        "macos",
+                        "windows",
+                        "ios",
+                        "android",
+                        "wasip2"
+                    ],
+                    "platforms": {
+                        "windows": {
+                            "defines": [
+                                "PCRE2_STATIC=1",
+                                "NOMINMAX=1"
+                            ],
+                            "sources": [
+                                "TSRM/tsrm_win32.c",
+                                "Zend/zend_cpuinfo.c",
+                                "ext/standard/flock_compat.c",
+                                "win32/codepage.c",
+                                "win32/console.c",
+                                "win32/fnmatch.c",
+                                "win32/getrusage.c",
+                                "win32/globals.c",
+                                "win32/ioutil.c",
+                                "win32/nice.c",
+                                "win32/readdir.c",
+                                "win32/registry.c",
+                                "win32/time.c",
+                                "win32/winutil.c"
+                            ]
+                        }
+                    },
+                    "c-standard": 11,
+                    "components": {
+                        "spl": {
+                            "sources": [
+                                "ext/spl/php_spl.c",
+                                "ext/spl/spl_array.c",
+                                "ext/spl/spl_dllist.c",
+                                "ext/spl/spl_exceptions.c",
+                                "ext/spl/spl_fixedarray.c",
+                                "ext/spl/spl_functions.c",
+                                "ext/spl/spl_heap.c",
+                                "ext/spl/spl_iterators.c",
+                                "ext/spl/spl_observer.c"
+                            ],
+                            "requires": [
+                                "json",
+                                "pcre",
+                                "standard.var"
+                            ],
+                            "extension": "spl",
+                            "module-entry": "spl_module_entry"
+                        },
+                        "uri": {
+                            "defines": [
+                                "PHP_NANO_URI=1",
+                                "URI_STATIC_BUILD=1",
+                                "URI_ENABLE_ANSI=1",
+                                "URI_NO_UNICODE=1"
+                            ],
+                            "sources": [
+                                "ext/uri/php_uri.c",
+                                "ext/uri/php_uri_common.c",
+                                "ext/uri/uri_parser_php_parse_url.c",
+                                "ext/uri/uri_parser_rfc3986.c",
+                                "ext/uri/uri_parser_whatwg.c",
+                                "ext/uri/uriparser/src/UriCommon.c",
+                                "ext/uri/uriparser/src/UriCompare.c",
+                                "ext/uri/uriparser/src/UriCopy.c",
+                                "ext/uri/uriparser/src/UriEscape.c",
+                                "ext/uri/uriparser/src/UriFile.c",
+                                "ext/uri/uriparser/src/UriIp4.c",
+                                "ext/uri/uriparser/src/UriIp4Base.c",
+                                "ext/uri/uriparser/src/UriMemory.c",
+                                "ext/uri/uriparser/src/UriNormalize.c",
+                                "ext/uri/uriparser/src/UriNormalizeBase.c",
+                                "ext/uri/uriparser/src/UriParse.c",
+                                "ext/uri/uriparser/src/UriParseBase.c",
+                                "ext/uri/uriparser/src/UriQuery.c",
+                                "ext/uri/uriparser/src/UriRecompose.c",
+                                "ext/uri/uriparser/src/UriResolve.c",
+                                "ext/uri/uriparser/src/UriSetFragment.c",
+                                "ext/uri/uriparser/src/UriSetHostAuto.c",
+                                "ext/uri/uriparser/src/UriSetHostCommon.c",
+                                "ext/uri/uriparser/src/UriSetHostIp4.c",
+                                "ext/uri/uriparser/src/UriSetHostIp6.c",
+                                "ext/uri/uriparser/src/UriSetHostIpFuture.c",
+                                "ext/uri/uriparser/src/UriSetHostRegName.c",
+                                "ext/uri/uriparser/src/UriSetPath.c",
+                                "ext/uri/uriparser/src/UriSetPort.c",
+                                "ext/uri/uriparser/src/UriSetQuery.c",
+                                "ext/uri/uriparser/src/UriSetScheme.c",
+                                "ext/uri/uriparser/src/UriSetUserInfo.c",
+                                "ext/uri/uriparser/src/UriShorten.c",
+                                "ext/uri/uriparser/src/UriVersion.c"
+                            ],
+                            "requires": [
+                                "lexbor.url",
+                                "standard.core",
+                                "standard.encoding"
+                            ],
+                            "extension": "uri",
+                            "module-entry": "uri_module_entry"
+                        },
+                        "curl": {
+                            "defines": [
+                                "HAVE_CURL=1",
+                                "CURL_STATICLIB=1"
+                            ],
+                            "sources": [
+                                "ext/curl/interface.c",
+                                "ext/curl/multi.c",
+                                "ext/curl/share.c",
+                                "ext/curl/curl_file.c"
+                            ],
+                            "requires": [
+                                "standard.info",
+                                "standard.filesystem",
+                                "random"
+                            ],
+                            "extension": "curl",
+                            "module-entry": "curl_module_entry"
+                        },
+                        "date": {
+                            "sources": [
+                                "ext/date/php_date.c",
+                                "ext/date/php_time.c",
+                                "ext/date/time_duration.c",
+                                "ext/date/lib/astro.c",
+                                "ext/date/lib/dow.c",
+                                "ext/date/lib/duration.c",
+                                "ext/date/lib/parse_date.c",
+                                "ext/date/lib/parse_tz.c",
+                                "ext/date/lib/parse_posix.c",
+                                "ext/date/lib/timelib.c",
+                                "ext/date/lib/tm2unixtime.c",
+                                "ext/date/lib/unixtime2tm.c",
+                                "ext/date/lib/parse_iso_intervals.c",
+                                "ext/date/lib/interval.c"
+                            ],
+                            "extension": "date",
+                            "module-entry": "date_module_entry"
+                        },
+                        "hash": {
+                            "sources": [
+                                "ext/hash/hash.c",
+                                "ext/hash/hash_adler32.c",
+                                "ext/hash/hash_crc32.c",
+                                "ext/hash/hash_fnv.c",
+                                "ext/hash/hash_gost.c",
+                                "ext/hash/hash_haval.c",
+                                "ext/hash/hash_joaat.c",
+                                "ext/hash/hash_md.c",
+                                "ext/hash/hash_murmur.c",
+                                "ext/hash/hash_ripemd.c",
+                                "ext/hash/hash_sha.c",
+                                "ext/hash/hash_sha3.c",
+                                "ext/hash/hash_snefru.c",
+                                "ext/hash/hash_tiger.c",
+                                "ext/hash/hash_whirlpool.c",
+                                "ext/hash/hash_xxhash.c",
+                                "ext/hash/murmur/PMurHash.c",
+                                "ext/hash/murmur/PMurHash128.c"
+                            ],
+                            "extension": "hash",
+                            "module-entry": "hash_module_entry"
+                        },
+                        "json": {
+                            "sources": [
+                                "ext/json/json.c",
+                                "ext/json/json_encoder.c",
+                                "ext/json/json_parser.tab.c",
+                                "ext/json/json_scanner.c"
+                            ],
+                            "extension": "json",
+                            "module-entry": "json_module_entry"
+                        },
+                        "pcre": {
+                            "sources": [
+                                "ext/pcre/php_pcre.c",
+                                "ext/pcre/pcre2lib/pcre2_auto_possess.c",
+                                "ext/pcre/pcre2lib/pcre2_chartables.c",
+                                "ext/pcre/pcre2lib/pcre2_chkdint.c",
+                                "ext/pcre/pcre2lib/pcre2_compile.c",
+                                "ext/pcre/pcre2lib/pcre2_config.c",
+                                "ext/pcre/pcre2lib/pcre2_context.c",
+                                "ext/pcre/pcre2lib/pcre2_convert.c",
+                                "ext/pcre/pcre2lib/pcre2_dfa_match.c",
+                                "ext/pcre/pcre2lib/pcre2_error.c",
+                                "ext/pcre/pcre2lib/pcre2_extuni.c",
+                                "ext/pcre/pcre2lib/pcre2_find_bracket.c",
+                                "ext/pcre/pcre2lib/pcre2_jit_compile.c",
+                                "ext/pcre/pcre2lib/pcre2_maketables.c",
+                                "ext/pcre/pcre2lib/pcre2_match_data.c",
+                                "ext/pcre/pcre2lib/pcre2_match.c",
+                                "ext/pcre/pcre2lib/pcre2_newline.c",
+                                "ext/pcre/pcre2lib/pcre2_ord2utf.c",
+                                "ext/pcre/pcre2lib/pcre2_pattern_info.c",
+                                "ext/pcre/pcre2lib/pcre2_script_run.c",
+                                "ext/pcre/pcre2lib/pcre2_serialize.c",
+                                "ext/pcre/pcre2lib/pcre2_string_utils.c",
+                                "ext/pcre/pcre2lib/pcre2_study.c",
+                                "ext/pcre/pcre2lib/pcre2_substitute.c",
+                                "ext/pcre/pcre2lib/pcre2_substring.c",
+                                "ext/pcre/pcre2lib/pcre2_tables.c",
+                                "ext/pcre/pcre2lib/pcre2_ucd.c",
+                                "ext/pcre/pcre2lib/pcre2_valid_utf.c",
+                                "ext/pcre/pcre2lib/pcre2_xclass.c"
+                            ],
+                            "extension": "pcre",
+                            "module-entry": "pcre_module_entry"
+                        },
+                        "filter": {
+                            "sources": [
+                                "ext/filter/callback_filter.c",
+                                "ext/filter/filter.c",
+                                "ext/filter/logical_filters.c",
+                                "ext/filter/sanitizing_filters.c"
+                            ],
+                            "extension": "filter",
+                            "module-entry": "filter_module_entry"
+                        },
+                        "random": {
+                            "sources": [
+                                "ext/random/csprng.c",
+                                "ext/random/engine_mt19937.c",
+                                "ext/random/engine_pcgoneseq128xslrr64.c",
+                                "ext/random/engine_secure.c",
+                                "ext/random/engine_user.c",
+                                "ext/random/engine_xoshiro256starstar.c",
+                                "ext/random/gammasection.c",
+                                "ext/random/random.c",
+                                "ext/random/randomizer.c",
+                                "ext/random/zend_utils.c"
+                            ],
+                            "extension": "random",
+                            "module-entry": "random_module_entry"
+                        },
+                        "openssl": {
+                            "defines": [
+                                "HAVE_OPENSSL_EXT=1",
+                                "HAVE_TLS12=1",
+                                "HAVE_TLS13=1",
+                                "HAVE_TLS_ALPN=1",
+                                "HAVE_TLS_SNI=1"
+                            ],
+                            "sources": [
+                                "ext/openssl/openssl.c",
+                                "ext/openssl/openssl_pwhash.c",
+                                "ext/openssl/openssl_backend_common.c",
+                                "ext/openssl/openssl_backend_v1.c",
+                                "ext/openssl/openssl_backend_v3.c",
+                                "ext/openssl/xp_ssl.c"
+                            ],
+                            "requires": [
+                                "uri",
+                                "standard.url-stream",
+                                "standard.info",
+                                "standard.hash"
+                            ],
+                            "extension": "openssl",
+                            "module-entry": "openssl_module_entry"
+                        },
+                        "lexbor.url": {
+                            "defines": [
+                                "HAVE_LEXBOR=1"
+                            ],
+                            "sources": [
+                                "ext/lexbor/php_lexbor.c",
+                                "ext/lexbor/lexbor/core/array.c",
+                                "ext/lexbor/lexbor/core/array_obj.c",
+                                "ext/lexbor/lexbor/core/avl.c",
+                                "ext/lexbor/lexbor/core/bst.c",
+                                "ext/lexbor/lexbor/core/bst_map.c",
+                                "ext/lexbor/lexbor/core/conv.c",
+                                "ext/lexbor/lexbor/core/diyfp.c",
+                                "ext/lexbor/lexbor/core/dobject.c",
+                                "ext/lexbor/lexbor/core/dtoa.c",
+                                "ext/lexbor/lexbor/core/hash.c",
+                                "ext/lexbor/lexbor/core/in.c",
+                                "ext/lexbor/lexbor/core/mem.c",
+                                "ext/lexbor/lexbor/core/mraw.c",
+                                "ext/lexbor/lexbor/core/plog.c",
+                                "ext/lexbor/lexbor/core/print.c",
+                                "ext/lexbor/lexbor/core/serialize.c",
+                                "ext/lexbor/lexbor/core/shs.c",
+                                "ext/lexbor/lexbor/core/str.c",
+                                "ext/lexbor/lexbor/core/strtod.c",
+                                "ext/lexbor/lexbor/core/utils.c",
+                                "ext/lexbor/lexbor/encoding/decode.c",
+                                "ext/lexbor/lexbor/encoding/encode.c",
+                                "ext/lexbor/lexbor/encoding/encoding.c",
+                                "ext/lexbor/lexbor/encoding/multi.c",
+                                "ext/lexbor/lexbor/encoding/range.c",
+                                "ext/lexbor/lexbor/encoding/res.c",
+                                "ext/lexbor/lexbor/encoding/single.c",
+                                "ext/lexbor/lexbor/ports/posix/lexbor/core/memory.c",
+                                "ext/lexbor/lexbor/punycode/punycode.c",
+                                "ext/lexbor/lexbor/unicode/idna.c",
+                                "ext/lexbor/lexbor/unicode/unicode.c",
+                                "ext/lexbor/lexbor/url/url.c"
+                            ],
+                            "extension": "lexbor",
+                            "module-entry": "lexbor_module_entry"
+                        },
+                        "reflection": {
+                            "sources": [
+                                "ext/reflection/php_reflection.c"
+                            ],
+                            "extension": "reflection",
+                            "module-entry": "reflection_module_entry"
+                        },
+                        "standard.var": {
+                            "defines": [
+                                "PHP_NANO_STANDARD_VAR=1"
+                            ],
+                            "sources": [
+                                "ext/standard/incomplete_class.c",
+                                "ext/standard/var.c",
+                                "ext/standard/var_unserializer.c"
+                            ],
+                            "requires": [
+                                "standard.core"
+                            ],
+                            "extension": "standard",
+                            "module-entry": "basic_functions_module"
+                        },
+                        "standard.core": {
+                            "defines": [
+                                "PHP_NANO_STANDARD_CORE=1"
+                            ],
+                            "sources": [
+                                "ext/standard/basic_functions.c"
+                            ],
+                            "extension": "standard",
+                            "module-entry": "basic_functions_module"
+                        },
+                        "standard.hash": {
+                            "defines": [
+                                "PHP_NANO_STANDARD_HASH=1"
+                            ],
+                            "sources": [
+                                "ext/standard/md5.c",
+                                "ext/standard/sha1.c"
+                            ],
+                            "requires": [
+                                "standard.core",
+                                "standard.filesystem"
+                            ],
+                            "extension": "standard",
+                            "module-entry": "basic_functions_module"
+                        },
+                        "standard.info": {
+                            "defines": [
+                                "PHP_NANO_STANDARD_INFO=1"
+                            ],
+                            "sources": [
+                                "ext/standard/credits.c",
+                                "ext/standard/css.c",
+                                "ext/standard/info.c"
+                            ],
+                            "requires": [
+                                "standard.core"
+                            ],
+                            "extension": "standard",
+                            "module-entry": "basic_functions_module"
+                        },
+                        "standard.math": {
+                            "defines": [
+                                "PHP_NANO_STANDARD_MATH=1"
+                            ],
+                            "sources": [
+                                "ext/standard/math.c"
+                            ],
+                            "requires": [
+                                "standard.core"
+                            ],
+                            "extension": "standard",
+                            "module-entry": "basic_functions_module"
+                        },
+                        "standard.misc": {
+                            "defines": [
+                                "PHP_NANO_STANDARD_MISC=1"
+                            ],
+                            "sources": [
+                                "ext/standard/versioning.c"
+                            ],
+                            "requires": [
+                                "standard.core",
+                                "random"
+                            ],
+                            "extension": "standard",
+                            "module-entry": "basic_functions_module"
+                        },
+                        "standard.type": {
+                            "defines": [
+                                "PHP_NANO_STANDARD_TYPE=1"
+                            ],
+                            "sources": [
+                                "ext/standard/type.c"
+                            ],
+                            "requires": [
+                                "standard.core"
+                            ],
+                            "extension": "standard",
+                            "module-entry": "basic_functions_module"
+                        },
+                        "standard.array": {
+                            "defines": [
+                                "PHP_NANO_STANDARD_ARRAY=1"
+                            ],
+                            "requires": [
+                                "standard.core",
+                                "standard.string-api",
+                                "standard.math-api",
+                                "standard.type-api",
+                                "random"
+                            ],
+                            "extension": "standard",
+                            "module-entry": "basic_functions_module"
+                        },
+                        "standard.format": {
+                            "defines": [
+                                "PHP_NANO_STANDARD_FORMAT=1"
+                            ],
+                            "sources": [
+                                "ext/standard/formatted_print.c"
+                            ],
+                            "requires": [
+                                "standard.core"
+                            ],
+                            "extension": "standard",
+                            "module-entry": "basic_functions_module"
+                        },
+                        "standard.string": {
+                            "defines": [
+                                "PHP_NANO_STANDARD_STRING=1"
+                            ],
+                            "sources": [
+                                "ext/standard/strnatcmp.c"
+                            ],
+                            "requires": [
+                                "standard.core",
+                                "random"
+                            ],
+                            "extension": "standard",
+                            "module-entry": "basic_functions_module"
+                        },
+                        "standard.encoding": {
+                            "defines": [
+                                "PHP_NANO_STANDARD_ENCODING=1"
+                            ],
+                            "sources": [
+                                "ext/standard/base64.c"
+                            ],
+                            "requires": [
+                                "standard.core"
+                            ],
+                            "extension": "standard",
+                            "module-entry": "basic_functions_module"
+                        },
+                        "standard.math-api": {
+                            "sources": [
+                                "ext/standard/math.c"
+                            ],
+                            "extension": "standard"
+                        },
+                        "standard.type-api": {
+                            "sources": [
+                                "ext/standard/type.c"
+                            ],
+                            "extension": "standard"
+                        },
+                        "standard.filesystem": {
+                            "defines": [
+                                "PHP_NANO_STANDARD_FILESYSTEM=1"
+                            ],
+                            "sources": [
+                                "ext/standard/dir.c",
+                                "ext/standard/filestat.c",
+                                "ext/standard/streamsfuncs.c"
+                            ],
+                            "requires": [
+                                "standard.core",
+                                "random"
+                            ],
+                            "extension": "standard",
+                            "module-entry": "basic_functions_module"
+                        },
+                        "standard.string-api": {
+                            "sources": [
+                                "ext/standard/strnatcmp.c"
+                            ],
+                            "extension": "standard"
+                        },
+                        "standard.url-stream": {
+                            "defines": [
+                                "PHP_NANO_STREAM_TRANSPORT=1"
+                            ],
+                            "sources": [
+                                "main/network.c",
+                                "main/streams/xp_socket.c",
+                                "ext/standard/http_fopen_wrapper.c",
+                                "ext/standard/ftp_fopen_wrapper.c"
+                            ],
+                            "requires": [
+                                "standard.core",
+                                "standard.filesystem",
+                                "uri"
+                            ],
+                            "extension": "network"
+                        }
+                    },
+                    "cxx-standard": 17,
+                    "include-dirs": [
+                        ".",
+                        "Zend",
+                        "include",
+                        "main",
+                        "TSRM",
+                        "ext/date/lib",
+                        "ext/pcre/pcre2lib",
+                        "ext/lexbor",
+                        "ext/uri/uriparser/include",
+                        "ext/curl",
+                        "ext/openssl"
+                    ],
+                    "standalone-test-exclude-components": [
+                        "standard.url-stream",
+                        "curl",
+                        "openssl"
+                    ]
+                }
+            },
+            "license": [
+                "BSD-3-Clause"
+            ],
+            "description": "Minimal PHP-compatible native runtime sources for TypePHP",
+            "support": {
+                "issues": "https://github.com/swoole/php-nano/issues",
+                "source": "https://github.com/swoole/php-nano/tree/v1.1.0"
+            },
+            "time": "2026-09-29T10:12:39+00:00"
+        }
+    ],
+    "packages-dev": [
+        {
+            "name": "ajaxray/ansikit",
+            "version": "v0.3.1",
+            "dist": {
+                "type": "zip",
+                "url": "https://mirrors.cloud.tencent.com/repository/composer/ajaxray/ansikit/v0.3.1/ajaxray-ansikit-v0.3.1.zip",
+                "reference": "b318313e879a248bf0fe77c792a3a03f232484f0",
+                "shasum": ""
+            },
+            "require": {
+                "php": ">=8.2"
+            },
+            "require-dev": {
+                "phpunit/phpunit": "^11.0"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "Ajaxray\\AnsiKit\\": "src/"
+                }
+            },
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Anis Uddin Ahmad",
+                    "email": "anis.programmer@gmail.com"
+                }
+            ],
+            "description": "Tiny ANSI escape helper for terminal UIs (text styles, foreground & background colors, cursor positions, clearing) with table, progressbar, and more helpers.",
+            "support": {
+                "issues": "https://github.com/ajaxray/AnsiKit/issues",
+                "source": "https://github.com/ajaxray/AnsiKit/tree/v0.3.1"
+            },
+            "time": "2025-09-22T13:57:26+00:00"
+        },
+        {
+            "name": "brianium/paratest",
+            "version": "v7.26.1",
+            "dist": {
+                "type": "zip",
+                "url": "https://mirrors.cloud.tencent.com/repository/composer/brianium/paratest/v7.26.1/brianium-paratest-v7.26.1.zip",
+                "reference": "4660303009de20706b71d2df487bb89fb4d8a4c2",
+                "shasum": ""
+            },
+            "require": {
+                "ext-dom": "*",
+                "ext-pcre": "*",
+                "ext-reflection": "*",
+                "ext-simplexml": "*",
+                "fidry/cpu-core-counter": "^1.4.1",
+                "jean85/pretty-package-versions": "^2.1.1",
+                "php": "~8.4.0 || ~8.5.0 || ~8.6.0",
+                "phpunit/php-code-coverage": "^14.4.1",
+                "phpunit/php-file-iterator": "^7.0.2",
+                "phpunit/php-timer": "^9",
+                "phpunit/phpunit": "^13.4.1",
+                "sebastian/environment": "^9.3.3",
+                "symfony/console": "^7.4.20 || ^8.1.8",
+                "symfony/process": "^7.4.19 || ^8.1.7"
+            },
+            "require-dev": {
+                "doctrine/coding-standard": "^14.0.0",
+                "ext-pcntl": "*",
+                "ext-pcov": "*",
+                "ext-posix": "*",
+                "phpstan/phpstan": "^2.3.1",
+                "phpstan/phpstan-deprecation-rules": "^2.0.5",
+                "phpstan/phpstan-phpunit": "^2.1.1",
+                "phpstan/phpstan-strict-rules": "^2.1.0",
+                "symfony/filesystem": "^7.4.18 || ^8.1.6"
+            },
+            "bin": [
+                "bin/paratest",
+                "bin/paratest_for_phpstorm"
+            ],
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "ParaTest\\": [
+                        "src/"
+                    ]
+                }
+            },
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Brian Scaturro",
+                    "email": "scaturrob@gmail.com",
+                    "role": "Developer"
+                },
+                {
+                    "name": "Filippo Tessarotto",
+                    "email": "zoeslam@gmail.com",
+                    "role": "Developer"
+                }
+            ],
+            "description": "Parallel testing for PHP",
+            "homepage": "https://github.com/paratestphp/paratest",
+            "keywords": [
+                "concurrent",
+                "parallel",
+                "phpunit",
+                "testing"
+            ],
+            "support": {
+                "issues": "https://github.com/paratestphp/paratest/issues",
+                "source": "https://github.com/paratestphp/paratest/tree/v7.26.1"
+            },
+            "time": "2026-10-10T20:10:31+00:00"
+        },
+        {
+            "name": "doctrine/deprecations",
+            "version": "1.1.6",
+            "dist": {
+                "type": "zip",
+                "url": "https://mirrors.cloud.tencent.com/repository/composer/doctrine/deprecations/1.1.6/doctrine-deprecations-1.1.6.zip",
+                "reference": "d4fe3e6fd9bb9e72557a19674f44d8ac7db4c6ca",
+                "shasum": ""
+            },
+            "require": {
+                "php": "^7.1 || ^8.0"
+            },
+            "conflict": {
+                "phpunit/phpunit": "<=7.5 || >=14"
+            },
+            "require-dev": {
+                "doctrine/coding-standard": "^9 || ^12 || ^14",
+                "phpstan/phpstan": "1.4.10 || 2.1.30",
+                "phpstan/phpstan-phpunit": "^1.0 || ^2",
+                "phpunit/phpunit": "^7.5 || ^8.5 || ^9.6 || ^10.5 || ^11.5 || ^12.4 || ^13.0",
+                "psr/log": "^1 || ^2 || ^3"
+            },
+            "suggest": {
+                "psr/log": "Allows logging deprecations via PSR-3 logger implementation"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "Doctrine\\Deprecations\\": "src"
+                }
+            },
+            "license": [
+                "MIT"
+            ],
+            "description": "A small layer on top of trigger_error(E_USER_DEPRECATED) or PSR-3 logging with options to disable all deprecations or selectively for packages.",
+            "homepage": "https://www.doctrine-project.org/",
+            "support": {
+                "issues": "https://github.com/doctrine/deprecations/issues",
+                "source": "https://github.com/doctrine/deprecations/tree/1.1.6"
+            },
+            "time": "2026-02-07T07:09:04+00:00"
+        },
+        {
+            "name": "fidry/cpu-core-counter",
+            "version": "1.4.1",
+            "dist": {
+                "type": "zip",
+                "url": "https://mirrors.cloud.tencent.com/repository/composer/fidry/cpu-core-counter/1.4.1/fidry-cpu-core-counter-1.4.1.zip",
+                "reference": "d384a7d0d6e67aa497327260ca95023e92dc2032",
+                "shasum": ""
+            },
+            "require": {
+                "php": "^7.2 || ^8.0"
+            },
+            "require-dev": {
+                "fidry/makefile": "^0.2.0 || ^1.1.2",
+                "fidry/php-cs-fixer-config": "^1.1.2",
+                "phpstan/extension-installer": "^1.2.0",
+                "phpstan/phpstan": "^2.0",
+                "phpstan/phpstan-deprecation-rules": "^2.0.0",
+                "phpstan/phpstan-phpunit": "^2.0",
+                "phpstan/phpstan-strict-rules": "^2.0",
+                "phpunit/phpunit": "^8.5.31 || ^9.5.26",
+                "symfony/polyfill-mbstring": "^1.33",
+                "webmozarts/strict-phpunit": "^7.5"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "Fidry\\CpuCoreCounter\\": "src/"
+                }
+            },
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Théo FIDRY",
+                    "email": "theo.fidry@gmail.com"
+                }
+            ],
+            "description": "Tiny utility to get the number of CPU cores.",
+            "keywords": [
+                "CPU",
+                "core"
+            ],
+            "support": {
+                "issues": "https://github.com/theofidry/cpu-core-counter/issues",
+                "source": "https://github.com/theofidry/cpu-core-counter/tree/1.4.1"
+            },
+            "time": "2026-09-29T22:11:39+00:00"
+        },
+        {
+            "name": "filp/whoops",
+            "version": "2.18.6",
+            "dist": {
+                "type": "zip",
+                "url": "https://mirrors.cloud.tencent.com/repository/composer/filp/whoops/2.18.6/filp-whoops-2.18.6.zip",
+                "reference": "7d0a2cde892089bb09372f4366e9b960eb3001a9",
+                "shasum": ""
+            },
+            "require": {
+                "php": "^7.1 || ^8.0",
+                "psr/log": "^1.0.1 || ^2.0 || ^3.0"
+            },
+            "require-dev": {
+                "mockery/mockery": "^1.0",
+                "phpunit/phpunit": "^7.5.20 || ^8.5.8 || ^9.3.3 || ^10.5.58",
+                "symfony/var-dumper": "^4.0 || ^5.0 || ^6.0 || ^7.0 || ^8.0"
+            },
+            "suggest": {
+                "symfony/var-dumper": "Pretty print complex values better with var-dumper available",
+                "whoops/soap": "Formats errors as SOAP responses"
+            },
+            "type": "library",
+            "extra": {
+                "branch-alias": {
+                    "dev-master": "2.7-dev"
+                }
+            },
+            "autoload": {
+                "psr-4": {
+                    "Whoops\\": "src/Whoops/"
+                }
+            },
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Filipe Dobreira",
+                    "homepage": "https://github.com/filp",
+                    "role": "Developer"
+                }
+            ],
+            "description": "php error handling for cool kids",
+            "homepage": "https://filp.github.io/whoops/",
+            "keywords": [
+                "error",
+                "exception",
+                "handling",
+                "library",
+                "throwable",
+                "whoops"
+            ],
+            "support": {
+                "issues": "https://github.com/filp/whoops/issues",
+                "source": "https://github.com/filp/whoops/tree/2.18.6"
+            },
+            "time": "2026-10-03T17:03:57+00:00"
+        },
+        {
+            "name": "jean85/pretty-package-versions",
+            "version": "2.1.1",
+            "dist": {
+                "type": "zip",
+                "url": "https://mirrors.cloud.tencent.com/repository/composer/jean85/pretty-package-versions/2.1.1/jean85-pretty-package-versions-2.1.1.zip",
+                "reference": "4d7aa5dab42e2a76d99559706022885de0e18e1a",
+                "shasum": ""
+            },
+            "require": {
+                "composer-runtime-api": "^2.1.0",
+                "php": "^7.4|^8.0"
+            },
+            "require-dev": {
+                "friendsofphp/php-cs-fixer": "^3.2",
+                "jean85/composer-provided-replaced-stub-package": "^1.0",
+                "phpstan/phpstan": "^2.0",
+                "phpunit/phpunit": "^7.5|^8.5|^9.6",
+                "rector/rector": "^2.0",
+                "vimeo/psalm": "^4.3 || ^5.0"
+            },
+            "type": "library",
+            "extra": {
+                "branch-alias": {
+                    "dev-master": "1.x-dev"
+                }
+            },
+            "autoload": {
+                "psr-4": {
+                    "Jean85\\": "src/"
+                }
+            },
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Alessandro Lai",
+                    "email": "alessandro.lai85@gmail.com"
+                }
+            ],
+            "description": "A library to get pretty versions strings of installed dependencies",
+            "keywords": [
+                "composer",
+                "package",
+                "release",
+                "versions"
+            ],
+            "support": {
+                "issues": "https://github.com/Jean85/pretty-package-versions/issues",
+                "source": "https://github.com/Jean85/pretty-package-versions/tree/2.1.1"
+            },
+            "time": "2025-03-19T14:43:43+00:00"
+        },
+        {
+            "name": "league/climate",
+            "version": "3.12.0",
+            "dist": {
+                "type": "zip",
+                "url": "https://mirrors.cloud.tencent.com/repository/composer/league/climate/3.12.0/league-climate-3.12.0.zip",
+                "reference": "653297fb93b4702f3c02ca9dd662f123208f765c",
+                "shasum": ""
+            },
+            "require": {
+                "php": "^7.3 || ^8.0",
+                "psr/log": "^1.0 || ^2.0 || ^3.0",
+                "seld/cli-prompt": "^1.0"
+            },
+            "require-dev": {
+                "mikey179/vfsstream": "^1.6.12",
+                "mockery/mockery": "^1.6.12",
+                "phpunit/phpunit": "^9.6.21",
+                "squizlabs/php_codesniffer": "^4.0"
+            },
+            "suggest": {
+                "ext-mbstring": "If ext-mbstring is not available you MUST install symfony/polyfill-mbstring"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "League\\CLImate\\": "src/"
+                }
+            },
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Joe Tannenbaum",
+                    "email": "hey@joe.codes",
+                    "homepage": "http://joe.codes/",
+                    "role": "Developer"
+                },
+                {
+                    "name": "Craig Duncan",
+                    "email": "git@duncanc.co.uk",
+                    "homepage": "https://github.com/duncan3dc",
+                    "role": "Developer"
+                }
+            ],
+            "description": "PHP's best friend for the terminal. CLImate allows you to easily output colored text, special formats, and more.",
+            "keywords": [
+                "cli",
+                "colors",
+                "command",
+                "php",
+                "terminal"
+            ],
+            "support": {
+                "issues": "https://github.com/thephpleague/climate/issues",
+                "source": "https://github.com/thephpleague/climate/tree/3.12.0"
+            },
+            "time": "2026-08-27T08:24:22+00:00"
+        },
+        {
+            "name": "marcj/topsort",
+            "version": "2.0.0",
+            "dist": {
+                "type": "zip",
+                "url": "https://mirrors.cloud.tencent.com/repository/composer/marcj/topsort/2.0.0/marcj-topsort-2.0.0.zip",
+                "reference": "972f58e42b5f110a0a1d8433247f65248abcfd5c",
+                "shasum": ""
+            },
+            "require": {
+                "php": ">=7.3"
+            },
+            "require-dev": {
+                "codeclimate/php-test-reporter": "dev-master",
+                "phpunit/phpunit": "^9",
+                "symfony/console": "~2.5 || ~3.0 || ~4.0"
+            },
+            "type": "library",
+            "extra": {
+                "branch-alias": {
+                    "dev-master": "2.x-dev"
+                }
+            },
+            "autoload": {
+                "psr-4": {
+                    "MJS\\TopSort\\": "src/",
+                    "MJS\\TopSort\\Tests\\": "tests/Tests/"
+                }
+            },
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Marc J. Schmidt",
+                    "email": "marc@marcjschmidt.de"
+                }
+            ],
+            "description": "High-Performance TopSort/Dependency resolving algorithm",
+            "keywords": [
+                "dependency resolving",
+                "topological sort",
+                "topsort"
+            ],
+            "support": {
+                "issues": "https://github.com/marcj/topsort.php/issues",
+                "source": "https://github.com/marcj/topsort.php/tree/2.0.0"
+            },
+            "time": "2020-09-24T12:39:55+00:00"
+        },
+        {
+            "name": "myclabs/deep-copy",
+            "version": "1.14.0",
+            "dist": {
+                "type": "zip",
+                "url": "https://mirrors.cloud.tencent.com/repository/composer/myclabs/deep-copy/1.14.0/myclabs-deep-copy-1.14.0.zip",
+                "reference": "8680aa248f8e07bc8fb43f56f0f5fc77a0c96aae",
+                "shasum": ""
+            },
+            "require": {
+                "php": "^8.0"
+            },
+            "conflict": {
+                "doctrine/collections": "<1.6.8",
+                "doctrine/common": "<2.13.3 || >=3 <3.2.2"
+            },
+            "require-dev": {
+                "doctrine/collections": "^1.6.8",
+                "doctrine/common": "^2.13.3 || ^3.2.2",
+                "phpspec/prophecy": "^1.10",
+                "phpunit/phpunit": "^7.5.20 || ^8.5.23 || ^9.5.13"
+            },
+            "type": "library",
+            "autoload": {
+                "files": [
+                    "src/DeepCopy/deep_copy.php"
+                ],
+                "psr-4": {
+                    "DeepCopy\\": "src/DeepCopy/"
+                }
+            },
+            "license": [
+                "MIT"
+            ],
+            "description": "Create deep copies (clones) of your objects",
+            "keywords": [
+                "clone",
+                "copy",
+                "duplicate",
+                "object",
+                "object graph"
+            ],
+            "support": {
+                "issues": "https://github.com/myclabs/DeepCopy/issues",
+                "source": "https://github.com/myclabs/DeepCopy/tree/1.14.0"
+            },
+            "time": "2026-08-11T10:17:44+00:00"
+        },
+        {
+            "name": "nikic/php-parser",
+            "version": "v5.9.0",
+            "dist": {
+                "type": "zip",
+                "url": "https://mirrors.cloud.tencent.com/repository/composer/nikic/php-parser/v5.9.0/nikic-php-parser-v5.9.0.zip",
+                "reference": "9e33da9553fe7786f0962b35f4e4ecf01be89def",
+                "shasum": ""
+            },
+            "require": {
+                "ext-json": "*",
+                "ext-tokenizer": "*",
+                "php": ">=7.4"
+            },
+            "require-dev": {
+                "ircmaxell/php-yacc": "^0.0.7",
+                "phpunit/phpunit": "^9.0"
+            },
+            "bin": [
+                "bin/php-parse"
+            ],
+            "type": "library",
+            "extra": {
+                "branch-alias": {
+                    "dev-master": "5.x-dev"
+                }
+            },
+            "autoload": {
+                "psr-4": {
+                    "PhpParser\\": "lib/PhpParser"
+                }
+            },
+            "license": [
+                "BSD-3-Clause"
+            ],
+            "authors": [
+                {
+                    "name": "Nikita Popov"
+                }
+            ],
+            "description": "A PHP parser written in PHP",
+            "keywords": [
+                "parser",
+                "php"
+            ],
+            "support": {
+                "issues": "https://github.com/nikic/PHP-Parser/issues",
+                "source": "https://github.com/nikic/PHP-Parser/tree/v5.9.0"
+            },
+            "time": "2026-09-13T18:51:52+00:00"
+        },
+        {
+            "name": "nunomaduro/collision",
+            "version": "v8.9.5",
+            "dist": {
+                "type": "zip",
+                "url": "https://mirrors.cloud.tencent.com/repository/composer/nunomaduro/collision/v8.9.5/nunomaduro-collision-v8.9.5.zip",
+                "reference": "fb53eacd509a1d303858e2d20cfebf2d630254ec",
+                "shasum": ""
+            },
+            "require": {
+                "filp/whoops": "^2.18.4",
+                "nunomaduro/termwind": "^2.4.0",
+                "php": "^8.2.0",
+                "symfony/console": "^7.4.14 || ^8.1.1"
+            },
+            "conflict": {
+                "laravel/framework": "<11.48.0 || >=14.0.0",
+                "phpunit/phpunit": "<11.5.50 || >=14.0.0"
+            },
+            "require-dev": {
+                "brianium/paratest": "^7.8.5",
+                "larastan/larastan": "^3.10.0",
+                "laravel/framework": "^11.48.0 || ^12.56.0 || ^13.20.0",
+                "laravel/pint": "^1.29.3",
+                "orchestra/testbench-core": "^9.12.0 || ^10.12.1 || ^11.3.5",
+                "pestphp/pest": "^3.8.5 || ^4.7.5 || ^5.0.0",
+                "sebastian/environment": "^7.2.1 || ^8.1.2 || ^9.3.2"
+            },
+            "type": "library",
+            "extra": {
+                "laravel": {
+                    "providers": [
+                        "NunoMaduro\\Collision\\Adapters\\Laravel\\CollisionServiceProvider"
+                    ]
+                },
+                "branch-alias": {
+                    "dev-8.x": "8.x-dev"
+                }
+            },
+            "autoload": {
+                "files": [
+                    "./src/Adapters/Phpunit/Autoload.php"
+                ],
+                "psr-4": {
+                    "NunoMaduro\\Collision\\": "src/"
+                }
+            },
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Nuno Maduro",
+                    "email": "enunomaduro@gmail.com"
+                }
+            ],
+            "description": "Cli error handling for console/command-line PHP applications.",
+            "keywords": [
+                "artisan",
+                "cli",
+                "command-line",
+                "console",
+                "dev",
+                "error",
+                "handling",
+                "laravel",
+                "laravel-zero",
+                "php",
+                "symfony"
+            ],
+            "support": {
+                "issues": "https://github.com/nunomaduro/collision/issues",
+                "source": "https://github.com/nunomaduro/collision"
+            },
+            "time": "2026-07-15T19:09:14+00:00"
+        },
+        {
+            "name": "nunomaduro/termwind",
+            "version": "v2.4.0",
+            "dist": {
+                "type": "zip",
+                "url": "https://mirrors.cloud.tencent.com/repository/composer/nunomaduro/termwind/v2.4.0/nunomaduro-termwind-v2.4.0.zip",
+                "reference": "712a31b768f5daea284c2169a7d227031001b9a8",
+                "shasum": ""
+            },
+            "require": {
+                "ext-mbstring": "*",
+                "php": "^8.2",
+                "symfony/console": "^7.4.4 || ^8.0.4"
+            },
+            "require-dev": {
+                "illuminate/console": "^11.47.0",
+                "laravel/pint": "^1.27.1",
+                "mockery/mockery": "^1.6.12",
+                "pestphp/pest": "^2.36.0 || ^3.8.4 || ^4.3.2",
+                "phpstan/phpstan": "^1.12.32",
+                "phpstan/phpstan-strict-rules": "^1.6.2",
+                "symfony/var-dumper": "^7.3.5 || ^8.0.4",
+                "thecodingmachine/phpstan-strict-rules": "^1.0.0"
+            },
+            "type": "library",
+            "extra": {
+                "laravel": {
+                    "providers": [
+                        "Termwind\\Laravel\\TermwindServiceProvider"
+                    ]
+                },
+                "branch-alias": {
+                    "dev-2.x": "2.x-dev"
+                }
+            },
+            "autoload": {
+                "files": [
+                    "src/Functions.php"
+                ],
+                "psr-4": {
+                    "Termwind\\": "src/"
+                }
+            },
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Nuno Maduro",
+                    "email": "enunomaduro@gmail.com"
+                }
+            ],
+            "description": "It's like Tailwind CSS, but for the console.",
+            "keywords": [
+                "cli",
+                "console",
+                "css",
+                "package",
+                "php",
+                "style"
+            ],
+            "support": {
+                "issues": "https://github.com/nunomaduro/termwind/issues",
+                "source": "https://github.com/nunomaduro/termwind/tree/v2.4.0"
+            },
+            "time": "2026-02-16T23:10:27+00:00"
+        },
+        {
+            "name": "pestphp/pest",
+            "version": "v5.3.1",
+            "dist": {
+                "type": "zip",
+                "url": "https://mirrors.cloud.tencent.com/repository/composer/pestphp/pest/v5.3.1/pestphp-pest-v5.3.1.zip",
+                "reference": "83baa5de2f64967d48326ab93594e45d300bd105",
+                "shasum": ""
+            },
+            "require": {
+                "brianium/paratest": "^7.26.0",
+                "nunomaduro/collision": "^8.9.5",
+                "nunomaduro/termwind": "^2.4.0",
+                "pestphp/pest-plugin": "^5.0.0",
+                "pestphp/pest-plugin-arch": "^5.0.0",
+                "pestphp/pest-plugin-mutate": "^5.0.2",
+                "pestphp/pest-plugin-profanity": "^5.0.1",
+                "php": "^8.4",
+                "phpunit/phpunit": "^13.4.1",
+                "symfony/process": "^8.1.7"
+            },
+            "conflict": {
+                "filp/whoops": "<2.18.3",
+                "laravel/boost": "<2.6.0",
+                "phpunit/phpunit": ">13.4.1",
+                "sebastian/exporter": "<7.0.0",
+                "webmozart/assert": "<1.11.0"
+            },
+            "require-dev": {
+                "pestphp/pest-dev-tools": "^5.0.0",
+                "pestphp/pest-plugin-browser": "^5.1.2",
+                "pestphp/pest-plugin-phpstan": "^5.2.2",
+                "pestphp/pest-plugin-rector": "^5.0.5",
+                "pestphp/pest-plugin-type-coverage": "^5.0.3",
+                "psy/psysh": "^0.12.24"
+            },
+            "bin": [
+                "bin/pest"
+            ],
+            "type": "library",
+            "extra": {
+                "pest": {
+                    "plugins": [
+                        "Pest\\Mutate\\Plugins\\Mutate",
+                        "Pest\\Plugins\\Configuration",
+                        "Pest\\Plugins\\Bail",
+                        "Pest\\Plugins\\Cache",
+                        "Pest\\Plugins\\Coverage",
+                        "Pest\\Plugins\\Init",
+                        "Pest\\Plugins\\Environment",
+                        "Pest\\Plugins\\Help",
+                        "Pest\\Plugins\\Memory",
+                        "Pest\\Plugins\\Only",
+                        "Pest\\Plugins\\Printer",
+                        "Pest\\Plugins\\ProcessIsolation",
+                        "Pest\\Plugins\\Profile",
+                        "Pest\\Plugins\\Retry",
+                        "Pest\\Plugins\\Snapshot",
+                        "Pest\\Plugins\\Verbose",
+                        "Pest\\Plugins\\Version",
+                        "Pest\\Plugins\\Shard",
+                        "Pest\\Plugins\\Tia",
+                        "Pest\\Plugins\\Parallel"
+                    ]
+                },
+                "phpstan": {
+                    "includes": [
+                        "extension.neon"
+                    ]
+                }
+            },
+            "autoload": {
+                "files": [
+                    "src/Functions.php",
+                    "src/Pest.php"
+                ],
+                "psr-4": {
+                    "Pest\\": "src/"
+                }
+            },
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Nuno Maduro",
+                    "email": "enunomaduro@gmail.com"
+                }
+            ],
+            "description": "The elegant PHP Testing Framework.",
+            "keywords": [
+                "framework",
+                "pest",
+                "php",
+                "test",
+                "testing",
+                "unit"
+            ],
+            "support": {
+                "issues": "https://github.com/pestphp/pest/issues",
+                "source": "https://github.com/pestphp/pest/tree/v5.3.1"
+            },
+            "time": "2026-10-07T20:11:43+00:00"
+        },
+        {
+            "name": "pestphp/pest-plugin",
+            "version": "v5.0.0",
+            "dist": {
+                "type": "zip",
+                "url": "https://mirrors.cloud.tencent.com/repository/composer/pestphp/pest-plugin/v5.0.0/pestphp-pest-plugin-v5.0.0.zip",
+                "reference": "87283f41aafa2561b7618be53eab00f2d06f4140",
+                "shasum": ""
+            },
+            "require": {
+                "composer-plugin-api": "^2.0.0",
+                "composer-runtime-api": "^2.2.2",
+                "php": "^8.4"
+            },
+            "conflict": {
+                "pestphp/pest": "<5.0.0"
+            },
+            "require-dev": {
+                "composer/composer": "^2.10.2",
+                "pestphp/pest": "^5.0.0",
+                "pestphp/pest-dev-tools": "^5.0.0"
+            },
+            "type": "composer-plugin",
+            "extra": {
+                "class": "Pest\\Plugin\\Manager"
+            },
+            "autoload": {
+                "psr-4": {
+                    "Pest\\Plugin\\": "src/"
+                }
+            },
+            "license": [
+                "MIT"
+            ],
+            "description": "The Pest plugin manager",
+            "keywords": [
+                "framework",
+                "manager",
+                "pest",
+                "php",
+                "plugin",
+                "test",
+                "testing",
+                "unit"
+            ],
+            "support": {
+                "source": "https://github.com/pestphp/pest-plugin/tree/v5.0.0"
+            },
+            "time": "2026-07-18T17:10:45+00:00"
+        },
+        {
+            "name": "pestphp/pest-plugin-arch",
+            "version": "v5.0.0",
+            "dist": {
+                "type": "zip",
+                "url": "https://mirrors.cloud.tencent.com/repository/composer/pestphp/pest-plugin-arch/v5.0.0/pestphp-pest-plugin-arch-v5.0.0.zip",
+                "reference": "244465d5dc9ea9fb5ac5c9badb7eb47d1594e4c1",
+                "shasum": ""
+            },
+            "require": {
+                "pestphp/pest-plugin": "^5.0.0",
+                "php": "^8.4",
+                "ta-tikoma/phpunit-architecture-test": "^0.8.7"
+            },
+            "conflict": {
+                "pestphp/pest": "<5.0.0"
+            },
+            "require-dev": {
+                "pestphp/pest": "^5.0.0",
+                "pestphp/pest-dev-tools": "^5.0.0"
+            },
+            "type": "library",
+            "extra": {
+                "pest": {
+                    "plugins": [
+                        "Pest\\Arch\\Plugin"
+                    ]
+                }
+            },
+            "autoload": {
+                "files": [
+                    "src/Autoload.php"
+                ],
+                "psr-4": {
+                    "Pest\\Arch\\": "src/"
+                }
+            },
+            "license": [
+                "MIT"
+            ],
+            "description": "The Arch plugin for Pest PHP.",
+            "keywords": [
+                "arch",
+                "architecture",
+                "framework",
+                "pest",
+                "php",
+                "plugin",
+                "test",
+                "testing",
+                "unit"
+            ],
+            "support": {
+                "source": "https://github.com/pestphp/pest-plugin-arch/tree/v5.0.0"
+            },
+            "time": "2026-07-21T07:48:55+00:00"
+        },
+        {
+            "name": "pestphp/pest-plugin-mutate",
+            "version": "v5.0.2",
+            "dist": {
+                "type": "zip",
+                "url": "https://mirrors.cloud.tencent.com/repository/composer/pestphp/pest-plugin-mutate/v5.0.2/pestphp-pest-plugin-mutate-v5.0.2.zip",
+                "reference": "d0c87110416b699413cc073b8dcc92e440d81931",
+                "shasum": ""
+            },
+            "require": {
+                "nikic/php-parser": "^5.8.0",
+                "pestphp/pest-plugin": "^5.0.0",
+                "php": "^8.4",
+                "phpunit/php-code-coverage": "^14.3.0",
+                "psr/simple-cache": "^3.0.0"
+            },
+            "conflict": {
+                "pestphp/pest": "<5.0.0"
+            },
+            "require-dev": {
+                "pestphp/pest": "^5.0.4",
+                "pestphp/pest-dev-tools": "^5.0.0",
+                "pestphp/pest-plugin-type-coverage": "^5.0.2"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "Pest\\Mutate\\": "src/"
+                }
+            },
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Nuno Maduro",
+                    "email": "enunomaduro@gmail.com"
+                },
+                {
+                    "name": "Sandro Gehri",
+                    "email": "sandrogehri@gmail.com"
+                }
+            ],
+            "description": "Mutates your code to find untested cases",
+            "keywords": [
+                "framework",
+                "mutate",
+                "mutation",
+                "pest",
+                "php",
+                "plugin",
+                "test",
+                "testing",
+                "unit"
+            ],
+            "support": {
+                "source": "https://github.com/pestphp/pest-plugin-mutate/tree/v5.0.2"
+            },
+            "time": "2026-08-10T11:01:27+00:00"
+        },
+        {
+            "name": "pestphp/pest-plugin-profanity",
+            "version": "v5.0.1",
+            "dist": {
+                "type": "zip",
+                "url": "https://mirrors.cloud.tencent.com/repository/composer/pestphp/pest-plugin-profanity/v5.0.1/pestphp-pest-plugin-profanity-v5.0.1.zip",
+                "reference": "2b5fc73ce561b835ba5bf9596c97a84333af2eb8",
+                "shasum": ""
+            },
+            "require": {
+                "pestphp/pest-plugin": "^5.0.0",
+                "php": "^8.4"
+            },
+            "conflict": {
+                "pestphp/pest": "<5.0.0",
+                "phpunit/phpunit": "<13.4.1"
+            },
+            "require-dev": {
+                "faissaloux/pest-plugin-inside": "^1.11",
+                "pestphp/pest": "^5.0.0",
+                "pestphp/pest-dev-tools": "^5.0.0"
+            },
+            "type": "library",
+            "extra": {
+                "pest": {
+                    "plugins": [
+                        "Pest\\Profanity\\Plugin"
+                    ]
+                }
+            },
+            "autoload": {
+                "psr-4": {
+                    "Pest\\Profanity\\": "src/"
+                }
+            },
+            "license": [
+                "MIT"
+            ],
+            "description": "The Pest Profanity Plugin",
+            "keywords": [
+                "framework",
+                "pest",
+                "php",
+                "plugin",
+                "profanity",
+                "test",
+                "testing",
+                "unit"
+            ],
+            "support": {
+                "source": "https://github.com/pestphp/pest-plugin-profanity/tree/v5.0.1"
+            },
+            "time": "2026-10-07T19:41:52+00:00"
+        },
+        {
+            "name": "phar-io/manifest",
+            "version": "2.0.4",
+            "dist": {
+                "type": "zip",
+                "url": "https://mirrors.cloud.tencent.com/repository/composer/phar-io/manifest/2.0.4/phar-io-manifest-2.0.4.zip",
+                "reference": "54750ef60c58e43759730615a392c31c80e23176",
+                "shasum": ""
+            },
+            "require": {
+                "ext-dom": "*",
+                "ext-libxml": "*",
+                "ext-phar": "*",
+                "ext-xmlwriter": "*",
+                "phar-io/version": "^3.0.1",
+                "php": "^7.2 || ^8.0"
+            },
+            "type": "library",
+            "extra": {
+                "branch-alias": {
+                    "dev-master": "2.0.x-dev"
+                }
+            },
+            "autoload": {
+                "classmap": [
+                    "src/"
+                ]
+            },
+            "license": [
+                "BSD-3-Clause"
+            ],
+            "authors": [
+                {
+                    "name": "Arne Blankerts",
+                    "email": "arne@blankerts.de",
+                    "role": "Developer"
+                },
+                {
+                    "name": "Sebastian Heuer",
+                    "email": "sebastian@phpeople.de",
+                    "role": "Developer"
+                },
+                {
+                    "name": "Sebastian Bergmann",
+                    "email": "sebastian@phpunit.de",
+                    "role": "Developer"
+                }
+            ],
+            "description": "Component for reading phar.io manifest information from a PHP Archive (PHAR)",
+            "support": {
+                "issues": "https://github.com/phar-io/manifest/issues",
+                "source": "https://github.com/phar-io/manifest/tree/2.0.4"
+            },
+            "time": "2024-03-03T12:33:53+00:00"
+        },
+        {
+            "name": "phar-io/version",
+            "version": "3.2.1",
+            "dist": {
+                "type": "zip",
+                "url": "https://mirrors.cloud.tencent.com/repository/composer/phar-io/version/3.2.1/phar-io-version-3.2.1.zip",
+                "reference": "4f7fd7836c6f332bb2933569e566a0d6c4cbed74",
+                "shasum": ""
+            },
+            "require": {
+                "php": "^7.2 || ^8.0"
+            },
+            "type": "library",
+            "autoload": {
+                "classmap": [
+                    "src/"
+                ]
+            },
+            "license": [
+                "BSD-3-Clause"
+            ],
+            "authors": [
+                {
+                    "name": "Arne Blankerts",
+                    "email": "arne@blankerts.de",
+                    "role": "Developer"
+                },
+                {
+                    "name": "Sebastian Heuer",
+                    "email": "sebastian@phpeople.de",
+                    "role": "Developer"
+                },
+                {
+                    "name": "Sebastian Bergmann",
+                    "email": "sebastian@phpunit.de",
+                    "role": "Developer"
+                }
+            ],
+            "description": "Library for handling version information and constraints",
+            "support": {
+                "issues": "https://github.com/phar-io/version/issues",
+                "source": "https://github.com/phar-io/version/tree/3.2.1"
+            },
+            "time": "2022-02-21T01:04:05+00:00"
+        },
+        {
+            "name": "phpdocumentor/reflection-common",
+            "version": "2.2.1",
+            "dist": {
+                "type": "zip",
+                "url": "https://mirrors.cloud.tencent.com/repository/composer/phpdocumentor/reflection-common/2.2.1/phpdocumentor-reflection-common-2.2.1.zip",
+                "reference": "ee15a5a2022c8383906b225055e9496a6a5e6e3b",
+                "shasum": ""
+            },
+            "require": {
+                "php": "^7.4 || ^8.0"
+            },
+            "require-dev": {
+                "phpstan/phpstan": "^1.8",
+                "phpunit/phpunit": "^9.5",
+                "vimeo/psalm": "^4.25"
+            },
+            "type": "library",
+            "extra": {
+                "branch-alias": {
+                    "dev-2.x": "2.x-dev"
+                }
+            },
+            "autoload": {
+                "psr-4": {
+                    "phpDocumentor\\Reflection\\": "src/"
+                }
+            },
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Jaap van Otterdijk",
+                    "email": "opensource@ijaap.nl"
+                }
+            ],
+            "description": "Common reflection classes used by phpdocumentor to reflect the code structure",
+            "homepage": "https://www.phpdoc.org",
+            "keywords": [
+                "FQSEN",
+                "phpDocumentor",
+                "phpdoc",
+                "reflection",
+                "static analysis"
+            ],
+            "support": {
+                "issues": "https://github.com/phpDocumentor/ReflectionCommon/issues",
+                "source": "https://github.com/phpDocumentor/ReflectionCommon/tree/2.2.1"
+            },
+            "time": "2025-11-10T21:21:55+00:00"
+        },
+        {
+            "name": "phpdocumentor/reflection-docblock",
+            "version": "6.0.3",
+            "dist": {
+                "type": "zip",
+                "url": "https://mirrors.cloud.tencent.com/repository/composer/phpdocumentor/reflection-docblock/6.0.3/phpdocumentor-reflection-docblock-6.0.3.zip",
+                "reference": "7bae67520aa9f5ecc506d646810bd40d9da54582",
+                "shasum": ""
+            },
+            "require": {
+                "doctrine/deprecations": "^1.1",
+                "ext-filter": "*",
+                "php": "^7.4 || ^8.0",
+                "phpdocumentor/reflection-common": "^2.2",
+                "phpdocumentor/type-resolver": "^2.0",
+                "phpstan/phpdoc-parser": "^2.0",
+                "webmozart/assert": "^1.9.1 || ^2"
+            },
+            "require-dev": {
+                "mockery/mockery": "~1.3.5 || ~1.6.0",
+                "phpstan/extension-installer": "^1.1",
+                "phpstan/phpstan": "^1.8",
+                "phpstan/phpstan-mockery": "^1.1",
+                "phpstan/phpstan-webmozart-assert": "^1.2",
+                "phpunit/phpunit": "^9.5",
+                "psalm/phar": "^5.26",
+                "shipmonk/dead-code-detector": "^0.5.1"
+            },
+            "type": "library",
+            "extra": {
+                "branch-alias": {
+                    "dev-master": "5.x-dev"
+                }
+            },
+            "autoload": {
+                "psr-4": {
+                    "phpDocumentor\\Reflection\\": "src"
+                }
+            },
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Mike van Riel",
+                    "email": "me@mikevanriel.com"
+                },
+                {
+                    "name": "Jaap van Otterdijk",
+                    "email": "opensource@ijaap.nl"
+                }
+            ],
+            "description": "With this component, a library can provide support for annotations via DocBlocks or otherwise retrieve information that is embedded in a DocBlock.",
+            "support": {
+                "issues": "https://github.com/phpDocumentor/ReflectionDocBlock/issues",
+                "source": "https://github.com/phpDocumentor/ReflectionDocBlock/tree/6.0.3"
+            },
+            "time": "2026-03-18T20:49:53+00:00"
+        },
+        {
+            "name": "phpdocumentor/type-resolver",
+            "version": "2.1.0",
+            "dist": {
+                "type": "zip",
+                "url": "https://mirrors.cloud.tencent.com/repository/composer/phpdocumentor/type-resolver/2.1.0/phpdocumentor-type-resolver-2.1.0.zip",
+                "reference": "dbe2133bb23e2e33a6834f4ed417f24a1b167769",
+                "shasum": ""
+            },
+            "require": {
+                "doctrine/deprecations": "^1.0",
+                "php": "^7.4 || ^8.0",
+                "phpdocumentor/reflection-common": "^2.0",
+                "phpstan/phpdoc-parser": "^2.0"
+            },
+            "require-dev": {
+                "ext-tokenizer": "*",
+                "phpbench/phpbench": "^1.2",
+                "phpstan/extension-installer": "^1.4",
+                "phpstan/phpstan": "^2.1",
+                "phpstan/phpstan-phpunit": "^2.0",
+                "phpunit/phpunit": "^9.5",
+                "psalm/phar": "^4"
+            },
+            "type": "library",
+            "extra": {
+                "branch-alias": {
+                    "dev-1.x": "1.x-dev",
+                    "dev-2.x": "2.x-dev"
+                }
+            },
+            "autoload": {
+                "psr-4": {
+                    "phpDocumentor\\Reflection\\": "src"
+                }
+            },
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Mike van Riel",
+                    "email": "me@mikevanriel.com"
+                }
+            ],
+            "description": "A PSR-5 based resolver of Class names, Types and Structural Element Names",
+            "support": {
+                "issues": "https://github.com/phpDocumentor/TypeResolver/issues",
+                "source": "https://github.com/phpDocumentor/TypeResolver/tree/2.1.0"
+            },
+            "time": "2026-09-27T19:32:54+00:00"
+        },
+        {
+            "name": "phpstan/phpdoc-parser",
+            "version": "2.3.6",
+            "dist": {
+                "type": "zip",
+                "url": "https://mirrors.cloud.tencent.com/repository/composer/phpstan/phpdoc-parser/2.3.6/phpstan-phpdoc-parser-2.3.6.zip",
+                "reference": "1427af4647235b4a73b13940b1f1258d3584f36e",
+                "shasum": ""
+            },
+            "require": {
+                "php": "^7.4 || ^8.0"
+            },
+            "require-dev": {
+                "doctrine/annotations": "^2.0",
+                "nikic/php-parser": "^5.3.0",
+                "php-parallel-lint/php-parallel-lint": "^1.2",
+                "phpstan/extension-installer": "^1.0",
+                "phpstan/phpstan": "^2.0",
+                "phpstan/phpstan-phpunit": "^2.0",
+                "phpstan/phpstan-strict-rules": "^2.0",
+                "phpunit/phpunit": "^9.6",
+                "symfony/process": "^5.2"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "PHPStan\\PhpDocParser\\": [
+                        "src/"
+                    ]
+                }
+            },
+            "license": [
+                "MIT"
+            ],
+            "description": "PHPDoc parser with support for nullable, intersection and generic types",
+            "support": {
+                "issues": "https://github.com/phpstan/phpdoc-parser/issues",
+                "source": "https://github.com/phpstan/phpdoc-parser/tree/2.3.6"
+            },
+            "time": "2026-09-27T20:07:45+00:00"
+        },
+        {
+            "name": "phpunit/php-code-coverage",
+            "version": "14.4.1",
+            "dist": {
+                "type": "zip",
+                "url": "https://mirrors.cloud.tencent.com/repository/composer/phpunit/php-code-coverage/14.4.1/phpunit-php-code-coverage-14.4.1.zip",
+                "reference": "f1e54f06b6b4cea73cd6104ba3c0cfa0efa6d73f",
+                "shasum": ""
+            },
+            "require": {
+                "ext-dom": "*",
+                "ext-libxml": "*",
+                "ext-mbstring": "*",
+                "ext-xmlwriter": "*",
+                "nikic/php-parser": "^5.9.0",
+                "php": ">=8.4",
+                "phpunit/php-text-template": "^6.0.1",
+                "sebastian/complexity": "^6.0",
+                "sebastian/environment": "^9.3.3",
+                "sebastian/git-state": "^1.0",
+                "sebastian/lines-of-code": "^5.0.2",
+                "sebastian/version": "^7.0",
+                "theseer/tokenizer": "^2.0.1"
+            },
+            "require-dev": {
+                "phpunit/phpunit": "^13.3.6"
+            },
+            "suggest": {
+                "ext-pcov": "PHP extension that provides line coverage",
+                "ext-xdebug": "PHP extension that provides line coverage as well as branch and path coverage"
+            },
+            "type": "library",
+            "extra": {
+                "branch-alias": {
+                    "dev-main": "14.4.x-dev"
+                }
+            },
+            "autoload": {
+                "classmap": [
+                    "src/"
+                ]
+            },
+            "license": [
+                "BSD-3-Clause"
+            ],
+            "authors": [
+                {
+                    "name": "Sebastian Bergmann",
+                    "email": "sebastian@phpunit.de",
+                    "role": "lead"
+                }
+            ],
+            "description": "Library that provides collection, processing, and rendering functionality for PHP code coverage information.",
+            "homepage": "https://github.com/sebastianbergmann/php-code-coverage",
+            "keywords": [
+                "coverage",
+                "testing",
+                "xunit"
+            ],
+            "support": {
+                "issues": "https://github.com/sebastianbergmann/php-code-coverage/issues",
+                "security": "https://github.com/sebastianbergmann/php-code-coverage/security/policy",
+                "source": "https://github.com/sebastianbergmann/php-code-coverage/tree/14.4.1"
+            },
+            "time": "2026-10-03T14:05:38+00:00"
+        },
+        {
+            "name": "phpunit/php-file-iterator",
+            "version": "7.0.2",
+            "dist": {
+                "type": "zip",
+                "url": "https://mirrors.cloud.tencent.com/repository/composer/phpunit/php-file-iterator/7.0.2/phpunit-php-file-iterator-7.0.2.zip",
+                "reference": "9bb4e6c58b62c1e043be995c66abec7c97307aae",
+                "shasum": ""
+            },
+            "require": {
+                "php": ">=8.4"
+            },
+            "require-dev": {
+                "phpunit/phpunit": "^13.3.1"
+            },
+            "type": "library",
+            "extra": {
+                "branch-alias": {
+                    "dev-main": "7.0-dev"
+                }
+            },
+            "autoload": {
+                "classmap": [
+                    "src/"
+                ]
+            },
+            "license": [
+                "BSD-3-Clause"
+            ],
+            "authors": [
+                {
+                    "name": "Sebastian Bergmann",
+                    "email": "sebastian@phpunit.de",
+                    "role": "lead"
+                }
+            ],
+            "description": "FilterIterator implementation that filters files based on a list of suffixes.",
+            "homepage": "https://github.com/sebastianbergmann/php-file-iterator/",
+            "keywords": [
+                "filesystem",
+                "iterator"
+            ],
+            "support": {
+                "issues": "https://github.com/sebastianbergmann/php-file-iterator/issues",
+                "security": "https://github.com/sebastianbergmann/php-file-iterator/security/policy",
+                "source": "https://github.com/sebastianbergmann/php-file-iterator/tree/7.0.2"
+            },
+            "time": "2026-08-25T14:47:43+00:00"
+        },
+        {
+            "name": "phpunit/php-invoker",
+            "version": "7.0.0",
+            "dist": {
+                "type": "zip",
+                "url": "https://mirrors.cloud.tencent.com/repository/composer/phpunit/php-invoker/7.0.0/phpunit-php-invoker-7.0.0.zip",
+                "reference": "42e5c5cae0c65df12d1b1a3ab52bf3f50f244d88",
+                "shasum": ""
+            },
+            "require": {
+                "php": ">=8.4"
+            },
+            "require-dev": {
+                "ext-pcntl": "*",
+                "phpunit/phpunit": "^13.0"
+            },
+            "suggest": {
+                "ext-pcntl": "*"
+            },
+            "type": "library",
+            "extra": {
+                "branch-alias": {
+                    "dev-main": "7.0-dev"
+                }
+            },
+            "autoload": {
+                "classmap": [
+                    "src/"
+                ]
+            },
+            "license": [
+                "BSD-3-Clause"
+            ],
+            "authors": [
+                {
+                    "name": "Sebastian Bergmann",
+                    "email": "sebastian@phpunit.de",
+                    "role": "lead"
+                }
+            ],
+            "description": "Invoke callables with a timeout",
+            "homepage": "https://github.com/sebastianbergmann/php-invoker/",
+            "keywords": [
+                "process"
+            ],
+            "support": {
+                "issues": "https://github.com/sebastianbergmann/php-invoker/issues",
+                "security": "https://github.com/sebastianbergmann/php-invoker/security/policy",
+                "source": "https://github.com/sebastianbergmann/php-invoker/tree/7.0.0"
+            },
+            "time": "2026-02-06T04:34:47+00:00"
+        },
+        {
+            "name": "phpunit/php-text-template",
+            "version": "6.0.1",
+            "dist": {
+                "type": "zip",
+                "url": "https://mirrors.cloud.tencent.com/repository/composer/phpunit/php-text-template/6.0.1/phpunit-php-text-template-6.0.1.zip",
+                "reference": "97107691cb2b6c743b5e0c44be19e983cb337a02",
+                "shasum": ""
+            },
+            "require": {
+                "php": ">=8.4"
+            },
+            "require-dev": {
+                "phpunit/phpunit": "^13.3.6"
+            },
+            "type": "library",
+            "extra": {
+                "branch-alias": {
+                    "dev-main": "6.0-dev"
+                }
+            },
+            "autoload": {
+                "classmap": [
+                    "src/"
+                ]
+            },
+            "license": [
+                "BSD-3-Clause"
+            ],
+            "authors": [
+                {
+                    "name": "Sebastian Bergmann",
+                    "email": "sebastian@phpunit.de",
+                    "role": "lead"
+                }
+            ],
+            "description": "Simple template engine.",
+            "homepage": "https://github.com/sebastianbergmann/php-text-template/",
+            "keywords": [
+                "template"
+            ],
+            "support": {
+                "issues": "https://github.com/sebastianbergmann/php-text-template/issues",
+                "security": "https://github.com/sebastianbergmann/php-text-template/security/policy",
+                "source": "https://github.com/sebastianbergmann/php-text-template/tree/6.0.1"
+            },
+            "time": "2026-10-03T04:54:24+00:00"
+        },
+        {
+            "name": "phpunit/php-timer",
+            "version": "9.0.0",
+            "dist": {
+                "type": "zip",
+                "url": "https://mirrors.cloud.tencent.com/repository/composer/phpunit/php-timer/9.0.0/phpunit-php-timer-9.0.0.zip",
+                "reference": "a0e12065831f6ab0d83120dc61513eb8d9a966f6",
+                "shasum": ""
+            },
+            "require": {
+                "php": ">=8.4"
+            },
+            "require-dev": {
+                "phpunit/phpunit": "^13.0"
+            },
+            "type": "library",
+            "extra": {
+                "branch-alias": {
+                    "dev-main": "9.0-dev"
+                }
+            },
+            "autoload": {
+                "classmap": [
+                    "src/"
+                ]
+            },
+            "license": [
+                "BSD-3-Clause"
+            ],
+            "authors": [
+                {
+                    "name": "Sebastian Bergmann",
+                    "email": "sebastian@phpunit.de",
+                    "role": "lead"
+                }
+            ],
+            "description": "Utility class for timing",
+            "homepage": "https://github.com/sebastianbergmann/php-timer/",
+            "keywords": [
+                "timer"
+            ],
+            "support": {
+                "issues": "https://github.com/sebastianbergmann/php-timer/issues",
+                "security": "https://github.com/sebastianbergmann/php-timer/security/policy",
+                "source": "https://github.com/sebastianbergmann/php-timer/tree/9.0.0"
+            },
+            "time": "2026-02-06T04:37:53+00:00"
+        },
+        {
+            "name": "phpunit/phpunit",
+            "version": "13.4.1",
+            "dist": {
+                "type": "zip",
+                "url": "https://mirrors.cloud.tencent.com/repository/composer/phpunit/phpunit/13.4.1/phpunit-phpunit-13.4.1.zip",
+                "reference": "ccde40327c501eebff192614b0dcf11806418901",
+                "shasum": ""
+            },
+            "require": {
+                "ext-dom": "*",
+                "ext-filter": "*",
+                "ext-json": "*",
+                "ext-libxml": "*",
+                "ext-mbstring": "*",
+                "ext-xmlwriter": "*",
+                "myclabs/deep-copy": "^1.14.0",
+                "phar-io/manifest": "^2.0.4",
+                "phar-io/version": "^3.2.1",
+                "php": ">=8.4.1",
+                "phpunit/php-code-coverage": "^14.4.1",
+                "phpunit/php-file-iterator": "^7.0.2",
+                "phpunit/php-invoker": "^7.0.0",
+                "phpunit/php-text-template": "^6.0.1",
+                "phpunit/php-timer": "^9.0.0",
+                "sebastian/cli-parser": "^5.0.1",
+                "sebastian/comparator": "^8.4",
+                "sebastian/diff": "^9.0.1",
+                "sebastian/environment": "^9.3.3",
+                "sebastian/exporter": "^8.2.1",
+                "sebastian/file-filter": "^1.0",
+                "sebastian/git-state": "^1.0",
+                "sebastian/global-state": "^9.0.1",
+                "sebastian/object-enumerator": "^8.1.0",
+                "sebastian/recursion-context": "^8.0.1",
+                "sebastian/type": "^7.0.2",
+                "sebastian/version": "^7.0.1",
+                "staabm/side-effects-detector": "^1.0.5"
+            },
+            "bin": [
+                "phpunit"
+            ],
+            "type": "library",
+            "extra": {
+                "branch-alias": {
+                    "dev-main": "13.4-dev"
+                }
+            },
+            "autoload": {
+                "files": [
+                    "src/Framework/Assert/Functions.php"
+                ],
+                "classmap": [
+                    "src/"
+                ]
+            },
+            "license": [
+                "BSD-3-Clause"
+            ],
+            "authors": [
+                {
+                    "name": "Sebastian Bergmann",
+                    "email": "sebastian@phpunit.de",
+                    "role": "lead"
+                }
+            ],
+            "description": "The PHP Unit Testing framework.",
+            "homepage": "https://phpunit.de/",
+            "keywords": [
+                "phpunit",
+                "testing",
+                "xunit"
+            ],
+            "support": {
+                "issues": "https://github.com/sebastianbergmann/phpunit/issues",
+                "security": "https://github.com/sebastianbergmann/phpunit/security/policy",
+                "source": "https://github.com/sebastianbergmann/phpunit/tree/13.4.1"
+            },
+            "time": "2026-10-05T05:51:21+00:00"
+        },
+        {
+            "name": "psr/container",
+            "version": "2.0.2",
+            "dist": {
+                "type": "zip",
+                "url": "https://mirrors.cloud.tencent.com/repository/composer/psr/container/2.0.2/psr-container-2.0.2.zip",
+                "reference": "c71ecc56dfe541dbd90c5360474fbc405f8d5963",
+                "shasum": ""
+            },
+            "require": {
+                "php": ">=7.4.0"
+            },
+            "type": "library",
+            "extra": {
+                "branch-alias": {
+                    "dev-master": "2.0.x-dev"
+                }
+            },
+            "autoload": {
+                "psr-4": {
+                    "Psr\\Container\\": "src/"
+                }
+            },
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "PHP-FIG",
+                    "homepage": "https://www.php-fig.org/"
+                }
+            ],
+            "description": "Common Container Interface (PHP FIG PSR-11)",
+            "homepage": "https://github.com/php-fig/container",
+            "keywords": [
+                "PSR-11",
+                "container",
+                "container-interface",
+                "container-interop",
+                "psr"
+            ],
+            "support": {
+                "issues": "https://github.com/php-fig/container/issues",
+                "source": "https://github.com/php-fig/container/tree/2.0.2"
+            },
+            "time": "2021-11-05T16:47:00+00:00"
+        },
+        {
+            "name": "psr/log",
+            "version": "3.0.2",
+            "dist": {
+                "type": "zip",
+                "url": "https://mirrors.cloud.tencent.com/repository/composer/psr/log/3.0.2/psr-log-3.0.2.zip",
+                "reference": "f16e1d5863e37f8d8c2a01719f5b34baa2b714d3",
+                "shasum": ""
+            },
+            "require": {
+                "php": ">=8.0.0"
+            },
+            "type": "library",
+            "extra": {
+                "branch-alias": {
+                    "dev-master": "3.x-dev"
+                }
+            },
+            "autoload": {
+                "psr-4": {
+                    "Psr\\Log\\": "src"
+                }
+            },
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "PHP-FIG",
+                    "homepage": "https://www.php-fig.org/"
+                }
+            ],
+            "description": "Common interface for logging libraries",
+            "homepage": "https://github.com/php-fig/log",
+            "keywords": [
+                "log",
+                "psr",
+                "psr-3"
+            ],
+            "support": {
+                "source": "https://github.com/php-fig/log/tree/3.0.2"
+            },
+            "time": "2024-09-11T13:17:53+00:00"
+        },
+        {
+            "name": "psr/simple-cache",
+            "version": "3.0.0",
+            "dist": {
+                "type": "zip",
+                "url": "https://mirrors.cloud.tencent.com/repository/composer/psr/simple-cache/3.0.0/psr-simple-cache-3.0.0.zip",
+                "reference": "764e0b3939f5ca87cb904f570ef9be2d78a07865",
+                "shasum": ""
+            },
+            "require": {
+                "php": ">=8.0.0"
+            },
+            "type": "library",
+            "extra": {
+                "branch-alias": {
+                    "dev-master": "3.0.x-dev"
+                }
+            },
+            "autoload": {
+                "psr-4": {
+                    "Psr\\SimpleCache\\": "src/"
+                }
+            },
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "PHP-FIG",
+                    "homepage": "https://www.php-fig.org/"
+                }
+            ],
+            "description": "Common interfaces for simple caching",
+            "keywords": [
+                "cache",
+                "caching",
+                "psr",
+                "psr-16",
+                "simple-cache"
+            ],
+            "support": {
+                "source": "https://github.com/php-fig/simple-cache/tree/3.0.0"
+            },
+            "time": "2021-10-29T13:26:27+00:00"
+        },
+        {
+            "name": "sebastian/cli-parser",
+            "version": "5.0.1",
+            "dist": {
+                "type": "zip",
+                "url": "https://mirrors.cloud.tencent.com/repository/composer/sebastian/cli-parser/5.0.1/sebastian-cli-parser-5.0.1.zip",
+                "reference": "eeb759ad3146b7096fb59c3195d39e071cd409e3",
+                "shasum": ""
+            },
+            "require": {
+                "php": ">=8.4"
+            },
+            "require-dev": {
+                "phpunit/phpunit": "^13.2.6"
+            },
+            "type": "library",
+            "extra": {
+                "branch-alias": {
+                    "dev-main": "5.0-dev"
+                }
+            },
+            "autoload": {
+                "classmap": [
+                    "src/"
+                ]
+            },
+            "license": [
+                "BSD-3-Clause"
+            ],
+            "authors": [
+                {
+                    "name": "Sebastian Bergmann",
+                    "email": "sebastian@phpunit.de",
+                    "role": "lead"
+                }
+            ],
+            "description": "Library for parsing CLI options",
+            "homepage": "https://github.com/sebastianbergmann/cli-parser",
+            "support": {
+                "issues": "https://github.com/sebastianbergmann/cli-parser/issues",
+                "security": "https://github.com/sebastianbergmann/cli-parser/security/policy",
+                "source": "https://github.com/sebastianbergmann/cli-parser/tree/5.0.1"
+            },
+            "time": "2026-08-01T04:27:14+00:00"
+        },
+        {
+            "name": "sebastian/comparator",
+            "version": "8.4.0",
+            "dist": {
+                "type": "zip",
+                "url": "https://mirrors.cloud.tencent.com/repository/composer/sebastian/comparator/8.4.0/sebastian-comparator-8.4.0.zip",
+                "reference": "3b070e608146cba00fd6fd1f0ffba89e5a8897fb",
+                "shasum": ""
+            },
+            "require": {
+                "ext-dom": "*",
+                "ext-mbstring": "*",
+                "php": ">=8.4",
+                "sebastian/diff": "^9.0",
+                "sebastian/exporter": "^8.2"
+            },
+            "require-dev": {
+                "phpunit/phpunit": "^13.3"
+            },
+            "suggest": {
+                "ext-bcmath": "For comparing BcMath\\Number objects"
+            },
+            "type": "library",
+            "extra": {
+                "branch-alias": {
+                    "dev-main": "8.4-dev"
+                }
+            },
+            "autoload": {
+                "classmap": [
+                    "src/"
+                ]
+            },
+            "license": [
+                "BSD-3-Clause"
+            ],
+            "authors": [
+                {
+                    "name": "Sebastian Bergmann",
+                    "email": "sebastian@phpunit.de"
+                },
+                {
+                    "name": "Jeff Welch",
+                    "email": "whatthejeff@gmail.com"
+                },
+                {
+                    "name": "Volker Dusch",
+                    "email": "github@wallbash.com"
+                },
+                {
+                    "name": "Bernhard Schussek",
+                    "email": "bschussek@2bepublished.at"
+                }
+            ],
+            "description": "Provides the functionality to compare PHP values for equality",
+            "homepage": "https://github.com/sebastianbergmann/comparator",
+            "keywords": [
+                "comparator",
+                "compare",
+                "equality"
+            ],
+            "support": {
+                "issues": "https://github.com/sebastianbergmann/comparator/issues",
+                "security": "https://github.com/sebastianbergmann/comparator/security/policy",
+                "source": "https://github.com/sebastianbergmann/comparator/tree/8.4.0"
+            },
+            "time": "2026-08-07T07:23:13+00:00"
+        },
+        {
+            "name": "sebastian/complexity",
+            "version": "6.0.0",
+            "dist": {
+                "type": "zip",
+                "url": "https://mirrors.cloud.tencent.com/repository/composer/sebastian/complexity/6.0.0/sebastian-complexity-6.0.0.zip",
+                "reference": "c5651c795c98093480df79350cb050813fc7a2f3",
+                "shasum": ""
+            },
+            "require": {
+                "nikic/php-parser": "^5.0",
+                "php": ">=8.4"
+            },
+            "require-dev": {
+                "phpunit/phpunit": "^13.0"
+            },
+            "type": "library",
+            "extra": {
+                "branch-alias": {
+                    "dev-main": "6.0-dev"
+                }
+            },
+            "autoload": {
+                "classmap": [
+                    "src/"
+                ]
+            },
+            "license": [
+                "BSD-3-Clause"
+            ],
+            "authors": [
+                {
+                    "name": "Sebastian Bergmann",
+                    "email": "sebastian@phpunit.de",
+                    "role": "lead"
+                }
+            ],
+            "description": "Library for calculating the complexity of PHP code units",
+            "homepage": "https://github.com/sebastianbergmann/complexity",
+            "support": {
+                "issues": "https://github.com/sebastianbergmann/complexity/issues",
+                "security": "https://github.com/sebastianbergmann/complexity/security/policy",
+                "source": "https://github.com/sebastianbergmann/complexity/tree/6.0.0"
+            },
+            "time": "2026-02-06T04:41:32+00:00"
+        },
+        {
+            "name": "sebastian/diff",
+            "version": "9.0.1",
+            "dist": {
+                "type": "zip",
+                "url": "https://mirrors.cloud.tencent.com/repository/composer/sebastian/diff/9.0.1/sebastian-diff-9.0.1.zip",
+                "reference": "a2df6626c1baf31d5a88674882a3072f151b5a26",
+                "shasum": ""
+            },
+            "require": {
+                "php": ">=8.4"
+            },
+            "require-dev": {
+                "phpunit/phpunit": "^13.3.1",
+                "symfony/process": "^7.4.17"
+            },
+            "type": "library",
+            "extra": {
+                "branch-alias": {
+                    "dev-main": "9.0-dev"
+                }
+            },
+            "autoload": {
+                "classmap": [
+                    "src/"
+                ]
+            },
+            "license": [
+                "BSD-3-Clause"
+            ],
+            "authors": [
+                {
+                    "name": "Sebastian Bergmann",
+                    "email": "sebastian@phpunit.de"
+                },
+                {
+                    "name": "Kore Nordmann",
+                    "email": "mail@kore-nordmann.de"
+                }
+            ],
+            "description": "Diff implementation",
+            "homepage": "https://github.com/sebastianbergmann/diff",
+            "keywords": [
+                "diff",
+                "udiff",
+                "unidiff",
+                "unified diff"
+            ],
+            "support": {
+                "issues": "https://github.com/sebastianbergmann/diff/issues",
+                "security": "https://github.com/sebastianbergmann/diff/security/policy",
+                "source": "https://github.com/sebastianbergmann/diff/tree/9.0.1"
+            },
+            "time": "2026-08-25T15:38:55+00:00"
+        },
+        {
+            "name": "sebastian/environment",
+            "version": "9.3.3",
+            "dist": {
+                "type": "zip",
+                "url": "https://mirrors.cloud.tencent.com/repository/composer/sebastian/environment/9.3.3/sebastian-environment-9.3.3.zip",
+                "reference": "d4dd10267a11055066a2a78ae04583d8ddd4f595",
+                "shasum": ""
+            },
+            "require": {
+                "php": ">=8.4"
+            },
+            "require-dev": {
+                "phpunit/phpunit": "^13.3.6"
+            },
+            "suggest": {
+                "ext-posix": "*"
+            },
+            "type": "library",
+            "extra": {
+                "branch-alias": {
+                    "dev-main": "9.3-dev"
+                }
+            },
+            "autoload": {
+                "classmap": [
+                    "src/"
+                ]
+            },
+            "license": [
+                "BSD-3-Clause"
+            ],
+            "authors": [
+                {
+                    "name": "Sebastian Bergmann",
+                    "email": "sebastian@phpunit.de"
+                }
+            ],
+            "description": "Provides functionality to handle HHVM/PHP environments",
+            "homepage": "https://github.com/sebastianbergmann/environment",
+            "keywords": [
+                "Xdebug",
+                "environment",
+                "hhvm"
+            ],
+            "support": {
+                "issues": "https://github.com/sebastianbergmann/environment/issues",
+                "security": "https://github.com/sebastianbergmann/environment/security/policy",
+                "source": "https://github.com/sebastianbergmann/environment/tree/9.3.3"
+            },
+            "time": "2026-10-01T12:37:56+00:00"
+        },
+        {
+            "name": "sebastian/exporter",
+            "version": "8.2.1",
+            "dist": {
+                "type": "zip",
+                "url": "https://mirrors.cloud.tencent.com/repository/composer/sebastian/exporter/8.2.1/sebastian-exporter-8.2.1.zip",
+                "reference": "24a3b69bba4a12ab615fca9d34680c5598d9ab7a",
+                "shasum": ""
+            },
+            "require": {
+                "ext-mbstring": "*",
+                "php": ">=8.4",
+                "sebastian/recursion-context": "^8.0.1"
+            },
+            "require-dev": {
+                "phpunit/phpunit": "^13.3"
+            },
+            "type": "library",
+            "extra": {
+                "branch-alias": {
+                    "dev-main": "8.2-dev"
+                }
+            },
+            "autoload": {
+                "classmap": [
+                    "src/"
+                ]
+            },
+            "license": [
+                "BSD-3-Clause"
+            ],
+            "authors": [
+                {
+                    "name": "Sebastian Bergmann",
+                    "email": "sebastian@phpunit.de"
+                },
+                {
+                    "name": "Jeff Welch",
+                    "email": "whatthejeff@gmail.com"
+                },
+                {
+                    "name": "Volker Dusch",
+                    "email": "github@wallbash.com"
+                },
+                {
+                    "name": "Adam Harvey",
+                    "email": "aharvey@php.net"
+                },
+                {
+                    "name": "Bernhard Schussek",
+                    "email": "bschussek@gmail.com"
+                }
+            ],
+            "description": "Provides the functionality to export PHP variables for visualization",
+            "homepage": "https://www.github.com/sebastianbergmann/exporter",
+            "keywords": [
+                "export",
+                "exporter"
+            ],
+            "support": {
+                "issues": "https://github.com/sebastianbergmann/exporter/issues",
+                "security": "https://github.com/sebastianbergmann/exporter/security/policy",
+                "source": "https://github.com/sebastianbergmann/exporter/tree/8.2.1"
+            },
+            "time": "2026-08-07T07:22:06+00:00"
+        },
+        {
+            "name": "sebastian/file-filter",
+            "version": "1.0.0",
+            "dist": {
+                "type": "zip",
+                "url": "https://mirrors.cloud.tencent.com/repository/composer/sebastian/file-filter/1.0.0/sebastian-file-filter-1.0.0.zip",
+                "reference": "33a26f394330f6faa7684bb9cc73afb7727aae93",
+                "shasum": ""
+            },
+            "require": {
+                "php": ">=8.4"
+            },
+            "require-dev": {
+                "phpunit/phpunit": "^13.0"
+            },
+            "type": "library",
+            "extra": {
+                "branch-alias": {
+                    "dev-main": "1.0-dev"
+                }
+            },
+            "autoload": {
+                "classmap": [
+                    "src/"
+                ]
+            },
+            "license": [
+                "BSD-3-Clause"
+            ],
+            "authors": [
+                {
+                    "name": "Sebastian Bergmann",
+                    "email": "sebastian@phpunit.de",
+                    "role": "lead"
+                }
+            ],
+            "description": "Library for filtering files",
+            "homepage": "https://github.com/sebastianbergmann/file-filter",
+            "support": {
+                "issues": "https://github.com/sebastianbergmann/file-filter/issues",
+                "security": "https://github.com/sebastianbergmann/file-filter/security/policy",
+                "source": "https://github.com/sebastianbergmann/file-filter/tree/1.0.0"
+            },
+            "time": "2026-04-22T07:20:04+00:00"
+        },
+        {
+            "name": "sebastian/git-state",
+            "version": "1.0.0",
+            "dist": {
+                "type": "zip",
+                "url": "https://mirrors.cloud.tencent.com/repository/composer/sebastian/git-state/1.0.0/sebastian-git-state-1.0.0.zip",
+                "reference": "792a952e0eba55b6960a48aeceb9f371aad1f76b",
+                "shasum": ""
+            },
+            "require": {
+                "php": ">=8.4"
+            },
+            "require-dev": {
+                "phpunit/phpunit": "^13.0"
+            },
+            "type": "library",
+            "extra": {
+                "branch-alias": {
+                    "dev-main": "1.0-dev"
+                }
+            },
+            "autoload": {
+                "classmap": [
+                    "src/"
+                ]
+            },
+            "license": [
+                "BSD-3-Clause"
+            ],
+            "authors": [
+                {
+                    "name": "Sebastian Bergmann",
+                    "email": "sebastian@phpunit.de",
+                    "role": "lead"
+                }
+            ],
+            "description": "Library for describing the state of a Git checkout",
+            "homepage": "https://github.com/sebastianbergmann/git-state",
+            "support": {
+                "issues": "https://github.com/sebastianbergmann/git-state/issues",
+                "security": "https://github.com/sebastianbergmann/git-state/security/policy",
+                "source": "https://github.com/sebastianbergmann/git-state/tree/1.0.0"
+            },
+            "time": "2026-03-21T12:54:28+00:00"
+        },
+        {
+            "name": "sebastian/global-state",
+            "version": "9.0.1",
+            "dist": {
+                "type": "zip",
+                "url": "https://mirrors.cloud.tencent.com/repository/composer/sebastian/global-state/9.0.1/sebastian-global-state-9.0.1.zip",
+                "reference": "ba68ba79da690cf7eddefd3ce5b78b20b9ba9945",
+                "shasum": ""
+            },
+            "require": {
+                "php": ">=8.4",
+                "sebastian/object-reflector": "^6.0",
+                "sebastian/recursion-context": "^8.0"
+            },
+            "require-dev": {
+                "ext-dom": "*",
+                "phpunit/phpunit": "^13.1.13"
+            },
+            "type": "library",
+            "extra": {
+                "branch-alias": {
+                    "dev-main": "9.0-dev"
+                }
+            },
+            "autoload": {
+                "classmap": [
+                    "src/"
+                ]
+            },
+            "license": [
+                "BSD-3-Clause"
+            ],
+            "authors": [
+                {
+                    "name": "Sebastian Bergmann",
+                    "email": "sebastian@phpunit.de"
+                }
+            ],
+            "description": "Snapshotting of global state",
+            "homepage": "https://www.github.com/sebastianbergmann/global-state",
+            "keywords": [
+                "global state"
+            ],
+            "support": {
+                "issues": "https://github.com/sebastianbergmann/global-state/issues",
+                "security": "https://github.com/sebastianbergmann/global-state/security/policy",
+                "source": "https://github.com/sebastianbergmann/global-state/tree/9.0.1"
+            },
+            "time": "2026-06-01T15:11:33+00:00"
+        },
+        {
+            "name": "sebastian/lines-of-code",
+            "version": "5.0.2",
+            "dist": {
+                "type": "zip",
+                "url": "https://mirrors.cloud.tencent.com/repository/composer/sebastian/lines-of-code/5.0.2/sebastian-lines-of-code-5.0.2.zip",
+                "reference": "d1b6f8fce682505dbd048977f1abedf1b8ad3ff8",
+                "shasum": ""
+            },
+            "require": {
+                "nikic/php-parser": "^5.8.0",
+                "php": ">=8.4"
+            },
+            "require-dev": {
+                "phpunit/phpunit": "^13.2.4"
+            },
+            "type": "library",
+            "extra": {
+                "branch-alias": {
+                    "dev-main": "5.0-dev"
+                }
+            },
+            "autoload": {
+                "classmap": [
+                    "src/"
+                ]
+            },
+            "license": [
+                "BSD-3-Clause"
+            ],
+            "authors": [
+                {
+                    "name": "Sebastian Bergmann",
+                    "email": "sebastian@phpunit.de",
+                    "role": "lead"
+                }
+            ],
+            "description": "Library for counting the lines of code in PHP source code",
+            "homepage": "https://github.com/sebastianbergmann/lines-of-code",
+            "support": {
+                "issues": "https://github.com/sebastianbergmann/lines-of-code/issues",
+                "security": "https://github.com/sebastianbergmann/lines-of-code/security/policy",
+                "source": "https://github.com/sebastianbergmann/lines-of-code/tree/5.0.2"
+            },
+            "time": "2026-07-09T08:42:34+00:00"
+        },
+        {
+            "name": "sebastian/object-enumerator",
+            "version": "8.1.0",
+            "dist": {
+                "type": "zip",
+                "url": "https://mirrors.cloud.tencent.com/repository/composer/sebastian/object-enumerator/8.1.0/sebastian-object-enumerator-8.1.0.zip",
+                "reference": "511064ecde82bd747e2ba2fab3dda8d977b59576",
+                "shasum": ""
+            },
+            "require": {
+                "php": ">=8.4",
+                "sebastian/recursion-context": "^8.0.1"
+            },
+            "require-dev": {
+                "phpunit/phpunit": "^13.3.0"
+            },
+            "type": "library",
+            "extra": {
+                "branch-alias": {
+                    "dev-main": "8.1-dev"
+                }
+            },
+            "autoload": {
+                "classmap": [
+                    "src/"
+                ]
+            },
+            "license": [
+                "BSD-3-Clause"
+            ],
+            "authors": [
+                {
+                    "name": "Sebastian Bergmann",
+                    "email": "sebastian@phpunit.de"
+                }
+            ],
+            "description": "Traverses array structures and object graphs to enumerate all referenced objects",
+            "homepage": "https://github.com/sebastianbergmann/object-enumerator/",
+            "support": {
+                "issues": "https://github.com/sebastianbergmann/object-enumerator/issues",
+                "security": "https://github.com/sebastianbergmann/object-enumerator/security/policy",
+                "source": "https://github.com/sebastianbergmann/object-enumerator/tree/8.1.0"
+            },
+            "time": "2026-08-13T07:05:05+00:00"
+        },
+        {
+            "name": "sebastian/object-reflector",
+            "version": "6.1.0",
+            "dist": {
+                "type": "zip",
+                "url": "https://mirrors.cloud.tencent.com/repository/composer/sebastian/object-reflector/6.1.0/sebastian-object-reflector-6.1.0.zip",
+                "reference": "f71bbcdc4f95456b4622810bec64eb06372e25b2",
+                "shasum": ""
+            },
+            "require": {
+                "php": ">=8.4"
+            },
+            "require-dev": {
+                "phpunit/phpunit": "^13.3.0"
+            },
+            "type": "library",
+            "extra": {
+                "branch-alias": {
+                    "dev-main": "6.0-dev"
+                }
+            },
+            "autoload": {
+                "classmap": [
+                    "src/"
+                ]
+            },
+            "license": [
+                "BSD-3-Clause"
+            ],
+            "authors": [
+                {
+                    "name": "Sebastian Bergmann",
+                    "email": "sebastian@phpunit.de"
+                }
+            ],
+            "description": "Allows reflection of object attributes, including inherited and non-public ones",
+            "homepage": "https://github.com/sebastianbergmann/object-reflector/",
+            "support": {
+                "issues": "https://github.com/sebastianbergmann/object-reflector/issues",
+                "security": "https://github.com/sebastianbergmann/object-reflector/security/policy",
+                "source": "https://github.com/sebastianbergmann/object-reflector/tree/6.1.0"
+            },
+            "time": "2026-08-13T06:34:36+00:00"
+        },
+        {
+            "name": "sebastian/recursion-context",
+            "version": "8.0.1",
+            "dist": {
+                "type": "zip",
+                "url": "https://mirrors.cloud.tencent.com/repository/composer/sebastian/recursion-context/8.0.1/sebastian-recursion-context-8.0.1.zip",
+                "reference": "32dba72f2b4642d6a93db22d6c0a9280ff2e3ca0",
+                "shasum": ""
+            },
+            "require": {
+                "php": ">=8.4"
+            },
+            "require-dev": {
+                "phpunit/phpunit": "^13.2.6"
+            },
+            "type": "library",
+            "extra": {
+                "branch-alias": {
+                    "dev-main": "8.0-dev"
+                }
+            },
+            "autoload": {
+                "classmap": [
+                    "src/"
+                ]
+            },
+            "license": [
+                "BSD-3-Clause"
+            ],
+            "authors": [
+                {
+                    "name": "Sebastian Bergmann",
+                    "email": "sebastian@phpunit.de"
+                },
+                {
+                    "name": "Jeff Welch",
+                    "email": "whatthejeff@gmail.com"
+                },
+                {
+                    "name": "Adam Harvey",
+                    "email": "aharvey@php.net"
+                }
+            ],
+            "description": "Provides functionality to recursively process PHP variables",
+            "homepage": "https://github.com/sebastianbergmann/recursion-context",
+            "support": {
+                "issues": "https://github.com/sebastianbergmann/recursion-context/issues",
+                "security": "https://github.com/sebastianbergmann/recursion-context/security/policy",
+                "source": "https://github.com/sebastianbergmann/recursion-context/tree/8.0.1"
+            },
+            "time": "2026-08-03T05:58:12+00:00"
+        },
+        {
+            "name": "sebastian/type",
+            "version": "7.0.2",
+            "dist": {
+                "type": "zip",
+                "url": "https://mirrors.cloud.tencent.com/repository/composer/sebastian/type/7.0.2/sebastian-type-7.0.2.zip",
+                "reference": "bd1df467864cb95140414059a535b2d906173fcf",
+                "shasum": ""
+            },
+            "require": {
+                "php": ">=8.4"
+            },
+            "require-dev": {
+                "phpunit/phpunit": "^13.3.0"
+            },
+            "type": "library",
+            "extra": {
+                "branch-alias": {
+                    "dev-main": "7.0-dev"
+                }
+            },
+            "autoload": {
+                "classmap": [
+                    "src/"
+                ]
+            },
+            "license": [
+                "BSD-3-Clause"
+            ],
+            "authors": [
+                {
+                    "name": "Sebastian Bergmann",
+                    "email": "sebastian@phpunit.de",
+                    "role": "lead"
+                }
+            ],
+            "description": "Collection of value objects that represent the types of the PHP type system",
+            "homepage": "https://github.com/sebastianbergmann/type",
+            "support": {
+                "issues": "https://github.com/sebastianbergmann/type/issues",
+                "security": "https://github.com/sebastianbergmann/type/security/policy",
+                "source": "https://github.com/sebastianbergmann/type/tree/7.0.2"
+            },
+            "time": "2026-08-10T08:00:57+00:00"
+        },
+        {
+            "name": "sebastian/version",
+            "version": "7.0.1",
+            "dist": {
+                "type": "zip",
+                "url": "https://mirrors.cloud.tencent.com/repository/composer/sebastian/version/7.0.1/sebastian-version-7.0.1.zip",
+                "reference": "f1598cf1d8d1ca4c0f194a52f2fe72a559a7b0b1",
+                "shasum": ""
+            },
+            "require": {
+                "php": ">=8.4"
+            },
+            "type": "library",
+            "extra": {
+                "branch-alias": {
+                    "dev-main": "7.0-dev"
+                }
+            },
+            "autoload": {
+                "classmap": [
+                    "src/"
+                ]
+            },
+            "license": [
+                "BSD-3-Clause"
+            ],
+            "authors": [
+                {
+                    "name": "Sebastian Bergmann",
+                    "email": "sebastian@phpunit.de",
+                    "role": "lead"
+                }
+            ],
+            "description": "Library that helps with managing the version number of Git-hosted PHP projects",
+            "homepage": "https://github.com/sebastianbergmann/version",
+            "support": {
+                "issues": "https://github.com/sebastianbergmann/version/issues",
+                "security": "https://github.com/sebastianbergmann/version/security/policy",
+                "source": "https://github.com/sebastianbergmann/version/tree/7.0.1"
+            },
+            "time": "2026-10-04T05:51:14+00:00"
+        },
+        {
+            "name": "seld/cli-prompt",
+            "version": "1.0.4",
+            "dist": {
+                "type": "zip",
+                "url": "https://mirrors.cloud.tencent.com/repository/composer/seld/cli-prompt/1.0.4/seld-cli-prompt-1.0.4.zip",
+                "reference": "b8dfcf02094b8c03b40322c229493bb2884423c5",
+                "shasum": ""
+            },
+            "require": {
+                "php": ">=5.3"
+            },
+            "require-dev": {
+                "phpstan/phpstan": "^0.12.63"
+            },
+            "type": "library",
+            "extra": {
+                "branch-alias": {
+                    "dev-master": "1.x-dev"
+                }
+            },
+            "autoload": {
+                "psr-4": {
+                    "Seld\\CliPrompt\\": "src/"
+                }
+            },
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Jordi Boggiano",
+                    "email": "j.boggiano@seld.be"
+                }
+            ],
+            "description": "Allows you to prompt for user input on the command line, and optionally hide the characters they type",
+            "keywords": [
+                "cli",
+                "console",
+                "hidden",
+                "input",
+                "prompt"
+            ],
+            "support": {
+                "issues": "https://github.com/Seldaek/cli-prompt/issues",
+                "source": "https://github.com/Seldaek/cli-prompt/tree/1.0.4"
+            },
+            "time": "2020-12-15T21:32:01+00:00"
+        },
+        {
+            "name": "staabm/side-effects-detector",
+            "version": "1.0.5",
+            "dist": {
+                "type": "zip",
+                "url": "https://mirrors.cloud.tencent.com/repository/composer/staabm/side-effects-detector/1.0.5/staabm-side-effects-detector-1.0.5.zip",
+                "reference": "d8334211a140ce329c13726d4a715adbddd0a163",
+                "shasum": ""
+            },
+            "require": {
+                "ext-tokenizer": "*",
+                "php": "^7.4 || ^8.0"
+            },
+            "require-dev": {
+                "phpstan/extension-installer": "^1.4.3",
+                "phpstan/phpstan": "^1.12.6",
+                "phpunit/phpunit": "^9.6.21",
+                "symfony/var-dumper": "^5.4.43",
+                "tomasvotruba/type-coverage": "1.0.0",
+                "tomasvotruba/unused-public": "1.0.0"
+            },
+            "type": "library",
+            "autoload": {
+                "classmap": [
+                    "lib/"
+                ]
+            },
+            "license": [
+                "MIT"
+            ],
+            "description": "A static analysis tool to detect side effects in PHP code",
+            "keywords": [
+                "static analysis"
+            ],
+            "support": {
+                "issues": "https://github.com/staabm/side-effects-detector/issues",
+                "source": "https://github.com/staabm/side-effects-detector/tree/1.0.5"
+            },
+            "time": "2024-10-20T05:08:20+00:00"
+        },
+        {
+            "name": "swoole/phpx",
+            "version": "v2.9.3",
+            "dist": {
+                "type": "zip",
+                "url": "https://mirrors.cloud.tencent.com/repository/composer/swoole/phpx/v2.9.3/swoole-phpx-v2.9.3.zip",
+                "reference": "a0138bbdd6cbfda62225adc56c558d0742114c8a",
+                "shasum": ""
+            },
+            "require": {
+                "php": ">=8.4 <8.6"
+            },
+            "require-dev": {
+                "friendsofphp/php-cs-fixer": "^3.75",
+                "phpunit/phpunit": "^10.0"
+            },
+            "bin": [
+                "bin/phpx"
+            ],
+            "type": "library",
+            "extra": {
+                "branch-alias": {
+                    "dev-main": "2.8.x-dev",
+                    "dev-master": "2.8.x-dev"
+                },
+                "typephp-native": {
+                    "abi": 80600,
+                    "kind": "bridge",
+                    "sources": [
+                        "src/core/array.cc",
+                        "src/core/base.cc",
+                        "src/core/big_float_nano.cc",
+                        "src/core/big_int_nano.cc",
+                        "src/core/closure.cc",
+                        "src/core/decimal_nano.cc",
+                        "src/core/debug.cc",
+                        "src/core/foreach_iterator.cc",
+                        "src/core/native_gc.cc",
+                        "src/core/object.cc",
+                        "src/core/scope.cc",
+                        "src/core/string.cc",
+                        "src/core/type_check.cc",
+                        "src/core/variant.cc",
+                        "src/std/core.cc",
+                        "src/std/array.cc",
+                        "src/std/datetime.cc",
+                        "src/std/fs.cc",
+                        "src/std/hash.cc",
+                        "src/std/math.cc",
+                        "src/std/misc.cc",
+                        "src/std/string.cc",
+                        "src/typephp/typephp_attribute.cc",
+                        "src/typephp/typephp_call.cc",
+                        "src/typephp/typephp_nano.cc",
+                        "src/typephp/typephp_main_nano.cc",
+                        "src/typephp/typephp_property.cc",
+                        "src/typephp/typephp_trait.cc",
+                        "thirdparty/wren-gc/src/wren_gc.c"
+                    ],
+                    "c-standard": 11,
+                    "components": {
+                        "date": {
+                            "sources": [
+                                "src/std/datetime.cc"
+                            ],
+                            "extension": "date"
+                        },
+                        "bcmath": {
+                            "sources": [
+                                "src/core/big_float_nano.cc",
+                                "src/core/big_int_nano.cc",
+                                "src/core/decimal_nano.cc"
+                            ],
+                            "extension": "bcmath"
+                        },
+                        "standard.core": {
+                            "sources": [
+                                "src/std/core.cc"
+                            ],
+                            "extension": "standard"
+                        },
+                        "standard.hash": {
+                            "sources": [
+                                "src/std/hash.cc"
+                            ],
+                            "requires": [
+                                "standard.core"
+                            ],
+                            "extension": "hash"
+                        },
+                        "standard.math": {
+                            "sources": [
+                                "src/std/math.cc"
+                            ],
+                            "requires": [
+                                "standard.core"
+                            ],
+                            "extension": "standard"
+                        },
+                        "standard.misc": {
+                            "sources": [
+                                "src/std/misc.cc"
+                            ],
+                            "requires": [
+                                "standard.core"
+                            ],
+                            "extension": "standard"
+                        },
+                        "standard.array": {
+                            "sources": [
+                                "src/std/array.cc"
+                            ],
+                            "requires": [
+                                "standard.core"
+                            ],
+                            "extension": "standard"
+                        },
+                        "standard.string": {
+                            "sources": [
+                                "src/std/string.cc"
+                            ],
+                            "requires": [
+                                "standard.core"
+                            ],
+                            "extension": "standard"
+                        },
+                        "standard.filesystem": {
+                            "sources": [
+                                "src/std/fs.cc"
+                            ],
+                            "requires": [
+                                "standard.core"
+                            ],
+                            "extension": "standard"
+                        }
+                    },
+                    "cxx-standard": 17,
+                    "include-dirs": [
+                        "include",
+                        "thirdparty/wren-gc/include"
+                    ]
+                }
+            },
+            "license": [
+                "Apache-2.0"
+            ],
+            "description": "C++ wrapper for Zend API",
+            "keywords": [
+                "ZendAPI",
+                "embedded",
+                "extension",
+                "php"
+            ],
+            "support": {
+                "issues": "https://github.com/swoole/phpx/issues",
+                "source": "https://github.com/swoole/phpx/tree/v2.9.3"
+            },
+            "time": "2026-09-29T10:12:16+00:00"
+        },
+        {
+            "name": "swoole/typephp",
+            "version": "v0.9.4",
+            "dist": {
+                "type": "zip",
+                "url": "https://mirrors.cloud.tencent.com/repository/composer/swoole/typephp/v0.9.4/swoole-typephp-v0.9.4.zip",
+                "reference": "874b82e96a2383712e8faf8177c6c715587e3546",
+                "shasum": ""
+            },
+            "require": {
+                "ajaxray/ansikit": "^0.3",
+                "composer-runtime-api": "^2.2",
+                "league/climate": "^3.10",
+                "marcj/topsort": "^2.0",
+                "nikic/php-parser": "^5.6",
+                "php": ">=8.4 <8.6",
+                "swoole/phpx": "~2.9.3",
+                "symfony/var-dumper": "^8.0",
+                "symfony/yaml": "^8.0"
+            },
+            "require-dev": {
+                "friendsofphp/php-cs-fixer": "^3.40",
+                "phpstan/phpstan": "^2.2",
+                "phpunit/phpunit": "^10.4",
+                "swoole/php-nano": "^1.1"
+            },
+            "bin": [
+                "bin/tpc",
+                "bin/tpc.php"
+            ],
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "TypePhp\\": "src"
+                }
+            },
+            "license": [
+                "GPL-3.0-only"
+            ],
+            "authors": [
+                {
+                    "name": "上海识沃网络科技有限公司",
+                    "homepage": "https://www.swoole.com/",
+                    "role": "Copyright holder"
+                }
+            ],
+            "description": "TypePHP native AOT compiler",
+            "support": {
+                "issues": "https://github.com/swoole/typephp/issues",
+                "source": "https://github.com/swoole/typephp/tree/v0.9.4"
+            },
+            "time": "2026-09-30T04:56:36+00:00"
+        },
+        {
+            "name": "symfony/console",
+            "version": "v8.1.8",
+            "dist": {
+                "type": "zip",
+                "url": "https://mirrors.cloud.tencent.com/repository/composer/symfony/console/v8.1.8/symfony-console-v8.1.8.zip",
+                "reference": "4b81146e3ee248ea969186f85499b54fbc78db08",
+                "shasum": ""
+            },
+            "require": {
+                "php": ">=8.4.1",
+                "symfony/deprecation-contracts": "^2.5|^3",
+                "symfony/polyfill-mbstring": "^1.0",
+                "symfony/polyfill-php85": "^1.32",
+                "symfony/service-contracts": "^2.5|^3",
+                "symfony/string": "^7.4.6|^8.0.6"
+            },
+            "conflict": {
+                "symfony/dependency-injection": "<8.1",
+                "symfony/event-dispatcher": "<8.1"
+            },
+            "provide": {
+                "psr/log-implementation": "1.0|2.0|3.0"
+            },
+            "require-dev": {
+                "psr/log": "^1|^2|^3",
+                "symfony/config": "^7.4|^8.0",
+                "symfony/dependency-injection": "^8.1",
+                "symfony/event-dispatcher": "^8.1",
+                "symfony/filesystem": "^7.4|^8.0",
+                "symfony/http-foundation": "^7.4|^8.0",
+                "symfony/http-kernel": "^7.4|^8.0",
+                "symfony/lock": "^7.4|^8.0",
+                "symfony/messenger": "^7.4|^8.0",
+                "symfony/mime": "^7.4|^8.0",
+                "symfony/process": "^7.4|^8.0",
+                "symfony/stopwatch": "^7.4|^8.0",
+                "symfony/uid": "^7.4|^8.0",
+                "symfony/validator": "^7.4|^8.0",
+                "symfony/var-dumper": "^7.4|^8.0"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "Symfony\\Component\\Console\\": ""
+                },
+                "exclude-from-classmap": [
+                    "/Tests/"
+                ]
+            },
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Fabien Potencier",
+                    "email": "fabien@symfony.com"
+                },
+                {
+                    "name": "Symfony Community",
+                    "homepage": "https://symfony.com/contributors"
+                }
+            ],
+            "description": "Eases the creation of beautiful and testable command line interfaces",
+            "homepage": "https://symfony.com",
+            "keywords": [
+                "cli",
+                "command-line",
+                "console",
+                "terminal"
+            ],
+            "support": {
+                "source": "https://github.com/symfony/console/tree/v8.1.8"
+            },
+            "time": "2026-09-18T16:00:27+00:00"
+        },
+        {
+            "name": "symfony/deprecation-contracts",
+            "version": "v3.7.1",
+            "dist": {
+                "type": "zip",
+                "url": "https://mirrors.cloud.tencent.com/repository/composer/symfony/deprecation-contracts/v3.7.1/symfony-deprecation-contracts-v3.7.1.zip",
+                "reference": "f3202fa1b5097b0af062dc978b32ecf63404e31d",
+                "shasum": ""
+            },
+            "require": {
+                "php": ">=8.1"
+            },
+            "type": "library",
+            "extra": {
+                "thanks": {
+                    "url": "https://github.com/symfony/contracts",
+                    "name": "symfony/contracts"
+                },
+                "branch-alias": {
+                    "dev-main": "3.7-dev"
+                }
+            },
+            "autoload": {
+                "files": [
+                    "function.php"
+                ]
+            },
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Nicolas Grekas",
+                    "email": "p@tchwork.com"
+                },
+                {
+                    "name": "Symfony Community",
+                    "homepage": "https://symfony.com/contributors"
+                }
+            ],
+            "description": "A generic function and convention to trigger deprecation notices",
+            "homepage": "https://symfony.com",
+            "support": {
+                "source": "https://github.com/symfony/deprecation-contracts/tree/v3.7.1"
+            },
+            "time": "2026-06-05T06:23:12+00:00"
+        },
+        {
+            "name": "symfony/finder",
+            "version": "v8.1.8",
+            "dist": {
+                "type": "zip",
+                "url": "https://mirrors.cloud.tencent.com/repository/composer/symfony/finder/v8.1.8/symfony-finder-v8.1.8.zip",
+                "reference": "bd4fed193a3132c91c5c93595cbfc78988915822",
+                "shasum": ""
+            },
+            "require": {
+                "php": ">=8.4.1"
+            },
+            "require-dev": {
+                "symfony/filesystem": "^7.4|^8.0"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "Symfony\\Component\\Finder\\": ""
+                },
+                "exclude-from-classmap": [
+                    "/Tests/"
+                ]
+            },
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Fabien Potencier",
+                    "email": "fabien@symfony.com"
+                },
+                {
+                    "name": "Symfony Community",
+                    "homepage": "https://symfony.com/contributors"
+                }
+            ],
+            "description": "Finds files and directories via an intuitive fluent interface",
+            "homepage": "https://symfony.com",
+            "support": {
+                "source": "https://github.com/symfony/finder/tree/v8.1.8"
+            },
+            "time": "2026-09-26T06:33:49+00:00"
+        },
+        {
+            "name": "symfony/polyfill-ctype",
+            "version": "v1.37.0",
+            "dist": {
+                "type": "zip",
+                "url": "https://mirrors.cloud.tencent.com/repository/composer/symfony/polyfill-ctype/v1.37.0/symfony-polyfill-ctype-v1.37.0.zip",
+                "reference": "141046a8f9477948ff284fa65be2095baafb94f2",
+                "shasum": ""
+            },
+            "require": {
+                "php": ">=7.2"
+            },
+            "provide": {
+                "ext-ctype": "*"
+            },
+            "suggest": {
+                "ext-ctype": "For best performance"
+            },
+            "type": "library",
+            "extra": {
+                "thanks": {
+                    "url": "https://github.com/symfony/polyfill",
+                    "name": "symfony/polyfill"
+                }
+            },
+            "autoload": {
+                "files": [
+                    "bootstrap.php"
+                ],
+                "psr-4": {
+                    "Symfony\\Polyfill\\Ctype\\": ""
+                }
+            },
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Gert de Pagter",
+                    "email": "BackEndTea@gmail.com"
+                },
+                {
+                    "name": "Symfony Community",
+                    "homepage": "https://symfony.com/contributors"
+                }
+            ],
+            "description": "Symfony polyfill for ctype functions",
+            "homepage": "https://symfony.com",
+            "keywords": [
+                "compatibility",
+                "ctype",
+                "polyfill",
+                "portable"
+            ],
+            "support": {
+                "source": "https://github.com/symfony/polyfill-ctype/tree/v1.37.0"
+            },
+            "time": "2026-04-10T16:19:22+00:00"
+        },
+        {
+            "name": "symfony/polyfill-intl-grapheme",
+            "version": "v1.43.0",
+            "dist": {
+                "type": "zip",
+                "url": "https://mirrors.cloud.tencent.com/repository/composer/symfony/polyfill-intl-grapheme/v1.43.0/symfony-polyfill-intl-grapheme-v1.43.0.zip",
+                "reference": "5cac8f4db97208823aa353f59a01faad2da52c75",
+                "shasum": ""
+            },
+            "require": {
+                "php": ">=7.2"
+            },
+            "suggest": {
+                "ext-intl": "For best performance"
+            },
+            "type": "library",
+            "extra": {
+                "thanks": {
+                    "url": "https://github.com/symfony/polyfill",
+                    "name": "symfony/polyfill"
+                }
+            },
+            "autoload": {
+                "files": [
+                    "bootstrap.php"
+                ],
+                "psr-4": {
+                    "Symfony\\Polyfill\\Intl\\Grapheme\\": ""
+                }
+            },
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Nicolas Grekas",
+                    "email": "p@tchwork.com"
+                },
+                {
+                    "name": "Symfony Community",
+                    "homepage": "https://symfony.com/contributors"
+                }
+            ],
+            "description": "Symfony polyfill for intl's grapheme_* functions",
+            "homepage": "https://symfony.com",
+            "keywords": [
+                "compatibility",
+                "grapheme",
+                "intl",
+                "polyfill",
+                "portable",
+                "shim"
+            ],
+            "support": {
+                "source": "https://github.com/symfony/polyfill-intl-grapheme/tree/v1.43.0"
+            },
+            "time": "2026-09-25T15:46:47+00:00"
+        },
+        {
+            "name": "symfony/polyfill-intl-normalizer",
+            "version": "v1.43.0",
+            "dist": {
+                "type": "zip",
+                "url": "https://mirrors.cloud.tencent.com/repository/composer/symfony/polyfill-intl-normalizer/v1.43.0/symfony-polyfill-intl-normalizer-v1.43.0.zip",
+                "reference": "ebd57ccc7edb93d632e184efbe7693d2517bab3b",
+                "shasum": ""
+            },
+            "require": {
+                "php": ">=7.2"
+            },
+            "suggest": {
+                "ext-intl": "For best performance"
+            },
+            "type": "library",
+            "extra": {
+                "thanks": {
+                    "url": "https://github.com/symfony/polyfill",
+                    "name": "symfony/polyfill"
+                }
+            },
+            "autoload": {
+                "files": [
+                    "bootstrap.php"
+                ],
+                "psr-4": {
+                    "Symfony\\Polyfill\\Intl\\Normalizer\\": ""
+                },
+                "classmap": [
+                    "Resources/stubs"
+                ]
+            },
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Nicolas Grekas",
+                    "email": "p@tchwork.com"
+                },
+                {
+                    "name": "Symfony Community",
+                    "homepage": "https://symfony.com/contributors"
+                }
+            ],
+            "description": "Symfony polyfill for intl's Normalizer class and related functions",
+            "homepage": "https://symfony.com",
+            "keywords": [
+                "compatibility",
+                "intl",
+                "normalizer",
+                "polyfill",
+                "portable",
+                "shim"
+            ],
+            "support": {
+                "source": "https://github.com/symfony/polyfill-intl-normalizer/tree/v1.43.0"
+            },
+            "time": "2026-09-23T22:02:09+00:00"
+        },
+        {
+            "name": "symfony/polyfill-mbstring",
+            "version": "v1.43.0",
+            "dist": {
+                "type": "zip",
+                "url": "https://mirrors.cloud.tencent.com/repository/composer/symfony/polyfill-mbstring/v1.43.0/symfony-polyfill-mbstring-v1.43.0.zip",
+                "reference": "4d5d331bf731e0aedbc6b2f5e61135b7b7996a72",
+                "shasum": ""
+            },
+            "require": {
+                "ext-iconv": "*",
+                "php": ">=7.2"
+            },
+            "provide": {
+                "ext-mbstring": "*"
+            },
+            "suggest": {
+                "ext-mbstring": "For best performance"
+            },
+            "type": "library",
+            "extra": {
+                "thanks": {
+                    "url": "https://github.com/symfony/polyfill",
+                    "name": "symfony/polyfill"
+                }
+            },
+            "autoload": {
+                "files": [
+                    "bootstrap.php"
+                ],
+                "psr-4": {
+                    "Symfony\\Polyfill\\Mbstring\\": ""
+                }
+            },
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Nicolas Grekas",
+                    "email": "p@tchwork.com"
+                },
+                {
+                    "name": "Symfony Community",
+                    "homepage": "https://symfony.com/contributors"
+                }
+            ],
+            "description": "Symfony polyfill for the Mbstring extension",
+            "homepage": "https://symfony.com",
+            "keywords": [
+                "compatibility",
+                "mbstring",
+                "polyfill",
+                "portable",
+                "shim"
+            ],
+            "support": {
+                "source": "https://github.com/symfony/polyfill-mbstring/tree/v1.43.0"
+            },
+            "time": "2026-09-24T15:19:04+00:00"
+        },
+        {
+            "name": "symfony/polyfill-php85",
+            "version": "v1.43.0",
+            "dist": {
+                "type": "zip",
+                "url": "https://mirrors.cloud.tencent.com/repository/composer/symfony/polyfill-php85/v1.43.0/symfony-polyfill-php85-v1.43.0.zip",
+                "reference": "86a42cbcc07adc331481a5ab310a4024bfc227f6",
+                "shasum": ""
+            },
+            "require": {
+                "php": ">=7.2"
+            },
+            "type": "library",
+            "extra": {
+                "thanks": {
+                    "url": "https://github.com/symfony/polyfill",
+                    "name": "symfony/polyfill"
+                }
+            },
+            "autoload": {
+                "files": [
+                    "bootstrap.php"
+                ],
+                "psr-4": {
+                    "Symfony\\Polyfill\\Php85\\": ""
+                },
+                "classmap": [
+                    "Resources/stubs"
+                ]
+            },
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Nicolas Grekas",
+                    "email": "p@tchwork.com"
+                },
+                {
+                    "name": "Symfony Community",
+                    "homepage": "https://symfony.com/contributors"
+                }
+            ],
+            "description": "Symfony polyfill backporting some PHP 8.5+ features to lower PHP versions",
+            "homepage": "https://symfony.com",
+            "keywords": [
+                "compatibility",
+                "polyfill",
+                "portable",
+                "shim"
+            ],
+            "support": {
+                "source": "https://github.com/symfony/polyfill-php85/tree/v1.43.0"
+            },
+            "time": "2026-09-25T15:46:47+00:00"
+        },
+        {
+            "name": "symfony/process",
+            "version": "v8.1.7",
+            "dist": {
+                "type": "zip",
+                "url": "https://mirrors.cloud.tencent.com/repository/composer/symfony/process/v8.1.7/symfony-process-v8.1.7.zip",
+                "reference": "10823b09358e690df4ff943e24e8492bb1019fc3",
+                "shasum": ""
+            },
+            "require": {
+                "php": ">=8.4.1"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "Symfony\\Component\\Process\\": ""
+                },
+                "exclude-from-classmap": [
+                    "/Tests/"
+                ]
+            },
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Fabien Potencier",
+                    "email": "fabien@symfony.com"
+                },
+                {
+                    "name": "Symfony Community",
+                    "homepage": "https://symfony.com/contributors"
+                }
+            ],
+            "description": "Executes commands in sub-processes",
+            "homepage": "https://symfony.com",
+            "support": {
+                "source": "https://github.com/symfony/process/tree/v8.1.7"
+            },
+            "time": "2026-09-02T12:40:29+00:00"
+        },
+        {
+            "name": "symfony/service-contracts",
+            "version": "v3.7.3",
+            "dist": {
+                "type": "zip",
+                "url": "https://mirrors.cloud.tencent.com/repository/composer/symfony/service-contracts/v3.7.3/symfony-service-contracts-v3.7.3.zip",
+                "reference": "15e6a07ec2a2c75ceb1b21dd98105ee8456d2257",
+                "shasum": ""
+            },
+            "require": {
+                "php": ">=8.1",
+                "psr/container": "^1.1|^2.0",
+                "symfony/deprecation-contracts": "^2.5|^3"
+            },
+            "conflict": {
+                "ext-psr": "<1.1|>=2"
+            },
+            "type": "library",
+            "extra": {
+                "thanks": {
+                    "url": "https://github.com/symfony/contracts",
+                    "name": "symfony/contracts"
+                },
+                "branch-alias": {
+                    "dev-main": "3.7-dev"
+                }
+            },
+            "autoload": {
+                "psr-4": {
+                    "Symfony\\Contracts\\Service\\": ""
+                },
+                "exclude-from-classmap": [
+                    "/Test/"
+                ]
+            },
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Nicolas Grekas",
+                    "email": "p@tchwork.com"
+                },
+                {
+                    "name": "Symfony Community",
+                    "homepage": "https://symfony.com/contributors"
+                }
+            ],
+            "description": "Generic abstractions related to writing services",
+            "homepage": "https://symfony.com",
+            "keywords": [
+                "abstractions",
+                "contracts",
+                "decoupling",
+                "interfaces",
+                "interoperability",
+                "standards"
+            ],
+            "support": {
+                "source": "https://github.com/symfony/service-contracts/tree/v3.7.3"
+            },
+            "time": "2026-07-27T15:39:01+00:00"
+        },
+        {
+            "name": "symfony/string",
+            "version": "v8.1.7",
+            "dist": {
+                "type": "zip",
+                "url": "https://mirrors.cloud.tencent.com/repository/composer/symfony/string/v8.1.7/symfony-string-v8.1.7.zip",
+                "reference": "d950140b5f56f31901e5b7a0c04ffc3a3deb943c",
+                "shasum": ""
+            },
+            "require": {
+                "php": ">=8.4.1",
+                "symfony/polyfill-ctype": "^1.8",
+                "symfony/polyfill-intl-grapheme": "^1.33",
+                "symfony/polyfill-intl-normalizer": "^1.0",
+                "symfony/polyfill-mbstring": "^1.0"
+            },
+            "conflict": {
+                "symfony/translation-contracts": "<2.5"
+            },
+            "require-dev": {
+                "symfony/emoji": "^7.4|^8.0",
+                "symfony/http-client": "^7.4|^8.0",
+                "symfony/intl": "^7.4|^8.0",
+                "symfony/translation-contracts": "^2.5|^3.0",
+                "symfony/var-exporter": "^7.4|^8.0"
+            },
+            "type": "library",
+            "autoload": {
+                "files": [
+                    "Resources/functions.php"
+                ],
+                "psr-4": {
+                    "Symfony\\Component\\String\\": ""
+                },
+                "exclude-from-classmap": [
+                    "/Tests/"
+                ]
+            },
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Nicolas Grekas",
+                    "email": "p@tchwork.com"
+                },
+                {
+                    "name": "Symfony Community",
+                    "homepage": "https://symfony.com/contributors"
+                }
+            ],
+            "description": "Provides an object-oriented API to strings and deals with bytes, UTF-8 code points and grapheme clusters in a unified way",
+            "homepage": "https://symfony.com",
+            "keywords": [
+                "grapheme",
+                "i18n",
+                "string",
+                "unicode",
+                "utf-8",
+                "utf8"
+            ],
+            "support": {
+                "source": "https://github.com/symfony/string/tree/v8.1.7"
+            },
+            "time": "2026-09-11T14:51:16+00:00"
+        },
+        {
+            "name": "symfony/var-dumper",
+            "version": "v8.1.7",
+            "dist": {
+                "type": "zip",
+                "url": "https://mirrors.cloud.tencent.com/repository/composer/symfony/var-dumper/v8.1.7/symfony-var-dumper-v8.1.7.zip",
+                "reference": "741a8c4c948b0bb9bd3653daacd3644c73c40ea5",
+                "shasum": ""
+            },
+            "require": {
+                "php": ">=8.4.1",
+                "symfony/polyfill-mbstring": "^1.0"
+            },
+            "conflict": {
+                "symfony/console": "<7.4",
+                "symfony/error-handler": "<7.4"
+            },
+            "require-dev": {
+                "symfony/console": "^7.4|^8.0",
+                "symfony/http-kernel": "^7.4|^8.0",
+                "symfony/process": "^7.4|^8.0",
+                "symfony/uid": "^7.4|^8.0",
+                "twig/twig": "^3.12|^4.0"
+            },
+            "bin": [
+                "Resources/bin/var-dump-server"
+            ],
+            "type": "library",
+            "autoload": {
+                "files": [
+                    "Resources/functions/dump.php"
+                ],
+                "psr-4": {
+                    "Symfony\\Component\\VarDumper\\": ""
+                },
+                "exclude-from-classmap": [
+                    "/Tests/"
+                ]
+            },
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Nicolas Grekas",
+                    "email": "p@tchwork.com"
+                },
+                {
+                    "name": "Symfony Community",
+                    "homepage": "https://symfony.com/contributors"
+                }
+            ],
+            "description": "Provides mechanisms for walking through any arbitrary PHP variable",
+            "homepage": "https://symfony.com",
+            "keywords": [
+                "debug",
+                "dump"
+            ],
+            "support": {
+                "source": "https://github.com/symfony/var-dumper/tree/v8.1.7"
+            },
+            "time": "2026-09-03T16:02:27+00:00"
+        },
+        {
+            "name": "symfony/yaml",
+            "version": "v8.1.8",
+            "dist": {
+                "type": "zip",
+                "url": "https://mirrors.cloud.tencent.com/repository/composer/symfony/yaml/v8.1.8/symfony-yaml-v8.1.8.zip",
+                "reference": "030e96eed0303223bfca3af9109e9e64830b6ec3",
+                "shasum": ""
+            },
+            "require": {
+                "php": ">=8.4.1",
+                "symfony/polyfill-ctype": "^1.8"
+            },
+            "conflict": {
+                "symfony/console": "<7.4"
+            },
+            "require-dev": {
+                "symfony/console": "^7.4|^8.0",
+                "yaml/yaml-test-suite": "*"
+            },
+            "bin": [
+                "Resources/bin/yaml-lint"
+            ],
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "Symfony\\Component\\Yaml\\": ""
+                },
+                "exclude-from-classmap": [
+                    "/Tests/"
+                ]
+            },
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Fabien Potencier",
+                    "email": "fabien@symfony.com"
+                },
+                {
+                    "name": "Symfony Community",
+                    "homepage": "https://symfony.com/contributors"
+                }
+            ],
+            "description": "Loads and dumps YAML files",
+            "homepage": "https://symfony.com",
+            "support": {
+                "source": "https://github.com/symfony/yaml/tree/v8.1.8"
+            },
+            "time": "2026-09-26T06:33:49+00:00"
+        },
+        {
+            "name": "ta-tikoma/phpunit-architecture-test",
+            "version": "0.8.7",
+            "dist": {
+                "type": "zip",
+                "url": "https://mirrors.cloud.tencent.com/repository/composer/ta-tikoma/phpunit-architecture-test/0.8.7/ta-tikoma-phpunit-architecture-test-0.8.7.zip",
+                "reference": "1248f3f506ca9641d4f68cebcd538fa489754db8",
+                "shasum": ""
+            },
+            "require": {
+                "nikic/php-parser": "^4.18.0 || ^5.0.0",
+                "php": "^8.1.0",
+                "phpdocumentor/reflection-docblock": "^5.3.0 || ^6.0.0",
+                "phpunit/phpunit": "^10.5.5 || ^11.0.0 || ^12.0.0 || ^13.0.0",
+                "symfony/finder": "^6.4.0 || ^7.0.0 || ^8.0.0"
+            },
+            "require-dev": {
+                "laravel/pint": "^1.13.7",
+                "phpstan/phpstan": "^1.10.52"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "PHPUnit\\Architecture\\": "src/"
+                }
+            },
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Ni Shi",
+                    "email": "futik0ma011@gmail.com"
+                },
+                {
+                    "name": "Nuno Maduro",
+                    "email": "enunomaduro@gmail.com"
+                }
+            ],
+            "description": "Methods for testing application architecture",
+            "keywords": [
+                "architecture",
+                "phpunit",
+                "stucture",
+                "test",
+                "testing"
+            ],
+            "support": {
+                "issues": "https://github.com/ta-tikoma/phpunit-architecture-test/issues",
+                "source": "https://github.com/ta-tikoma/phpunit-architecture-test/tree/0.8.7"
+            },
+            "time": "2026-02-17T17:25:14+00:00"
+        },
+        {
+            "name": "theseer/tokenizer",
+            "version": "2.0.1",
+            "dist": {
+                "type": "zip",
+                "url": "https://mirrors.cloud.tencent.com/repository/composer/theseer/tokenizer/2.0.1/theseer-tokenizer-2.0.1.zip",
+                "reference": "7989e43bf381af0eac72e4f0ca5bcbfa81658be4",
+                "shasum": ""
+            },
+            "require": {
+                "ext-dom": "*",
+                "ext-tokenizer": "*",
+                "ext-xmlwriter": "*",
+                "php": "^8.1"
+            },
+            "type": "library",
+            "autoload": {
+                "classmap": [
+                    "src/"
+                ]
+            },
+            "license": [
+                "BSD-3-Clause"
+            ],
+            "authors": [
+                {
+                    "name": "Arne Blankerts",
+                    "email": "arne@blankerts.de",
+                    "role": "Developer"
+                }
+            ],
+            "description": "A small library for converting tokenized PHP source code into XML and potentially other formats",
+            "support": {
+                "issues": "https://github.com/theseer/tokenizer/issues",
+                "source": "https://github.com/theseer/tokenizer/tree/2.0.1"
+            },
+            "time": "2025-12-08T11:19:18+00:00"
+        },
+        {
+            "name": "webmozart/assert",
+            "version": "2.5.0",
+            "dist": {
+                "type": "zip",
+                "url": "https://mirrors.cloud.tencent.com/repository/composer/webmozart/assert/2.5.0/webmozart-assert-2.5.0.zip",
+                "reference": "8a163706bbcac613733dba03f51e13b5eb1bb819",
+                "shasum": ""
+            },
+            "require": {
+                "ext-ctype": "*",
+                "ext-date": "*",
+                "ext-filter": "*",
+                "php": "^8.2"
+            },
+            "suggest": {
+                "ext-intl": "",
+                "ext-simplexml": "",
+                "ext-spl": ""
+            },
+            "type": "library",
+            "extra": {
+                "psalm": {
+                    "pluginClass": "Webmozart\\Assert\\PsalmPlugin"
+                },
+                "branch-alias": {
+                    "dev-master": "2.0-dev",
+                    "dev-feature/2-0": "2.0-dev"
+                }
+            },
+            "autoload": {
+                "psr-4": {
+                    "Webmozart\\Assert\\": "src/"
+                }
+            },
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Bernhard Schussek",
+                    "email": "bschussek@gmail.com"
+                },
+                {
+                    "name": "Woody Gilk",
+                    "email": "woody.gilk@gmail.com"
+                }
+            ],
+            "description": "Assertions to validate method input/output with nice error messages.",
+            "keywords": [
+                "assert",
+                "check",
+                "validate"
+            ],
+            "support": {
+                "issues": "https://github.com/webmozarts/assert/issues",
+                "source": "https://github.com/webmozarts/assert/tree/2.5.0"
+            },
+            "time": "2026-10-05T23:14:19+00:00"
+        }
+    ],
+    "aliases": [],
+    "minimum-stability": "stable",
+    "stability-flags": {},
+    "prefer-stable": false,
+    "prefer-lowest": false,
+    "platform": {
+        "php": ">=8.1"
+    },
+    "platform-dev": {},
+    "plugin-api-version": "2.6.0"
+}
