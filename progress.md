@@ -132,3 +132,19 @@
 
 **遗留（P1/P2）**：--shot 基线 diff、静态分析(phpstan/clang-tidy)、MenuBar root-app、A 类 VirtualList/Dock、kind 覆盖、rm()/cb() 抽象泄漏、VitePress 文档站。
 
+## Session 2026-10-11（P2，续）
+
+用户定序：先 4+1（低风险），2+3（MenuBar/Dock/VirtualList）归 root-app epic。
+
+**P2-2/2-3 调查 → 归 epic**（未实现，findings.md 有完整证据链）：MenuBar 与 Dock/VirtualList 同属"需 gpui ScriptView root-application"类——`AppEffects`→`ScriptViewApplication(cx->self)` 要真 ScriptView 根，`ScheduleComponentAppEffect` 把延迟效果 post 到 `ScriptView::OnComponentAppEffect`，catalog `OpenWindowWithRoot` 用基座 `Root` 才给 root-app，而基座 Root 破 `ShellRootOf`→Dialog/Toast。与 ShellRoot 根模型互斥，强做威胁 6 项绿门禁 → 需专门设计。
+
+**P2-4 ✅**（commit c34409e）：Element 加枚举常量（SIZES/SIDES/COLLAPSE_MODES/FIELD_ALIGN/NAV_ICONS/ALERT_VARIANTS，对齐 descriptor）+ `enumCheck`；sugar 方法 side/collapsibleMode/navIcon/align + 新 sizeEnum render 前预校验抛 InvalidArgumentException；alert 未知变体从静默回落改抛异常。行为等价（sizeEnum 产同 op，shotdiff 基线不变即证）。Pest +3 → 25/100。
+
+**P2-1 ✅**（commit 6f0c896）：VitePress 文档站 `docs/`——index + guide{getting-started, architecture, components, events, testing, cli} + contributing。`npm install`(125 包)+`docs:build` rc=0（8 页渲染）。node_modules/dist 由 docs/.gitignore 排除，package-lock 入库。
+
+**门禁全绿**：Pest 25/100 · PHPStan 0 · shim_test OK · selftest 六链路 OK · shotdiff OK（12 树）· doctor 5 补丁 ✓。
+
+**本轮全部提交**：d3eeac1 基线 → 4c7af65 P0 构建 → 6dd3718 P0 内存/错误 → 45e2886 P1 C++测试+CI → 5e4c4d9 progress → 3ce13fa P1 shotdiff+修double-free → 38af807 P1 phpstan → 769cd06 修段错误 → c34409e P2-4 枚举校验 → 6f0c896 P2-1 文档站。
+
+**剩余（唯一）**：root-application 集成 epic（MenuBar + VirtualList + Dock）——需先定窗口根模型方案（重做 root / 给 AppEffects 加 shim 旁路 / 换渲染路径），风险面大，留待专门排期。
+
