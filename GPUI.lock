@@ -20,11 +20,12 @@
 | cmd/patch-focus.sh         | `$GPUI_DIR/src/shell/runtime.cpp` | `CreateRetainedFocus` |
 | cmd/patch-registered-cb.sh | `$GPUI_DIR/src/shell/runtime.cpp` | `PushShimCallback` |
 | cmd/patch-dispatch-cb.sh   | `$GPUI_DIR/src/shell/runtime.cpp` | `typephp-gpui: shim route (DispatchArgs)` |
+| cmd/patch-nested-view.sh   | `$GPUI_DIR/src/shell/runtime.cpp` | `RegisterHostView` |
 
 （patch-view 还改 `window_mac.cpp` 的入口改名 + GpuiAppRunStep；以 view.cpp 的 marker 为准判整体。）
 
 ## 构建链（`bin/gpui build` / `composer bootstrap` 一键按序跑）
-1. 依次跑上表 5 个补丁（幂等）→ `verifyPatches()` 确认全落，缺则中止。
+1. 依次跑上表 7 个补丁（幂等）→ `verifyPatches()` 确认全落，缺则中止。
 2. `cd $GPUI_DIR && bun cmd/build.ts -rel hello_world` → 生成 `.work/` amalgam + `gpui.o`
    （hello_world 链接因入口 main 改名而失败属预期，只要 `gpui.o` 新）。
 3. `bash cmd/build-shim.sh` → 编 `gpui_shim.cpp`（c++20）并与 gpui.o/quickjs.o/AppLog.o 归档成
