@@ -2,8 +2,10 @@ name: CI
 
 # 现状：gpui-kit-cpp 无 git remote（本地源码树，见 GPUI.lock），托管 runner 无法拉取，
 # 故 bootstrap 构建 / --selftest / --shot / cmd/test-shim.sh 都依赖 GPUI_DIR，跑不了。
-# 本工作流覆盖两件自足的事：PHP 声明层（php -l + Pest/PHPStan，不碰 gpui）与
-# VitePress 文档站构建（docs/，npm ci + vitepress build）。
+# 本工作流覆盖三件自足的事：
+#   php    —— PHP 声明层（php -l + Pest/PHPStan，不碰 gpui）
+#   docs   —— VitePress 构建（docs/，npm ci + vitepress build，顺带是死链门禁）
+#   deploy —— 把构建产物发到 GitHub Pages（只在 main 的 push 上跑）
 # 原生链在本地或有 GPUI_DIR 的 self-hosted runner 上跑：
 #   composer bootstrap && composer test:cpp && ./examples/hello/build/hello --selftest
 
@@ -13,12 +15,23 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Pages 一次只该有一个部署在跑；后推的提交取消前一个进行中的部署。
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
 jobs:
   php:
     name: PHP lint + Pest + PHPStan
-    runs-on: ubuntu-latest
+    # 钉 24.04 而不是 ubuntu-latest：latest 于 2026-10-19 迁到 Ubuntu 26
+    # （actions/runner-images#14748），跟着迁是一次独立的决策，不该顺带发生。
+    # 想跟上游走就把这行改回 ubuntu-latest。
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
@@ -51,11 +64,11 @@ jobs:
 
   docs:
     name: VitePress build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           # 与开发机同大版本（本地 v24.x）；换大版本就可能撞 VitePress 的构建期差异。
           node-version: '24'
@@ -70,12 +83,39 @@ jobs:
         working-directory: docs
         run: npm run docs:build
 
-      # 构建产物是 docs/.vitepress/dist（gitignore 掉的那份）。把死链检查也跑起来：
-      # vitepress build 默认 --ignoreDeadLinks: false，所以这一步本身就足以抓到坏链接；
-      # 留一行计数只为日志可读，不改变退出码。
-      - name: Report built pages
+      # 构建产物是 docs/.vitepress/dist（gitignore 掉的那份）。config.mts 里没设
+      # ignoreDeadLinks ⇒ vitepress build 会因死链失败，所以 Build site 那一步
+      # 本身就是死链门禁；这一步只把"真的出了页"变成断言，别让空目录混过去。
+      - name: Assert built pages
         working-directory: docs
         run: |
           pages=$(find .vitepress/dist -name '*.html' | wc -l)
           echo "built html pages: ${pages}"
           test "${pages}" -gt 0
+
+      # base 必须是 /typephp-gpui/（见 config.mts）：项目页挂在子路径下，
+      # base 写成 '/' 会得到"页面在、资源 404"的站——本地看不出来。
+      - name: Assert project-page base baked in
+        working-directory: docs
+        run: grep -q '/typephp-gpui/' .vitepress/dist/index.html
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: docs/.vitepress/dist
+
+  deploy:
+    name: Deploy to GitHub Pages
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: docs
+    runs-on: ubuntu-24.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    permissions:
+      pages: write
+      id-token: write
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v5

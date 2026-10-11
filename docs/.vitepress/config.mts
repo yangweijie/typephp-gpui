@@ -1,6 +1,10 @@
 import { defineConfig } from 'vitepress'
 
 export default defineConfig({
+  // 项目页挂在 /typephp-gpui/ 下。不设 base 时 VitePress 默认 '/'，构建出的资源指向站点根，
+  // 部署到 https://<user>.github.io/typephp-gpui/ 就会"页面在、资源 404"（本地 build 成功
+  // 看不出来——本地是 localhost 根路径）。
+  base: '/typephp-gpui/',
   lang: 'zh-CN',
   title: 'TypePHP GPUI',
   description: '用 PHP 声明式 API 构建跨平台 GPU 加速桌面应用（AOT 编译为原生二进制）',
