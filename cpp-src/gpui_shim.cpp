@@ -112,6 +112,18 @@ class Box2 {
     std::unordered_map<std::string, HttpResponse> httpResponses;
     // 目录监听：watch id → 该 watch 的堆上下文（onChange 靠它反查 phpId 与 box）。
     std::unordered_map<int, WatchCtx*> watchCtx;
+    // elementId → 通知列表的挂载 view（ChildView）。列表状态本身在窗口层
+    // （WindowNotifications），这里只是"把它画出来"的那个节点。
+    struct NotifyEntry {
+        gpui::EntityId holder = {};
+        uint64_t token = 0;
+    };
+    std::unordered_map<std::string, NotifyEntry> notifyLists;
+    // 通知状态实体。gpui 把它挂在基座 Root 的 WindowLayers 上（WindowLayersOf 走
+    // Root::Read(win)），而我们的窗口根是 ShellRoot——那是 Dialog/Toast 的前提，两者互斥。
+    // notification.cpp 内部对 Root/Layers 零依赖，所以这份状态由我们自己持有一份，
+    // 效果与 WindowNotifications 相同（它做的也就是建实体 + 用主题设置 + 盖 self）。
+    gpui::EntityId notifyState = {};
 
     // 幂等：同 (elementId,type) 复用同一 callbackId，避免每帧无限增长。
     // (id,type) 是 App->on 的路由键，本就一对一映射到一个 handler，复用安全。
@@ -166,6 +178,36 @@ class Box2 {
 
 // self(view void*) → box，供 patched view.cpp 的事件 handler 反查。
 std::unordered_map<void*, Box2*> g_views;
+
+// 通知的 click/close 注册表：listener arg → (box, phpId, 事件类型, 兄弟 arg)。
+// 放进程全局而非每窗口一份，是因为回调只拿得到 arg，而反查用的 boxForView 定义在文件
+// 末尾的强符号区（此处用不上）；arg 由全局计数器发号，跨窗口天然不撞。
+// 一条通知占两个 arg（click 与 close）：close 触发时把两个一起收掉——那时通知已不在
+// 列表里，click 不可能再来，所以注册表大小跟着活通知走，不随历史累积。
+struct NotifyKey {
+    Box2* box = nullptr;
+    std::string phpId;
+    std::string type;
+    int64_t sibling = 0;
+};
+std::unordered_map<int64_t, NotifyKey> g_notifyKeys;
+int64_t g_nextNotifyKey = 1;
+
+// 确保这个窗口有一份通知状态实体，返回它；拿不到窗口就返回 invalid。
+gpui::Entity<gpui::component::NotificationListState> EnsureNotifyState(Box2* box) {
+    using State = gpui::component::NotificationListState;
+    if (!box || !box->window) return {};
+    if (!box->notifyState.IsValid()) {
+        gpui::Entity<State> st = gpui::EntityNewState<State>(g_app);
+        if (!st.id.IsValid()) return {};
+        box->notifyState = st.id;
+        if (State* s = st.Get(g_app)) {
+            s->useThemeSettings = true;  // 与 WindowNotifications 一致：跟主题走
+            s->self = st.id;             // 系统通知的应答要往这个 entity 派发
+        }
+    }
+    return gpui::Entity<State>{box->notifyState};
+}
 
 gpui::Str cppStr(const std::string& s) {
     return gpui::Str(s.data(), (int)s.size());
@@ -559,6 +601,26 @@ struct InspectorView {
     }
 };
 
+// 通知层的包装 view。gpui 的基座 Root 自己挂它（ui/root.cpp:62），我们的窗口根是
+// ShellRoot（只挂 Toast），所以这一层得由 El::notifications() 挂上，状态实体用
+// EnsureNotifyState 自己那份（见 Box2::notifyState 为何不用 WindowNotifications）。
+struct NotificationListView {
+    Box2* box = nullptr;
+
+    static gpui::El* Render(void* self, gpui::Ctx* cx) {
+        NotificationListView* v = static_cast<NotificationListView*>(self);
+        if (!v || !cx || !cx->a) return nullptr;
+        gpui::Entity<gpui::component::NotificationListState> st =
+            EnsureNotifyState(v->box);
+        if (!st.id.IsValid()) return gpui::Div(cx->a);
+        gpui::component::NotificationList* list =
+            gpui::component::NotificationList::New(cx, st);
+        if (!list) return gpui::Div(cx->a);
+        gpui::El* el = list->IntoEl();
+        return el ? el : gpui::Div(cx->a);
+    }
+};
+
 // 一次在飞请求的上下文。done 保证在主线程被调（http.h:100），所以这里入队不需要锁。
 struct HttpCtx {
     Box2* box;
@@ -603,6 +665,55 @@ void OnDirWatch(WatchCtx* ctx) {
     if (!ctx || !ctx->box || ctx->box->closed) return;
     ctx->box->enqueueRaw("dirChange", ctx->phpId.c_str(), GPUI_ARG_NIL, 0, 0,
                          nullptr);
+}
+
+// 通知的 click/close：arg 是 g_notifyKeys 的键。close 那条 ev 恒为 nullptr（它是
+// "通知已从列表移除"，由退场结束或 dismiss 完成触发，不是点击），所以这里不碰 ev。
+void OnNotifyListener(gpui::ScriptView*, gpui::Ctx*, const void*, int64_t arg) {
+    auto it = g_notifyKeys.find(arg);
+    if (it == g_notifyKeys.end()) return;
+    Box2* box = it->second.box;
+    const std::string phpId = it->second.phpId;
+    const std::string type = it->second.type;
+    const int64_t sibling = it->second.sibling;
+    if (type == "close") {
+        // 通知已经离开列表，click 不可能再来：两个键一起收，注册表只跟活通知成正比。
+        g_notifyKeys.erase(arg);
+        g_notifyKeys.erase(sibling);
+    }
+    if (box && !box->closed)
+        box->enqueueRaw(type.c_str(), phpId.c_str(), GPUI_ARG_NIL, 0, 0, nullptr);
+}
+
+gpui::Listener MakeNotifyListener(int64_t arg, gpui::EntityId view) {
+    gpui::Listener l;
+    l.SetFn(&OnNotifyListener);
+    l.SetHasArg();
+    l.view = view;
+    l.arg = arg;
+    return l;
+}
+
+gpui::component::NotificationType NotifyTypeFor(const char* s) {
+    using T = gpui::component::NotificationType;
+    std::string v = s ? s : "";
+    if (v == "success") return T::Success;
+    if (v == "warning") return T::Warning;
+    if (v == "error") return T::Error;
+    return T::Info;  // 空与非法都回落 info，与 toast 的 level 同一套字面
+}
+
+gpui::Anchor NotifyAnchorFor(const char* s) {
+    using A = gpui::Anchor;
+    std::string v = s ? s : "";
+    if (v == "top_left") return A::TopLeft;
+    if (v == "top_center") return A::TopCenter;
+    if (v == "bottom_left") return A::BottomLeft;
+    if (v == "bottom_center") return A::BottomCenter;
+    if (v == "bottom_right") return A::BottomRight;
+    if (v == "left_center") return A::LeftCenter;
+    if (v == "right_center") return A::RightCenter;
+    return A::TopRight;  // gpui 自己的默认（notification.h:53）
 }
 
 void ensureApp() {
@@ -709,6 +820,26 @@ void gpui_shim_close(void* win) {
     box->watchCtx.clear();
     // 未读的应答：body 是我们自己拷的 std::string，随 map 一起走。
     box->httpResponses.clear();
+    // 通知层的 holder 与 webview 同理：ChildView 不接管生命周期，得自己 drop。
+    for (auto& kv : box->notifyLists) {
+        if (kv.second.holder.IsValid()) gpui::EntityDrop(g_app, kv.second.holder);
+    }
+    box->notifyLists.clear();
+    // 通知状态：先停它的 50ms 时钟（时钟是挂在窗口上的定时器，窗口没了它没意义），
+    // 再 drop 实体。顺序与 webview 一样放在 AppClose 之前。
+    if (box->notifyState.IsValid()) {
+        auto* st = gpui::Entity<gpui::component::NotificationListState>{
+                         box->notifyState}
+                         .Get(g_app);
+        if (st) gpui::component::NotificationStopAdvancing(st);
+        gpui::EntityDrop(g_app, box->notifyState);
+        box->notifyState = {};
+    }
+    // 注册表是进程全局的：把属于这个 box 的键收掉（通知本身随窗口层一起没了）。
+    for (auto it = g_notifyKeys.begin(); it != g_notifyKeys.end();) {
+        if (it->second.box == box) it = g_notifyKeys.erase(it);
+        else ++it;
+    }
     if (box->window) {
         gpui::AppClose(box->window);
         box->window = nullptr;  // AppClose 已撤窗口及其定时器；置空防后续误用
@@ -1388,6 +1519,93 @@ int gpui_shim_sys_refresh(GpuiSysInfo* out, GpuiProcess* procs, int procsCap,
         if (outProcCount) *outProcCount = n;
     }
     return 1;
+}
+
+// 通知状态 + 一个能喂给 gpui 通知函数的 Ctx（与 toast/dialog/sheet 同一套构造）。
+static gpui::component::NotificationListState* NotifyState(gpui::Ctx* cx,
+                                                            Box2* box) {
+    if (!box || !box->window) return nullptr;
+    *cx = overlayCtx(box);
+    gpui::Entity<gpui::component::NotificationListState> st =
+        EnsureNotifyState(box);
+    if (!st.id.IsValid()) return nullptr;
+    return st.Get(cx->app);
+}
+
+int gpui_shim_notify(void* win, const char* php_id, const char* title,
+                     const char* message, const char* type,
+                     const char* placement, int timeout_ms) {
+    auto* box = static_cast<Box2*>(win);
+    gpui::Ctx cx{};
+    gpui::component::NotificationListState* st = NotifyState(&cx, box);
+    if (!st) return 0;
+    gpui::component::Notification item = gpui::component::Notification::New();
+    // Notification 的字符串在 Push 之前是借用的，Push 时才克隆；桥传来的缓冲活到
+    // 本次调用结束，所以这里借用是安全的。
+    item.title = cstr(title);
+    item.message = cstr(message);
+    item.type = NotifyTypeFor(type);
+    item.hasPlacement = true;
+    item.placement = NotifyAnchorFor(placement);
+    item.autohide = timeout_ms > 0;
+    if (php_id && *php_id) {
+        const int64_t clickArg = g_nextNotifyKey++;
+        const int64_t closeArg = g_nextNotifyKey++;
+        g_notifyKeys[clickArg] = {box, php_id, "click", closeArg};
+        g_notifyKeys[closeArg] = {box, php_id, "close", clickArg};
+        item.onClick = MakeNotifyListener(clickArg, box->viewEntity);
+        item.onClose = MakeNotifyListener(closeArg, box->viewEntity);
+    }
+    return gpui::component::NotificationPush(st, &cx, item, timeout_ms);
+}
+
+int gpui_shim_notify_dismiss(void* win, int notify_id) {
+    auto* box = static_cast<Box2*>(win);
+    gpui::Ctx cx{};
+    gpui::component::NotificationListState* st = NotifyState(&cx, box);
+    if (!st || notify_id <= 0) return 0;
+    if (gpui::component::NotificationIndexOf(st, notify_id) < 0) return 0;
+    gpui::component::NotificationDismiss(st, &cx, notify_id);
+    return 1;
+}
+
+void gpui_shim_notify_clear(void* win) {
+    auto* box = static_cast<Box2*>(win);
+    gpui::Ctx cx{};
+    gpui::component::NotificationListState* st = NotifyState(&cx, box);
+    if (!st) return;
+    gpui::component::NotificationClear(st, &cx);
+}
+
+int gpui_shim_notify_count(void* win) {
+    auto* box = static_cast<Box2*>(win);
+    gpui::Ctx cx{};
+    gpui::component::NotificationListState* st = NotifyState(&cx, box);
+    return st ? st->items.len : 0;
+}
+
+uint32_t gpui_shim_notification_list(void* win, const char* id) {
+    auto* box = static_cast<Box2*>(win);
+    if (!box || !box->window || !g_runtime) return 0;
+    std::string key = (id && *id) ? id : std::string("__notifications");
+    Box2::NotifyEntry& e = box->notifyLists[key];
+    if (!e.holder.IsValid()) {
+        // payload 带着 box：Render 要拿它找这份窗口自己的通知状态。
+        e.holder = gpui::EntityNewRaw(
+            g_app, new NotificationListView{box},
+            (gpui::RenderFn)&NotificationListView::Render,
+            [](void* p) { delete static_cast<NotificationListView*>(p); });
+        e.token = g_runtime->RegisterHostView(e.holder, g_app);
+        if (e.token == 0) {
+            gpui::EntityDrop(g_app, e.holder);
+            e.holder = {};
+            return 0;
+        }
+    }
+    gpui::shell::Component c;
+    c.kind = gpui::shell::ComponentKind::ChildView;
+    c.handle = e.token;
+    return box->specs.Push(c);
 }
 
 int gpui_shim_webview_nav(void* win, const char* id, int dir) {

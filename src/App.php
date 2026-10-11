@@ -41,6 +41,12 @@ final class App
         'top_center', 'bottom_center', 'left_center', 'right_center',
     ];
 
+    /** 通知的类型，与 toast() 的 $level 同一套字面。 */
+    public const NOTICE_TYPES = ['info', 'success', 'warning', 'error'];
+
+    /** 通知堆叠的角落（gpui 的 Anchor，默认 top_right）。 */
+    public const NOTICE_PLACEMENTS = self::FPS_ANCHORS;
+
     // ── 生命周期 ──
 
     /**
@@ -457,6 +463,50 @@ final class App
     public static function sysInfo(int $topProcs = 0): array
     {
         return \gpui_sys_info($topProcs);
+    }
+
+    // ── 应用内通知中心 ──
+
+    /**
+     * 推一条应用内通知，返回它的 id（>0）；失败返回 0。
+     *
+     * 与 toast 的区别：通知有标题 + 正文 + 图标位、可堆叠成列表、可点、可被用户关掉，
+     * 位置和 maxItems 由这一层自己管。$placement 见 self::NOTICE_PLACEMENTS。
+     * $timeoutMs <= 0 表示不自动消失，得自己 dismissNotification()。
+     *
+     * $id 非空时，这条通知**被点**与**消失**分别送回 ['type'=>'click'|'close','id'=>$id]。
+     * 注意 close 是"已从列表移除"（到期或 dismiss 完成），不是"用户按了关闭按钮"。
+     * 在场时间是 400ms 入场 + $timeoutMs + 200ms 退场（动画由 50ms 墙钟计时器推），
+     * 所以 close 比 $timeoutMs 晚约 200ms 到。
+     *
+     * ⚠ 得先往树里放一颗 `El::notifications()`，否则通知照样 push 成功、只是看不见
+     * （状态在窗口层持有，画出来那一层要人挂——我们的窗口根是 ShellRoot，它只挂 Toast）。
+     */
+    public function notify(string $title, string $message = '', string $type = 'info',
+                           string $placement = 'top_right', int $timeoutMs = 5000,
+                           string $id = ''): int
+    {
+        self::oneOf('notify', $type, self::NOTICE_TYPES);
+        self::oneOf('notify', $placement, self::NOTICE_PLACEMENTS);
+        return (int) \gpui_notify($this->handle(), $id, $title, $message, $type,
+                                  $placement, $timeoutMs);
+    }
+
+    /** 关掉一条通知（开始它的退场）。原本没有这条 id 返回 false。 */
+    public function dismissNotification(int $notifyId): bool
+    {
+        return (bool) \gpui_dismiss_notification($this->handle(), $notifyId);
+    }
+
+    public function clearNotifications(): void
+    {
+        \gpui_clear_notifications($this->handle());
+    }
+
+    /** 当前条数（含正在退场的）。不代表"看得见"——没挂通知层时也有数。 */
+    public function notificationCount(): int
+    {
+        return (int) \gpui_notification_count($this->handle());
     }
 
     // ── 事件循环 ──

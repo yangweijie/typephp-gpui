@@ -97,6 +97,12 @@ namespace TypePHP\Gpui {
          */
         public static array $sysInfo = [];
 
+        /** @var array<int,array{window:int,title:string,message:string,type:string,placement:string,timeoutMs:int,phpId:string}> 已推的通知：通知 id → 内容 */
+        public static array $notifications = [];
+
+        /** 下一条通知的 id（0 保留为"没推成"，与真侧一致） */
+        public static int $nextNotifyId = 1;
+
         public static function reset(): void
         {
             self::$inputValues = [];
@@ -120,6 +126,8 @@ namespace TypePHP\Gpui {
             self::$nextWatchId = 1;
             self::$watches = [];
             self::$sysInfo = [];
+            self::$notifications = [];
+            self::$nextNotifyId = 1;
             self::$windows = [];
             self::$nextWindowId = 1;
             self::$eventQueue = [];
@@ -131,6 +139,29 @@ namespace TypePHP\Gpui {
         public static function pushEvent(int $windowId, string $type, string $id, mixed $value = null): void
         {
             self::$eventQueue[] = ['window' => $windowId, 'type' => $type, 'id' => $id, 'value' => $value];
+        }
+
+        /**
+         * 测试用：模拟"用户点了通知"或"通知消失"。真侧是 gpui 的 Listener 回调，
+         * 替身没有可点的卡片，所以由测试自己触发。$type 只认 click / close。
+         */
+        public static function fireNotification(int $notifyId, string $type): bool
+        {
+            if (!isset(self::$notifications[$notifyId])) {
+                return false;
+            }
+            if ($type !== 'click' && $type !== 'close') {
+                return false;
+            }
+            $n = self::$notifications[$notifyId];
+            if ($type === 'close') {
+                unset(self::$notifications[$notifyId]);
+            }
+            if ($n['phpId'] !== '') {
+                self::pushEvent($n['window'], $type, $n['phpId']);
+            }
+
+            return true;
         }
 
         /**
@@ -594,5 +625,42 @@ namespace {
         }
 
         return $info;
+    }
+
+    function gpui_notify(mixed $window, string $phpId, string $title, string $message,
+                         string $type, string $placement, int $timeoutMs): int
+    {
+        $notifyId = FakeBridge::$nextNotifyId++;
+        FakeBridge::$notifications[$notifyId] = [
+            'window' => (int) $window,
+            'title' => $title,
+            'message' => $message,
+            'type' => $type,
+            'placement' => $placement,
+            'timeoutMs' => $timeoutMs,
+            'phpId' => $phpId,
+        ];
+
+        return $notifyId;
+    }
+
+    function gpui_dismiss_notification(mixed $window, int $notifyId): bool
+    {
+        if (!isset(FakeBridge::$notifications[$notifyId])) {
+            return false;
+        }
+        unset(FakeBridge::$notifications[$notifyId]);
+
+        return true;
+    }
+
+    function gpui_clear_notifications(mixed $window): void
+    {
+        FakeBridge::$notifications = [];
+    }
+
+    function gpui_notification_count(mixed $window): int
+    {
+        return count(FakeBridge::$notifications);
     }
 }

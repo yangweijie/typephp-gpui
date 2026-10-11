@@ -170,3 +170,19 @@ function gpui_inflate(string $data, bool $gzip): array {}
  *  'diskUsed','ncpu','batteryPresent','batteryCharging','batteryPct','procs']。
  *  cpu 是两次采样之间的差值，第一次报 0。$topProcs>0 才带进程列表。 */
 function gpui_sys_info(int $topProcs): array {}
+
+/* ─────────────────────── 应用内通知中心 ─────────────────────── */
+
+/** 推一条通知，返回它的 id（>0）；失败 0。$phpId 非空时点击/消失各回一条事件。
+ *  $timeoutMs<=0 = 不自动消失，要自己 dismiss。 */
+function gpui_notify(mixed $window, string $phpId, string $title, string $message,
+                     string $type, string $placement, int $timeoutMs): int {}
+
+/** 关掉一条通知（开始退场）。命中返回 true。 */
+function gpui_dismiss_notification(mixed $window, int $notifyId): bool {}
+
+/** 全部开始退场。 */
+function gpui_clear_notifications(mixed $window): void {}
+
+/** 当前在列表里的通知条数（含正在退场的）。 */
+function gpui_notification_count(mixed $window): int {}

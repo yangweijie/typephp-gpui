@@ -70,8 +70,7 @@ test('sysInfo disk numbers are self-consistent and anchored on the real volume',
         ->toBeLessThan(0.001);
 });
 
-test('sysInfo honours scripted values and the topProcs cap', function (): void {
-    FakeBridge::$sysInfo = [
+test('sysInfo honours scripted values and the topProcs cap', function (): void {    FakeBridge::$sysInfo = [
         'cpu' => 42.5,
         'ncpu' => 10,
         'batteryPresent' => true,
@@ -320,4 +319,65 @@ test('inflate reads the containers PHP writes', function (): void {
     expect(App::inflate(gzencode($payload), true))->toBe($payload);
     expect(App::inflate('not a zlib stream'))->toBeNull();
     expect(App::inflate(gzcompress($payload), true))->toBeNull();
+});
+
+test('notifications stack, dismiss, and clear', function (): void {
+    $app = sysApp();
+    expect($app->notificationCount())->toBe(0);
+
+    $a = $app->notify('已保存', '3 个文件');
+    $b = $app->notify('磁盘将满', '', 'warning', 'bottom_left');
+    expect($a)->toBeGreaterThan(0)->and($b)->toBeGreaterThan($a);
+    expect($app->notificationCount())->toBe(2);
+
+    expect($app->dismissNotification($a))->toBeTrue();
+    expect($app->dismissNotification($a))->toBeFalse();
+    expect($app->notificationCount())->toBe(1);
+
+    $app->clearNotifications();
+    expect($app->notificationCount())->toBe(0);
+});
+
+test('notify rejects an unknown type or placement instead of guessing', function (): void {
+    $app = sysApp();
+    expect(fn () => $app->notify('t', '', 'urgent'))->toThrow(InvalidArgumentException::class);
+    expect(fn () => $app->notify('t', '', 'info', 'middle'))->toThrow(InvalidArgumentException::class);
+    expect($app->notificationCount())->toBe(0);
+});
+
+test('a dismissed notification reports close, not click', function (): void {
+    $app = sysApp();
+    $seen = [];
+    $app->on('saved', 'close', function () use (&$seen): void {
+        $seen[] = 'close';
+    });
+    $app->on('saved', 'click', function () use (&$seen): void {
+        $seen[] = 'click';
+    });
+
+    $nid = $app->notify('已保存', '', 'success', 'top_right', 5000, 'saved');
+    expect(FakeBridge::fireNotification($nid, 'click'))->toBeTrue();
+    $app->loop(1);
+    expect($seen)->toBe(['click']);
+
+    // close 的语义是"已从列表移除"：触发它的那条通知也就没了，不能重复 fire。
+    expect(FakeBridge::fireNotification($nid, 'close'))->toBeTrue();
+    $app->loop(1);
+    expect($seen)->toBe(['click', 'close']);
+    expect(FakeBridge::fireNotification($nid, 'close'))->toBeFalse();
+});
+
+test('a notification with no routing id fires no events', function (): void {
+    $app = sysApp();
+    $nid = $app->notify('无 id');
+    expect(FakeBridge::fireNotification($nid, 'click'))->toBeTrue();
+    expect(FakeBridge::$eventQueue)->toBe([]);
+});
+
+test('the notification layer is an explicit node in the tree', function (): void {
+    $n = El::notifications('notes')->toArray();
+
+    // App::notify() 不挂这层也能推成功（状态在窗口层），但看不见——所以这颗节点
+    // 是"看得见"的前提，必须能在树里出现。
+    expect($n['kind'])->toBe('notifications')->and($n['id'])->toBe('notes');
 });

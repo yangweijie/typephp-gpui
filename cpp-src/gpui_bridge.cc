@@ -205,6 +205,10 @@ uint32_t emitTree(void* win, Array node) {
     } else if (kind == "inspector") {
         // 同一条 ChildView 路：DevTools 面板作为元素挂进树（⌘I 只是拾取开关）。
         spec = gpui_shim_inspector(win, id.c_str());
+    } else if (kind == "notifications") {
+        // 通知层。gpui 的基座 Root 自己挂它，我们的根是 ShellRoot（只挂 Toast），
+        // 所以没这颗节点时 push 依然成功、只是看不见。
+        spec = gpui_shim_notification_list(win, id.c_str());
     } else if (registered) {
         // catalog 组件：kind 是导出名，ctorArgs 按声明顺序的扁平实参。
         std::deque<std::string> strPool;
@@ -793,4 +797,33 @@ Array php_gpui_webview_probe(Variant boxVar, String id) {
     out.set("w", Variant(w));
     out.set("h", Variant(h));
     return out;
+}
+
+// ── 应用内通知中心 ───────────────────────────────────────────────────────
+Int php_gpui_notify(Variant boxVar, String id, String title, String message,
+                    String type, String placement, Int timeoutMs) {
+    void* win = winOf(boxVar);
+    if (!win) return 0;
+    std::string i(id.data(), id.length());
+    std::string t(title.data(), title.length());
+    std::string m(message.data(), message.length());
+    std::string k(type.data(), type.length());
+    std::string p(placement.data(), placement.length());
+    return gpui_shim_notify(win, i.c_str(), t.c_str(), m.c_str(), k.c_str(),
+                            p.c_str(), (int)timeoutMs);
+}
+
+Bool php_gpui_dismiss_notification(Variant boxVar, Int notifyId) {
+    void* win = winOf(boxVar);
+    return win && gpui_shim_notify_dismiss(win, (int)notifyId) != 0;
+}
+
+void php_gpui_clear_notifications(Variant boxVar) {
+    void* win = winOf(boxVar);
+    if (win) gpui_shim_notify_clear(win);
+}
+
+Int php_gpui_notification_count(Variant boxVar) {
+    void* win = winOf(boxVar);
+    return win ? gpui_shim_notify_count(win) : 0;
 }

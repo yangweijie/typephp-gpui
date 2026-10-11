@@ -238,7 +238,48 @@ void testCapabilityGates() {
     CHECK(copyOut(nullptr, 8, gpui::Str("x")) == 0);
 }
 
-// 6b) copyBounded：二进制通道唯一的截断/长度语义，剪贴板图像与解压输出都靠它。
+// 6c) 通知的 type / placement 字符串映射。PHP 侧只保证传进来的是枚举成员，真正落到
+//     gpui 枚举的是这两个函数；映射错了像素基本看不出来（八个锚点里基线只拍得到两个，
+//     四种 type 只差一个图标，而图标本端口不画）。
+void testNotifyMapping() {
+    std::puts("notify type/anchor mapping");
+    using T = gpui::component::NotificationType;
+    CHECK(NotifyTypeFor("info") == T::Info);
+    CHECK(NotifyTypeFor("success") == T::Success);
+    CHECK(NotifyTypeFor("warning") == T::Warning);
+    CHECK(NotifyTypeFor("error") == T::Error);
+    // 不宽容大小写、不认空指针：全回落 Info（与 toast 的 level 同一套字面）。
+    CHECK(NotifyTypeFor("SUCCESS") == T::Info);
+    CHECK(NotifyTypeFor("") == T::Info);
+    CHECK(NotifyTypeFor(nullptr) == T::Info);
+
+    using A = gpui::Anchor;
+    CHECK(NotifyAnchorFor("top_left") == A::TopLeft);
+    CHECK(NotifyAnchorFor("top_center") == A::TopCenter);
+    CHECK(NotifyAnchorFor("top_right") == A::TopRight);
+    CHECK(NotifyAnchorFor("bottom_left") == A::BottomLeft);
+    CHECK(NotifyAnchorFor("bottom_center") == A::BottomCenter);
+    CHECK(NotifyAnchorFor("bottom_right") == A::BottomRight);
+    CHECK(NotifyAnchorFor("left_center") == A::LeftCenter);
+    CHECK(NotifyAnchorFor("right_center") == A::RightCenter);
+    CHECK(NotifyAnchorFor("middle") == A::TopRight);
+    CHECK(NotifyAnchorFor(nullptr) == A::TopRight);
+
+    // 八个锚点必须各占一个 group 槽：notification.cpp:825 按 (int)anchor 索引
+    // groups[8]，越界的那条会被静默丢掉（continue），所以枚举不能超出 0..7。
+    int seen[8] = {};
+    const char* all[8] = {"top_left",   "top_center",   "top_right",    "bottom_left",
+                          "bottom_center", "bottom_right", "left_center", "right_center"};
+    for (const char* n : all) {
+        int ix = (int)NotifyAnchorFor(n);
+        CHECK(ix >= 0 && ix < 8);
+        seen[ix]++;
+    }
+    for (int i = 0; i < 8; i++) CHECK(seen[i] == 1);
+}
+
+
+// 6d) copyBounded：二进制通道唯一的截断/长度语义，剪贴板图像与解压输出都靠它。
 //     真实长度必须与 cap 无关地报出来，否则调用方无法区分"就这么长"和"被截了"。
 void testCopyBounded() {
     std::puts("copyBounded");
@@ -349,6 +390,7 @@ int main() {
     testToComponentArg();
     testBuildComponentArgs();
     testCapabilityGates();
+    testNotifyMapping();
     testCopyBounded();
     testGapServices();
     if (g_failures) {

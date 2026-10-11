@@ -279,6 +279,34 @@ typedef struct {
 int gpui_shim_sys_refresh(GpuiSysInfo* out, GpuiProcess* procs, int procsCap,
                           int topProcs, int* outProcCount);
 
+/* ── 应用内通知中心 ──────────────────────────────────────────────────────
+ * gpui 的基座 Root 自己挂这一层（ui/root.cpp:62），但我们的窗口根是 ShellRoot
+ * （它只挂 Toast），所以列表要由 El::notifications() 经 ChildView 挂上——没挂上时
+ * push 依然成功（状态在窗口层持有），只是看不见，因此 count 不是"看得见"的判据。
+ *
+ * 与 Toast 的区别：通知可以带 title + 图标 + 位置、可堆叠成列表、可点、可被用户
+ * 关掉，且 maxItems/超时由这一层自己管。 */
+
+/* 推一条通知，返回它的 id（>0）；失败返回 0。
+ * type = info|success|warning|error（空或非法按 info）；
+ * placement = top_left|top_center|top_right|bottom_left|bottom_center|
+ *             bottom_right|left_center|right_center（空或非法按 top_right）；
+ * timeoutMs <= 0 = 不自动消失（gpui 的 autohide(false)），要自己 dismiss。
+ * phpId 非空时，这条通知**被点**与**消失**分别回
+ * {type:'click'|'close', id:phpId}——注意 close 是"已从列表移除"（到期或被关掉），
+ * 不是"用户按了关闭按钮"：关闭按钮走 dismiss，移除时同样触发这个回调。 */
+int gpui_shim_notify(void* win, const char* php_id, const char* title,
+                     const char* message, const char* type,
+                     const char* placement, int timeout_ms);
+/* 关掉一条（开始它的退场动画）。命中返回 1。 */
+int gpui_shim_notify_dismiss(void* win, int notify_id);
+/* 全部开始退场。 */
+void gpui_shim_notify_clear(void* win);
+/* 当前在列表里的条数（含正在退场的）。 */
+int gpui_shim_notify_count(void* win);
+/* 通知层的挂载节点：返回 ChildView 的 spec id，通常放在树的根之上、铺满窗口。 */
+uint32_t gpui_shim_notification_list(void* win, const char* id);
+
 /* 渲染一帧 = 重放一遍扁平 spec 指令序列。begin 清空 arena。 */
 void gpui_shim_render_begin(void* win);
 /* 压入一个组件节点，返回其 spec id；kind 是字符串（div/text/button/...）。

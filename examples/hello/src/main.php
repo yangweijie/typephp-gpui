@@ -32,7 +32,7 @@ function main(int $argc, array $argv): void
         return;
     }
 
-    $state = ['count' => 0, 'name' => '', 'vol' => 30, 'path' => '', 'clip' => ''];
+    $state = ['count' => 0, 'name' => '', 'vol' => 30, 'path' => '', 'clip' => '', 'note' => '', 'notes' => 0];
 
     $app = new App();
     $app->create();
@@ -51,11 +51,17 @@ function main(int $argc, array $argv): void
                 El::button('Reset')->id('reset')->onClick()->ghost(),
                 El::button('Open…')->id('pick')->onClick()->ghost(),
                 El::button('Clipboard')->id('clip')->onClick()->ghost(),
+                El::button('Notify')->id('note')->onClick()->ghost(),
             ])->gap(8.0)->itemsCenter(),
             El::text($state['path'] !== '' ? "Picked: {$state['path']}" : 'Open… 走原生对话框（无人值守自检里不测，见 runSelfTest 注释）')->font(12.0),
             // 剪贴板图像/文件通道的**人工**验收：截一张图（⌘⇧⌃3）或从 Finder 复制文件，
             // 再点 Clipboard——这里会报三种表示各有多少。自检只验到文本通道。
             El::text($state['clip'] !== '' ? "Clipboard: {$state['clip']}" : 'Clipboard 按钮读粘贴板的文本/图像/文件三种表示')->font(12.0),
+            // 通知的 click/close 只能人点：合成指针打不到浮层，自检里只打得通 close。
+            El::text($state['note'] !== '' ? "Notify: {$state['note']}" : 'Notify 按钮推一条应用内通知，点它看 click 事件')->font(12.0),
+            // 通知层本体。绝对定位盖住窗口，不参与上面的居中排布；卡片贴的是窗口边角，
+            // 不是这颗节点的盒子。ShellRoot 不替我们挂它，所以必须自己摆。
+            El::notifications('notes')->sizeFull()->absolute(),
         ])
             ->sizeFull()
             ->gap(8.0)
@@ -91,6 +97,26 @@ function main(int $argc, array $argv): void
         $parts[] = $item['image'] !== null ? 'image=' . strlen($item['image']) . 'B' : 'image=-';
         $parts[] = 'paths=' . count($item['paths']);
         $state['clip'] = implode(' ', $parts);
+    });
+    // 通知：带 id 才接线。click 这一侧机器验不了（合成指针打不到浮层），所以留在这里给人点。
+    $app->on('note', 'click', function () use ($app, &$state): void {
+        $state['notes']++;
+        $n = $app->notify(
+            '第 ' . $state['notes'] . ' 条',
+            '5 秒后自动退场；点卡片正文会回到这里',
+            'info',
+            'top_right',
+            5000,
+            'demo-note'
+        );
+        $state['note'] = 'pushed #' . $n . '，在场 ' . $app->notificationCount() . ' 条';
+    });
+    $app->on('demo-note', 'click', function () use ($app, &$state): void {
+        $state['note'] = '卡片被点了（click 事件回来了）';
+        $app->toast('你点了通知卡', 'App::notify 传了 id 才接得到');
+    });
+    $app->on('demo-note', 'close', function () use (&$state): void {
+        $state['note'] = '一张卡片退场了（close 事件回来了）';
     });
 
     $app->loop();
@@ -308,12 +334,31 @@ function runSelfTest(): void
         && (float) $sys2['cpu'] > 0.0
         && count($procs) > 0 && count($procs) <= 5 && $topNamed;
 
+    // 18) 应用内通知中心：推一条 → count 起来 → dismiss → 退场走完后 count 归零，
+    //     并且 onClose 作为 close 事件回到 PHP。退场由 gpui 自己的 50ms 时钟推进，
+    //     所以这一段要泵足够多帧。注意这里**没有**挂 El::notifications()：push/dismiss
+    //     与画不画无关（状态住在窗口层），"看得见"那一半归 tree32 的像素验收。
+    $notifEvents = [];
+    $app->on('saved', 'close', function () use (&$notifEvents): void {
+        $notifEvents[] = 'close';
+    });
+    $app->on('saved', 'click', function () use (&$notifEvents): void {
+        $notifEvents[] = 'click';
+    });
+    $nid = $app->notify('已保存', '3 个文件', 'success', 'top_right', 5000, 'saved');
+    $countPush = $app->notificationCount();
+    $notifDismissed = $nid > 0 && $app->dismissNotification($nid);
+    $app->loop(60);
+    $countAfter = $app->notificationCount();
+    $ok = $ok && $nid > 0 && $countPush === 1 && $notifDismissed
+        && $countAfter === 0 && $notifEvents === ['close'];
+
     echo $ok
-        ? sprintf(
-            "SELFTEST OK (input + click + timer hits=%d + dialog + registered-cb + err-channel"
+        ? sprintf("SELFTEST OK (input + click + timer hits=%d + dialog + registered-cb + err-channel"
             . " + appmenu + clipboard + urlgate + fps + sheet + webview %.0fx%.0f"
             . " + inflate + dirChange x%d + http ok=%s/%d + clipboard-item"
-            . " + sys cpu=%.1f%% mem=%.0f%% procs=%d)\n",
+            . " + sys cpu=%.1f%% mem=%.0f%% procs=%d"
+            . " + notify x%d→%d %s)\n",
             $timerHits,
             $probe['w'],
             $probe['h'],
@@ -322,9 +367,12 @@ function runSelfTest(): void
             $resp === null ? -1 : $resp['status'],
             (float) $sys2['cpu'],
             (float) $sys2['memPct'],
-            count($procs)
+            count($procs),
+            $countPush,
+            $countAfter,
+            implode(',', $notifEvents)
         )
-        : "SELFTEST FAIL (input='{$got}' fired=" . ($fired ? '1' : '0') . " clicks={$clicks} timer={$timerHits} dlg=$before/$opened/$during/$after ddcb=" . ($ddFired ? '1' : '0') . "/{$ddFires} err='$err' menu=$menuN/$menuCount clip='$clip' want='$payload' fps=$fps1/$fpsVis/$fps2/$fpsOff/$fpsAgain sheet=$sheetOpened/" . ($sheetDuring ? '1' : '0') . "/" . ($sheetClosed ? '1' : '0') . " wv=" . json_encode($probe) . " inf=" . var_export([$infZ, $infG, $infBad], true) . " watch=$watchId/$watchHits http=" . ($schemeRejected ? '1' : '0') . "/$queued/$httpHits/" . json_encode($resp) . " item=" . strlen($itemText) . "/" . strlen($itemImage) . "/" . count($item['paths']) . " sys=" . json_encode([$firstCpuZero, $noProcList, $sys1['ncpu'] ?? null, $sys1['memPct'] ?? null, $sys1['diskPct'] ?? null, $sys2['cpu'] ?? null, count($procs)]) . ")\n";
+        : "SELFTEST FAIL (input='{$got}' fired=" . ($fired ? '1' : '0') . " clicks={$clicks} timer={$timerHits} dlg=$before/$opened/$during/$after ddcb=" . ($ddFired ? '1' : '0') . "/{$ddFires} err='$err' menu=$menuN/$menuCount clip='$clip' want='$payload' fps=$fps1/$fpsVis/$fps2/$fpsOff/$fpsAgain sheet=$sheetOpened/" . ($sheetDuring ? '1' : '0') . "/" . ($sheetClosed ? '1' : '0') . " wv=" . json_encode($probe) . " inf=" . var_export([$infZ, $infG, $infBad], true) . " watch=$watchId/$watchHits http=" . ($schemeRejected ? '1' : '0') . "/$queued/$httpHits/" . json_encode($resp) . " item=" . strlen($itemText) . "/" . strlen($itemImage) . "/" . count($item['paths']) . " sys=" . json_encode([$firstCpuZero, $noProcList, $sys1['ncpu'] ?? null, $sys1['memPct'] ?? null, $sys1['diskPct'] ?? null, $sys2['cpu'] ?? null, count($procs)]) . " notify=" . $nid . "/" . $countPush . "/" . $countAfter . "/" . implode(',', $notifEvents) . ")\n";
     $app->close();
     exit($ok ? 0 : 1);
 }
@@ -554,6 +602,12 @@ function runShot(string $path, int $tree = 0): void
                 // DevTools 面板停靠在右边：⌘I 只开拾取模式，面板本体得这样摆。
                 El::inspector('devtools')->w(320.0),
             ])->sizeFull(),
+            32 => El::vFlex([
+                El::text('Notification host')->font(18.0)->semibold(),
+                // 通知层：gpui 的基座 Root 自己挂它，ShellRoot 不挂，所以要显式放一颗。
+                // 绝对定位是推荐摆法（不参与外层排布），这张图与 demo 用同一形状。
+                El::notifications('notes')->sizeFull()->absolute(),
+            ])->sizeFull(),
             default => El::vFlex([
                 El::text('Hello, World!')->font(20.0)->semibold(),
                 El::text('Clicked: 0 times — vol: 30')->font(14.0),
@@ -615,6 +669,17 @@ function runShot(string $path, int $tree = 0): void
         $app->toggleInspector();
         echo "inspector_panel_toggled=1\n";
         $app->loop(3);
+    }
+    if ($tree === 32) {
+        // 通知层挂上之后画不画得出来。timeout 用 0 = 不自动退场，免得拍到一半没了。
+        // 两条各占一角：同一角会叠成 collapsed stack（gpui 的设计——新的在前、旧的只
+        // 露一条边），分开才拍得出两张完整的卡，顺带验 placement 的 8 个锚点映射。
+        $app->notify('已保存', '3 个文件写好了', 'success', 'top_right', 0);
+        $app->notify('磁盘将满', '只剩 8 GB', 'warning', 'bottom_left', 0);
+        echo 'notify_count=' . $app->notificationCount() . "\n";
+        // 入场是动画：Starting 段的不透明度 = elapsedMs / 400（notification.cpp:948），
+        // 推它的是 50ms 墙钟计时器。只跑 3 帧等于拍在 0 上，所以要跑到动画走完。
+        $app->loop(80);
     }
     echo "--- debug tree (tree={$tree}) ---\n" . \gpui_debug_tree($app->handle()) . "\n---\n";
     $ok = $app->snapshot($path, 800, 600);

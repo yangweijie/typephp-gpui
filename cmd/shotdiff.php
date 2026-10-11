@@ -35,7 +35,8 @@ if (!is_file($bin)) {
 // 30 = WebView：它那块抓不到（跨进程表面），所以这张基线量的是"webview 没把布局搞塌"，
 //     控件本身的存在与盒子由 hello --selftest 第 12 步量。
 // 31 = Inspector 面板（El::inspector），gpui 自己画的，像素可验。
-$trees = [0, 10, 11, 12, 13, 14, 20, 21, 22, 23, 25, 26, 27, 28, 29, 30, 31];
+// 32 = 通知层（El::notifications + 两条不自动退场的通知）。
+$trees = [0, 10, 11, 12, 13, 14, 20, 21, 22, 23, 25, 26, 27, 28, 29, 30, 31, 32];
 $baselineDir = "$root/tests/baseline/$example";
 $tmpDir = sys_get_temp_dir() . "/gpui-shotdiff-$example";
 @mkdir($baselineDir, 0777, true);

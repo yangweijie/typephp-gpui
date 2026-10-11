@@ -201,6 +201,19 @@ class Element
         return $e;
     }
 
+    /**
+     * 通知层的挂载点。App::notify() 的状态住在窗口层，但**画出来**这一层得有人挂——
+     * gpui 的基座 Root 自己挂，我们的窗口根是 ShellRoot（只挂 Toast），所以要放这颗
+     * 节点。通常放在树的最外层并铺满窗口。
+     */
+    public static function notifications(string $id = ''): self
+    {
+        $e = new self();
+        $e->kind = 'notifications';
+        $e->id = $id;
+        return $e;
+    }
+
     public static function link(string $label, string $href = ''): self
     {
         $e = new self();
