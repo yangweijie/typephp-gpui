@@ -229,3 +229,21 @@ Dock 是 gpui-kit-cpp 最复杂的 shell 组件（materialize.cpp:1259-1374、25
 | MenuBar 不成盒 | `--shot tree=24` 报 `app effects require a root application snapshot` | 需 catalog `ComponentWindowOpener` 的 root-app |
 
 **优先级**：P0=内存/错误回传 + 可复现构建（git/钉库/去绝对路径/一键 bootstrap）；P1=C++ 测试 + --shot 基线 diff + CI + 静态分析；P2=MenuBar root-app、A 类 VirtualList/Dock、kind 覆盖、rm()/cb() 抽象泄漏、文档/示例。详见 task_plan.md「Phase 7」。
+
+## MenuBar / AppEffects 架构调查（2026-10-11，P2-2）
+
+结论：**MenuBar 与 Dock/VirtualList 同属"需要 ScriptView root-application 机制"这一类，与我们为 Dialog/Toast 选的 ShellRoot 根模型冲突**。证据链：
+
+1. `MaterializeRequest::AppEffects`（runtime.cpp:13250）→ `runtime->ScriptViewApplication(cx->self, cx->app)`。
+2. `ScriptViewApplication`（13285）遍历 `impl->views[]` 找 `view==cx->self` 的项，再 `EntityGet(app,view)` 取 **ScriptView**，要求 `script->object->runtime==this`，返回 `object->application`（或 object）。→ 我们的 `cx->self=shellRoot` 是 ShellRoot 实体、且 PhpView 从没进 `impl->views`，故返回 null → 报 "require a root application snapshot"。
+3. 即便塞个合成 application 也不够：`ScheduleComponentAppEffect`（13338）把延迟效果 `WindowPost(window, ListenTo(owner=ScriptView{view}, &ScriptView::OnComponentAppEffect, token))`——**硬编码把 view 当 ScriptView 解引用**，shellRoot 会崩。
+4. catalog 的 `OpenWindowWithRoot`（lib.cpp，经 `registry.WithWindowOpener` 注册；`ShellOpenWindow` host.cpp:65 会用它）用**基座 `Root::New`**（base/root.cpp）作 window->root——这才是 AppEffects 认的 root-application。**但我们早先弃用 KitOpenWindow 正是因为基座 Root 包装会让 `ShellRootOf` 失败 → Dialog/Toast 挂**（见 Stage 5 记录）。
+
+即：Dialog/Toast 要 ShellRoot；MenuBar/AppEffects 要基座 Root（或真 ScriptView 根）。二者当前互斥。
+
+可选路径（都非小改）：
+- **A 重做窗口根模型**：走 catalog opener（基座 Root），再想办法让 Dialog/Toast overlay 在基座 Root 下也能定位（可能要把 ShellRoot 挂成 Root 的 inner content，并让 ShellRootOf 能穿透——需验证）。高影响面，威胁现有 6 项绿门禁。
+- **D 给 AppEffects 加 shim 旁路**：`RegisterShimRootApp(view,token)` + `ScriptViewApplication` 认它 + 改 `ScheduleComponentAppEffect` 对 shim 根走同步/自有 pump 应用（绕开 ScriptView::OnComponentAppEffect 的 post）。中-高复杂、碰延迟效果调度核心。
+- **C 让 MenuBar 用非 AppEffects 的替代**：menu.cpp 是上游编译进 gpui.o 的，改不了其 materialize；除非换用别的可渲染菜单组件（如把 Menu 挂到 DropdownMenu 触发器——但 DropdownMenu 已覆盖交互菜单场景）。
+
+判断：为**一个原生菜单栏组件**去动窗口根/延迟效果调度，blast radius 大、且可能回归 Dialog/Toast/selftest/shotdiff。倾向：要么接受 A/D 的风险明确开工（需你点头），要么把 MenuBar 归入"需 root-app"已知限制、先推进 P2-4（rm()/cb() 抽象，低风险）与 P2-1（VitePress）。
