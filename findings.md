@@ -247,3 +247,14 @@ Dock 是 gpui-kit-cpp 最复杂的 shell 组件（materialize.cpp:1259-1374、25
 - **C 让 MenuBar 用非 AppEffects 的替代**：menu.cpp 是上游编译进 gpui.o 的，改不了其 materialize；除非换用别的可渲染菜单组件（如把 Menu 挂到 DropdownMenu 触发器——但 DropdownMenu 已覆盖交互菜单场景）。
 
 判断：为**一个原生菜单栏组件**去动窗口根/延迟效果调度，blast radius 大、且可能回归 Dialog/Toast/selftest/shotdiff。倾向：要么接受 A/D 的风险明确开工（需你点头），要么把 MenuBar 归入"需 root-app"已知限制、先推进 P2-4（rm()/cb() 抽象，低风险）与 P2-1（VitePress）。
+
+## VirtualList-0 重入探针结论（2026-10-11，架构分析判定，未写探针代码）
+
+**gpui 渲染期 `BuildWith`（需同步返回 `El*`）无法回调进 PHP 闭包。** 两条硬约束：
+
+1. **模型不重入**：本框架所有回调都是「C++ 入队 → PHP 主循环 pull 后 dispatch」——`App::dispatch()` 在 PHP 侧调 `$handler($value)`（handlers 存 `App::$handlers`）。C++ 从不、也无法在 gpui materialize 期间同步调回 PHP 函数栈。
+2. **防火墙隔离**：phpx（bridge，c++17）与 gpui（shim，c++20）之间只走纯 C ABI。PHP 闭包是 zval/编译后运行时对象，**无法跨 C ABI 边界**表示或调用。materialize 在 shim 里跑，那里没有 phpx 可调 PHP。
+
+⇒ **VirtualList 真·懒委托（gpui 拉行、行内容由 PHP 现生成）不可行**。可行路径是 **PHP 窗口化**：gpui 发一个带 scrollTop 的滚动事件（数字，可跨 C ABI）→ PHP 每帧只渲可见行窗口 → 下一帧生效。符合 enqueue/pull 模型、可 `--shot` 验证。代价：非 gpui 主动拉行，是 PHP 推窗口；需补一条 scroll-offset→PHP 的事件通道（小机制，非重入）。
+
+MenuBar 侧：catalog MenuBar 仍被 root-app 挡；已用 `BaseSetAppMenus` 走通**安装**（MenuBar-1，selftest appMenuCount 证）。动作→PHP（MenuBar-2）需每帧在根元素绑 `ActionCallback` op（name=action, callback=shim rtCb）→ WindowDispatchAction 冒泡到根 → DispatchArgs 基石旁路。可行但耦合渲染树，ROI 低（系统菜单栏不可视验证）。
