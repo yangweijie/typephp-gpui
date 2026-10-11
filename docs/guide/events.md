@@ -116,6 +116,30 @@ $app->notify('已保存', '3 个文件写好了', 'success', 'top_right', 5000, 
   消失，所以 `click` 之后两个键都留着；只有 `close` 会把这一对一起摘掉——注册表的大小
   只跟活通知成正比。
 
+## 7. 窗口外的事件（`tray` / `hotkey`）
+
+这两条来自窗口之外：菜单栏里的托盘项、系统级的全局快捷键。它们照样走同一条入队/`poll`
+通道，所以 PHP 侧的写法与别的事件没有区别。
+
+```php
+$app->tray(['显示窗口', '退出'], 'tray-main', '示例应用');
+$app->on('tray-main', 'tray', function (array $e): void {
+    // $e['value'] 是被点的菜单项文字；没挂菜单的托盘项 value 为 null
+});
+
+$app->onHotkey('focus', 105, ['cmd', 'shift']);   // F13
+$app->on('focus', 'hotkey', function (): void { /* … */ });
+```
+
+三条约定：
+
+- **挂了菜单，点击就被 `NSMenu` 吃掉**；想让"点图标本身"成为事件，就把 `$labels` 传空数组。
+- **快捷键的 mods 用名字**（`cmd`/`shift`/`option`/`control`），位或是 `App::onHotkey` 里算的。
+  写错名字直接抛异常，不会静默变成"注册了一个不响的键"。
+- **`hotkey` 能被合成、`tray` 不能。** `App::fireHotkeyForTest($i)` 是自检用的接缝，它验
+  派发链；系统级"在别的 app 有焦点时仍然响"只能人按。`tray` 连这条接缝都没有（要真点菜单），
+  所以它只有 existence-green。
+
 ## 生命周期与幂等
 
 - 回调按 `(elementId, type)` **幂等复用**：每帧重建同结构不增长（live app 友好）。

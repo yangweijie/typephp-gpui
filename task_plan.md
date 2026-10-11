@@ -11,6 +11,9 @@ WebView、Inspector 面板、http/dirChange/inflate、`App::sysInfo()`、应用�
 剩余：**Phase 9 mac 系统集成**（托盘/全局快捷键/OS 通知/Dock 角标，自写 `.mm`，不引外部库）、
 `FsRun/ProcessRunBounded/Storage`（受 `Capabilities` 读写根授权模型约束，要单独一轮设计）、
 以及 root-app epic 那面墙（catalog MenuBar / VirtualList / Dock 的同步取值，防火墙不可达）。
+Phase 9（三个真 bug）/ Phase 10（mac 集成）/ Phase 11（Capabilities 三服务）于
+2026-10-11 全部完成，六道门禁全绿（Pest 65/296 · PHPStan 0 · shim_test 10 组 ·
+selftest 21 链路 · shotdiff 18 树 · doctor 7 marker）。
 "缺失"清单已收敛到真缺失：Linux/Windows 的托盘与 OS 通知（端口里是桩或空实现）。
 
 ## Phases
@@ -120,10 +123,65 @@ WebView、Inspector 面板、http/dirChange/inflate、`App::sysInfo()`、应用�
 - [x] **Wave2-D 被砍**：`sha256/secureRandom/deflate` 不桥——`hello --caps` 让编译产物自己回答有哪些原生函数，产物里 `hash()/hash_hmac()/random_bytes()/random_int()` 都在，桥过来是净负价值。
 - **Status:** complete（门禁：Pest 56/237 · PHPStan 0 · shim_test 8 组 · selftest 18 链路 · shotdiff 18 树 · doctor 7 marker）
 
-### Phase 9: Wave 3 — 自写 mac 系统集成（未开工）
-- [ ] `cpp-src/gpui_mac.mm`（同一条 `clang++ -x objective-c++ -fobjc-arc` 编、进 `libgpui_shim.a` 归档，全文件 `#ifdef __APPLE__`）：托盘 `NSStatusItem`（菜单数组直接复用 `GpuiMenu/GpuiMenuItem`）、全局快捷键 Carbon `RegisterEventHotKey`（不选 `CGEventTap`：要 Input Monitoring 授权弹窗）、OS 通知 `NSUserNotification`、Dock 角标 `NSDockTile`。Cocoa/Carbon 已在链接表里 ⇒ **不需要外部库**。
-- [ ] 手工清单（窗口外能力机器看不见）：`*_count()` 只到 existence-green，不能证明屏幕上真有图标。
-- [ ] `FsRun/ProcessRunBounded/Storage`：受 `Capabilities` 读写根授权模型约束（`ResolvePath` 要先配 root）+ 进程调用阻塞 ⇒ 单独一轮设计。
+### Phase 9: 已交付面上的三个真 bug（P0）— ✅ 2026-10-11 完成
+> 图标"不画"不是端口缺口——查出来是我们自己的两处缺陷，且第二处是内存安全级的。详见
+> findings「图标不是端口缺口」。一条外部调查结论（说字体从未落地）已逐条核对后作废。
+
+- [x] **`cppStr(const char*)` 造出悬垂 `Str`**：`cppStr` 只收 `const std::string&`，用 `const char*`
+  调它会隐式构造临时 `std::string`，SSO 的短串就死在语句末尾。站点：窗口标题(763)、
+  input placeholder/value(912/913)、`InputSetValue`(967)、toast title/description(1068/1069)。
+  tree13 的 toast 显示 `"succe"` 而不是 `"Saved"` 就是它（`{死栈槽, len=5}` 被后面的
+  `"success"` 临时对象复用）。**修法**：加 `cppStr(const char*)` 重载转调 `cstr`，一处覆盖全部。
+- [x] **`gpui_shim_notify` 漏 `hasType`**：`notification.cpp:982` 的门是 `if (item.hasType)`，
+  我们只写了 `item.type` ⇒ 通知卡片永远没有类型图标。一行（`WithType()` 或补 `hasType = true`）。
+- [x] **`El::icon()` 的静默空画**：`AssetIconForPath`（`svg.cpp:1377-1393`）要求字面
+  `icons/<base>.svg` 且 base 必须在 111 个编译表里，否则 `nullptr` ⇒ 什么都不画、**没有错误通道**
+  （上游 `port-status.md:269-270` 承诺的 `DrawIcon` 兜底在 `src/` 里不存在）。我们的 demo tree21
+  正踩在这上面：`El::icon('icons/home.svg')` 形状对但 `home` 不在表里（`grep -c '"home"'
+  asset_icons.cpp` = 0），基线已经把它录成"那里是白的"。修法：tree21 换成 `icons/square-terminal.svg`
+  / `icons/settings-2.svg`（重录后应出图）+ 在 `Element::icon()` 侧把可用名字白名单化或写明契约，
+  别让下一个人名对了形状、名错了。
+- [x] **探针（写码前钉死图标链路）**：`shim_test.cpp` 里 `AssetIconFind("circle-check")` /
+  `AssetIconForPath("icons/circle-check.svg")` 断言非空且 `len>0`（纯查表，headless 可跑）。
+  渲染那一半靠像素：修完重录 **tree32**（应出现绿勾/警告三角）、**tree13**（toast 应显示
+  "Saved" + 描述）、**tree21**（应出现两个图标）。图标数据实测已编进二进制：`asset_icons.cpp`，
+  111 个、`kAssetIconsDataLen=33038`。
+
+### Phase 10: Wave 3 — 自写 mac 系统集成 — ✅ 2026-10-11 完成
+- [x] **探针 A：Carbon 快捷键在我们的泵下派不派发**。泵是 `GpuiAppRunStep` →
+  `[NSApp nextEventMatchingMask:... dequeue:YES]`（`window_mac.cpp:2309-2320`），没有
+  `RunCurrentEventLoop`。不派发就在 `gpui_shim_pump`（我们自己的调用点）里先
+  `ReceiveNextEvent(...kEventDurationNoWait...)` + `DispatchEvent` 自泵一手。handler 与泵
+  同在主线程 ⇒ 入队不需要锁。
+- [x] **探针 B：OS 通知要 bundle 身份**。产物是裸 Mach-O（无 `.app`、无 bundle id），
+  `NSUserNotification` 通常被静默丢弃 ⇒ 要么先做打包，要么退到 `osascript display notification`。
+- [x] `cpp-src/gpui_mac.mm`（同一条 `clang++ -x objective-c++ -fobjc-arc` 编、进 `libgpui_shim.a`
+  归档，全文件 `#ifdef __APPLE__`）：**托盘 `NSStatusItem`**（菜单数组直接复用
+  `GpuiMenu/GpuiMenuItem`）与 **Dock 角标 `NSDockTile`** 不吃探针 B 的约束，可先做；全局快捷键
+  用 Carbon `RegisterEventHotKey`（不选 `CGEventTap`：要 Input Monitoring 授权弹窗）。
+  Cocoa/Carbon/CoreServices 实测已在二进制的链接表里 ⇒ **不需要外部库**。
+- [x] 手工清单（窗口外能力机器看不见）：`*_count()` 只到 existence-green，不能证明屏幕上真有图标。
+
+### Phase 11: Capabilities 授权的文件 / 进程 / 存储 — ✅ 2026-10-11 完成
+- [x] shim 里放**一份进程级 `Capabilities`**：`AddReadRoot` / `AddWriteRoot` /
+  `SetExecute(ExecuteGrant)` / `Storage(bool)`；PHP 启动时 `App::grantRoot($dir, 'rw')` 声明。
+- [x] `App::fsRead/fsWrite/fsList/fsExists/mkdir/remove`：`ResolvePath(path, access, &out, &err)`
+  → `FsRun(op, out.root, out.relative, ...)`。`FsRun` 自己不看授权表，root+relative 由调用方给
+  （`filesystem.h:41`）；POSIX 侧是真实现（`openat` + `O_NOFOLLOW` + `O_DIRECTORY` 逐级保权遍历，
+  `filesystem_posix.cpp:49-66`）。
+- [x] `App::processRun`：`ProcessRunBounded` 阻塞 ⇒ 要么只在事件回调里调（同 `promptForPath` 的
+  约束），要么走 `ProcessCancellation` + 工作线程；命令白名单由 `ExecuteGrant::Allows` 判。
+- [x] `App::storage*`：`BeginWrite/AbortWrite/StoragePersist` 是状态机 + `ShellSetStoragePath` 前置。
+- [x] 跨边界截断语义：`kFsMaxReadBytes=64MB` / `kFsMaxWriteBytes=8MB` / 目录项 10000 ⇒ 大缓冲
+  必须走 `copyBounded` 那套"真实长度与 cap 无关"的契约，否则调用方分不清"就这么长"和"被截了"。
+- 符号实测全为 `T`：`FsRun` / `ProcessRunBounded` / `StoragePersist` / `ResolvePath` / `AddReadRoot`。
+- **交付时踩到的三处契约意外**（都写进了不变量）：① `ResolvePath` 按 access **只查对应那张表**，
+  写根不含读权限 ⇒ `grantRoot(dir, writable=true)` 现在两张表都加；② `FsRun(RemoveDirectory)`
+  就是 `unlinkat(AT_REMOVEDIR)`，非空目录失败，`recursive` 只对 `MakeDirectory` 生效 ⇒
+  递归删是 shim 里补的一趟授权遍历；③ 桥侧 `ErrText()` 先清缓冲再返回，把失败原因擦成了空串。
+- **验收**：selftest #20/#21（gpui 写的 PHP 读得到、反之亦然、含 `\0` 二进制；未授予路径被拒
+  且原因含"根"；`/bin/echo` 通、`/bin/cat` 被拒且原因含"白名单"；存储授权门前后的形状）
+  + `shim_test.cpp::testCapabilityServices()` 在 headless 里真跑同一套。
 
 ## Key Questions
 1. gpui-kit-cpp 的 Arena 内存模型如何在 TypePHP 中表达？TypePHP 支持 `std::any()` 和 Box 类型，但 Arena 分配需要 C++ 侧管理——桥接层负责 arena 生命周期，PHP 侧只持有 EntityId/handle。
@@ -163,6 +221,13 @@ WebView、Inspector 面板、http/dirChange/inflate、`App::sysInfo()`、应用�
 | `gpui::NotificationPush` 等找不到符号 | 按头文件的 `namespace component` 之外的直觉写 | 全套在 `gpui::component::`（4 处）。`Array::exists("key")` 也不存在（只按下标找）→ bridge 里改局部变量、键只 set 一次。 |
 | webview 建失败的回滚里 `delete view` | 照抄"drop 完再 delete" | `EntityNewRaw` 的 deleter 已经 `delete` 了 payload ⇒ double-free（dialog 那次 SIGABRT 的同一课）。drop holder 之后**不再** delete payload。 |
 | Pest 报 `Call to undefined function toBe()` | 断言里写成 `).toBe(`（少了 `>`，变成字符串拼接） | 与上一轮 `.font(` 同一类 typo；`php -l` 不报（语法合法）。改回 `)->toBe(`。另：Pest 5.3 无 `toBeAround()`（写 `abs(a-b) < eps`），且不吃 `@` 抑制（要先校验输入再调会告警的函数）。 |
+| toast 基线显示 `"succe"` 而不是 `"Saved"`（tree13，长期被当成"图标没画"的旁证） | 归因给"端口图标字形未落地" | 真因是 `cppStr(const char*)` 造出的**悬垂 `Str`**：临时 `std::string` 的 SSO 内联缓冲在语句末析构，`{死栈槽, len=5}` 后来被 `"success"` 的临时对象复用 ⇒ 按 5 字节读出 `"succe"`。**一个错归因会把两行修复变成一轮上游改造。** |
+| selftest `fs=false svc=false`，但 `fsError()` 回的是**空串** | 先怀疑 shim 没写错误 | 桥侧 `ErrText(buf, cap)` 写的是"先 `buf[0]='\0'` 再 `return std::string(buf)`"——把 shim 刚写进来的原因擦掉了。改成声明处 `char err[N] = {};`、返回处只读。 |
+| `grantRoot(dir, writable=true)` 之后 `fsRead` 仍被拒 | 以为写根蕴含读权限 | `Capabilities::ResolvePath` 按 access **只查对应那张表**（capability.cpp:471-472）。现在 `writable=true` 两张表都加，并在注释里写清为什么。 |
+| `fsRemove(dir, recursive=true)` 删不掉非空目录 | 以为 gpui 支持递归删 | `FsRun(RemoveDirectory)` 是 `unlinkat(AT_REMOVEDIR)`，`recursive` 只对 `MakeDirectory` 生效（`filesystem_posix.cpp:359-371`）。递归删在 shim 里用"列目录→逐个删→删自己"补，仍只走授权遍历。 |
+| tpc 编译报 `non-const lvalue reference ... cannot bind to a temporary` + `no member named 'second'` | 用 `for (auto& kv : array)` 遍历 `php::Array` | phpx 的迭代器给的是 `ArrayKeyValue`（不是 pair）。改用既有索引写法：`for (size_t i=0; i<(size_t)a.count(); i++) strOf(a.get((int)i))`。 |
+| Pest 报 `unlink(.../sub): Operation not permitted` 警告 | 测试收尾用 `glob("$dir/*")` 全 unlink | glob 也会给出目录。收尾改成显式 unlink 文件 + rmdir 目录。**测试自己的清理代码也会污染门禁输出。** |
+| 一条外部调查（Explore agent）给出带 file:line 的"图标字体从未落地"结论 | 直接采信并按它排波次 | 逐条核对：它引用的 `src/base/icon_font.cpp`、`assets/iconfont.ttf` **在本仓库不存在**（`ls` ENOENT），`WindowLoadIconFont` 也搜不到 ⇒ 报告整体作废。自己查出来的事实相反：111 个图标已编进 `asset_icons.cpp`，mac 走 `SvgDraw`。**agent 的引用必须自己跑一遍命令再信。** |
 
 ## Notes
 - gpui-kit-cpp 的 component_shell 层已经实现了 QuickJS 脚本绑定（ScriptView/ShellRuntime/RenderSnapshot/SpecNode），这是最接近"用脚本语言描述 UI"的先例。TypePHP 桥接可以参考 SpecNode/ComponentKind 的设计，把 PHP 数组翻译成 SpecNode 再 ShellMaterialize 成 El 树。

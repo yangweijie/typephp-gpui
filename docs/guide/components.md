@@ -99,9 +99,15 @@ $el::cb('click', 'routeId')           // 回调实参标记（DropdownMenu.item 
   的 OS 控件：它挡住元素树里排在它后面的东西、不随容器滚动、没有圆角，所以要给它自己的一块
   盒子。通知层反过来：它自己就是绝对定位的浮层，给它的那颗 `El::notifications()` 摆在哪、
   多大都不影响卡片位置（卡片按 `placement` 贴窗口边角），但**必须摆一颗**才画得出来——
-  ShellRoot 不挂它，见[系统能力](/guide/system-capabilities#四条硬约束)。推荐摆法
+  ShellRoot 不挂它，见[系统能力](/guide/system-capabilities#六条硬约束)。推荐摆法
   `El::notifications('notes')->sizeFull()->absolute()`（tree32 基线与交互 demo 用的就是这一形状）。
 - **Alert / Icon / SidebarMenuItem**：拒 children / 无样式——工厂里别 `->child()`。
+- **`El::icon($path)` 的名字错了不报错**：`AssetIconForPath` 要字面 `icons/<base>.svg`
+  且 base 必须在编译进去的 111 个表里，任一条不满足就返回空，渲染侧对空是**静默什么都不画**。
+  PHP 侧现在挡形状（`icons/…\.svg`），base 在不在表里挡不住——`tests/cpp/shim_test.cpp`
+  的查表探针钉住这一层。另注意 `navIcon('home')` 那五个名字是上游另一套**逻辑名**
+  （映射到 SquareTerminal/LayoutDashboard/Settings2/BookOpen/User），与 `icons/x.svg`
+  的 base 不是一个命名空间。
 
 ## 下一步
 

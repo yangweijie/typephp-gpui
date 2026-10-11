@@ -66,6 +66,20 @@ gpui.h 用了 C++20 的 `concept` / `requires`，而 TypePHP **nano 模式强制
   `delete`，再删就是 double-free（dialog 那次 SIGABRT 的同一课）。
 - **`gpui::WebView` 自己不是 view**：`webview.cpp:95` 用 `EntityNewState` 建它，没有 Render。
   要挂进树必须有一层自己的 wrapper view 去返回 `WebViewEl(...)`。
+- **helper 收 `const std::string&` 就不能用 `const char*` 调**：`cppStr(title ? title : "")`
+  会隐式造临时 `std::string`，libc++ 的 SSO 把短串放在临时对象内联缓冲里，语句结束即析构，
+  返回的 `gpui::Str` 悬垂。tree13 的 toast 把 `"Saved"` 画成 `"succe"` 就是它（长度取
+  `"Saved"` 的 5，字节是后一个临时对象复用同一栈槽留下的 `"success"` 前缀）。现在有
+  `cppStr(const char*)` 重载把这类调用全部接住——**加新 helper 时先问"char* 会不会造临时"**。
+- **出参缓冲的清零顺序**：桥侧 `ErrText(buf, cap)` 早先写的是"先 `buf[0]='\0'` 再
+  `return std::string(buf)`"，等于把 shim 刚写进来的失败原因擦掉再返回空串。声明处初始化
+  （`char err[256] = {};`），返回处只读。
+- **scratch 只活到下一次调用**：`gpui_shim_out()` 给的是 shim 内部 `std::string` 的指针，
+  桥必须在同一个调用栈里拷成 `php::String`。列目录的名字先建完 `vector<string>` 再回
+  `c_str()`，边 push 边给指针会在扩容时悬垂。
+- **mac 集成的 owner 指针要随窗口撤销**：`gpui_mac.mm` 不 include gpui.h，注册时把
+  `Box2*` 作为 owner 交出去、回调时原样带回。所以 `gpui_shim_close` 必须
+  `gpui_mac_release_owner(box)`，否则托盘项/快捷键会在窗口销毁后回调进野指针。
 - **通知状态归窗口，不归 `WindowNotifications`**：`WindowNotifications(cx)` 读的是基座 `Root`
   的 `WindowLayers`，在 ShellRoot 下直接 SIGABRT。所以 `EnsureNotifyState` 按窗口持有一份
   `NotificationListState` entity，并且**必须**填 `self`（否则 `NotificationStartAdvancing`

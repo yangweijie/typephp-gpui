@@ -8,7 +8,7 @@
 | 1 | Pest | `composer test` | PHP 声明层：Element 序列化、App 路由、FakeBridge | 否 |
 | 2 | PHPStan | `composer analyse` | `src/` 类型/静态（level 5） | 否 |
 | 3 | C++ shim_test | `composer test:cpp` | shim 纯函数：kindFromString / AStr arena 拷贝 / toComponentArg schema / buildComponentArgs | 是（gpui.o） |
-| 4 | selftest | `php bin/gpui selftest hello` | 18 链路端到端：输入取值 / 点击 / 定时器 / dialog / catalog 回调 / 错误回传 / app 菜单 / 剪贴板 / url 白名单 / HUD / Sheet / WebView / 解压 / dirChange / http / 剪贴板完整一项 / 系统状态 / 通知中心 | 是（二进制） |
+| 4 | selftest | `php bin/gpui selftest hello` | 21 链路端到端：输入取值 / 点击 / 定时器 / dialog / catalog 回调 / 错误回传 / app 菜单 / 剪贴板 / url 白名单 / HUD / Sheet / WebView / 解压 / dirChange / http / 剪贴板完整一项 / 系统状态 / 通知中心 / mac 集成 / 授权文件系统 / 进程与存储 | 是（二进制） |
 | 5 | shotdiff | `php bin/gpui shotdiff check hello` | 视觉回归：逐树像素比对基线（18 棵） | 是（二进制） |
 | 6 | doctor | `php bin/gpui doctor` | 工具链 + 7 补丁 marker 校验 | 部分 |
 
@@ -31,7 +31,7 @@ headless、不开窗口，故任意环境可跑。`cmd/test-shim.sh` 两步编�
 
 ## selftest（原生二进制）
 
-`hello --selftest` 跑真实编译产物，验证跨边界事件链。退出码 0 = 通过。十八步：
+`hello --selftest` 跑真实编译产物，验证跨边界事件链。退出码 0 = 通过。二十一步：
 1. 输入取值回环（setInput → InputSetValue → InputValue）
 2. 点击事件全链路（合成 fire → gpuiEnqueueClick → boxForView → 队列 → poll → dispatch）
 3. 定时器 tick
@@ -76,6 +76,18 @@ headless、不开窗口，故任意环境可跑。`cmd/test-shim.sh` 两步编�
     **`click` 不在自检里**：合成指针打不到浮层里那张卡，所以它只有两条路——静态核对
     listener 接线（`OnItemClick` → `items[at].onClick`）与交互 demo 的 `Notify` 按钮
     （点卡片正文，状态行会报"卡片被点了"）。
+19. mac 系统集成：托盘挂上→计数 1→撤掉→计数 0；注册一条 `cmd+shift+F13`，然后
+    `fireHotkeyForTest(0)` **合成**一条 Carbon 事件，PHP 必须收到 `hotkey`。
+    这一步顺手答掉了 Phase 10 的探针 A：我们的泵只有 `nextEventMatchingMask:`，
+    所以 `gpui_shim_pump` 里自己排空 Carbon 队列（`ReceiveNextEvent` +
+    `SendEventToEventTarget`）——合成事件能走完派发链，说明这条路是通的。
+    **它不证明系统级全局捕获**，那一条在手工清单里。
+20. 授权文件系统：`grantRoot('/tmp', true)` → `fsMkdir` → `fsWrite` → 用 PHP 自己的
+    `file_get_contents` 读回来（gpui 写的 PHP 要看得见），再反向：PHP 写、`fsRead` 读
+    （含 `\0` 的二进制要原样穿过）。未授予的 `/etc/hosts` 必须返回 null 且
+    `fsError()` 说得出"根"。最后 `fsRemove(dir, recursive)` 把整棵树带走。
+21. 进程与存储：白名单里的 `/bin/echo` 跑通并带回 stdout；`/bin/cat` 被拒且原因含
+    "白名单"。存储没授权时 `storageSet` 必须 false，授权后 set/get/len 自洽。
 
 ## `--clip`：把"能改粘贴板的东西"变成测试装置
 

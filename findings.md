@@ -489,3 +489,164 @@ entity 上。所以做法是：每窗口自己养一份状态 entity（`EnsureNo
   我们挂的是裸的 `NotificationList::IntoEl()`，卡片定位读 `WindowSize(cx->win)` ⇒
   Sheet 开着时通知会压在 Sheet 上。要么 PHP 自己把 `El::notifications()` 摆进让过位的容器里，
   要么以后在 shim 侧补这层 inset（`ShellRoot` 的 sheet 状态读得到）。已知即可，本轮不做。
+
+## 图标不是端口缺口：是我们自己的两处 bug（实测，2026-10-11）
+
+> 起因：一条外部调查结论说"图标字体从未落地、要上游改"。**逐条核对后作废**——它引用的
+> `src/base/icon_font.cpp`、`assets/iconfont.ttf` 在这个仓库里根本不存在（`ls` 直接 ENOENT）。
+> 下面是自己查出来的。
+
+### 图标链路是完整的，数据也编进去了
+
+- 111 个 lucide 图标预转成 drawops 字节码、编进二进制：`src/gpui/asset_icons.cpp`
+  （216KB，`kAssetIconsDataLen = 33038`、`kAssetIconsCount = 111`），读盘只在应用自己的
+  `.svg` 才发生。
+- 查找：`AssetIconFind` / `AssetIconForPath`（`src/gpui/svg.cpp:1366-1392`）。
+- macOS 画：`src/gpui/gpui.cpp:8152-8166`，`ElKind::Icon` → `SvgDraw(ctx, path, ...)`，
+  `path = e->iconPath.s ? e->iconPath : IconNamePath(e->icon)`。
+- 通知要用的四个名字**都在**：`circle-check` / `triangle-alert` / `info` / `circle-x`
+  （`ls assets/icons`）。
+
+⇒ 端口没有"图标不画"这个缺口。之前那条"已知外观差"记错了方向。
+
+### bug 1：`gpui_shim_notify` 漏了 `hasType`，图标这一支根本没进
+
+`ui/notification.h:46` 是 `bool hasType = false;`，只有 `Notification::WithType()`
+（`notification.cpp:46-50`）会置真；渲染侧 `notification.cpp:982` 是 `if (item.hasType)`
+才按 type 选 `IconName`。我们的 shim 只写了 `item.type = NotifyTypeFor(type)` ⇒ 门永远不进 ⇒
+卡片没图标。**一行**：改 `WithType(...)` 或补 `item.hasType = true`。
+
+### bug 2（P0，比图标严重）：`cppStr(const char*)` 造出一个悬垂 `Str`
+
+```cpp
+gpui::Str cppStr(const std::string& s) { return gpui::Str(s.data(), (int)s.size()); }
+```
+用 `const char*` 调它（`cppStr(title ? title : "")`）会**隐式构造一个临时 std::string**：
+libc++ 的 SSO 把短串放在临时对象内联存储里，语句结束临时对象就析构，返回的 `Str` 指向
+**已死的栈槽**。这正是我们不变量里"arena 字符串必须拷贝"的同一类，只是这次栽在 helper 上。
+
+在用的站点（`cpp-src/gpui_shim.cpp`）：763 窗口标题、912/913 input placeholder/value、
+967 `InputSetValue`、1068/1069 toast 的 title/description。565/566/576/581 传的是成员
+`std::string` 左值 ⇒ 安全。1071 在同一句里用掉 ⇒ 安全。
+
+**tree13 的 "succe" 就是它**，机制能算出来：`req.title` 是 `{死栈槽, len=5}`（5 是
+"Saved" 的长度），同一条语句序列后面 `cppStr(level)` 的临时对象复用了那个栈槽，于是
+按 5 个字节读出 `"success"` 的前 5 个字符。像素与推断一致。
+
+**修法**：加一个 `gpui::Str cppStr(const char* s) { return cstr(s); }` 重载
+（`cstr` 已经是 `Str(s, strlen(s))`，不造临时对象）。一处改动覆盖所有站点。
+
+### 待验（写码前先钉）：图标查找在产物里到底通不通
+
+`shim_test.cpp` 直接 `AssetIconFind("circle-check", &len)` / `AssetIconForPath
+("icons/circle-check.svg", &len)` 断言非空且 len>0 —— 纯查表，headless 就能跑，不需要画。
+渲染那一半只能靠像素：修完 bug 1+2 后重录 tree32（应出现绿色勾/警告三角）与 tree13
+（toast 应显示 "Saved" + 描述）。
+
+## 下一波的成本被高估了：Capabilities 不是"要单独设计"
+
+`FsRun(FsOperation, Str root, Str relative, Str input, bool recursive, FsResult*, Str* error)`
+（`src/shell/filesystem.h:41`）**自己不看授权表**——`root` 与 `relative` 由调用方给。
+`Capabilities`（`src/shell/capability.h:84-135`）只是选根的工具：
+`AddReadRoot/AddWriteRoot/SetExecute(ExecuteGrant)/Storage(bool)` +
+`ResolvePath(path, access, CapabilityPath* out, CapabilityError* err)`。
+
+⇒ 设计只有这么大：shim 里放**一份进程级 `Capabilities`**，PHP 启动时声明允许的根
+（`App::grantRoot(dir, 'rw')`），`fsRead/fsWrite/...` 先 `ResolvePath` 再 `FsRun`。
+
+实测支撑：
+- 五个符号在 `gpui.o` 里都是 `T`：`FsRun` / `ProcessRunBounded` / `StoragePersist` /
+  `Capabilities::ResolvePath` / `Capabilities::AddReadRoot`（`nm -gU`）。
+- POSIX 侧是**真实现**不是桩：`filesystem_posix.cpp` 用 `open(root, O_DIRECTORY)` +
+  逐级 `openat(..., O_NOFOLLOW)`（49-66、140、195 行），注释明说"检查与操作是同一次
+  保权遍历"，不是字符串前缀判断。`process_posix.cpp` 207 行。
+- `kFsMaxReadBytes = 64MB`、`kFsMaxWriteBytes = 8MB`、目录项上限 10000 ⇒ 跨边界要有截断
+  语义（`FsResult.bytes` 可能几 MB，得走 `copyBounded` 那套"真实长度与 cap 无关"的契约）。
+
+## Phase 9（mac 集成）两条风险，动手前要先探针
+
+1. **Carbon 全局快捷键的派发**。我们的泵是
+   `GpuiAppRunStep` → `[NSApp nextEventMatchingMask:... inMode:NSDefaultRunLoopMode
+   dequeue:YES]`（`src/gpui/window_mac.cpp:2309-2320`），**没有** `RunCurrentEventLoop`。
+   Carbon `RegisterEventHotKey` + `InstallEventHandler(GetApplicationEventTarget())` 的事件
+   走 Carbon Event Manager，这条泵会不会替它派发，是实测问题不是推理问题。
+   兜底在我们手里：`gpui_shim_pump` 是我们写的，可以在调 `GpuiAppRunStep` **之前**自己
+   `ReceiveNextEvent(0, nullptr, kEventDurationNoWait, true, &ev)` + `DispatchEvent`。
+   好消息：handler 与泵同在主线程 ⇒ 入队不需要锁。
+2. **OS 通知需要 bundle 身份**。产物是**裸 Mach-O**（`file examples/hello/build/hello` =
+   `Mach-O 64-bit executable arm64`，`build/` 下没有 `.app`）。`NSUserNotification` 在没有
+   bundle identifier 时通常被静默丢弃。⇒ 这一项要么先做打包（`.app` + Info.plist），要么
+   退到 `osascript -e 'display notification'`（能出，但要起进程）。托盘 `NSStatusItem` 与
+   Dock 角标 `NSDockTile` 不吃这个约束，可以先做。
+
+### 补正：图标这一路的完整真相（第二次调查核对后）
+
+第一条报告编造了路径、已作废。第二条报告（同一 agent 重跑）引用可核，逐条验后**采纳一半**：
+
+采纳的：
+- `AssetIconForPath`（`svg.cpp:1377-1393`）要求**字面形状** `icons/<base>.svg`：前缀 `icons/`
+  + 后缀 `.svg` + 中间 base 命中表，三者缺一律 `nullptr`。
+- 查不到就**静默什么都不画**（`svg.cpp` 里 `!ops || len <= 0` 直接 bail），没有错误通道。
+- `port-status.md:269-270` 承诺"缺 `assets/` 时 `DrawIcon` 的笔画稿兜底覆盖每个 `IconName`"——
+  **`DrawIcon` 在整个 `src/` 里不存在**（只在那句文档里出现）。⇒ 上游文档是过期的，坏名字没人接。
+- 编译表与磁盘、枚举三方一致（111 个），`home` **不在表里**（`grep -c '"home"' asset_icons.cpp` = 0）。
+
+**⇒ 第三处我们的 bug**：demo 的 tree21 写 `El::icon('icons/home.svg')`——形状对、名字不在表里 ⇒
+静默空画，而这张基线已经录成"那里是白的"。改成表里真有的名字（`icons/square-terminal.svg` /
+`icons/settings-2.svg`）就能出图，是像素可验的。
+
+不采纳的（两条）：
+- 它说 tree13 的 `"succe"` 是"标题被裁切"。裁切保留**前缀**（会显示 `"Sav"`），不会显示成另一个
+  串的开头；`"succe"` 是 `"success"` 的前 5 字节、5 又正好是 `"Saved"` 的长度 ⇒ 只有悬垂 `Str`
+  这一个机制能同时解释这两个数。它另外说"`Toast::New(cx, id)` 的第二参数只是 a11y id、不渲染"
+  ——这条我核过 `toast.cpp:321-325` 与 `root.cpp:691-712`，**是对的**，所以图标位根本不在 shell
+  toast 的排版里，与 `"succe"` 无关。
+- 它猜通知卡没图标是"`Rems`→`WindowRemSize` 返 0"。实测更前面就断了：`notification.cpp:982` 的门
+  是 `if (item.hasType)`，而我们没置位 ⇒ 连选哪个 `IconName` 都没执行到。
+
+**一次误报的代价**：我一度以为 `El::NAV_ICONS = ['home','components','archive','account']` 是假白名单
+（磁盘上没有 `home.svg`）。查了 `sidebar.cpp:278-295` 才确认这五个字符串是**上游自己的逻辑名**，
+逐个映射到 `SquareTerminal/LayoutDashboard/Settings2/BookOpen/User` 枚举，而这五个都在表里 ⇒ 白名单
+是对的，侧栏图标也是好的。**结论：`icons/x.svg` 的 base 与 `navIcon('x')` 的名字是两套命名空间，
+不能拿前者去判后者。**
+
+## Phase 10 / 11 实测：两条探针的答案与三处契约意外（2026-10-11）
+
+### 探针 A：我们的泵**不派** Carbon 事件（答案决定实现）
+
+`GpuiAppRunStep`（`window_mac.cpp:2309-2320`）只有
+`[NSApp nextEventMatchingMask:... inMode:NSDefaultRunLoopMode dequeue:YES]` + `sendEvent:`，
+没有 `RunCurrentEventLoop`，所以 Carbon Event Manager 的队列不会自己排空。
+解法在我们自己的调用点：`gpui_shim_pump` 每帧先 `gpui_mac_pump()` ——
+`ReceiveNextEvent(0, NULL, kEventDurationNoWait, true, &e)` 取干净再
+`SendEventToEventTarget(e, GetEventDispatcherTarget())`。handler 与泵同在主线程 ⇒ 入队不需要锁。
+
+**这条探针是可自动验的**：`gpui_mac_hotkey_fire()` 合成一条 `kEventHotKeyPressed` 发给
+application target，PHP 收到 `hotkey` 事件即证明"队列→派发→handler→出口→窗口队列→poll"
+整条链通（selftest #19）。它**不**证明系统级全局捕获——那一条留在人工清单。
+
+### 探针 B：OS 通知要 bundle 身份，产物没有
+
+`file examples/hello/build/hello` = `Mach-O 64-bit executable arm64`，`build/` 下没有 `.app`。
+`NSUserNotification` 在没有 bundle identifier 时会被静默丢弃 ⇒ `osNotify()` 返回 true 只到
+"交给系统"。托盘与 Dock 角标不吃这个前提。⇒ 这一项要等打包器（`.app` + Info.plist）才算真交付。
+
+### 三处契约意外（都进了不变量，都值得下次先查）
+
+1. **读根与写根是两张表**：`Capabilities::ResolvePath` 按 `access` 只查
+   `readRoots` 或 `writeRoots`（capability.cpp:471-472）。"能写不能读"的根没有用处，
+   所以 `grantRoot(dir, writable=true)` 两张都加。
+2. **`FsRun` 的 `recursive` 只对 `MakeDirectory` 生效**：`RemoveDirectory` 就是
+   `unlinkat(AT_REMOVEDIR)`，非空目录必失败（`filesystem_posix.cpp:359-371`）。
+   递归删我们在 shim 里补了一趟"列目录→逐个删→删自己"，全程只用授权遍历，不碰 ambient 路径。
+3. **`Storage` 是实例类不是全局**：`Storage(bool persisted)` + `SetPath/Get/Set/Remove`，
+   落盘要 `BeginWrite → StoragePersist → FinishWrite` 三步（`runtime.cpp:1190` 的
+   `DriveStorage` 就是这个串）。只 `Set()` 不落盘，重启就没。
+
+### 图标这一路的最终形状（补 Phase 9 的结论）
+
+`IconName` → `IconNamePath` → `icons/<base>.svg` → `AssetIconFind` → drawops 字节码 →
+`ExecuteDrawOps`，**没有图标字体**，111 个图标编译期就在 `asset_icons.cpp` 里。
+`AssetIconForPath` 要字面形状（前缀 + `.svg` 后缀 + base 命中表），任一条不满足返回空，
+渲染侧对空**静默什么都不画**。上游 `port-status.md:269-270` 说的 `DrawIcon` 笔画稿兜底
+在 `src/` 里不存在——坏名字没人接。

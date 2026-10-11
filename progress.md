@@ -328,3 +328,69 @@ tree27 0.00018 = HUD 活表）· doctor 7 marker ✓ · demo 启动冒烟 3s 存
 3. 图标字形不画这件事（通知卡与 toast 基线都受影响）——是端口的既有缺口，范围不明。
 4. root-app epic 三面墙（catalog MenuBar / VirtualList / Dock 同步取值）维持"防火墙不可达"
    结论，除非改防火墙契约。
+
+## 下一波取证：图标归因被推翻，两个真 bug 浮出（2026-10-11）
+
+派了一个 Explore agent 去查"图标字形为何不画"，它交回一份带 file:line 的结论（字体从未落地、
+要上游改）。**逐条核对后作废**：它引用的 `src/base/icon_font.cpp`、`assets/iconfont.ttf` 在
+这个仓库里不存在（`ls` 直接 ENOENT），`WindowLoadIconFont` 也搜不到。自己查的结果相反：
+
+- 图标链路是**完整**的：111 个 lucide 图标预转 drawops 字节码编进 `src/gpui/asset_icons.cpp`
+  （`kAssetIconsDataLen=33038`），查找在 `svg.cpp:1366-1392`，mac 画在 `gpui.cpp:8152-8166`
+  的 `SvgDraw`。通知要用的 `circle-check`/`triangle-alert`/`info`/`circle-x` 四个名字都在表里。
+- **bug 1（一行）**：`gpui_shim_notify` 只写 `item.type`，没写 `item.hasType`，而
+  `notification.cpp:982` 的门是 `if (item.hasType)` ⇒ 卡片永远没图标。
+- **bug 2（P0，内存安全级）**：`cppStr` 只收 `const std::string&`，用 `const char*` 调它会造
+  临时 `std::string`，SSO 短串随语句结束析构 ⇒ 返回的 `Str` 悬垂。命中窗口标题、input
+  placeholder/value、`InputSetValue`、toast title/description 五处。tree13 那个诡异的
+  `"succe"` 就是它（`{死栈槽, len=5}` 被后面的 `"success"` 临时对象复用），不是字体问题。
+
+顺带把两件"成本被高估/低估"的事量清了：`Capabilities` 不是要重新设计的墙（`FsRun` 只要
+root+relative，`ResolvePath` 是选根工具，五个符号 `nm` 实测 `T`，POSIX 侧 `openat`+`O_NOFOLLOW`
+是真实现）；而 Phase 9 的 mac 集成有两条**必须先探针**的风险（我们的泵没有
+`RunCurrentEventLoop`，Carbon 快捷键派不派发未知；产物是裸 Mach-O 无 bundle id，
+`NSUserNotification` 可能被静默丢弃）。
+
+计划已重排：Phase 9 = 两个真 bug（先做）／Phase 10 = mac 集成（含两条探针）／
+Phase 11 = Capabilities 三服务。findings 记了三节，Errors 表补两条（错归因、agent 编造引用）。
+**代码未动**，本轮只取证与写计划。
+
+同一 agent 重跑后交回第二份**引用可核**的报告（`AssetIconForPath` 的字面形状要求、查不到就静默
+不画、上游 `DrawIcon` 兜底只存在于文档里、`home` 不在编译表内）——逐条 `sed`/`grep` 验后采纳，
+据此多出**第三处我们的 bug**：demo tree21 的 `El::icon('icons/home.svg')` 形状对、名不在表里，
+基线已把那里录成白的。不采纳它的两条：`"succe"` 是"标题裁切"（裁切会留前缀 `"Sav"`，解释不了
+另一个串的开头）与"通知没图标是 `Rems` 返 0"（`hasType` 那道门更前面就断了）。它说对的旁证：
+`Toast::New` 的第二参数确实只是 a11y id（`toast.cpp:321-325`），shell toast 压根没有图标位。
+另：我一度误报 `El::NAV_ICONS` 是假白名单，查 `sidebar.cpp:278-295` 后确认那是上游另一套逻辑名 ⇒
+**`icons/x.svg` 的 base 与 `navIcon('x')` 的名字不是一个命名空间**，已写进 findings 防下次再混。
+Phase 9 因此从 3 项变 4 项（探针 #47 → 修 #48/#49/#50）。
+
+## Phase 9 / 10 / 11 一次做完（2026-10-11）
+
+**Phase 9（三个真 bug）**：`cppStr(const char*)` 悬垂（加 `const char*` 重载转调 `cstr`，
+一处覆盖 5 个站点）、`gpui_shim_notify` 补 `hasType`、`El::icon()` 挡形状 + tree21 换成表里
+真有的名字。像素三张各自对上：tree21 出图标、tree32 出绿勾/黄三角、tree13 出 "Saved" + 描述。
+`shim_test` 加查表探针（`AssetIconFind`/`AssetIconForPath` 正例 + 三种坏形状反例）。
+
+**Phase 10（mac 集成）**：新增 `cpp-src/gpui_mac.{h,mm}`（只 Cocoa+Carbon，不 include gpui.h，
+独立 TU 进 `libgpui_shim.a`）——托盘 `NSStatusItem`+`NSMenu`、Carbon `RegisterEventHotKey`、
+`NSDockTile.badgeLabel`、`NSUserNotification`。事件按注册时交出的 `owner` 回到对应窗口队列，
+`gpui_shim_close` 里 `gpui_mac_release_owner()` 撤销。两条探针都有答案（见 findings）。
+
+**Phase 11（Capabilities）**：进程级 `gpui::Capabilities` + `grantRoot/grantExecute/grantStorage`，
+`fsRead/fsWrite/fsList/fsExists/fsMkdir/fsRemove`（递归删是 shim 补的）、`processRun`、
+`storagePath/Set/Get/Remove/Len`。大块字节走进程级 scratch，桥同一栈内拷成 `php::String`。
+
+**验收**：selftest 18 → **21 步**（#19 mac 派发链、#20 授权文件系统双向对照、#21 白名单与存储门）；
+shim_test 8 → **10 组**（图标查表 + `testCapabilityServices` 真跑 FsRun/ProcessRunBounded/Storage）；
+Pest 57 → **65 例 / 296 断言**；shotdiff 18 树全绿（只有预期的 3 张基线变了）。
+
+**门禁全绿**：Pest **65/296** · PHPStan 0 · shim_test OK（10 组）· **selftest 21 链路**
+（`mac=1 fs=1 svc=1`）· shotdiff OK 18 树 · doctor 7 marker。
+
+**踩到并修**：桥侧 `ErrText()` 擦掉错误原因；读根/写根两张表；`RemoveDirectory` 不递归；
+`php::Array` 不能用 `for (auto& kv : a)`（迭代器给 `ArrayKeyValue`）；测试收尾 `glob()+unlink`
+打到目录出警告。全部进 task_plan 的 Errors 表。
+
+**未提交**（等指示）。mac 那四条人工清单**必须人看**：菜单栏图标、别的 app 有焦点时的快捷键、
+OS 横幅（要先打包）、Dock 数字。

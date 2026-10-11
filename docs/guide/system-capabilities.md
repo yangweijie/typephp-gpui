@@ -29,6 +29,14 @@
 | `$app->showFpsHud(string $anchor): bool`<br>`$app->hideFpsHud()` / `fpsHudVisible()` | `ShellRootShow/HideFpsMonitor` | wrap + route（#10）+ pixel（tree27） |
 | `$app->openSheet(Element, string $anchor): int`<br>`$app->closeSheet()` / `hasSheet()` | `ShellRootOpenSheetView` 等 | wrap + route（#11）+ pixel（tree28） |
 | `$app->toast(...)` / `openDialog(...)` | `ShellRootPushToast` / `ShellRootOpenDialogView` | 已有，见[组件](/guide/components) |
+| `$app->tray(array $labels, string $id, string $tooltip = ''): int`<br>`removeTray()` / `trayCount()` | `NSStatusItem` + `NSMenu`（自写 `cpp-src/gpui_mac.mm`） | existence（计数）+ **manual**（菜单栏里看不看得见） |
+| `$app->onHotkey(string $id, int $keycode, array $mods): int`<br>`removeHotkey()` / `hotkeyCount()` / `App::fireHotkeyForTest($i)` | Carbon `RegisterEventHotKey` + `InstallApplicationEventHandler` | **route**（selftest #19：合成事件走完 队列→派发→handler→出口→poll）+ **manual**（别的 app 有焦点时是否仍触发） |
+| `App::dockBadge(string $text)` | `NSDockTile.badgeLabel` | **manual**（Dock 上有没有数字） |
+| `App::osNotify(string $title, string $body): bool` | `NSUserNotificationCenter` | **manual**，且见下方 bundle 前提 |
+| `App::grantRoot($dir, $writable)` / `grantExecute()` / `grantStorage()` | `Capabilities::AddReadRoot/AddWriteRoot/SetExecute/Storage` | native（shim_test 真跑 gpui `FsRun`）+ route（selftest #20/#21） |
+| `App::fsRead/fsWrite/fsList/fsExists/fsMkdir/fsRemove` | `shell::FsRun`（POSIX 侧 `openat` + `O_NOFOLLOW` 逐级保权遍历） | 同上：双向对照（gpui 写的 PHP 读得到、反之亦然）+ 未授予路径必须被拒 |
+| `App::processRun($cmd, array $args): ?array` | `shell::ProcessRunBounded`（空环境、30s、每路 8 MiB） | native（白名单内跑通、名单外被拒） |
+| `App::storagePath/storageSet/storageGet/storageRemove/storageLen` | `shell::Storage` + `StoragePersist` | native（授权门前后的形状）+ 落盘文件存在性 |
 | `$app->notify(string $title, string $message, string $type, string $placement, int $timeoutMs, string $id): int`<br>`$app->dismissNotification($id)` / `clearNotifications()` / `notificationCount()` | `component::NotificationPush/Dismiss/Clear`（`ui/notification.cpp:507/557/618`） | wrap + route（selftest #18 打的是 `close` 那条；`click` 只静态核对过 listener 接线，合成指针点不到浮层）+ pixel（tree32：两张卡各自落在 `top_right`/`bottom_left`，边距与宽度即主题默认值）|
 | `El::notifications($id)` | `component::NotificationList::IntoEl()` 经 `ChildView` 挂载 | pixel（tree32）——**这一颗必须显式摆**，见下方硬约束 |
 | `$app->setAppMenus(array)` / `appMenuCount()` | `BaseSetAppMenus` | route（#7）；macOS 系统菜单栏在窗口外，无像素验收 |
@@ -90,7 +98,7 @@ $b = App::sysInfo(10);          // 这一次的 cpu 才是 200ms 窗口里的真
   前值（`FindPrevCpu`），而 `prevProcs` 是另一份完整数组。
 - 电池在没有电池的设备上 `batteryPresent=false`，此时 `batteryPct` 无意义。
 
-## 四条硬约束
+## 六条硬约束
 
 1. **`promptForPath` 只能在事件回调里调。** 原生对话框自带嵌套消息循环，一直跑到用户选完
    （头注释原文："they run their own loop until the user is done"）。在 `App::view()` 里调它，
@@ -123,7 +131,6 @@ $b = App::sysInfo(10);          // 这一次的 cpu 才是 200ms 窗口里的真
 | --- | --- | --- |
 | 压缩 | `shell::ZlibDeflate` | **不做**：它写的是 stored 块（`DeflateStored`），只加 zlib/gzip 外壳、不压缩。要压缩请自己实现或在 PHP 侧生成。解压侧已经接了（`App::inflate`），它既读得懂 gpui 自己写的容器，也读得懂真 deflate |
 | 哈希 / 随机 | `shell::Sha256` / `SecureRandom` | **不做**：产物里 `hash()`、`hash_hmac()`、`random_bytes()`、`random_int()` 都在，桥过来是净负价值 |
-| 文件 / 进程 / 存储 | `shell::FsRun` / `ProcessRunBounded` / `StoragePersist` | 受 `Capabilities` 读写根授权模型约束（`ResolvePath` 要求先配 root），且进程调用阻塞——要单独设计，不是包装活。`FsRun` 优先级低：`file_get_contents`/`scandir`/`touch` 在产物里可用 |
 
 ## 「要不要桥」由产物自己回答
 
@@ -179,12 +186,28 @@ Linux/Windows 的对等实现（AppIndicator、XGrabKey、Toast XML）另说。�
 
 ## 手工验收清单
 
-接了窗口外能力之后，这几条只能人看，且必须看：
+mac 集成（`App::tray` / `onHotkey` / `dockBadge` / `osNotify`）已经接上，但这四条机器看不见，
+只能人看，且必须看：
 
-- 托盘图标在菜单栏里**看得见**；点一下 PHP 收到 `tray` 事件
-- 全局快捷键在**别的 app 有焦点时**仍能触发（否则等于没做"全局"）
-- 系统通知中心（OS 那个，不是 `El::notifications` 画在窗口里的卡片）出现条目；点击后 PHP 收到响应
+- 托盘图标在菜单栏里**看得见**；点一下 PHP 收到 `tray` 事件（带被点的 label）
+- 全局快捷键在**别的 app 有焦点时**仍能触发（否则等于没做"全局"）——自检里那条是**合成**事件，
+  它只证明派发链通
+- 系统通知中心（OS 那个，不是 `El::notifications` 画在窗口里的卡片）出现条目。**前提**：产物是
+  裸 Mach-O、没有 bundle id，`NSUserNotification` 会被静默丢弃 ⇒ 这一条要先做 `.app` 打包
+  （`osNotify()` 返回 true 也不算过）
 - Dock 角标显示数字 / 进度
 
 自动化的 `*_count()` 类断言读的是我们自己记的数，只能证明"没崩、没泄漏"，不能证明屏幕上
 真有那个图标——别把这种绿当成能力可用。
+
+两条动手前先量的探针，结论记在这儿（它们决定了上面这张单为什么长这样）：
+
+1. **Carbon 快捷键在我们的泵下派不派发？** 不派。`GpuiAppRunStep` 只有
+   `[NSApp nextEventMatchingMask:… dequeue:YES]`（`window_mac.cpp:2309-2320`），没有
+   `RunCurrentEventLoop`，Carbon 队列不会自己排空。解法在我们自己的调用点里：
+   `gpui_shim_pump` 每帧先 `gpui_mac_pump()`（`ReceiveNextEvent(…kEventDurationNoWait…)`
+   + `SendEventToEventTarget`）。handler 与泵同在主线程，所以入队不需要锁。
+   这条是 selftest #19 能成立的前提。
+2. **OS 通知要不要 bundle 身份？** 要。`file build/hello` = 裸 Mach-O，`build/` 下没有 `.app`，
+   所以 `NSUserNotification` 这一条在打包之前只能算"接上了、看不见"。托盘与 Dock 角标
+   不吃这个前提。
