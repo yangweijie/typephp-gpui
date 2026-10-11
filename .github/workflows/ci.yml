@@ -6,8 +6,10 @@ name: CI
 #   php    —— PHP 声明层（php -l + Pest/PHPStan，不碰 gpui）
 #   docs   —— VitePress 构建（docs/，npm ci + vitepress build，顺带是死链门禁）
 #   deploy —— 把构建产物发到 GitHub Pages（只在 main 的 push 上跑）
-# 原生链在本地或有 GPUI_DIR 的 self-hosted runner 上跑：
-#   composer bootstrap && composer test:cpp && ./examples/hello/build/hello --selftest
+#   native —— 原生链（vendored 源码 + macOS runner：补丁→amalgam→shim 库→tpc→selftest）
+# 为什么原生链要 macOS：gpui.o 是 amalgam 的 arm64 目标码，--selftest 要真开一个窗口。
+# --shot/shotdiff 不在这里跑：它抓的是真实在屏 NSView，CI 上没有可依赖的窗口会话，
+# 那一刀仍归本地（见 docs/guide/testing.md 的边界说明）。
 
 on:
   push:
@@ -119,3 +121,37 @@ jobs:
       - name: Deploy
         id: deployment
         uses: actions/deploy-pages@v5
+
+  native:
+    name: 原生链（amalgam + shim + AOT selftest）
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          # 与 php job 同版本：lock 里 swoole/typephp 与 phpx 要 ">=8.4 <8.6"。
+          php-version: '8.5'
+          coverage: none
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Composer install
+        run: composer install --no-interaction --prefer-dist
+
+      # 一条命令跑完整链：同步沙箱 → 7 个补丁 → verifyPatches → bun 生成 amalgam →
+      # build-shim 归档 → tpc --nano 出二进制。hello_world 的链接会因入口 main 被改名
+      # 而失败（预期），只要 gpui.o 是新的就行。
+      - name: Build
+        run: php bin/gpui build hello
+
+      - name: C++ shim tests (headless)
+        run: bash cmd/test-shim.sh
+
+      # 真编译产物里跑 21 条端到端链路。这一步同时也是"CI 上的 macOS 能不能开窗口"
+      # 的实测答案——能过就说明 selftest 这条不需要 self-hosted。
+      - name: Native selftest
+        run: ./examples/hello/build/hello --selftest
