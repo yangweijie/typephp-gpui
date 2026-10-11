@@ -6,11 +6,11 @@
 # 与 Stage B schema 映射的守卫。链接 amalgam 对象（gpui.o/quickjs.o/AppLog.o），
 # 不链 libgpui_shim.a（避免重复符号）。前置同 build-shim：补丁 + bun build.ts。
 #
-# 用法：GPUI_DIR=<gpui-kit-cpp> cmd/test-shim.sh   （默认 vendor/gpui-kit-cpp）
+# 用法：GPUI_DIR=<gpui-kit-cpp> cmd/test-shim.sh   （默认 build/gpui-kit-cpp（upstream/ 的沙箱副本））
 
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-GPUI_DIR="${GPUI_DIR:-$ROOT/vendor/gpui-kit-cpp}"
+GPUI_DIR="${GPUI_DIR:-$ROOT/build/gpui-kit-cpp}"
 WORK="$GPUI_DIR/.work"
 OBJ="$GPUI_DIR/out/mac/rel/obj"
 OUT_DIR="$ROOT/cpp-src/build"

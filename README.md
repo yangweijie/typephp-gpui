@@ -39,7 +39,7 @@ gpui-kit-cpp 的 `src/shell/` 已经实现了完整的"脚本语言描述 UI"管
 
 ## 构建与运行（macOS arm64，已验证）
 
-完整流程（首次需先有 gpui-kit-cpp 源码在 `vendor/gpui-kit-cpp`）。推荐用打包 CLI 一条命令：
+完整流程（上游源码已 vendored 在 `upstream/gpui-kit-cpp`，构建时自动同步到沙箱）。推荐用打包 CLI 一条命令：
 
 ```bash
 composer install                       # 含 swoole/typephp + swoole/php-nano
@@ -57,7 +57,7 @@ bash cmd/patch-nano.sh                 # 修 php-nano 的 "Core" 依赖解析缺
 bash cmd/patch-view.sh                 # view.cpp 事件入队 + window_mac 单帧泵/入口改名
 bash cmd/patch-retained.sh             # ShellRuntime 暴露 CreateRetainedInput/Slider
 bash cmd/patch-focus.sh                # ShellRuntime 暴露 CreateRetainedFocus（DatePicker/Select）
-( cd vendor/gpui-kit-cpp && bun cmd/build.ts -rel hello_world )   # 生成 .work/ 并编译 amalgam（须在所有补丁之后）
+( cd build/gpui-kit-cpp && bun cmd/build.ts -rel hello_world )   # 生成 .work/ 并编译 amalgam（须在所有补丁之后）
 bash cmd/build-shim.sh                 # c++20 编 shim + 归档成 cpp-src/build/libgpui_shim.a
 php vendor/bin/tpc.php examples/hello/project.macos.yml --nano -f # AOT 产出 build/hello
 ```

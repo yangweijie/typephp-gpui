@@ -1,0 +1,2322 @@
+#include "ui/chart.h"
+#include "ui/plot.h"
+#include "base/motion.h"
+#include "gpui/paint.h"
+
+namespace gpui {
+
+const void* ChartTooltipContent::Datum(int index, const float* own) const {
+    if (data) {
+        return (const uint8_t*)data + (size_t)index * (size_t)dataStride;
+    }
+    return own ? own + index : nullptr;
+}
+
+bool ChartTooltipContent::TitleText(Arena* a, const void* d, Str fallback,
+                                    bool hasFallback, Str* out) const {
+    if (title) {
+        *out = title(a, d, titleUser);
+        return true;
+    }
+    *out = fallback;
+    return hasFallback;
+}
+
+Str ChartTooltipContent::ValueText(Arena* a, const void* d, int row,
+                                   double number, bool f64) const {
+    if (value) {
+        return value(a, d, row, number, valueUser);
+    }
+    return ChartFormatValue(a, number, f64);
+}
+
+bool ChartTooltipContent::ValueColor(const void* d, int row, double number,
+                                     Rgba* out) const {
+    if (!valueColor) {
+        return false;
+    }
+    *out = valueColor(d, row, number, valueColorUser);
+    return true;
+}
+
+Str ChartFormatValue(Arena* a, double value, bool f64) {
+    // Room for the largest double written out in full.
+    char buf[400];
+    float want = (float)value;
+    for (int decimals = 0; decimals <= (f64 ? 17 : 9); decimals++) {
+        snprintf(buf, sizeof(buf), "%.*f", decimals, value);
+        double back = strtod(buf, nullptr);
+        if (f64 ? back == value : (float)back == want) {
+            break;
+        }
+    }
+    return StrDup(a, Str(buf));
+}
+
+namespace component {
+
+plot::Tooltip* ChartTooltipApply(const ChartTooltipContent& content,
+                                 plot::Tooltip* tooltip, const void* d,
+                                 Str title, bool hasTitle,
+                                 const ChartTooltipSeriesRow* rows, int count) {
+    // The caller's own content, when it renders one: neither the title nor
+    // the rows are built.
+    if (content.content) {
+        return tooltip
+            ->Child(content.content(tooltip->cx, d, content.contentUser));
+    }
+    Str text = {};
+    if (content.TitleText(tooltip->a, d, title, hasTitle, &text)) {
+        tooltip->Title(text);
+    }
+    for (int i = 0; i < count; i++) {
+        tooltip->Row(
+            rows[i].swatch, rows[i].name,
+            content.ValueText(tooltip->a, d, i, rows[i].value, rows[i].f64));
+        Rgba color = {};
+        if (content.ValueColor(d, i, rows[i].value, &color)) {
+            tooltip->ValueColor(color);
+        }
+    }
+    return tooltip;
+}
+
+void ChartAppear::SetKey(Str key) {
+    uint64_t h = 14695981039346656037ull;
+    for (int i = 0; i < len(key); i++) {
+        h ^= (uint8_t)key.s[i];
+        h *= 1099511628211ull;
+    }
+    generation = h;
+}
+
+uint32_t ChartCallerId(const Ctx* cx, const char* file, int line) {
+    uint32_t site =
+        IdFoldName(cx ? cx->path : 0, Str((char*)(file ? file : "")));
+    return IdFoldName(site, fmt("%d", line));
+}
+
+AreaChart* AreaChart::New(Ctx* cx, const double* ys, int n, const char* file,
+                          int line) {
+    float* narrow = (float*)Alloc(cx->a, (int)sizeof(float) * (n > 0 ? n : 1));
+    for (int i = 0; i < n; i++) {
+        narrow[i] = (float)ys[i];
+    }
+    AreaChart* c = New(cx, narrow, n, file, line);
+    c->exact = ys;
+    return c;
+}
+AreaChart* AreaChart::New(Ctx* cx, const float* ys, int n, const char* file,
+                          int line) {
+    Arena* a = cx->a;
+    AreaChart* c = ArenaNew<AreaChart>(a);
+    c->a = a;
+    c->cx = cx;
+    c->id = ChartCallerId(cx, file, line);
+    c->ys = ys;
+    c->n = n;
+    // area_chart.rs: the stroke defaults to chart_2 and the fill to one
+    // flat chart_2 at 0.4.
+    c->stroke = ThemeNow(cx->app).chart2;
+    c->fill = RgbaOpacity(ThemeNow(cx->app).chart2, 0.4f);
+    c->fillBottom = c->fill;
+    return c;
+}
+AreaChart* AreaChart::Stroke(Rgba c) {
+    // Every setter after a `Y()` belongs to that series, which is what
+    // Rust's `.y(..).stroke(..).fill(..).name(..)` chain says.
+    if (more.len > 0) {
+        more[more.len - 1].stroke = c;
+    } else {
+        stroke = c;
+    }
+    return this;
+}
+AreaChart* AreaChart::Fill(Rgba c) {
+    return Fill(c, RgbaOpacity(c, 0.f));
+}
+
+AreaChart* AreaChart::Fill(Rgba top, Rgba bottom) {
+    if (more.len > 0) {
+        more[more.len - 1].fillTop = top;
+        more[more.len - 1].fillBot = bottom;
+    } else {
+        fill = top;
+        fillBottom = bottom;
+    }
+    return this;
+}
+
+AreaChart* AreaChart::Labels(const char* const* l) {
+    labels = l;
+    return this;
+}
+AreaChart* AreaChart::TickMargin(int t) {
+    tickMargin = t;
+    return this;
+}
+AreaChart* AreaChart::Y(const float* v) {
+    ChartSeriesExtra series = {};
+    series.ys = v;
+    // Until it is given one of its own, a series takes the last one's
+    // colours, so `.y(..)` alone still draws.
+    series.stroke = more.len > 0 ? more[more.len - 1].stroke : stroke;
+    series.fillTop = more.len > 0 ? more[more.len - 1].fillTop : fill;
+    series.fillBot = more.len > 0 ? more[more.len - 1].fillBot : fillBottom;
+    more.Append(a, series);
+    return this;
+}
+AreaChart* AreaChart::Overlay(bool v) {
+    overlay = v;
+    return this;
+}
+
+AreaChart* AreaChart::Tooltip(Str name) {
+    // `name(..)` on a later series names that one in the tooltip; on the
+    // first it also turns the crosshair on, the way `id(..)` does.
+    if (more.len > 0) {
+        more[more.len - 1].name = name;
+    } else {
+        tooltipName = name;
+    }
+    return this;
+}
+AreaChart* AreaChart::Id(Str name) {
+    id = IdFoldName(cx ? cx->path : 0, name);
+    return this;
+}
+AreaChart* AreaChart::Natural() {
+    strokeStyle = ChartStroke::Natural;
+    return this;
+}
+AreaChart* AreaChart::XAxis(bool v) {
+    xAxis = v;
+    return this;
+}
+AreaChart* AreaChart::Grid(bool v) {
+    grid = v;
+    return this;
+}
+AreaChart* AreaChart::Linear() {
+    strokeStyle = ChartStroke::Linear;
+    return this;
+}
+AreaChart* AreaChart::StepAfter() {
+    strokeStyle = ChartStroke::StepAfter;
+    return this;
+}
+AreaChart* AreaChart::YDomain(float min, float max) {
+    hasYDomain = true;
+    yDomainMin = min;
+    yDomainMax = max;
+    return this;
+}
+AreaChart* AreaChart::PointCount(int count) {
+    pointCount = count;
+    return this;
+}
+AreaChart* AreaChart::YAxis(bool v) {
+    axes.yAxis = v;
+    return this;
+}
+AreaChart* AreaChart::YAxisLabelPlacement(AxisLabelPlacement placement) {
+    axes.placement = placement;
+    return this;
+}
+AreaChart* AreaChart::YTickCount(int count) {
+    axes.yTickCount = count > 2 ? count : 2;
+    return this;
+}
+AreaChart* AreaChart::YTickFormat(ChartTickFormatFn format, void* user) {
+    axes.tickFormat = format;
+    axes.tickFormatUser = user;
+    return this;
+}
+AreaChart* AreaChart::XTickCount(int count) {
+    axes.xTickCount = count < 0 ? 0 : count;
+    return this;
+}
+AreaChart* AreaChart::GridColumns(int count) {
+    axes.gridColumns = count < 0 ? 0 : count;
+    return this;
+}
+AreaChart* AreaChart::GridDashed(bool dashed) {
+    axes.gridDashed = dashed;
+    return this;
+}
+AreaChart* AreaChart::ReferenceLine(double value) {
+    axes.referenceLines.Append(a, value);
+    return this;
+}
+AreaChart* AreaChart::YPadding(float top, float bottom) {
+    axes.yPaddingTop = top;
+    axes.yPaddingBottom = bottom;
+    return this;
+}
+
+AreaChart* AreaChart::TooltipTitle(ChartTooltipTitleFn fn, void* user) {
+    tooltipContent.title = fn;
+    tooltipContent.titleUser = user;
+    return this;
+}
+AreaChart* AreaChart::TooltipValue(ChartTooltipValueFn fn, void* user) {
+    tooltipContent.value = fn;
+    tooltipContent.valueUser = user;
+    return this;
+}
+AreaChart* AreaChart::TooltipValueColor(ChartTooltipValueColorFn fn,
+                                        void* user) {
+    tooltipContent.valueColor = fn;
+    tooltipContent.valueColorUser = user;
+    return this;
+}
+AreaChart* AreaChart::TooltipContent(ChartTooltipContentFn fn, void* user) {
+    tooltipContent.content = fn;
+    tooltipContent.contentUser = user;
+    return this;
+}
+
+AreaChart* AreaChart::Data(const void* items, int stride) {
+    tooltipContent.data = items;
+    tooltipContent.dataStride = stride;
+    return this;
+}
+
+El* AreaChart::IntoEl() {
+    El* e = ChartEl(a, ys, n, stroke, fill, fillBottom, tickMargin);
+    ChartSeries* chart = e->Chart();
+    chart->exact = exact;
+    chart->labels = labels;
+    chart->strokeStyle = strokeStyle;
+    chart->overlay = overlay;
+    chart->pinnedDomain = hasYDomain;
+    chart->domainMin = yDomainMin;
+    chart->domainMax = yDomainMax;
+    chart->pointCount = pointCount;
+    chart->xAxis = xAxis;
+    chart->grid = grid;
+    axes.ApplyTo(a, chart);
+    // Every chart takes the pointer now that its id defaults (upstream
+    // a2d15b56); only a hand-built ChartEl stays a still picture.
+    chart->tooltip = interactive;
+    chart->id = id;
+    chart->appear = appear.Generation(&chart->appearGeneration);
+    chart->name = tooltipName;
+    chart->tooltipContent = tooltipContent;
+    // The builder is on the frame arena, so the element can point at its
+    // array rather than copying it.
+    chart->more = more.Flatten(a);
+    chart->nMore = more.len;
+    return e;
+}
+
+LineChart* LineChart::New(Ctx* cx, const double* ys, int n, const char* file,
+                          int line) {
+    float* narrow = (float*)Alloc(cx->a, (int)sizeof(float) * (n > 0 ? n : 1));
+    for (int i = 0; i < n; i++) {
+        narrow[i] = (float)ys[i];
+    }
+    LineChart* c = New(cx, narrow, n, file, line);
+    c->exact = ys;
+    return c;
+}
+LineChart* LineChart::New(Ctx* cx, const float* ys, int n, const char* file,
+                          int line) {
+    Arena* a = cx->a;
+    LineChart* c = ArenaNew<LineChart>(a);
+    c->a = a;
+    c->cx = cx;
+    c->id = ChartCallerId(cx, file, line);
+    c->ys = ys;
+    c->n = n;
+    // line_chart.rs: `self.stroke.unwrap_or(cx.theme().chart_2)`.
+    c->stroke = ThemeNow(cx->app).chart2;
+    return c;
+}
+LineChart* LineChart::Stroke(Rgba c) {
+    stroke = c;
+    return this;
+}
+LineChart* LineChart::Labels(const char* const* l) {
+    labels = l;
+    return this;
+}
+LineChart* LineChart::TickMargin(int t) {
+    tickMargin = t;
+    return this;
+}
+LineChart* LineChart::YDomain(float min, float max) {
+    hasYDomain = true;
+    yDomainMin = min;
+    yDomainMax = max;
+    return this;
+}
+LineChart* LineChart::PointCount(int count) {
+    pointCount = count;
+    return this;
+}
+LineChart* LineChart::YAxis(bool v) {
+    axes.yAxis = v;
+    return this;
+}
+LineChart* LineChart::YAxisLabelPlacement(AxisLabelPlacement placement) {
+    axes.placement = placement;
+    return this;
+}
+LineChart* LineChart::YTickCount(int count) {
+    axes.yTickCount = count > 2 ? count : 2;
+    return this;
+}
+LineChart* LineChart::YTickFormat(ChartTickFormatFn format, void* user) {
+    axes.tickFormat = format;
+    axes.tickFormatUser = user;
+    return this;
+}
+LineChart* LineChart::XTickCount(int count) {
+    axes.xTickCount = count < 0 ? 0 : count;
+    return this;
+}
+LineChart* LineChart::GridColumns(int count) {
+    axes.gridColumns = count < 0 ? 0 : count;
+    return this;
+}
+LineChart* LineChart::GridDashed(bool dashed) {
+    axes.gridDashed = dashed;
+    return this;
+}
+LineChart* LineChart::ReferenceLine(double value) {
+    axes.referenceLines.Append(a, value);
+    return this;
+}
+LineChart* LineChart::YPadding(float top, float bottom) {
+    axes.yPaddingTop = top;
+    axes.yPaddingBottom = bottom;
+    return this;
+}
+
+void PointAxes::ApplyTo(Arena* arena, ChartSeries* chart) const {
+    chart->yAxis = yAxis;
+    chart->axisLabelPlacement = placement;
+    chart->yTickCount = yTickCount;
+    chart->tickFormat = tickFormat;
+    chart->tickFormatUser = tickFormatUser;
+    chart->xTickCount = xTickCount;
+    chart->gridColumns = gridColumns;
+    chart->gridDashed = gridDashed;
+    chart->yPaddingTop = yPaddingTop;
+    chart->yPaddingBottom = yPaddingBottom;
+    chart->referenceLines = referenceLines.Flatten(arena);
+    chart->nReferenceLines = referenceLines.len;
+}
+LineChart* LineChart::Tooltip(Str name) {
+    tooltipName = name;
+    return this;
+}
+LineChart* LineChart::Id(Str name) {
+    id = IdFoldName(cx ? cx->path : 0, name);
+    return this;
+}
+LineChart* LineChart::Natural() {
+    strokeStyle = ChartStroke::Natural;
+    return this;
+}
+LineChart* LineChart::XAxis(bool v) {
+    xAxis = v;
+    return this;
+}
+LineChart* LineChart::Grid(bool v) {
+    grid = v;
+    return this;
+}
+LineChart* LineChart::Linear() {
+    strokeStyle = ChartStroke::Linear;
+    return this;
+}
+LineChart* LineChart::StepAfter() {
+    strokeStyle = ChartStroke::StepAfter;
+    return this;
+}
+LineChart* LineChart::Dot(bool v) {
+    dot = v;
+    return this;
+}
+LineChart* LineChart::TooltipTitle(ChartTooltipTitleFn fn, void* user) {
+    tooltipContent.title = fn;
+    tooltipContent.titleUser = user;
+    return this;
+}
+LineChart* LineChart::TooltipValue(ChartTooltipValueFn fn, void* user) {
+    tooltipContent.value = fn;
+    tooltipContent.valueUser = user;
+    return this;
+}
+LineChart* LineChart::TooltipValueColor(ChartTooltipValueColorFn fn,
+                                        void* user) {
+    tooltipContent.valueColor = fn;
+    tooltipContent.valueColorUser = user;
+    return this;
+}
+LineChart* LineChart::TooltipContent(ChartTooltipContentFn fn, void* user) {
+    tooltipContent.content = fn;
+    tooltipContent.contentUser = user;
+    return this;
+}
+
+LineChart* LineChart::Data(const void* items, int stride) {
+    tooltipContent.data = items;
+    tooltipContent.dataStride = stride;
+    return this;
+}
+
+El* LineChart::IntoEl() {
+    Rgba none = {0, 0, 0, 0};
+    El* e = ChartEl(a, ys, n, stroke, none, none, tickMargin);
+    ChartSeries* chart = e->Chart();
+    chart->exact = exact;
+    chart->kind = ChartKind::Line;
+    chart->labels = labels;
+    chart->xAxis = xAxis;
+    chart->grid = grid;
+    chart->strokeStyle = strokeStyle;
+    chart->dot = dot;
+    chart->pinnedDomain = hasYDomain;
+    chart->domainMin = yDomainMin;
+    chart->domainMax = yDomainMax;
+    chart->pointCount = pointCount;
+    axes.ApplyTo(a, chart);
+    // Every chart takes the pointer now that its id defaults (upstream
+    // a2d15b56); only a hand-built ChartEl stays a still picture.
+    chart->tooltip = interactive;
+    chart->id = id;
+    chart->appear = appear.Generation(&chart->appearGeneration);
+    chart->name = tooltipName;
+    chart->tooltipContent = tooltipContent;
+    return e;
+}
+
+BarChart* BarChart::New(Ctx* cx, const double* ys, int n, const char* file,
+                        int line) {
+    float* narrow = (float*)Alloc(cx->a, (int)sizeof(float) * (n > 0 ? n : 1));
+    for (int i = 0; i < n; i++) {
+        narrow[i] = (float)ys[i];
+    }
+    BarChart* c = New(cx, narrow, n, file, line);
+    c->exact = ys;
+    return c;
+}
+BarChart* BarChart::New(Ctx* cx, const float* ys, int n, const char* file,
+                        int line) {
+    Arena* a = cx->a;
+    BarChart* c = ArenaNew<BarChart>(a);
+    c->a = a;
+    c->cx = cx;
+    c->id = ChartCallerId(cx, file, line);
+    c->ys = ys;
+    c->n = n;
+    // bar_chart.rs: `default_fill` is chart_2.
+    c->fill = ThemeNow(cx->app).chart2;
+    return c;
+}
+BarChart* BarChart::Fill(Rgba c) {
+    fill = c;
+    return this;
+}
+BarChart* BarChart::Labels(const char* const* l) {
+    labels = l;
+    return this;
+}
+BarChart* BarChart::TickMargin(int t) {
+    tickMargin = t;
+    return this;
+}
+BarChart* BarChart::PaddingInner(float v) {
+    paddingInner = v;
+    return this;
+}
+BarChart* BarChart::PaddingOuter(float v) {
+    paddingOuter = v;
+    return this;
+}
+BarChart* BarChart::MaxBandWidth(float width) {
+    maxBandWidth = width;
+    return this;
+}
+BarChart* BarChart::MinLength(float length) {
+    minLength = length;
+    return this;
+}
+BarChart* BarChart::LabelColors(const Rgba* colors) {
+    labelColors = colors;
+    return this;
+}
+BarChart* BarChart::Radius(float v) {
+    radius = v;
+    return this;
+}
+BarChart* BarChart::Domain(float lo, float hi) {
+    domainMin = lo;
+    domainMax = hi;
+    return this;
+}
+BarChart* BarChart::Tooltip(Str name) {
+    tooltipName = name;
+    return this;
+}
+BarChart* BarChart::Id(Str name) {
+    id = IdFoldName(cx ? cx->path : 0, name);
+    return this;
+}
+BarChart* BarChart::Alignment(BarAlign v) {
+    align = v;
+    return this;
+}
+BarChart* BarChart::Base(const float* y0) {
+    bases = y0;
+    return this;
+}
+BarChart* BarChart::Overlay(bool v) {
+    overlay = v;
+    return this;
+}
+BarChart* BarChart::LabelValues(bool v) {
+    labelValues = v;
+    return this;
+}
+BarChart* BarChart::Fills(const Rgba* colors) {
+    fills = colors;
+    return this;
+}
+BarChart* BarChart::FillGradient(Rgba from, Rgba to, bool perBar) {
+    gradient = true;
+    gradientFrom = from;
+    gradientTo = to;
+    gradientPerBar = perBar;
+    return this;
+}
+BarChart* BarChart::FillGradientDiagonal(Rgba from, Rgba to) {
+    gradient = true;
+    gradientFrom = from;
+    gradientTo = to;
+    gradientDiagonal = true;
+    return this;
+}
+BarChart* BarChart::TooltipTitle(ChartTooltipTitleFn fn, void* user) {
+    tooltipContent.title = fn;
+    tooltipContent.titleUser = user;
+    return this;
+}
+BarChart* BarChart::TooltipValue(ChartTooltipValueFn fn, void* user) {
+    tooltipContent.value = fn;
+    tooltipContent.valueUser = user;
+    return this;
+}
+BarChart* BarChart::TooltipValueColor(ChartTooltipValueColorFn fn, void* user) {
+    tooltipContent.valueColor = fn;
+    tooltipContent.valueColorUser = user;
+    return this;
+}
+BarChart* BarChart::TooltipContent(ChartTooltipContentFn fn, void* user) {
+    tooltipContent.content = fn;
+    tooltipContent.contentUser = user;
+    return this;
+}
+
+BarChart* BarChart::Data(const void* items, int stride) {
+    tooltipContent.data = items;
+    tooltipContent.dataStride = stride;
+    return this;
+}
+
+El* BarChart::IntoEl() {
+    Rgba none = {0, 0, 0, 0};
+    El* e = ChartEl(a, ys, n, fill, none, none, tickMargin);
+    ChartSeries* chart = e->Chart();
+    chart->exact = exact;
+    chart->kind = ChartKind::Bar;
+    chart->labels = labels;
+    chart->xAxis = labelAxis;
+    chart->grid = grid;
+    chart->barAlign = align;
+    chart->bases = bases;
+    chart->overlay = overlay;
+    chart->barLabels = labelValues;
+    chart->valueAxis = valueAxis;
+    chart->valueTickCount = valueTickCount;
+    chart->axisLabelPlacement = valueAxisLabelPlacement;
+    chart->tickFormat = valueTickFormat;
+    chart->tickFormatUser = valueTickFormatUser;
+    chart->bandCount = bandCount;
+    chart->xTickCount = bandTickCount;
+    chart->gridDashed = gridDashed;
+    chart->barFills = fills;
+    chart->barGradient = gradient;
+    chart->barGradientPerBar = gradientPerBar;
+    chart->barGradientDiagonal = gradientDiagonal;
+    chart->barFillFrom = gradientFrom;
+    chart->barFillTo = gradientTo;
+    chart->bandPadding = paddingInner;
+    chart->bandPaddingOuter = paddingOuter;
+    chart->maxBandWidth = maxBandWidth;
+    chart->barMinLength = minLength;
+    chart->barLabelColors = labelColors;
+    chart->barRadius = radius;
+    chart->domainMin = domainMin;
+    chart->domainMax = domainMax;
+    // Every chart takes the pointer now that its id defaults (upstream
+    // a2d15b56); only a hand-built ChartEl stays a still picture.
+    chart->tooltip = interactive;
+    chart->id = id;
+    chart->appear = appear.Generation(&chart->appearGeneration);
+    chart->name = tooltipName;
+    chart->tooltipContent = tooltipContent;
+    return e;
+}
+
+BarChart* BarChart::ValueAxis(bool on) {
+    valueAxis = on;
+    return this;
+}
+
+BarChart* BarChart::ValueAxisLabelPlacement(AxisLabelPlacement placement) {
+    valueAxisLabelPlacement = placement;
+    return this;
+}
+
+BarChart* BarChart::ValueTickFormat(ChartTickFormatFn format, void* user) {
+    valueTickFormat = format;
+    valueTickFormatUser = user;
+    return this;
+}
+
+BarChart* BarChart::BandCount(int count) {
+    bandCount = count < 0 ? 0 : count;
+    return this;
+}
+
+BarChart* BarChart::BandTickCount(int count) {
+    bandTickCount = count < 0 ? 0 : count;
+    return this;
+}
+
+BarChart* BarChart::LabelAxis(bool v) {
+    labelAxis = v;
+    return this;
+}
+
+BarChart* BarChart::Grid(bool v) {
+    grid = v;
+    return this;
+}
+
+BarChart* BarChart::GridDashed(bool dashed) {
+    gridDashed = dashed;
+    return this;
+}
+
+BarChart* BarChart::ValueTickCount(int count) {
+    valueTickCount = count > 2 ? count : 2;
+    return this;
+}
+
+CandlestickChart* CandlestickChart::New(Ctx* cx, const float* opens,
+                                        const float* highs, const float* lows,
+                                        const float* closes, int n,
+                                        const char* file, int line) {
+    Arena* a = cx->a;
+    CandlestickChart* c = ArenaNew<CandlestickChart>(a);
+    c->a = a;
+    c->cx = cx;
+    c->id = ChartCallerId(cx, file, line);
+    c->opens = opens;
+    c->highs = highs;
+    c->lows = lows;
+    c->closes = closes;
+    c->n = n;
+    c->up = ThemeNow(cx->app).chartBullish;
+    c->down = ThemeNow(cx->app).chartBearish;
+    return c;
+}
+CandlestickChart* CandlestickChart::Tooltip(Str name) {
+    tooltipName = name;
+    return this;
+}
+CandlestickChart* CandlestickChart::Id(Str name) {
+    id = IdFoldName(cx ? cx->path : 0, name);
+    return this;
+}
+CandlestickChart* CandlestickChart::Colors(Rgba u, Rgba d) {
+    up = u;
+    down = d;
+    return this;
+}
+CandlestickChart* CandlestickChart::Labels(const char* const* l) {
+    labels = l;
+    return this;
+}
+CandlestickChart* CandlestickChart::TickMargin(int t) {
+    tickMargin = t;
+    return this;
+}
+CandlestickChart* CandlestickChart::Padding(float v) {
+    padding = v;
+    return this;
+}
+CandlestickChart* CandlestickChart::BodyWidthRatio(float v) {
+    bodyWidthRatio = v;
+    return this;
+}
+CandlestickChart* CandlestickChart::MaxBandWidth(float width) {
+    maxBandWidth = width;
+    return this;
+}
+CandlestickChart* CandlestickChart::TooltipTitle(ChartTooltipTitleFn fn,
+                                                 void* user) {
+    tooltipContent.title = fn;
+    tooltipContent.titleUser = user;
+    return this;
+}
+CandlestickChart* CandlestickChart::TooltipValue(ChartTooltipValueFn fn,
+                                                 void* user) {
+    tooltipContent.value = fn;
+    tooltipContent.valueUser = user;
+    return this;
+}
+CandlestickChart* CandlestickChart::TooltipValueColor(
+    ChartTooltipValueColorFn fn, void* user) {
+    tooltipContent.valueColor = fn;
+    tooltipContent.valueColorUser = user;
+    return this;
+}
+CandlestickChart* CandlestickChart::TooltipContent(ChartTooltipContentFn fn,
+                                                   void* user) {
+    tooltipContent.content = fn;
+    tooltipContent.contentUser = user;
+    return this;
+}
+
+CandlestickChart* CandlestickChart::Data(const void* items, int stride) {
+    tooltipContent.data = items;
+    tooltipContent.dataStride = stride;
+    return this;
+}
+
+El* CandlestickChart::IntoEl() {
+    Rgba none = {0, 0, 0, 0};
+    // The closes are the series; the other three ride along beside them.
+    El* e = ChartEl(a, closes, n, up, none, none, tickMargin);
+    ChartSeries* chart = e->Chart();
+    chart->kind = ChartKind::Candlestick;
+    chart->labels = labels;
+    chart->opens = opens;
+    chart->highs = highs;
+    chart->lows = lows;
+    chart->up = up;
+    chart->down = down;
+    chart->bandPadding = padding;
+    chart->bandPaddingOuter = padding * 0.5f;
+    chart->maxBandWidth = maxBandWidth;
+    chart->bodyWidthRatio = bodyWidthRatio;
+    // Every chart takes the pointer now that its id defaults (upstream
+    // a2d15b56); only a hand-built ChartEl stays a still picture.
+    chart->tooltip = interactive;
+    chart->id = id;
+    chart->appear = appear.Generation(&chart->appearGeneration);
+    chart->name = tooltipName;
+    chart->tooltipContent = tooltipContent;
+    return e;
+}
+
+RadarLabel RadarLabel::Text(Str text) {
+    RadarLabel label;
+    label.kind = Kind::Text;
+    label.text = text;
+    return label;
+}
+
+RadarLabel RadarLabel::Element(El* element) {
+    RadarLabel label;
+    label.kind = Kind::Element;
+    label.element = element;
+    return label;
+}
+
+// Move an already laid-out label the way AnyElement::prepaint_at does in
+// Rust. Descendant positions are absolute in this runtime, so the whole
+// subtree follows the label root.
+static void MoveRadarLabel(El* e, float x, float y) {
+    if (!e) {
+        return;
+    }
+    float dx = x - e->x;
+    float dy = y - e->y;
+    e->x = x;
+    e->y = y;
+    ArenaVec<El*> pending;
+    for (El* child = e->first; child; child = child->next) {
+        pending.Append(GetTempArena(), child);
+    }
+    for (int i = 0; i < len(pending); i++) {
+        El* child = pending[i];
+        child->x += dx;
+        child->y += dy;
+        for (El* nested = child->first; nested; nested = nested->next) {
+            pending.Append(GetTempArena(), nested);
+        }
+    }
+}
+
+static Ctx ChartIdCtx(const PaintCtx* ctx, uint32_t id);
+template <typename C>
+static plot::PlotAppear ChartTrackAppear(const PaintCtx* ctx, const C* chart);
+
+// radar_chart.rs palette: the theme chart colours the series cycle through
+// by default.
+static Rgba RadarPaletteColor(const Theme& th, int ix) {
+    const Rgba palette[5] = {th.chart1, th.chart2, th.chart3, th.chart4,
+                             th.chart5};
+    return palette[ix % 5];
+}
+
+int RadarHoveredIndex(int n, float outerRadius, float labelGap, Point position,
+                      Size size) {
+    if (n <= 0) {
+        return -1;
+    }
+    float dx = position.x - size.w * 0.5f;
+    float dy = position.y - size.h * 0.5f;
+    if (sqrtf(dx * dx + dy * dy) > outerRadius + labelGap) {
+        return -1;
+    }
+    // Screen angle -> chart angle (0 at 12 o'clock, clockwise), rem_euclid.
+    const float kTau = 6.2831853f;
+    float angle = fmodf(atan2f(dy, dx) + kTau * 0.25f, kTau);
+    if (angle < 0) {
+        angle += kTau;
+    }
+    return (int)lroundf(angle * (float)n / kTau) % n;
+}
+
+float RadarChart::ResolveOuterRadius(float height) const {
+    return outerRadius > 0 ? outerRadius : height * 0.4f;
+}
+
+// The text labels outside the outer ring, and the element ones moved onto
+// their anchors (prepaint's half). Labels on the right are left-aligned, on
+// the left right-aligned, and near the vertical axis centred.
+static void PaintRadarLabels(PaintCtx* ctx, El* e, RadarChart* c) {
+    if (!c->labels || c->n < 3) {
+        return;
+    }
+    float radius = c->ResolveOuterRadius(e->h);
+    float labelRadius = radius + c->labelGap;
+    float centerX = e->x + e->w * 0.5f;
+    float centerY = e->y + e->h * 0.5f;
+    Rgba color = c->hasLabelColor ? c->labelColor : ThemeNow(ctx->app).mutedFg;
+    for (int i = 0; i < c->n; i++) {
+        float angle = -1.5707963f + 6.2831853f * (float)i / (float)c->n;
+        float dx = cosf(angle);
+        float dy = sinf(angle);
+        float anchorX = centerX + labelRadius * dx;
+        float anchorY = centerY + labelRadius * dy;
+        const RadarLabel& label = c->labels[i];
+        if (label.kind == RadarLabel::Kind::Element) {
+            El* child = label.element;
+            if (child) {
+                MoveRadarLabel(child, anchorX + (dx - 1.f) * child->w * 0.5f,
+                               anchorY + (dy - 1.f) * child->h * 0.5f);
+            }
+            continue;
+        }
+        if (!label.text.s) {
+            continue;
+        }
+        float textW = MeasureText(ctx, label.text, kPlotTextSize, 0).w;
+        float textX = anchorX;
+        if (dx < -1e-3f) {
+            textX -= textW;
+        } else if (dx <= 1e-3f) {
+            textX -= textW * 0.5f;
+        }
+        DrawTextAt(ctx, label.text, textX, anchorY - kPlotTextSize * 0.5f,
+                   textW, kPlotTextSize + kPlotTextGap, kPlotTextSize, color,
+                   false);
+    }
+}
+
+// PlotElement's hover for a radar: tooltip_state finds the spoke nearest the
+// cursor and a dot per series on its vertex; tooltip builds the overlay (no
+// crosshair, since a radar has no cartesian axis to snap to; the dots; and a
+// box with the dimension's text label as the title and a row per series),
+// which is laid out over the chart and painted after its labels.
+static void PaintRadarHover(PaintCtx* ctx, El* e, RadarChart* c) {
+    const ChartSeries* chart = e->Chart();
+    if (!c->interactive || !chart || !ctx->window || !ctx->app ||
+        !ctx->window->frameArena || !c->values || c->n < 3) {
+        return;
+    }
+    int series = 1 + len(c->more);
+    Arena* scratch = GetTempArena();
+    float radius = c->ResolveOuterRadius(e->h);
+    float lo = 0;
+    float hi = 0;
+    ChartRadarDomain(*chart, &lo, &hi);
+    plot::PlotAppear appear = ChartTrackAppear(ctx, c);
+    Size size = {e->w, e->h};
+    Point cursor = {ctx->mouseX - e->x, ctx->mouseY - e->y};
+    bool inside = cursor.x >= 0 && cursor.y >= 0 && cursor.x <= size.w &&
+                  cursor.y <= size.h;
+    // No tooltip while the marks draw in: its dots would land on data not
+    // painted yet.
+    int index = inside && !appear.IsAppearing()
+                    ? RadarHoveredIndex(c->n, radius, c->labelGap, cursor, size)
+                    : -1;
+    plot::TooltipState live = {};
+    const plot::TooltipState* livePtr = nullptr;
+    if (index >= 0) {
+        // One dot per series at the hovered dimension's vertex.
+        Point* dots = (Point*)Alloc(scratch, (int)sizeof(Point) * series);
+        float angle = -1.5707963f + 6.2831853f * (float)index / (float)c->n;
+        for (int k = 0; k < series; k++) {
+            const float* vs = k == 0 ? c->values : c->more[k - 1].ys;
+            float r = radius * ChartRadarFraction(lo, hi, vs ? vs[index] : 0);
+            dots[k] = {size.w * 0.5f + r * cosf(angle),
+                       size.h * 0.5f + r * sinf(angle)};
+        }
+        live = plot::TooltipState::New(index, cursor, dots, series);
+        livePtr = &live;
+    }
+    Ctx idCx = ChartIdCtx(ctx, c->id);
+    plot::PlotHover hover = {};
+    Point linger = cursor;
+    if (!plot::TrackHover(&idCx, livePtr, index >= 0 ? &cursor : nullptr,
+                          &hover, &linger)) {
+        return;
+    }
+    const plot::TooltipState& held = hover.State();
+    if (held.index < 0 || held.index >= c->n) {
+        return;
+    }
+    const Theme& th = ThemeNow(ctx->app);
+    // The overlay is built in the frame's arena, as anything the paint walk
+    // goes on to lay out and draw has to be.
+    Ctx buildCx = idCx;
+    buildCx.a = ctx->window->frameArena;
+    plot::Tooltip* tooltip = plot::Tooltip::New(&buildCx, linger, size)->Gap(8);
+    plot::Dot* marks =
+        (plot::Dot*)Alloc(scratch, (int)sizeof(plot::Dot) * series);
+    int nMarks = 0;
+    for (int k = 0; held.dots && k < held.dotCount && k < series; k++) {
+        Rgba fill = k == 0 ? c->stroke : c->more[k - 1].stroke;
+        marks[nMarks] = plot::Dot::New(held.dots[k]);
+        marks[nMarks]
+            .Size(kChartHoverDotSize)
+            ->Halo(kChartHoverHaloSize)
+            ->Stroke(th.background)
+            ->Fill(fill);
+        nMarks++;
+    }
+    tooltip->Dots(marks, nMarks);
+    // The title is the dimension's text label; an element label leaves none.
+    Str title = {};
+    bool hasTitle = false;
+    if (c->labels && c->labels[held.index].kind == RadarLabel::Kind::Text &&
+        c->labels[held.index].text.s) {
+        title = c->labels[held.index].text;
+        hasTitle = true;
+    }
+    // One row per series: swatch + name + value.
+    ChartTooltipSeriesRow* rows = (ChartTooltipSeriesRow*)Alloc(
+        scratch, (int)sizeof(ChartTooltipSeriesRow) * series);
+    int nRows = 0;
+    for (int k = 0; k < series; k++) {
+        const float* vs = k == 0 ? c->values : c->more[k - 1].ys;
+        if (!vs) {
+            continue;
+        }
+        rows[nRows].swatch = k == 0 ? c->stroke : c->more[k - 1].stroke;
+        rows[nRows].name = k == 0 ? c->tooltipName : c->more[k - 1].name;
+        rows[nRows].value = vs[held.index];
+        if (k == 0 && c->exact) {
+            rows[nRows].value = c->exact[held.index];
+            rows[nRows].f64 = true;
+        }
+        nRows++;
+    }
+    ChartTooltipApply(c->tooltipContent, tooltip,
+                      c->tooltipContent.Datum(held.index, c->values), title,
+                      hasTitle, rows, nRows);
+    plot::PlotOverlayAttach(ctx, e, e->Bounds(), tooltip->IntoEl());
+}
+
+static void PaintRadarChart(PaintCtx* ctx, El* e, void* user) {
+    auto* c = (RadarChart*)user;
+    if (!c) {
+        return;
+    }
+    PaintRadarLabels(ctx, e, c);
+    PaintRadarHover(ctx, e, c);
+}
+
+RadarChart* RadarChart::New(Ctx* cx, const double* values, int n,
+                            const char* file, int line) {
+    float* narrow = (float*)Alloc(cx->a, (int)sizeof(float) * (n > 0 ? n : 1));
+    for (int i = 0; i < n; i++) {
+        narrow[i] = (float)values[i];
+    }
+    RadarChart* c = New(cx, narrow, n, file, line);
+    c->exact = values;
+    return c;
+}
+RadarChart* RadarChart::New(Ctx* cx, const float* values, int n,
+                            const char* file, int line) {
+    Arena* a = cx->a;
+    RadarChart* c = ArenaNew<RadarChart>(a);
+    c->a = a;
+    c->cx = cx;
+    c->id = ChartCallerId(cx, file, line);
+    c->values = values;
+    c->n = n;
+    // series_stroke: the theme chart colours, cycled per series; the fill
+    // is the stroke at 0.3 until one is given.
+    c->stroke = RadarPaletteColor(ThemeNow(cx->app), 0);
+    c->fill = RgbaOpacity(c->stroke, 0.3f);
+    return c;
+}
+RadarChart* RadarChart::Value(const float* ys) {
+    ChartSeriesExtra series = {};
+    series.ys = ys;
+    series.stroke = RadarPaletteColor(ThemeNow(cx->app), 1 + len(more));
+    series.fillTop = RgbaOpacity(series.stroke, 0.3f);
+    series.fillBot = series.fillTop;
+    more.Append(a, series);
+    lastFillSet = false;
+    return this;
+}
+RadarChart* RadarChart::Stroke(Rgba c) {
+    // A series' fill follows its stroke until it is given one of its own.
+    if (len(more) > 0) {
+        ChartSeriesExtra& last = more[len(more) - 1];
+        last.stroke = c;
+        if (!lastFillSet) {
+            last.fillTop = RgbaOpacity(c, 0.3f);
+            last.fillBot = last.fillTop;
+        }
+    } else {
+        stroke = c;
+        if (!lastFillSet) {
+            fill = RgbaOpacity(c, 0.3f);
+        }
+    }
+    return this;
+}
+RadarChart* RadarChart::Fill(Rgba c) {
+    if (len(more) > 0) {
+        more[len(more) - 1].fillTop = c;
+        more[len(more) - 1].fillBot = c;
+    } else {
+        fill = c;
+    }
+    lastFillSet = true;
+    return this;
+}
+RadarChart* RadarChart::Labels(const char* const* l) {
+    if (!l || n <= 0) {
+        labels = nullptr;
+        return this;
+    }
+    RadarLabel* converted = (RadarLabel*)Alloc(a, (int)sizeof(RadarLabel) * n);
+    for (int i = 0; i < n; i++) {
+        converted[i] = RadarLabel::Text(Str(l[i]));
+    }
+    labels = converted;
+    return this;
+}
+RadarChart* RadarChart::Labels(const RadarLabel* l) {
+    labels = l;
+    return this;
+}
+RadarChart* RadarChart::LabelColor(Rgba c) {
+    labelColor = c;
+    hasLabelColor = true;
+    return this;
+}
+RadarChart* RadarChart::LabelGap(float v) {
+    labelGap = v;
+    return this;
+}
+RadarChart* RadarChart::MaxValue(float v) {
+    return Domain(0, v);
+}
+RadarChart* RadarChart::Domain(float lo, float hi) {
+    domainMin = lo;
+    domainMax = hi;
+    return this;
+}
+RadarChart* RadarChart::Dot(bool v) {
+    dot = v;
+    return this;
+}
+RadarChart* RadarChart::OuterRadius(float v) {
+    outerRadius = v;
+    return this;
+}
+RadarChart* RadarChart::GridLevels(int v) {
+    gridLevels = v > 1 ? v : 1;
+    return this;
+}
+RadarChart* RadarChart::Grid(bool v) {
+    grid = v;
+    return this;
+}
+RadarChart* RadarChart::Tooltip(Str name) {
+    if (len(more) > 0) {
+        more[len(more) - 1].name = name;
+    } else {
+        tooltipName = name;
+    }
+    return this;
+}
+RadarChart* RadarChart::TooltipTitle(ChartTooltipTitleFn fn, void* user) {
+    tooltipContent.title = fn;
+    tooltipContent.titleUser = user;
+    return this;
+}
+RadarChart* RadarChart::TooltipValue(ChartTooltipValueFn fn, void* user) {
+    tooltipContent.value = fn;
+    tooltipContent.valueUser = user;
+    return this;
+}
+RadarChart* RadarChart::TooltipValueColor(ChartTooltipValueColorFn fn,
+                                          void* user) {
+    tooltipContent.valueColor = fn;
+    tooltipContent.valueColorUser = user;
+    return this;
+}
+RadarChart* RadarChart::TooltipContent(ChartTooltipContentFn fn, void* user) {
+    tooltipContent.content = fn;
+    tooltipContent.contentUser = user;
+    return this;
+}
+
+RadarChart* RadarChart::Data(const void* items, int stride) {
+    tooltipContent.data = items;
+    tooltipContent.dataStride = stride;
+    return this;
+}
+RadarChart* RadarChart::Id(Str name) {
+    id = IdFoldName(cx ? cx->path : 0, name);
+    return this;
+}
+El* RadarChart::IntoEl() {
+    El* e = ChartEl(a, values, n, stroke, fill, fill, 1);
+    ChartSeries* chart = e->Chart();
+    chart->kind = ChartKind::Radar;
+    chart->dot = dot;
+    chart->radarRadius = outerRadius;
+    chart->gridLevels = gridLevels;
+    chart->grid = grid;
+    chart->domainMin = domainMin;
+    chart->domainMax = domainMax;
+    chart->more = more.Flatten(a);
+    chart->nMore = len(more);
+    // The labels and the hover are this builder's (PaintRadarChart); the
+    // runtime's own hover is for the cartesian charts.
+    chart->tooltip = false;
+    chart->id = id;
+    chart->appear = appear.Generation(&chart->appearGeneration);
+    chart->name = tooltipName;
+    chart->tooltipContent = tooltipContent;
+    el = e;
+    e->customPaint = PaintRadarChart;
+    e->customUser = this;
+    if (labels) {
+        for (int i = 0; i < n; i++) {
+            if (labels[i].kind == RadarLabel::Kind::Element && labels[i]
+                                                                   .element) {
+                e->Child(labels[i].element->Absolute());
+            }
+        }
+    }
+    return e;
+}
+
+PieChart* PieChart::New(Ctx* cx, const char* file, int line) {
+    Arena* a = cx->a;
+    PieChart* p = ArenaNew<PieChart>(a);
+    p->a = a;
+    p->cx = cx;
+    p->id = ChartCallerId(cx, file, line);
+    return p;
+}
+PieChart* PieChart::Slice(float value, Rgba color, float outerInset) {
+    slices.Append(a, PieSlice{value, color, outerInset, {}});
+    return this;
+}
+// label(): names the slice that was added last, so a caller adds a slice and
+// then says what it is called.
+PieChart* PieChart::Label(Str text) {
+    if (slices.len > 0) {
+        slices[slices.len - 1].label = text;
+        hasLabels = true;
+    }
+    return this;
+}
+PieChart* PieChart::TooltipName(Str name) {
+    if (slices.len > 0) {
+        slices[slices.len - 1].tooltipName = name;
+    }
+    return this;
+}
+PieChart* PieChart::TooltipValue(Str value) {
+    if (slices.len > 0) {
+        slices[slices.len - 1].tooltipValue = value;
+    }
+    return this;
+}
+PieChart* PieChart::LabelGap(float gap) {
+    labelGap = gap;
+    return this;
+}
+PieChart* PieChart::LabelColor(Rgba c) {
+    labelColor = c;
+    hasLabelColor = true;
+    return this;
+}
+PieChart* PieChart::OuterRadius(float r) {
+    outerRadius = r;
+    return this;
+}
+PieChart* PieChart::InnerRadius(float r) {
+    innerRadius = r;
+    return this;
+}
+PieChart* PieChart::PadAngle(float radians) {
+    padAngle = radians;
+    return this;
+}
+PieChart* PieChart::Tooltip(Str name) {
+    tooltipName = name;
+    return this;
+}
+PieChart* PieChart::Id(Str name) {
+    id = IdFoldName(cx ? cx->path : 0, name);
+    return this;
+}
+
+float PieChart::ResolveOuterRadius(float height) const {
+    return outerRadius > 0 ? outerRadius : height * 0.4f;
+}
+
+// plot/label.rs: the names outside a pie are ten-point text on a two-pixel
+// leading, which is what decides how far apart two of them have to be.
+static const float kPieTextSize = 10.f;
+static const float kPieTextHeight = 12.f;
+static const float kPieHoverLift = 6.f;
+// LABEL_APPEAR_START: how far into the appear the leader-line labels start
+// fading in.
+static const float kPieLabelAppearStart = 0.7f;
+
+// The chart's own id on the stack, which is what its hover state and springs
+// key on: Rust paints a plot inside `with_element_id(plot.id())`.
+static Ctx ChartIdCtx(const PaintCtx* ctx, uint32_t id) {
+    Ctx out = {};
+    out.app = ctx->app;
+    out.win = ctx->window;
+    out.path = id;
+    return out;
+}
+
+// PlotElement's half of the appear for the charts painted here: sample it
+// under the chart's id when the chart has a generation, and treat it as
+// complete otherwise.
+template <typename C>
+static plot::PlotAppear ChartTrackAppear(const PaintCtx* ctx, const C* chart) {
+    uint64_t generation = 0;
+    if (!ctx->window || !ctx->app || !chart->AppearGeneration(&generation)) {
+        return plot::PlotAppear::Complete();
+    }
+    Ctx idCx = ChartIdCtx(ctx, chart->id);
+    return plot::TrackAppear(&idCx, generation);
+}
+
+// plot/tooltip.rs: an optional title over one row — a swatch, the name in
+// the muted colour, the value — in a popover box at the compact text size
+// every tooltip uses. Drawn rather than built, because the pie and the
+// sankey paint their hover straight onto the plot.
+static void PaintChartTooltip(PaintCtx* ctx, El* e, const Theme& th,
+                              Point cursor, float focus, Str title, Rgba swatch,
+                              Str name, Str value) {
+    const float kFont = 12.f;
+    const float kPad = 8.f;
+    const float kSwatch = 8.f;
+    Size titleSz = title.s ? MeasureText(ctx, title, kFont, 240) : Size{};
+    Size nameSz = name.s ? MeasureText(ctx, name, kFont, 240) : Size{};
+    Size valueSz = MeasureText(ctx, value, kFont, 240);
+    float rowH = valueSz.h > nameSz.h ? valueSz.h : nameSz.h;
+    float rowW = kSwatch + 6.f + nameSz.w + 12.f + valueSz.w;
+    float innerW = rowW > titleSz.w ? rowW : titleSz.w;
+    float boxW = innerW + kPad * 2;
+    float boxH = rowH + kPad * 2 + (title.s ? titleSz.h + 4.f : 0.f);
+    Point at = PlotTooltipPlace(cursor, {e->w, e->h}, {boxW, boxH}, 8.f);
+    float x = e->x + at.x;
+    float y = e->y + at.y;
+    FillRound(ctx, x, y, boxW, boxH, 6.f, RgbaOpacity(th.background, focus));
+    DrawRoundStroke(ctx, x, y, boxW, boxH, 6.f, 1.f,
+                    RgbaOpacity(th.border, focus));
+    float rowY = y + kPad;
+    if (title.s) {
+        DrawTextAt(ctx, title, x + kPad, rowY, innerW, titleSz.h, kFont,
+                   RgbaOpacity(th.foreground, focus), false, false, -1.f,
+                   kFontWeightSemibold);
+        rowY += titleSz.h + 4.f;
+    }
+    FillRound(ctx, x + kPad, rowY + (rowH - kSwatch) * 0.5f, kSwatch, kSwatch,
+              th.radius * .5f, RgbaOpacity(swatch, focus));
+    if (name.s) {
+        DrawTextAt(ctx, name, x + kPad + kSwatch + 6.f, rowY, nameSz.w, rowH,
+                   kFont, RgbaOpacity(th.mutedFg, focus), false);
+    }
+    DrawTextAt(ctx, value, x + boxW - kPad - valueSz.w, rowY, valueSz.w, rowH,
+               kFont, RgbaOpacity(th.foreground, focus), false);
+}
+
+static float PieSliceLift(PaintCtx* ctx, PieChart* p, int index, int hoverIndex,
+                          float focus) {
+    if (!ctx->window || !ctx->app || hoverIndex != index || focus <= 0.f) {
+        return 0;
+    }
+    Ctx idCx = ChartIdCtx(ctx, p->id);
+    return motion::spring(&idCx,
+                          motion::TransitionId(fmt("pie-slice-%d", index)), 1.f,
+                          ThemeNow(ctx->app).motion.springControl);
+}
+
+// One name's place, before the overlap pass moves it.
+struct PieLabelLayout {
+    float arcX = 0; // the anchor on the ring edge, from the centre
+    float arcY = 0;
+    float labelX = 0; // the centroid at the label radius, from the centre
+    float y = 0;      // where the name wants to be, and then where it goes
+    Str text = {};
+};
+
+// spread_labels: sort by where each name wants to be, push crowded ones down,
+// then anchor the last one and pull the overflow back up. One neighbour at a
+// time would not settle a run of them.
+static void PieSpreadLabels(ArenaVec<PieLabelLayout>* items, float top,
+                            float bottom) {
+    int n = items->len;
+    if (n <= 0) {
+        return;
+    }
+    for (int i = 1; i < n; i++) {
+        PieLabelLayout key = (*items)[i];
+        int j = i - 1;
+        while (j >= 0 && (*items)[j].y > key.y) {
+            (*items)[j + 1] = (*items)[j];
+            j--;
+        }
+        (*items)[j + 1] = key;
+    }
+    for (int i = 1; i < n; i++) {
+        float minY = (*items)[i - 1].y + kPieTextHeight;
+        if ((*items)[i].y < minY) {
+            (*items)[i].y = minY;
+        }
+    }
+    if ((*items)[n - 1].y > bottom) {
+        (*items)[n - 1].y = bottom;
+    }
+    for (int i = n - 2; i >= 0; i--) {
+        float maxY = (*items)[i + 1].y - kPieTextHeight;
+        if ((*items)[i].y > maxY) {
+            (*items)[i].y = maxY;
+        }
+    }
+    if ((*items)[0].y < top) {
+        (*items)[0].y = top;
+    }
+}
+
+static void PaintPieLabels(PaintCtx* ctx, PieChart* p, float cx, float cy,
+                           float total, float ring, int hoverIndex, float focus,
+                           float appear) {
+    if (!p->hasLabels || total <= 0) {
+        return;
+    }
+    // Labels fade in over the end of the sweep, once their slices are mostly
+    // drawn.
+    float labelOpacity =
+        (appear - kPieLabelAppearStart) / (1.f - kPieLabelAppearStart);
+    if (labelOpacity <= 0.f) {
+        return;
+    }
+    const Theme& th = ThemeNow(ctx->app);
+    Rgba color = RgbaOpacity(p->hasLabelColor ? p->labelColor : th.foreground,
+                             labelOpacity);
+    Rgba lineColor = RgbaOpacity(th.border, labelOpacity);
+    float labelR = ring + p->labelGap;
+    ArenaVec<PieLabelLayout> right{};
+    ArenaVec<PieLabelLayout> left{};
+    float angle = -kPi * 0.5f;
+    for (int i = 0; i < p->slices.len; i++) {
+        const PieSlice& s = p->slices[i];
+        float sweep = 2.f * kPi * (s.value / total);
+        float a0 = angle, a1 = angle + sweep;
+        angle = a1;
+        // A slice thinner than half a degree has no room for a name.
+        if (!s.label.s || a1 - a0 < kPi / 360.f) {
+            continue;
+        }
+        float mid = (a0 + a1) * 0.5f;
+        // Anchor the line on the edge the slice reaches this frame, so a
+        // lifted slice never paints over its own leader line. The label
+        // anchor stays put, so the line may not start past it.
+        float lift = PieSliceLift(ctx, p, i, hoverIndex, focus);
+        float edgeR = ring - s.outerInset + kPieHoverLift * lift;
+        if (edgeR > labelR) {
+            edgeR = labelR;
+        }
+        PieLabelLayout item;
+        item.arcX = cosf(mid) * ((p->innerRadius + edgeR) * 0.5f);
+        item.arcY = sinf(mid) * ((p->innerRadius + edgeR) * 0.5f);
+        item.labelX = cosf(mid) * labelR;
+        item.y = sinf(mid) * labelR;
+        item.text = s.label;
+        // The centroid the leader line starts from is the ring's own middle,
+        // so the line comes out of the slice rather than off its rim.
+        item.arcX = cosf(mid) * edgeR;
+        item.arcY = sinf(mid) * edgeR;
+        if (item.labelX > 0) {
+            right.Append(p->a, item);
+        } else {
+            left.Append(p->a, item);
+        }
+    }
+    float top = -cy + kPieTextHeight * 0.5f;
+    float bottom = cy - kPieTextHeight * 0.5f;
+    PieSpreadLabels(&right, top, bottom);
+    PieSpreadLabels(&left, top, bottom);
+    for (int side = 0; side < 2; side++) {
+        float sign = side == 0 ? 1.f : -1.f;
+        ArenaVec<PieLabelLayout>& items = side == 0 ? right : left;
+        int count = len(items);
+        for (int i = 0; i < count; i++) {
+            const PieLabelLayout& it = items[i];
+            CanvasLine(ctx, it.arcX + cx, it.arcY + cy, it.labelX + cx,
+                       it.y + cy, 1.f, lineColor);
+            CanvasLine(ctx, it.labelX + cx, it.y + cy, sign * labelR + cx,
+                       it.y + cy, 1.f, lineColor);
+            Size ts = MeasureText(ctx, it.text, kPieTextSize, 0, false, 0, 0);
+            float tx = sign > 0 ? sign * (labelR + 4.f) + cx
+                                : sign * (labelR + 4.f) + cx - ts.w;
+            DrawTextBaseline(ctx, it.text, tx,
+                             it.y + cy + kPieTextSize * 0.5f - 1.f,
+                             kPieTextSize, color, 0);
+        }
+    }
+}
+
+static void PaintPie(PaintCtx* ctx, El* e, void* user) {
+    auto* p = (PieChart*)user;
+    if (!p || !ctx->rt || p->slices.len == 0) {
+        return;
+    }
+    float cx = e->x + e->w * 0.5f;
+    float cy = e->y + e->h * 0.5f;
+    float total = 0;
+    for (int i = 0; i < p->slices.len; i++) {
+        total += p->slices[i].value;
+    }
+    if (total <= 0) {
+        return;
+    }
+    float ring = p->ResolveOuterRadius(e->h);
+    const float kHoverDim = 0.35f;
+    int hoverIndex = -1;
+    float focus = 0.f;
+    Point lingerCursor = {};
+    plot::PlotAppear appear = ChartTrackAppear(ctx, p);
+    float appearProgress = appear.Progress();
+    // interactive(false): no hitbox, so nothing is hovered or lifted.
+    if (ctx->window && ctx->app && p->interactive) {
+        Bounds bounds = {e->x, e->y, e->w, e->h};
+        Point local = {ctx->mouseX - e->x, ctx->mouseY - e->y};
+        // Hit-test in pie angles using the same start/end as Arc::Contains.
+        float pieAngle = 0;
+        for (int i = 0; i < p->slices.len; i++) {
+            float sweep = 2.f * kPi * (p->slices[i].value / total);
+            plot::ArcData ad = plot::ArcData::New(
+                nullptr, i, p->slices[i].value, pieAngle, pieAngle + sweep);
+            ad.padAngle = p->padAngle;
+            // Each slice is its own Arc at its own radii, as pie_chart.rs
+            // builds one per slice now that Arc takes no radius overrides.
+            plot::Arc hit = plot::Arc::New();
+            hit.InnerRadius(p->innerRadius)
+                ->OuterRadius(ring - p->slices[i].outerInset);
+            if (hit.Contains(ad, local, bounds)) {
+                hoverIndex = i;
+            }
+            pieAngle += sweep;
+        }
+        plot::TooltipState live = {};
+        const plot::TooltipState* livePtr = nullptr;
+        Point cursor = local;
+        // No tooltip while the ring sweeps in.
+        if (appear.IsAppearing()) {
+            hoverIndex = -1;
+        }
+        if (hoverIndex >= 0) {
+            live = plot::TooltipState::New(hoverIndex, cursor, nullptr, 0);
+            livePtr = &live;
+        }
+        plot::PlotHover hover = {};
+        Point linger = cursor;
+        Ctx idCx = ChartIdCtx(ctx, p->id);
+        if (plot::TrackHover(&idCx, livePtr,
+                             hoverIndex >= 0 ? &cursor : nullptr, &hover,
+                             &linger)) {
+            focus = hover.Progress();
+            hoverIndex = hover.State().index;
+            lingerCursor = linger;
+        } else {
+            hoverIndex = -1;
+        }
+    }
+    // The ring sweeps clockwise from its first slice as the chart appears:
+    // each slice's angles are scaled toward the ring's start.
+    float angle = -kPi * 0.5f;
+    for (int i = 0; i < p->slices.len; i++) {
+        const PieSlice& s = p->slices[i];
+        float full = 2.f * kPi * (s.value / total) * appearProgress;
+        float sweep = full - p->padAngle;
+        if (sweep <= 0) {
+            angle += full;
+            continue;
+        }
+        float lift = PieSliceLift(ctx, p, i, hoverIndex, focus);
+        float ro = ring - s.outerInset + kPieHoverLift * lift;
+        float ri = p->innerRadius;
+        float a0 = angle, a1 = angle + sweep;
+        Rgba color = s.color;
+        if (hoverIndex >= 0 && i != hoverIndex) {
+            color = RgbaOpacity(color, 1.f - kHoverDim * focus);
+        }
+        Path* wedge = PathNew(ctx, true);
+        if (wedge) {
+            PathArcTo(wedge, cx, cy, ro, a0, a1, true);
+            if (ri > 0) {
+                // Back along the inner radius to close the donut segment.
+                PathArcTo(wedge, cx, cy, ri, a1, a0, false);
+            } else {
+                PathLineTo(wedge, cx, cy);
+            }
+            PathClose(wedge);
+            PathFill(ctx, wedge, color);
+            PathFree(wedge);
+        }
+        angle += full;
+    }
+    PaintPieLabels(ctx, p, cx, cy, total, ring, hoverIndex, focus,
+                   appearProgress);
+    if (hoverIndex >= 0 && focus > 0.f && ctx->app) {
+        // One number per slice fits one row, so there is no title: `label`
+        // is the ring's leader-line text, as often a percentage as a name.
+        const PieSlice& s = p->slices[hoverIndex];
+        float share = s.value / total * 100.f;
+        Str name = s.tooltipName.s ? s.tooltipName : p->tooltipName;
+        Str value = s.tooltipValue.s
+                        ? s.tooltipValue
+                        : fmt("%g (%.1f%%)", (double)s.value, (double)share);
+        const Theme& th = ThemeNow(ctx->app);
+        PaintChartTooltip(ctx, e, th, lingerCursor, focus, Str{}, s.color, name,
+                          value);
+    }
+}
+
+El* PieChart::IntoEl() {
+    El* e = Div(a);
+    if (outerRadius > 0) {
+        float d = outerRadius * 2;
+        e->W(d)->H(d);
+    } else {
+        e->W(kFill)->H(kFill);
+    }
+    e->customPaint = PaintPie;
+    e->customUser = this;
+    return e;
+}
+
+// ─── SankeyChart ─────────────────────────────────────────────────────────
+
+SankeyLabel SankeyLabel::New(Str text) {
+    SankeyLabel label;
+    label.text = text;
+    return label;
+}
+
+SankeyLabel SankeyLabel::Color(Rgba value) const {
+    SankeyLabel label = *this;
+    label.color = value;
+    label.hasColor = true;
+    return label;
+}
+
+SankeyLabel SankeyLabel::FontSize(float value) const {
+    SankeyLabel label = *this;
+    label.fontSize = value;
+    return label;
+}
+
+float SankeyLabel::LineHeight() const {
+    return (fontSize > 0 ? fontSize : kPlotTextSize) + kPlotTextGap;
+}
+
+static int SankeyNodeLineCount(const SankeyChartNode& node, Str value) {
+    if (node.hasCustomLabels) {
+        return node.labels.len;
+    }
+    return (value.s ? 1 : 0) + (node.note.s ? 1 : 0) + (node.label.s ? 1 : 0);
+}
+
+static SankeyLabel SankeyNodeLine(const SankeyChartNode& node, Str value,
+                                  int ix, const Theme& th) {
+    if (node.hasCustomLabels) {
+        return node.labels[ix];
+    }
+    if (value.s) {
+        if (ix-- == 0) {
+            return SankeyLabel::New(value);
+        }
+    }
+    if (node.note.s) {
+        if (ix-- == 0) {
+            return SankeyLabel::New(node.note).Color(node.noteColor);
+        }
+    }
+    return SankeyLabel::New(node.label).Color(th.mutedFg);
+}
+
+static float SankeyNodeBlockHeight(const SankeyChartNode& node, Str value,
+                                   const Theme& th) {
+    float height = 0;
+    int n = SankeyNodeLineCount(node, value);
+    for (int i = 0; i < n; i++) {
+        height += SankeyNodeLine(node, value, i, th).LineHeight();
+    }
+    return height;
+}
+
+void SankeyChartThroughput(const SankeyLink* links, int nLinks, double* out,
+                           int n) {
+    // The two sides are added up separately and the larger wins, the same way
+    // the layout works out a node's value — but in the caller's own units.
+    for (int i = 0; i < n; i++) {
+        double incoming = 0;
+        double outgoing = 0;
+        for (int k = 0; k < nLinks; k++) {
+            if (links[k].target == i) {
+                incoming += links[k].value;
+            }
+            if (links[k].source == i) {
+                outgoing += links[k].value;
+            }
+        }
+        out[i] = incoming > outgoing ? incoming : outgoing;
+    }
+}
+
+// One line of a node's label. `align` is -1 for a label ending at x, 0 for
+// one centred on it, 1 for one starting there.
+static void SankeyLabelLine(PaintCtx* ctx, Str text, float x, float y,
+                            float maxW, float fontSize, Rgba color, int align) {
+    if (!text.s || len(text) <= 0 || maxW <= 0) {
+        return;
+    }
+    // sankey_chart.rs sends these through truncate_text_to_width and
+    // PlotLabel, sharing the text-system cache with every other chart label.
+    text = plot::TruncateTextToWidth(ctx, GetTempArena(), text, fontSize, maxW);
+    Size size = MeasureText(ctx, text, fontSize, 0);
+    float left = x;
+    if (align < 0) {
+        left = x - size.w;
+    } else if (align == 0) {
+        left = x - size.w / 2.f;
+    }
+    DrawTextAt(ctx, text, left, y, size.w, size.h, fontSize, color, false);
+}
+
+static void PaintSankey(PaintCtx* ctx, El* e, void* user) {
+    auto* c = (SankeyChart*)user;
+    if (!c || !ctx->rt || c->nodes.len == 0 || c->links.len == 0) {
+        return;
+    }
+    float width = e->w;
+    float height = e->h;
+    if (width <= 0 || height <= 0) {
+        return;
+    }
+    const Theme& th = ThemeNow(ctx->app);
+
+    Sankey gen;
+    gen.nodeWidth = c->nodeWidth;
+    gen.nodePadding = c->nodePadding;
+    gen.align = c->align;
+    gen.iterations = c->iterations;
+    gen.valueScale = c->valueScale;
+
+    // The first pass is the topology alone: the columns are all the label
+    // margins need, and the margins are what the extent depends on.
+    SankeyGraph g;
+    // The links as an array: the generator takes a `const SankeyLink*`, and
+    // the builder's ArenaVec is segmented.
+    const SankeyLink* links = c->links.Flatten(GetTempArena());
+    if (SankeyTopology(&gen, c->nodes.len, links, c->links.len, &g) !=
+        SankeyError::None) {
+        return;
+    }
+    int layers = SankeyLayerCount(&g);
+
+    // The labels read the raw throughput; the layout's own value is in
+    // scaled units under a non-linear scale.
+    Arena* ta = GetTempArena();
+    int nNodes = c->nodes.len;
+    double* raw = (double*)Alloc(ta, (int)sizeof(double) * nNodes);
+    SankeyChartThroughput(links, c->links.len, raw, nNodes);
+    Str* values = (Str*)Alloc(ta, (int)sizeof(Str) * nNodes);
+    int nodeIx = -1;
+    for (const SankeyChartNode& node : c->nodes) {
+        nodeIx++;
+        values[nodeIx] = c->showValues ? fmt("%.0f", raw[nodeIx]) : node.value;
+    }
+
+    bool hasLabels = false;
+    nodeIx = -1;
+    for (const SankeyChartNode& node : c->nodes) {
+        nodeIx++;
+        if (SankeyNodeLineCount(node, values[nodeIx]) > 0) {
+            hasLabels = true;
+        }
+    }
+
+    // The margin the labels beside the first and last columns need, each side
+    // capped so one long label cannot take the flow area over.
+    float left = 0;
+    float right = 0;
+    if (hasLabels) {
+        nodeIx = -1;
+        for (const SankeyChartNode& node : c->nodes) {
+            int i = ++nodeIx;
+            int layer = g.nodes[i].layer;
+            if (layer != 0 && layer + 1 != layers) {
+                continue;
+            }
+            float labelW = 0;
+            int lineCount = SankeyNodeLineCount(node, values[i]);
+            for (int k = 0; k < lineCount; k++) {
+                SankeyLabel line = SankeyNodeLine(node, values[i], k, th);
+                float fontSize =
+                    line.fontSize > 0 ? line.fontSize : kPlotTextSize;
+                Size sz = MeasureText(ctx, line.text, fontSize, 0);
+                if (sz.w > labelW) {
+                    labelW = sz.w;
+                }
+            }
+            float want = labelW + c->labelGap;
+            if (layer == 0) {
+                left = want > left ? want : left;
+            } else {
+                right = want > right ? want : right;
+            }
+        }
+        float cap = width * kSankeyMaxLabelWidthRatio;
+        left = left < cap ? left : cap;
+        right = right < cap ? right : cap;
+    }
+    // A middle column's labels sit above its nodes, so the top band is
+    // reserved for the tallest of those blocks.
+    float top = 0;
+    if (hasLabels && layers > 2) {
+        nodeIx = -1;
+        for (const SankeyChartNode& node : c->nodes) {
+            int i = ++nodeIx;
+            int layer = g.nodes[i].layer;
+            if (layer == 0 || layer + 1 == layers) {
+                continue;
+            }
+            float block = SankeyNodeBlockHeight(node, values[i], th);
+            if (block > 0 && block + kPlotTextGap > top) {
+                top = block + kPlotTextGap;
+            }
+        }
+    }
+    float bottom = hasLabels ? kPlotTextGap : 0.f;
+    float maxVertical = height * kSankeyMaxLabelMarginRatio;
+    if (top + bottom > maxVertical) {
+        float k = maxVertical / (top + bottom);
+        top *= k;
+        bottom *= k;
+    }
+
+    // The second pass places the nodes on what the labels left over.
+    gen.x0 = left;
+    gen.y0 = top;
+    gen.x1 = width - right > left + 1 ? width - right : left + 1;
+    gen.y1 = height - bottom > top + 1 ? height - bottom : top + 1;
+    SankeyLayoutFrom(&gen, &g);
+
+    // chart_1..chart_5 in Rust: the palette a node falls back to, by index.
+    Rgba palette[5] = {th.blue, th.green, th.yellow, th.magenta, th.cyan};
+    Rgba* colors = (Rgba*)Alloc(ta, (int)sizeof(Rgba) * nNodes);
+    nodeIx = -1;
+    for (const SankeyChartNode& node : c->nodes) {
+        int i = ++nodeIx;
+        colors[i] = node.hasColor ? node.color : palette[i % 5];
+    }
+
+    const float kHoverDim = 0.7f;
+    int hoverIndex = -1;
+    float focus = 0.f;
+    Point lingerCursor = {};
+    plot::PlotAppear appear = ChartTrackAppear(ctx, c);
+    float appearProgress = appear.Progress();
+    // interactive(false): no hitbox, so no node is hovered.
+    if (ctx->window && ctx->app && c->interactive) {
+        Point local = {ctx->mouseX - e->x, ctx->mouseY - e->y};
+        for (int i = 0; i < g.nodes.len; i++) {
+            const SankeyNodeLayout& node = g.nodes[i];
+            float y1 = node.y1 > node.y0 + 1 ? node.y1 : node.y0 + 1;
+            if (local.x >= node.x0 && local.x <= node.x1 &&
+                local.y >= node.y0 && local.y <= y1) {
+                hoverIndex = node.index;
+            }
+        }
+        plot::TooltipState live = {};
+        const plot::TooltipState* livePtr = nullptr;
+        Point cursor = local;
+        // No tooltip while the links draw in.
+        if (appear.IsAppearing()) {
+            hoverIndex = -1;
+        }
+        if (hoverIndex >= 0) {
+            live = plot::TooltipState::New(hoverIndex, cursor, nullptr, 0);
+            livePtr = &live;
+        }
+        plot::PlotHover hover = {};
+        Point linger = cursor;
+        Ctx idCx = ChartIdCtx(ctx, c->id);
+        if (plot::TrackHover(&idCx, livePtr,
+                             hoverIndex >= 0 ? &cursor : nullptr, &hover,
+                             &linger)) {
+            focus = hover.Progress();
+            hoverIndex = hover.State().index;
+            lingerCursor = linger;
+        } else {
+            hoverIndex = -1;
+        }
+    }
+
+    // The ribbons first, under the nodes: a horizontal cubic through the
+    // midpoint, thickened to each end's own width, and filled from the colour
+    // it leaves to the colour it arrives at. Links not attached to the
+    // hovered node fade behind it.
+    //
+    // Links and nodes draw in from the left under a mask as the chart
+    // appears (reveal_mask with no left inset); the labels fade in.
+    bool revealed = false;
+    if (appearProgress < 1.f) {
+        float bleed = kChartHoverDotSize / 2.f;
+        float start = e->x - bleed;
+        float end = start + (e->x + e->w + bleed - start) * appearProgress;
+        CanvasPushClip(ctx, start, e->y - bleed, end - start,
+                       e->h + bleed * 2.f);
+        revealed = true;
+    }
+    for (int i = 0; i < g.links.len; i++) {
+        const SankeyLinkLayout& link = g.links[i];
+        if (link.value <= 0) {
+            continue;
+        }
+        const SankeyNodeLayout& source = g.nodes[link.source];
+        const SankeyNodeLayout& target = g.nodes[link.target];
+        float sw = link.sourceWidth > c->minLinkWidth ? link.sourceWidth
+                                                      : c->minLinkWidth;
+        float tw = link.targetWidth > c->minLinkWidth ? link.targetWidth
+                                                      : c->minLinkWidth;
+        float sourceHalf = sw / 2.f;
+        float targetHalf = tw / 2.f;
+        float sx = e->x + source.x1;
+        float tx = e->x + target.x0;
+        float mx = (sx + tx) / 2.f;
+        float sy = e->y + link.y0;
+        float ty = e->y + link.y1;
+        Path* p = PathNew(ctx, true);
+        if (!p) {
+            continue;
+        }
+        PathMoveTo(p, sx, sy - sourceHalf);
+        PathCubicTo(p, mx, sy - sourceHalf, mx, ty - targetHalf, tx,
+                    ty - targetHalf);
+        PathLineTo(p, tx, ty + targetHalf);
+        PathCubicTo(p, mx, ty + targetHalf, mx, sy + sourceHalf, sx,
+                    sy + sourceHalf);
+        PathClose(p);
+        float opacity = c->linkOpacity;
+        bool attached = hoverIndex >= 0 && (link.source == hoverIndex ||
+                                            link.target == hoverIndex);
+        if (hoverIndex >= 0 && !attached) {
+            opacity *= 1.f - kHoverDim * focus;
+        }
+        PathFillGradient(ctx, p, sx, sy, tx, ty,
+                         RgbaOpacity(colors[link.source], opacity),
+                         RgbaOpacity(colors[link.target], opacity));
+        PathFree(p);
+    }
+
+    for (int i = 0; i < g.nodes.len; i++) {
+        const SankeyNodeLayout& node = g.nodes[i];
+        // A node carrying almost nothing still gets a pixel to be seen by.
+        float y1 = node.y1 > node.y0 + 1 ? node.y1 : node.y0 + 1;
+        FillRound(ctx, e->x + node.x0, e->y + node.y0, node.x1 - node.x0,
+                  y1 - node.y0, c->nodeRadius, colors[node.index]);
+    }
+    if (revealed) {
+        CanvasPopClip(ctx);
+    }
+
+    auto paintTooltip = [&]() {
+        if (hoverIndex < 0 || focus <= 0.f || !ctx->app) {
+            return;
+        }
+        const SankeyChartNode& node = c->nodes[hoverIndex];
+        // node_label titles the tooltip; the row takes tooltip_name (none
+        // when unset) and tooltip_value, else the value label, else the raw
+        // throughput.
+        Str title = node.hasCustomLabels ? Str{} : node.label;
+        Str value = node.tooltipValue.s    ? node.tooltipValue
+                    : values[hoverIndex].s ? values[hoverIndex]
+                                           : fmt("%g", raw[hoverIndex]);
+        PaintChartTooltip(ctx, e, th, lingerCursor, focus, title,
+                          colors[hoverIndex], node.tooltipName, value);
+    };
+    if (!hasLabels) {
+        paintTooltip();
+        return;
+    }
+    for (int i = 0; i < g.nodes.len; i++) {
+        const SankeyNodeLayout& node = g.nodes[i];
+        const SankeyChartNode& chartNode = c->nodes[node.index];
+        Str value = values[node.index];
+        int lineCount = SankeyNodeLineCount(chartNode, value);
+        float block = SankeyNodeBlockHeight(chartNode, value, th);
+        if (block <= 0) {
+            continue;
+        }
+
+        bool isFirst = node.layer == 0;
+        bool isLast = node.layer + 1 == layers;
+        // Beside the first and last columns, above the middle ones — and
+        // bounded, so a long label ends in an ellipsis inside the plot.
+        float x = 0;
+        float maxW = 0;
+        int align = 0;
+        if (isFirst) {
+            x = node.x0 - c->labelGap;
+            align = -1;
+            maxW = left - c->labelGap;
+        } else if (isLast) {
+            x = node.x1 + c->labelGap;
+            align = 1;
+            maxW = right - c->labelGap;
+        } else {
+            float center = (node.x0 + node.x1) / 2.f;
+            x = center;
+            align = 0;
+            float toEdge = center < width - center ? center : width - center;
+            maxW = 2.f * toEdge;
+        }
+
+        float y = 0;
+        if (isFirst || isLast) {
+            // Centred beside the node, and kept inside the plot so a node at
+            // either edge does not lose its label.
+            y = (node.y0 + node.y1) / 2.f - block / 2.f;
+            if (y > height - block) {
+                y = height - block;
+            }
+            if (y < 0) {
+                y = 0;
+            }
+        } else {
+            y = node.y0 - block - kPlotTextGap;
+        }
+        for (int k = 0; k < lineCount; k++) {
+            SankeyLabel line = SankeyNodeLine(chartNode, value, k, th);
+            float fontSize = line.fontSize > 0 ? line.fontSize : kPlotTextSize;
+            Rgba lineColor = RgbaOpacity(
+                line.hasColor ? line.color : th.foreground, appearProgress);
+            SankeyLabelLine(ctx, line.text, e->x + x, e->y + y, maxW, fontSize,
+                            lineColor, align);
+            y += line.LineHeight();
+        }
+    }
+    paintTooltip();
+}
+
+SankeyChart* SankeyChart::New(Ctx* cx, const char* file, int line) {
+    Arena* a = cx->a;
+    SankeyChart* c = ArenaNew<SankeyChart>(a);
+    c->a = a;
+    c->cx = cx;
+    c->id = ChartCallerId(cx, file, line);
+    return c;
+}
+SankeyChart* SankeyChart::Node(Str label) {
+    SankeyChartNode nd;
+    nd.label = label;
+    nodes.Append(a, nd);
+    return this;
+}
+SankeyChart* SankeyChart::NodeValue(Str text) {
+    if (nodes.len > 0) {
+        nodes[nodes.len - 1].value = text;
+    }
+    return this;
+}
+SankeyChart* SankeyChart::NodeNote(Str text, Rgba color) {
+    if (nodes.len > 0) {
+        nodes[nodes.len - 1].note = text;
+        nodes[nodes.len - 1].noteColor = color;
+    }
+    return this;
+}
+SankeyChart* SankeyChart::CustomLabel(SankeyLabel label) {
+    if (nodes.len > 0) {
+        SankeyChartNode& node = nodes[nodes.len - 1];
+        node.hasCustomLabels = true;
+        node.labels.Append(a, label);
+    }
+    return this;
+}
+SankeyChart* SankeyChart::CustomLabels(const SankeyLabel* labels, int n) {
+    if (nodes.len <= 0) {
+        return this;
+    }
+    SankeyChartNode& node = nodes[nodes.len - 1];
+    node.hasCustomLabels = true;
+    for (int i = 0; labels && i < n; i++) {
+        node.labels.Append(a, labels[i]);
+    }
+    return this;
+}
+SankeyChart* SankeyChart::NodeColored(Str label, Rgba color) {
+    SankeyChartNode nd;
+    nd.label = label;
+    nd.color = color;
+    nd.hasColor = true;
+    nodes.Append(a, nd);
+    return this;
+}
+SankeyChart* SankeyChart::Link(int source, int target, double value) {
+    SankeyLink l;
+    l.source = source;
+    l.target = target;
+    l.value = value;
+    links.Append(a, l);
+    return this;
+}
+SankeyChart* SankeyChart::NodeWidth(float v) {
+    nodeWidth = v;
+    return this;
+}
+SankeyChart* SankeyChart::NodePadding(float v) {
+    nodePadding = v;
+    return this;
+}
+SankeyChart* SankeyChart::NodeAlign(SankeyAlign v) {
+    align = v;
+    return this;
+}
+SankeyChart* SankeyChart::Iterations(int v) {
+    iterations = v;
+    return this;
+}
+SankeyChart* SankeyChart::ValueScale(SankeyValueScale v) {
+    valueScale = v;
+    return this;
+}
+SankeyChart* SankeyChart::NodeCornerRadius(float v) {
+    nodeRadius = v;
+    return this;
+}
+SankeyChart* SankeyChart::LinkOpacity(float v) {
+    linkOpacity = v;
+    return this;
+}
+SankeyChart* SankeyChart::MinLinkWidth(float v) {
+    minLinkWidth = v;
+    return this;
+}
+SankeyChart* SankeyChart::LabelGap(float v) {
+    labelGap = v;
+    return this;
+}
+SankeyChart* SankeyChart::ShowValues(bool v) {
+    showValues = v;
+    return this;
+}
+SankeyChart* SankeyChart::Tooltip(Str name) {
+    tooltipName = name;
+    return this;
+}
+SankeyChart* SankeyChart::TooltipName(Str name) {
+    if (nodes.len > 0) {
+        nodes[nodes.len - 1].tooltipName = name;
+    }
+    return this;
+}
+SankeyChart* SankeyChart::TooltipValue(Str value) {
+    if (nodes.len > 0) {
+        nodes[nodes.len - 1].tooltipValue = value;
+    }
+    return this;
+}
+SankeyChart* SankeyChart::Id(Str name) {
+    id = IdFoldName(cx ? cx->path : 0, name);
+    return this;
+}
+El* SankeyChart::IntoEl() {
+    El* e = Div(a);
+    e->customPaint = PaintSankey;
+    e->customUser = this;
+    return e;
+}
+
+PieChart* PieChart::Interactive(bool v) {
+    interactive = v;
+    return this;
+}
+
+AreaChart* AreaChart::Interactive(bool v) {
+    interactive = v;
+    return this;
+}
+
+LineChart* LineChart::Interactive(bool v) {
+    interactive = v;
+    return this;
+}
+
+BarChart* BarChart::Interactive(bool v) {
+    interactive = v;
+    return this;
+}
+
+CandlestickChart* CandlestickChart::Interactive(bool v) {
+    interactive = v;
+    return this;
+}
+
+RadarChart* RadarChart::Interactive(bool v) {
+    interactive = v;
+    return this;
+}
+
+SankeyChart* SankeyChart::Interactive(bool v) {
+    interactive = v;
+    return this;
+}
+
+PieChart* PieChart::Appear(bool v) {
+    appear.SetEnabled(v);
+    return this;
+}
+PieChart* PieChart::AppearKey(Str key) {
+    appear.SetKey(key);
+    return this;
+}
+PieChart* PieChart::AppearKey(uint64_t key) {
+    appear.SetKey(key);
+    return this;
+}
+
+AreaChart* AreaChart::Appear(bool v) {
+    appear.SetEnabled(v);
+    return this;
+}
+AreaChart* AreaChart::AppearKey(Str key) {
+    appear.SetKey(key);
+    return this;
+}
+AreaChart* AreaChart::AppearKey(uint64_t key) {
+    appear.SetKey(key);
+    return this;
+}
+
+LineChart* LineChart::Appear(bool v) {
+    appear.SetEnabled(v);
+    return this;
+}
+LineChart* LineChart::AppearKey(Str key) {
+    appear.SetKey(key);
+    return this;
+}
+LineChart* LineChart::AppearKey(uint64_t key) {
+    appear.SetKey(key);
+    return this;
+}
+
+BarChart* BarChart::Appear(bool v) {
+    appear.SetEnabled(v);
+    return this;
+}
+BarChart* BarChart::AppearKey(Str key) {
+    appear.SetKey(key);
+    return this;
+}
+BarChart* BarChart::AppearKey(uint64_t key) {
+    appear.SetKey(key);
+    return this;
+}
+
+CandlestickChart* CandlestickChart::Appear(bool v) {
+    appear.SetEnabled(v);
+    return this;
+}
+CandlestickChart* CandlestickChart::AppearKey(Str key) {
+    appear.SetKey(key);
+    return this;
+}
+CandlestickChart* CandlestickChart::AppearKey(uint64_t key) {
+    appear.SetKey(key);
+    return this;
+}
+
+RadarChart* RadarChart::Appear(bool v) {
+    appear.SetEnabled(v);
+    return this;
+}
+RadarChart* RadarChart::AppearKey(Str key) {
+    appear.SetKey(key);
+    return this;
+}
+RadarChart* RadarChart::AppearKey(uint64_t key) {
+    appear.SetKey(key);
+    return this;
+}
+
+SankeyChart* SankeyChart::Appear(bool v) {
+    appear.SetEnabled(v);
+    return this;
+}
+SankeyChart* SankeyChart::AppearKey(Str key) {
+    appear.SetKey(key);
+    return this;
+}
+SankeyChart* SankeyChart::AppearKey(uint64_t key) {
+    appear.SetKey(key);
+    return this;
+}
+
+} // namespace component
+} // namespace gpui

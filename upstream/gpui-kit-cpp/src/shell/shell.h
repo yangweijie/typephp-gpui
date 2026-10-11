@@ -1,0 +1,33 @@
+#ifndef GPUI_SHELL_H_
+#define GPUI_SHELL_H_
+
+#include "shell/a11y.h"
+#include "shell/capability.h"
+#include "shell/dock.h"
+#include "shell/assets.h"
+#include "shell/error.h"
+#include "shell/fetch.h"
+#include "shell/filesystem.h"
+#include "shell/host.h"
+#include "shell/host_modules.h"
+#include "shell/input_tokens.h"
+#include "shell/metrics.h"
+#include "shell/policy.h"
+#include "shell/plugin.h"
+#include "shell/process.h"
+#include "shell/root.h"
+#include "shell/retained.h"
+#include "shell/runtime.h"
+#include "shell/materialize.h"
+#include "shell/view.h"
+#include "shell/watch.h"
+#include "shell/scope.h"
+#include "shell/snapshot.h"
+#include "shell/spec.h"
+#include "shell/standard.h"
+#include "shell/storage.h"
+#include "shell/style.h"
+#include "shell/theme_tokens.h"
+#include "shell/typings.h"
+
+#endif // GPUI_SHELL_H_

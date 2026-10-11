@@ -34,10 +34,15 @@ composer install
 ## 2. Place the gpui-kit-cpp sources
 
 Upstream has no git remote, so you supply the source tree yourself, at
-`vendor/gpui-kit-cpp` (or point `GPUI_DIR` anywhere):
+The upstream sources are **vendored into this repository** at
+`upstream/gpui-kit-cpp` (a 22 MB source subset that already carries our seven host
+patches). Before building, `cmd/sync-upstream.sh` copies it into a sandbox at
+`build/gpui-kit-cpp`, so patches, the amalgam and object files never dirty tracked
+sources. To build against your own checkout, point `GPUI_DIR` at it — the sync then
+skips itself:
 
 ```bash
-export GPUI_DIR=/path/to/gpui-kit-cpp   # optional; defaults to vendor/gpui-kit-cpp
+export GPUI_DIR=/path/to/gpui-kit-cpp   # optional; defaults to build/gpui-kit-cpp
 ```
 
 `bin/gpui doctor` checks that the sources are present and that all seven patches have

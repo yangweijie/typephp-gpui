@@ -45,7 +45,7 @@ function run(string $cmd, ?string $cwd = null): int {
 function gpuiDir(): string {
     global $root;
     $d = getenv('GPUI_DIR');
-    return ($d !== false && $d !== '') ? rtrim($d, '/') : "$root/vendor/gpui-kit-cpp";
+    return ($d !== false && $d !== '') ? rtrim($d, '/') : "$root/build/gpui-kit-cpp";
 }
 
 // 每个补丁 → 目标文件 → 幂等 marker（与 cmd/patch-*.sh 的 MARK 保持一致）。
@@ -100,6 +100,11 @@ switch ($cmd) {
         $example = $args[0] ?? 'hello';
         $yml = "$root/examples/$example/project.macos.yml";
         if (!is_file($yml)) { err("找不到示例配置：$yml"); exit(1); }
+
+        // 1a) 先把 vendored 的 upstream/ 复制成构建沙箱：补丁、amalgam、out 全落沙箱，
+        //     跟踪的源码树不被弄脏。顺序要紧——补丁要在沙箱存在之后才找得到文件。
+        $rc = run("bash $root/cmd/sync-upstream.sh");
+        if ($rc !== 0) { err('同步 upstream 失败'); exit($rc); }
 
         // 1) 补丁（幂等）——含 Stage D 的 registered-cb。
         foreach (['patch-nano.sh', 'patch-view.sh', 'patch-retained.sh', 'patch-focus.sh', 'patch-registered-cb.sh', 'patch-dispatch-cb.sh', 'patch-nested-view.sh'] as $p) {

@@ -60,7 +60,7 @@
         "bridge": {
             "stub": "php-src/gpui.stub.php",
             "sources": ["cpp-src", "php-src"],
-            "gpui-kit-dir": "vendor/gpui-kit-cpp"
+            "gpui-kit-dir": "build/gpui-kit-cpp"
         }
     }
 }

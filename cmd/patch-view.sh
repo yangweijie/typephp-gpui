@@ -6,7 +6,7 @@
 
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-GPUI_DIR="${GPUI_DIR:-$ROOT/vendor/gpui-kit-cpp}"
+GPUI_DIR="${GPUI_DIR:-$ROOT/build/gpui-kit-cpp}"
 VIEW="$GPUI_DIR/src/shell/view.cpp"
 WIN="$GPUI_DIR/src/gpui/window_mac.cpp"
 VIEW_MARK="/* typephp-gpui: patched */"

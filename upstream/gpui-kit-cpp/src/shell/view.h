@@ -1,0 +1,192 @@
+#ifndef GPUI_SHELL_VIEW_H_
+#define GPUI_SHELL_VIEW_H_
+
+#include "shell/materialize.h"
+#include "base/number_input.h"
+#include "base/popover.h"
+
+namespace gpui {
+
+struct ResizablePanelEvent;
+
+struct ShellBoolBinding {
+    shell::CallbackId callback = 0;
+    bool value = false;
+};
+
+struct ShellStringBinding {
+    shell::CallbackId callback = 0;
+    Str value;
+};
+
+struct ShellSelectBinding {
+    shell::CallbackId onOpenChange = 0;
+    shell::CallbackId onConfirm = 0;
+    shell::CallbackId onDismiss = 0;
+    bool open = false;
+    bool disabled = false;
+    FocusHandle triggerFocus = {};
+    FocusHandle contentFocus = {};
+};
+
+struct ShellNumberBinding {
+    InputState* state = nullptr;
+    NumberStep step = {};
+    bool hasStep = false;
+    bool hasMin = false;
+    double min = 0;
+    bool hasMax = false;
+    double max = 0;
+    bool disabled = false;
+    shell::CallbackId onStep = 0;
+};
+
+// The three buttons an element listened for, and the handler for each.
+//
+// GPUI takes the button as an argument to on_mouse_down and installs one
+// listener per button; the port's element carries one listener per event, so
+// the filtering moves here. Arena-allocated with the frame that built the
+// element, which is the frame the press is dispatched against.
+struct ShellMouseButtonBinding {
+    shell::CallbackId left = 0;
+    shell::CallbackId right = 0;
+    shell::CallbackId middle = 0;
+};
+
+// One element's action handlers. GPUI keys a listener by the action's type and
+// stops at the first match; an action here is its own id, so each registration
+// is its own listener and the table is only what carries the callback.
+struct ShellActionBinding {
+    uint32_t action = 0;
+    shell::CallbackId callback = 0;
+};
+
+// Where one scrolled element is scrolled to, kept in window keyed state.
+struct ShellScrollPosition {
+    float x = 0;
+    float y = 0;
+};
+
+// The retained native half of a script view. JavaScript runs only when dirty
+// and publishes a RenderSnapshot; every ordinary repaint replays that snapshot
+// through ShellMaterialize without entering the VM.
+struct ScriptView {
+    ShellRuntime* runtime = nullptr;
+    ViewType* type = nullptr;
+    ViewObject* object = nullptr;
+    RenderSnapshot* snapshot = nullptr;
+    // Delegate-built descriptions survive through the frame; an opened
+    // native surface can retain one beyond the next render.
+    Vec<RenderSnapshot*> frameSnapshots;
+    Policy* policy = nullptr;
+    ShellError error = {};
+    EntityId self = {};
+    // The palette revision the current snapshot resolved its colors against.
+    // A theme change reaches every description, and nothing else would notify
+    // a view about it.
+    uint32_t themeRevision = 0;
+    bool dirty = true;
+
+    ~ScriptView();
+
+    static Entity<ScriptView> New(App* app, ShellRuntime* runtime,
+                                  ViewType* type, Policy* policy = nullptr);
+    static El* Render(ScriptView* self, Ctx* cx);
+    static void Refresh(ScriptView* self, Ctx* cx);
+    static bool Reload(ScriptView* self, Ctx* cx, Str directory, Str entry,
+                       ShellError* error = nullptr);
+
+    static void OnClick(ScriptView* self, Ctx* cx, const ClickEvent* event,
+                        int64_t callback);
+    static void OnTextLink(ScriptView* self, Ctx* cx, const ClickEvent* event,
+                           int64_t binding);
+    // A document image's deadline passed: redraw, so a load still pending
+    // then is drawn as failed.
+    static void OnImageDeadline(ScriptView* self, Ctx* cx,
+                                const TickEvent* event);
+    static void OnChange(ScriptView* self, Ctx* cx, const ClickEvent* event,
+                         int64_t value);
+    static void OnHover(ScriptView* self, Ctx* cx, const HoverEvent* event,
+                        int64_t callback);
+    static void OnMouseMove(ScriptView* self, Ctx* cx,
+                            const MouseMoveEvent* event, int64_t callback);
+    static void OnOpenChange(ScriptView* self, Ctx* cx,
+                             const PopoverOpenChangeEvent* event,
+                             int64_t callback);
+    static void OnResize(ScriptView* self, Ctx* cx,
+                         const ResizablePanelEvent* event, int64_t callback);
+    static void OnBoundBool(ScriptView* self, Ctx* cx, const void* event,
+                            int64_t binding);
+    static void OnBoundString(ScriptView* self, Ctx* cx,
+                              const ClickEvent* event, int64_t binding);
+    static void OnItemSecondaryPress(ScriptView* self, Ctx* cx,
+                                     const MouseDownEvent* event,
+                                     int64_t binding);
+    static void OnSelectAction(ScriptView* self, Ctx* cx,
+                               const ActionEvent* event, int64_t binding);
+    // The select root's accessible activation — `on_a11y_action(Click)`:
+    // platform adapters may flatten the trigger child, so the root itself
+    // opens a closed select and closes an open one. Closing runs the same
+    // steps Cancel does, on_dismiss first, so a script that tracks dismissal
+    // sees one however the popup was closed.
+    static void OnSelectActivate(ScriptView* self, Ctx* cx,
+                                 const ClickEvent* event, int64_t binding);
+    static void OnNumberStep(ScriptView* self, Ctx* cx,
+                             const NumberInputEvent* event, int64_t callback);
+    static void OnNumberKey(ScriptView* self, Ctx* cx, const KeyEvent* event,
+                            int64_t binding);
+    static void OnInputEvent(ScriptView* self, Ctx* cx, const InputEvent* event,
+                             int64_t handle);
+    static void OnSliderEvent(ScriptView* self, Ctx* cx,
+                              const SliderEvent* event, int64_t handle);
+    static void OnOtpEvent(ScriptView* self, Ctx* cx, const OtpEvent* event,
+                           int64_t handle);
+    static void OnCalendarEvent(ScriptView* self, Ctx* cx,
+                                const CalendarEvent* event, int64_t handle);
+    // The dock's one event: every edit to the layout, including each step of
+    // a drag.
+    static void OnDockEvent(ScriptView* self, Ctx* cx, const DockEvent* event,
+                            int64_t callback);
+    // The keyboard and the pointer. A key event travels the focus path, so an
+    // element only hears one while it — or something inside it — holds the
+    // keyboard, which makes track_focus(handle) half of the registration.
+    static void OnScriptKey(ScriptView* self, Ctx* cx, const KeyEvent* event,
+                            int64_t callback);
+    static void OnScriptMouseDown(ScriptView* self, Ctx* cx,
+                                  const MouseDownEvent* event, int64_t binding);
+    static void OnScriptMouseUp(ScriptView* self, Ctx* cx,
+                                const MouseUpEvent* event, int64_t binding);
+    // The one event here that is about somewhere else, and the reason a script
+    // can dismiss a surface it drew itself.
+    static void OnScriptMouseDownOut(ScriptView* self, Ctx* cx,
+                                     const MouseDownEvent* event,
+                                     int64_t callback);
+    // track_scroll_position: a scrolled element's offset, kept in window
+    // state under its identity and written back from its scroll events.
+    // `position` is the ShellScrollPosition the element was built with.
+    static void OnScrollPosition(ScriptView* self, Ctx* cx,
+                                 const ScrollEvent* event, int64_t position);
+    static void OnScriptScrollWheel(ScriptView* self, Ctx* cx,
+                                    const ScrollWheelEvent* event,
+                                    int64_t callback);
+    static void OnScriptAction(ScriptView* self, Ctx* cx,
+                               const ActionEvent* event, int64_t binding);
+    // A registered component's native event: `binding` is a
+    // shell::ComponentEventBinding, whose run reads the event and invokes
+    // the script callback it carries.
+    static void OnComponentEvent(ScriptView* self, Ctx* cx, const void* event,
+                                 int64_t binding);
+    // The deferred half of a registered component's app effect
+    // (ShellRuntime::ScheduleComponentAppEffect): `window.defer`.
+    static void OnComponentAppEffect(ScriptView* self, Ctx* cx,
+                                     const void* event, int64_t token);
+    // Dispatches the action a component filled in (ListenerFill) — a native
+    // menu row's ShellAction — from the focused element, as
+    // `window.dispatch_action` does. Bound to the view rather than to a
+    // frame, so it survives a menu that stays open across frames.
+    static void OnDispatchAction(ScriptView* self, Ctx* cx,
+                                 const ClickEvent* event, int64_t action);
+};
+
+} // namespace gpui
+#endif // GPUI_SHELL_VIEW_H_

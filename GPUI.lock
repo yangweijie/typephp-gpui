@@ -5,7 +5,12 @@
 （`gpui doctor` / `gpui build` 都会跑 `verifyPatches()`）。
 
 ## 源码位置
-- 默认：`vendor/gpui-kit-cpp`（当前是指向本地源码树的符号链接，本身不入库）。
+- 默认：`build/gpui-kit-cpp` —— **构建沙箱**，由 `cmd/sync-upstream.sh` 从入库的
+  `upstream/gpui-kit-cpp` 复制而来（补丁、.work/ amalgam、out/ 对象都落在沙箱，跟踪树保持干净）。
+  上游源码现在**vendored 进本仓库**：`upstream/gpui-kit-cpp`（src/assets/cmd/examples/gpui_shell +
+  根文档，22M、1198 个文件，已去掉 out/.work/tests/bench/web 与上游留下的 *.bak）。
+  这份树**已含我们的 7 个宿主补丁**（marker 在源码里），补丁脚本保留是为了幂等复现与审计：
+  从上游刷新源码后必须重跑 `composer patch`。
 - 覆盖：设环境变量 `GPUI_DIR=/abs/path/to/gpui-kit-cpp`（`bin/gpui` 与所有 `cmd/patch-*.sh`、
   `cmd/build-shim.sh` 都遵循它）。
 - php-nano 同理：默认 `vendor/swoole/php-nano`，可用 `NANO_DIR` 覆盖。

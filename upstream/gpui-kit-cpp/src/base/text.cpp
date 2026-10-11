@@ -1,0 +1,6752 @@
+#include "base/text.h"
+
+#include "base/global_state.h"
+#include "base/input_keys.h"
+#include "base/scrollable_mask.h"
+#include "base/scrollbar.h"
+#include "base/text_format.h"
+#include "base/text_selection.h"
+#include "gpui/image.h"
+#include "gpui/keymap.h"
+#include "gpui/paint.h"
+#include "markdown/markdown.h"
+
+namespace gpui {
+
+void TextViewInitKeys() {
+    static uint32_t bound = 0;
+    if (bound == KeymapGeneration()) return;
+    bound = KeymapGeneration();
+    const char* context = "TextView";
+    if (base::PlatSecondaryIsCommand()) {
+        KeyBinding bindings[] = {
+            {"cmd-c", input::Copy(), context},
+            {"cmd-a", input::SelectAll(), context},
+        };
+        KeymapBind(bindings, (int)(sizeof(bindings) / sizeof(bindings[0])));
+    } else {
+        KeyBinding bindings[] = {
+            {"ctrl-c", input::Copy(), context},
+            {"ctrl-a", input::SelectAll(), context},
+        };
+        KeymapBind(bindings, (int)(sizeof(bindings) / sizeof(bindings[0])));
+    }
+}
+
+TextMark& TextMark::Bold() {
+    bold = true;
+    return *this;
+}
+TextMark& TextMark::Italic() {
+    italic = true;
+    return *this;
+}
+TextMark& TextMark::Strikethrough() {
+    strikethrough = true;
+    return *this;
+}
+TextMark& TextMark::Underline() {
+    underline = true;
+    return *this;
+}
+TextMark& TextMark::Code() {
+    code = true;
+    return *this;
+}
+TextMark& TextMark::Highlight(Rgba color) {
+    highlight = color;
+    hasHighlight = true;
+    return *this;
+}
+TextMark& TextMark::Link(LinkMark value) {
+    link = value;
+    hasLink = true;
+    return *this;
+}
+void TextMark::Merge(const TextMark& other) {
+    bold |= other.bold;
+    italic |= other.italic;
+    strikethrough |= other.strikethrough;
+    underline |= other.underline;
+    code |= other.code;
+    if (other.hasHighlight) {
+        highlight = other.highlight;
+        hasHighlight = true;
+    }
+    if (other.hasLink) {
+        link = other.link;
+        hasLink = true;
+    }
+}
+
+Str ImageNode::Title(Arena* a) const {
+    return StrDup(a, title.s ? title : alt);
+}
+
+Str MarkdownParseContext::Value(const markdown::Node* node,
+                                markdown::NodeStrKind kind) const {
+    return arena && node ? markdown::NodeGetStr(arena, node, kind) : Str{};
+}
+
+Str MarkdownParseContext::NodeSource(const markdown::Node* node) const {
+    int32_t start = 0;
+    int32_t end = 0;
+    if (!markdown::NodePosition(positions, node, &start, &end)) {
+        return {};
+    }
+    start -= offset;
+    end -= offset;
+    if (start < 0 || end < start || end > len(source)) {
+        return {};
+    }
+    return Str((char*)source.s + start, end - start);
+}
+
+Str MarkdownParseContext::Copy(Str value) const {
+    return arena ? StrDup(arena, value) : Str{};
+}
+
+MarkdownNode MarkdownNode::New(Str value, void* payload) {
+    MarkdownNode out;
+    out.name = value;
+    out.data = payload;
+    return out;
+}
+
+MarkdownNode& MarkdownNode::Text(Str value) {
+    text = value;
+    return *this;
+}
+
+MarkdownNode& MarkdownNode::Markdown(Str value) {
+    markdown = value;
+    return *this;
+}
+
+Str MarkdownNode::ToMarkdown() const {
+    return len(markdown) > 0 ? markdown : text;
+}
+
+static uint64_t gMarkdownExtensionsRevision = 1;
+
+static uint64_t NextMarkdownExtensionsRevision() {
+    uint64_t out = gMarkdownExtensionsRevision++;
+    if (gMarkdownExtensionsRevision == 0) {
+        gMarkdownExtensionsRevision = 1;
+    }
+    return out;
+}
+
+MarkdownExtensions& MarkdownExtensions::ParserRevision(uint64_t value) {
+    parserRevision = value;
+    revision = NextMarkdownExtensionsRevision();
+    return *this;
+}
+
+MarkdownExtensions& MarkdownExtensions::Mdx() {
+    enableMdx = true;
+    revision = NextMarkdownExtensionsRevision();
+    return *this;
+}
+
+MarkdownExtensions& MarkdownExtensions::Frontmatter() {
+    enableFrontmatter = true;
+    revision = NextMarkdownExtensionsRevision();
+    return *this;
+}
+
+MarkdownExtensions& MarkdownExtensions::BlockParser(Arena* a,
+                                                    MarkdownBlockParserFn fn,
+                                                    void* data) {
+    if (fn) {
+        blockParsers.Append(a, {fn, data});
+        revision = NextMarkdownExtensionsRevision();
+    }
+    return *this;
+}
+
+MarkdownExtensions& MarkdownExtensions::BlockRenderer(Arena* a, Str name,
+                                                      MarkdownBlockRenderFn fn,
+                                                      void* data) {
+    if (fn) {
+        // HashMap::insert replaces a renderer registered for the same name.
+        for (int i = 0; i < blockRenderers.len; i++) {
+            if (base::StrEq(blockRenderers[i].name, name)) {
+                blockRenderers[i] = {name, fn, data};
+                revision = NextMarkdownExtensionsRevision();
+                return *this;
+            }
+        }
+        blockRenderers.Append(a, {name, fn, data});
+        revision = NextMarkdownExtensionsRevision();
+    }
+    return *this;
+}
+
+MarkdownExtensions& MarkdownExtensions::Plugin(Arena* a,
+                                               const MarkdownPlugin& plugin) {
+    if (plugin.isBlock && plugin.parse && plugin.render) {
+        BlockParser(a, plugin.parse, plugin.data);
+        BlockRenderer(a, plugin.name, plugin.render, plugin.data);
+    } else if (!plugin.isBlock && plugin.parse &&
+               (plugin.render || plugin.renderInline)) {
+        inlineParsers.Append(a, {plugin.parse, plugin.data});
+        inlineRenderers.Append(
+            a, {plugin.name, plugin.render, plugin.renderInline, plugin.data});
+        revision = NextMarkdownExtensionsRevision();
+    }
+    return *this;
+}
+
+bool MarkdownExtensions::HasSameParserConfiguration(
+    const MarkdownExtensions& other) const {
+    if (parserRevision != other.parserRevision ||
+        enableMdx != other.enableMdx ||
+        enableFrontmatter != other.enableFrontmatter ||
+        blockParsers.len != other.blockParsers.len ||
+        blockRenderers.len != other.blockRenderers.len ||
+        inlineParsers.len != other.inlineParsers.len ||
+        inlineRenderers.len != other.inlineRenderers.len) {
+        return false;
+    }
+    // Rust compares the renderer map's keys; the order they were registered
+    // in is not part of the parser's shape.
+    for (int i = 0; i < blockRenderers.len; i++) {
+        if (!other.Renderer(blockRenderers[i].name)) {
+            return false;
+        }
+    }
+    for (int i = 0; i < inlineRenderers.len; i++) {
+        if (!other.InlineRenderer(inlineRenderers[i].name)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+uint64_t MarkdownExtensions::ParserFingerprint() const {
+    uint64_t h = enableMdx ? 0x9e3779b97f4a7c15ull : 0xcbf29ce484222325ull;
+    h = h * 1099511628211ull + (enableFrontmatter ? 1ull : 0ull);
+    h = h * 1099511628211ull + parserRevision;
+    h = h * 1099511628211ull + (uint64_t)blockParsers.len;
+    h = h * 1099511628211ull + (uint64_t)blockRenderers.len;
+    h = h * 1099511628211ull + (uint64_t)inlineParsers.len;
+    h = h * 1099511628211ull + (uint64_t)inlineRenderers.len;
+    // Name by name, and order-independent, so a renderer table rebuilt in a
+    // different order is still the same parser configuration.
+    uint64_t names = 0;
+    for (int i = 0; i < blockRenderers.len; i++) {
+        uint64_t one = 1469598103934665603ull;
+        Str name = blockRenderers[i].name;
+        for (int at = 0; at < len(name); at++) {
+            one = (one ^ (uint64_t)(uint8_t)name.s[at]) * 1099511628211ull;
+        }
+        names += one;
+    }
+    for (int i = 0; i < inlineRenderers.len; i++) {
+        uint64_t one = 1469598103934665603ull;
+        Str name = inlineRenderers[i].name;
+        for (int at = 0; at < len(name); at++) {
+            one = (one ^ (uint64_t)(uint8_t)name.s[at]) * 1099511628211ull;
+        }
+        names += one;
+    }
+    return h * 1099511628211ull + names;
+}
+
+const MarkdownBlockRenderer* MarkdownExtensions::Renderer(Str name) const {
+    for (int i = 0; i < blockRenderers.len; i++) {
+        if (base::StrEq(blockRenderers[i].name, name)) {
+            return &blockRenderers[i];
+        }
+    }
+    return nullptr;
+}
+
+const MarkdownInlineRenderer* MarkdownExtensions::InlineRenderer(
+    Str name) const {
+    for (int i = 0; i < inlineRenderers.len; i++) {
+        if (base::StrEq(inlineRenderers[i].name, name)) {
+            return &inlineRenderers[i];
+        }
+    }
+    return nullptr;
+}
+
+TextView* TextViewPlugin::Setup(TextView* view) const {
+    return setup ? setup(view, data) : view;
+}
+
+CodeBlock CodeBlock::FromCode(Str code, Str lang) {
+    CodeBlock out;
+    out.code = code;
+    out.lang = lang;
+    return out;
+}
+
+TextViewDefaults& TextViewDefaults::WithStyle(const TextViewStyle& value) {
+    style = value;
+    hasStyle = true;
+    return *this;
+}
+
+TextViewDefaults& TextViewDefaults::WithCodeBlockHighlighter(
+    CodeBlockHighlighterFn fn, void* data) {
+    codeBlockHighlighter = fn;
+    codeBlockHighlighterData = data;
+    return *this;
+}
+
+TextViewDefaults& TextViewDefaults::WithInheritTextColor(bool inherit) {
+    inheritTextColor = inherit;
+    return *this;
+}
+
+void TextViewDefaults::Install(App* app) const {
+    if (TextViewDefaults* slot = AppGlobalEnsure<TextViewDefaults>(app)) {
+        *slot = *this;
+    }
+}
+
+TextViewDefaults TextViewDefaults::Global(const App* app) {
+    const TextViewDefaults* installed = AppGlobalGet<TextViewDefaults>(app);
+    return installed ? *installed : TextViewDefaults{};
+}
+
+TextViewStyle TextViewStyle::FromColors(const ColorTokens& colors,
+                                        bool isDarkValue) {
+    // Rich text needs a handful of roles the palette does not name directly —
+    // a code background, a link colour — so they are mapped here once instead
+    // of at every call site.
+    TextViewStyle out;
+    out.foreground = colors.foreground;
+    out.mutedForeground = colors.mutedForeground;
+    out.link = colors.primary;
+    out.selection = colors.selection;
+    out.codeBackground = colors.accent;
+    out.border = colors.border;
+    out.isDark = isDarkValue;
+    return out;
+}
+
+TextViewStyle TextViewStyle::FromTheme(const base_theme::Theme& theme) {
+    return FromColors(theme.tokens.colors,
+                      theme.appearance == base_theme::ThemeAppearance::Dark);
+}
+
+TextViewStyle TextViewStyle::Default() {
+    return FromColors(ColorTokens::Light(), false);
+}
+
+Rgba TextViewStyle::InlineCodeBackground() const {
+    if ((inlineCodeFields & StyleFieldBg) && inlineCode.bg.color.a) {
+        return inlineCode.bg.color;
+    }
+    return codeBackground;
+}
+
+uint32_t TextViewStyle::Heading(uint8_t level, gpui::Style* out) const {
+    *out = {};
+    return heading ? heading(level, out, headingData) : 0;
+}
+
+TextViewStyle& TextViewStyle::WithForeground(Rgba value) {
+    foreground = value;
+    return *this;
+}
+
+TextViewStyle& TextViewStyle::WithMutedForeground(Rgba value) {
+    mutedForeground = value;
+    return *this;
+}
+
+TextViewStyle& TextViewStyle::WithLink(Rgba value) {
+    link = value;
+    return *this;
+}
+
+TextViewStyle& TextViewStyle::WithSelection(Rgba value) {
+    selection = value;
+    return *this;
+}
+
+TextViewStyle& TextViewStyle::WithCodeBackground(Rgba value) {
+    codeBackground = value;
+    return *this;
+}
+
+TextViewStyle& TextViewStyle::WithBorder(Rgba value) {
+    border = value;
+    return *this;
+}
+
+TextViewStyle& TextViewStyle::WithParagraphGap(float gap) {
+    paragraphGap = gap;
+    return *this;
+}
+
+TextViewStyle& TextViewStyle::WithHeading(HeadingStyleFn fn, void* data) {
+    heading = fn;
+    headingData = data;
+    return *this;
+}
+
+TextViewStyle& TextViewStyle::WithCodeBlock(const gpui::Style& value,
+                                            uint32_t fields) {
+    codeBlock = value;
+    codeBlockFields = fields;
+    return *this;
+}
+
+TextViewStyle& TextViewStyle::WithTable(const gpui::Style& value,
+                                        uint32_t fields) {
+    table = value;
+    tableFields = fields;
+    return *this;
+}
+
+TextViewStyle& TextViewStyle::WithTableHead(const gpui::Style& value,
+                                            uint32_t fields) {
+    tableHead = value;
+    tableHeadFields = fields;
+    return *this;
+}
+
+TextViewStyle& TextViewStyle::WithTableCell(const gpui::Style& value,
+                                            uint32_t fields) {
+    tableCell = value;
+    tableCellFields = fields;
+    return *this;
+}
+
+TextViewStyle& TextViewStyle::WithInlineCode(const gpui::Style& value,
+                                             uint32_t fields) {
+    inlineCode = value;
+    inlineCodeFields = fields;
+    return *this;
+}
+
+TextViewStyle& TextViewStyle::WithDark(bool value) {
+    isDark = value;
+    return *this;
+}
+
+static bool TextRgbaEq(Rgba a, Rgba b) {
+    return a.r == b.r && a.g == b.g && a.b == b.b && a.a == b.a;
+}
+
+// The perceptual (Oklab) lightness of `color`, from 0 (black) to 1 (white).
+static float OklabLightness(Rgba color) {
+    auto linear = [](float c) {
+        return c <= 0.04045f ? c / 12.92f : powf((c + 0.055f) / 1.055f, 2.4f);
+    };
+    float r = linear((float)color.r / 255.f);
+    float g = linear((float)color.g / 255.f);
+    float b = linear((float)color.b / 255.f);
+    float l = cbrtf(0.41222146f * r + 0.53633255f * g + 0.051445995f * b);
+    float m = cbrtf(0.2119035f * r + 0.6806995f * g + 0.10739696f * b);
+    float s = cbrtf(0.08830246f * r + 0.28171885f * g + 0.6299787f * b);
+    return 0.21045426f * l + 0.7936178f * m - 0.004072047f * s;
+}
+
+bool TextViewStyle::IsInvertedBy(Rgba color) const {
+    // INVERTED_LIGHTNESS_GAP.
+    const float kInvertedLightnessGap = 0.6f;
+    return fabsf(OklabLightness(color) - OklabLightness(foreground)) >
+           kInvertedLightnessGap;
+}
+
+TextViewStyle TextViewStyle::OnTextColor(Rgba color) const {
+    TextViewStyle style = *this;
+    style.WithForeground(color);
+    if (!IsInvertedBy(color)) {
+        return style;
+    }
+
+    Rgba codeBg = RgbaOpacity(color, 0.12f);
+    gpui::Style head = tableHead;
+    head.bg = Background(codeBg);
+    head.color = color;
+    gpui::Style code = inlineCode;
+    code.bg = Background(codeBg);
+    style.WithMutedForeground(RgbaOpacity(color, 0.7f))
+        .WithLink(color)
+        .WithSelection(RgbaOpacity(color, 0.25f))
+        .WithCodeBackground(codeBg)
+        .WithBorder(RgbaOpacity(color, 0.2f))
+        .WithInlineCode(code, inlineCodeFields | StyleFieldBg)
+        .WithTableHead(head, tableHeadFields | StyleFieldBg | StyleFieldColor)
+        .WithDark(!isDark);
+    // gpui::transparent_black().
+    style.tableBackground = Rgba{0, 0, 0, 0};
+    style.hasTableBackground = true;
+    return style;
+}
+
+static bool TextBackgroundEq(const Background& a, const Background& b) {
+    return TextRgbaEq(a.color, b.color) &&
+           TextRgbaEq(a.from.color, b.from.color) &&
+           a.from.percentage == b.from.percentage &&
+           TextRgbaEq(a.to.color, b.to.color) &&
+           a.to.percentage == b.to.percentage && a.angle == b.angle &&
+           a.gradient == b.gradient;
+}
+
+static bool TextEdgesEq(Edges a, Edges b) {
+    return a == b;
+}
+
+static bool StyleFieldsEqual(const gpui::Style& a, const gpui::Style& b,
+                             uint32_t fields) {
+    if ((fields & StyleFieldBg) && !TextBackgroundEq(a.bg, b.bg)) return false;
+    if ((fields & StyleFieldColor) && !TextRgbaEq(a.color, b.color))
+        return false;
+    if ((fields & StyleFieldBorderColor) &&
+        !TextRgbaEq(a.borderColor, b.borderColor))
+        return false;
+    if ((fields & StyleFieldPad) && !TextEdgesEq(a.pad, b.pad)) return false;
+    if ((fields & StyleFieldMargin) && !TextEdgesEq(a.margin, b.margin))
+        return false;
+    if ((fields & StyleFieldGap) && (a.gapX != b.gapX || a.gapY != b.gapY))
+        return false;
+    if ((fields & StyleFieldRadius) && a.radius != b.radius) return false;
+    if ((fields & StyleFieldBorder) && a.border != b.border) return false;
+    if ((fields & StyleFieldBorderT) && a.borderT != b.borderT) return false;
+    if ((fields & StyleFieldBorderB) && a.borderB != b.borderB) return false;
+    if ((fields & StyleFieldBorderL) && a.borderL != b.borderL) return false;
+    if ((fields & StyleFieldBorderR) && a.borderR != b.borderR) return false;
+    if ((fields & StyleFieldFontSize) && a.fontSize != b.fontSize) return false;
+    if ((fields & StyleFieldWidth) && a.width != b.width) return false;
+    if ((fields & StyleFieldHeight) && a.height != b.height) return false;
+    if ((fields & StyleFieldMinWidth) && a.minW != b.minW) return false;
+    if ((fields & StyleFieldMinHeight) && a.minH != b.minH) return false;
+    if ((fields & StyleFieldMaxWidth) &&
+        (a.maxW != b.maxW || a.maxWFrac != b.maxWFrac))
+        return false;
+    if ((fields & StyleFieldMaxHeight) && a.maxH != b.maxH) return false;
+    if ((fields & StyleFieldOpacity) && a.opacity != b.opacity) return false;
+    if ((fields & StyleFieldHoverBg) && !TextBackgroundEq(a.hoverBg, b.hoverBg))
+        return false;
+    if ((fields & StyleFieldHoverFg) && !TextRgbaEq(a.hoverFg, b.hoverFg))
+        return false;
+    if ((fields & StyleFieldActiveBg) &&
+        !TextBackgroundEq(a.activeBg, b.activeBg))
+        return false;
+    return true;
+}
+
+bool TextViewStyle::Equals(const TextViewStyle& other) const {
+    // The six colours are part of the fingerprint: a theme change now moves
+    // the style rather than the theme the renderer reads, and the selection
+    // revision has to notice.
+    if (!TextRgbaEq(foreground, other.foreground) ||
+        !TextRgbaEq(mutedForeground, other.mutedForeground) ||
+        !TextRgbaEq(link, other.link) ||
+        !TextRgbaEq(selection, other.selection) ||
+        !TextRgbaEq(codeBackground, other.codeBackground) ||
+        !TextRgbaEq(border, other.border)) {
+        return false;
+    }
+    if (paragraphGap != other.paragraphGap ||
+        codeBlockFields != other.codeBlockFields ||
+        tableFields != other.tableFields ||
+        tableHeadFields != other.tableHeadFields ||
+        tableCellFields != other.tableCellFields ||
+        inlineCodeFields != other.inlineCodeFields || isDark != other.isDark ||
+        hasTableBackground != other.hasTableBackground ||
+        (hasTableBackground &&
+         !TextRgbaEq(tableBackground, other.tableBackground)) ||
+        !StyleFieldsEqual(codeBlock, other.codeBlock, codeBlockFields) ||
+        !StyleFieldsEqual(table, other.table, tableFields) ||
+        !StyleFieldsEqual(tableHead, other.tableHead, tableHeadFields) ||
+        !StyleFieldsEqual(tableCell, other.tableCell, tableCellFields) ||
+        !StyleFieldsEqual(inlineCode, other.inlineCode, inlineCodeFields)) {
+        return false;
+    }
+    // The callback is compared by what it answers for every level, which is
+    // Rust's fingerprint: two callbacks that agree are the same style.
+    for (uint8_t level = 1; level <= 6; level++) {
+        gpui::Style mine;
+        gpui::Style theirs;
+        uint32_t fields = Heading(level, &mine);
+        if (fields != other.Heading(level, &theirs) ||
+            !StyleFieldsEqual(mine, theirs, fields)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+// state.rs STREAM_FADE_TICK: repaint a streamed fade at about 30 fps.
+static const int kStreamFadeTickMs = 33;
+
+void TextViewState::OnFadeTick(TextViewState* self, Ctx* cx, const TickEvent*) {
+    self->fadeTick = 0;
+    NotifyEntity(cx->app, self->self, cx->win);
+}
+
+// The parse pipeline's own, further down.
+static void TextViewParseFree(TextViewParse* p);
+static void TextViewParseDetach(TextViewParseJob* job);
+static void TextViewBaselineDetach(TextViewState* s);
+
+TextViewState::~TextViewState() {
+    ArenaDelete(parserArena);
+    StrFree(text);
+    RenderedIndexFree(renderedIndex);
+    RangeHighlightFrameFree(rangeHighlights);
+    // A parse in flight lands on nothing, and so does a baseline ack.
+    TextViewParseDetach(parseFlight);
+    TextViewBaselineDetach(this);
+    TextViewParseFree(parsed);
+    for (TextViewParse* p : retiredParses) {
+        TextViewParseFree(p);
+    }
+}
+
+static Entity<TextViewState> NewTextViewState(App* app, Str text,
+                                              TextViewFormat format) {
+    Entity<TextViewState> entity;
+    if (!app) return entity;
+    entity = EntityNewState<TextViewState>(app);
+    if (TextViewState* state = entity.Get(app)) {
+        state->self = entity.id;
+        state->text = StrDup(text);
+        state->format = format;
+        state->updateRevision = 1;
+        state->fullUpdateRevision = 1;
+        state->StartParse(app, nullptr);
+    }
+    return entity;
+}
+
+Entity<TextViewState> TextViewState::Markdown(App* app, Str text) {
+    return NewTextViewState(app, text, TextViewFormat::Markdown);
+}
+
+Entity<TextViewState> TextViewState::Html(App* app, Str text) {
+    return NewTextViewState(app, text, TextViewFormat::Html);
+}
+
+void TextViewState::Changed(App* app, Window* window,
+                            bool selectionCompatible) {
+    revision++;
+    if (!selectionCompatible) {
+        selectionRevision++;
+        WindowSelectionClear(window);
+        selectAllAnchor = -1;
+        selectAllCursor = -1;
+    }
+    if (app && self.IsValid()) NotifyEntity(app, self, window);
+}
+
+void TextViewState::SetText(Str value, App* app, Window* window) {
+    if (base::StrEq(text, value)) return;
+    // Markdown that extends the current non-empty text is appended like
+    // PushStr, keeping the selection (and fading in when a stream fade is
+    // on). HTML blocks carry no spans, so Rust parses an extension of them
+    // again, as a replacement. Rust also parses again after a failed parse;
+    // this state keeps no parse of its own to fall out of step.
+    if (format == TextViewFormat::Markdown && len(text) > 0 &&
+        StrStartsWith(value, text)) {
+        PushStr(Str(value.s + len(text), len(value) - len(text)), app, window);
+        return;
+    }
+    if (motion.streamFadeMs > 0) {
+        streamFadePending = true;
+        streamFadeReplace = true;
+    }
+    Str replacement = StrDup(value);
+    StrFree(text);
+    text = replacement;
+    Changed(app, window, false);
+    updateRevision++;
+    fullUpdateRevision = updateRevision;
+    StartParse(app, window);
+}
+
+void TextViewState::PushStr(Str value, App* app, Window* window) {
+    if (len(value) <= 0) return;
+    if (motion.streamFadeMs > 0) {
+        streamFadePending = true;
+        streamFadeReplace = false;
+    }
+    int oldLen = len(text);
+    char* joined = (char*)Alloc(nullptr, oldLen + len(value) + 1);
+    if (!joined) return;
+    if (oldLen > 0) memcpy(joined, text.s, (size_t)oldLen);
+    memcpy(joined + oldLen, value.s, (size_t)len(value));
+    joined[oldLen + len(value)] = 0;
+    StrFree(text);
+    text = Str(joined, oldLen + len(value));
+    Changed(app, window, true);
+    updateRevision++;
+    StartParse(app, window);
+}
+
+void TextViewState::SetSelectable(bool value, App* app, Window* window) {
+    if (selectable == value) return;
+    selectable = value;
+    if (!value) WindowSelectionClear(window);
+    Changed(app, window, true);
+}
+
+void TextViewState::SetScrollable(bool value, App* app, Window* window) {
+    if (scrollable == value) return;
+    scrollable = value;
+    Changed(app, window, true);
+}
+
+void TextViewState::SetMotion(TextViewMotion value, App* app, Window* window) {
+    motion = value;
+    if (motion.streamFadeMs <= 0) {
+        streamFadePending = false;
+        streamFadeReplace = false;
+        VecClear(fadeSegments);
+    }
+    Changed(app, window, true);
+}
+
+void TextViewState::SetSelectionFormat(gpui::SelectionFormat value, App* app,
+                                       Window* window) {
+    if (selectionFormat == value) return;
+    selectionFormat = value;
+    Changed(app, window, true);
+}
+
+int TextViewState::SelectedText(Window* window, char* out, int cap) const {
+    const WindowSelection* selection = window ? window->sel : nullptr;
+    if (format == TextViewFormat::Markdown &&
+        selectionFormat == SelectionFormat::Source && out && cap > 0 &&
+        selection && selectAllAnchor >= 0 &&
+        selection->anchor == selectAllAnchor &&
+        selection->cursor == selectAllCursor) {
+        Str selected = Source();
+        int n = std::min(len(selected), cap - 1);
+        if (n > 0) memcpy(out, selected.s, (size_t)n);
+        out[n] = 0;
+        return n;
+    }
+    return WindowSelectionTextForEntity(window, self, out, cap,
+                                        format == TextViewFormat::Html
+                                            ? gpui::SelectionFormat::Plain
+                                            : selectionFormat);
+}
+
+// ─── selected_source_range ────────────────────────────────────────────────
+
+SourceRangeSelection SourceRangeSelection::MappedRange(int start, int end) {
+    SourceRangeSelection out;
+    out.kind = Mapped;
+    out.range.start = start;
+    out.range.end = end;
+    return out;
+}
+
+void SourceRangeSelection::Merge(const SourceRangeSelection& other) {
+    if (other.kind == Unselected) {
+        return;
+    }
+    if (other.kind == Unmapped) {
+        kind = Unmapped;
+        return;
+    }
+    if (kind == Unselected) {
+        *this = other;
+    } else if (kind == Mapped) {
+        range.start =
+            range.start < other.range.start ? range.start : other.range.start;
+        range.end = range.end > other.range.end ? range.end : other.range.end;
+    }
+}
+
+bool SourceRangeSelection::IntoRange(Span* out) const {
+    if (kind != Mapped) {
+        return false;
+    }
+    *out = range;
+    return true;
+}
+
+static bool SegmentIsLinear(const SourceSegment& s) {
+    return s.linear;
+}
+
+static int MappedSourceStart(const SourceSegment& s, int renderedStart) {
+    if (!SegmentIsLinear(s)) {
+        return s.sourceStart;
+    }
+    int d = renderedStart - s.renderedStart;
+    return s.sourceStart + (d > 0 ? d : 0);
+}
+
+static int MappedSourceEnd(const SourceSegment& s, int renderedEnd) {
+    if (!SegmentIsLinear(s)) {
+        return s.sourceEnd;
+    }
+    int e = renderedEnd < s.renderedEnd ? renderedEnd : s.renderedEnd;
+    int d = e - s.renderedStart;
+    return s.sourceStart + (d > 0 ? d : 0);
+}
+
+bool SourceRangeForSegments(const SourceSegment* segments, int count, int start,
+                            int end, Span* out) {
+    if (start >= end || !segments) {
+        return false;
+    }
+    bool found = false;
+    int renderedEnd = 0;
+    int sourceStart = 0;
+    int sourceEnd = 0;
+    for (int i = 0; i < count; i++) {
+        const SourceSegment& s = segments[i];
+        if (!(s.renderedStart < end && s.renderedEnd > start)) {
+            continue;
+        }
+        if (!found) {
+            if (s.renderedStart > start) {
+                return false;
+            }
+            found = true;
+            renderedEnd = s.renderedEnd;
+            sourceStart = MappedSourceStart(s, start);
+            sourceEnd = MappedSourceEnd(s, end);
+            continue;
+        }
+        if (s.renderedStart > renderedEnd) {
+            return false;
+        }
+        renderedEnd = renderedEnd > s.renderedEnd ? renderedEnd : s.renderedEnd;
+        sourceEnd = MappedSourceEnd(s, end);
+    }
+    if (!found || renderedEnd < end) {
+        return false;
+    }
+    out->start = sourceStart;
+    out->end = sourceEnd;
+    return true;
+}
+
+// The whole of what an atomic piece covers — an image, an inline plugin node
+// — or unmapped when the parse could not place it.
+static SourceRangeSelection WholeOf(const SourceSegment* segments, int count) {
+    if (!segments || count <= 0) {
+        SourceRangeSelection out;
+        out.kind = SourceRangeSelection::Unmapped;
+        return out;
+    }
+    int start = segments[0].sourceStart;
+    int end = segments[0].sourceEnd;
+    for (int i = 1; i < count; i++) {
+        start =
+            segments[i].sourceStart < start ? segments[i].sourceStart : start;
+        end = segments[i].sourceEnd > end ? segments[i].sourceEnd : end;
+    }
+    return SourceRangeSelection::MappedRange(start, end);
+}
+
+// The rendered bytes [start, end) of one run.
+static SourceRangeSelection RunSourceRange(const SourceSegment* segments,
+                                           int count, int start, int end) {
+    Span span;
+    if (SourceRangeForSegments(segments, count, start, end, &span)) {
+        return SourceRangeSelection::MappedRange(span.start, span.end);
+    }
+    SourceRangeSelection out;
+    out.kind = SourceRangeSelection::Unmapped;
+    return out;
+}
+
+SourceRangeSelection MdSelectedSourceRange(const MdNode* n, int start,
+                                           int end) {
+    SourceRangeSelection selected;
+    if (!n || start >= end) {
+        return selected;
+    }
+    int off = 0;
+    for (const MdRun* r = n->runFirst; r; r = r->next) {
+        if (len(r->imgSrc) > 0) {
+            // Paragraph::selected_source_range takes an image in when the
+            // selection runs up to it from either side, and leaves it out
+            // when the selection stops short of it.
+            if (start <= off && end >= off) {
+                SourceRangeSelection image;
+                if (r->hasImgSpan) {
+                    image = SourceRangeSelection::MappedRange(r->imgSpan.start,
+                                                              r->imgSpan.end);
+                } else {
+                    image.kind = SourceRangeSelection::Unmapped;
+                }
+                selected.Merge(image);
+            }
+            continue;
+        }
+        int runLen = len(r->text);
+        int lo = start > off ? start : off;
+        int hi = end < off + runLen ? end : off + runLen;
+        if (lo < hi) {
+            if (r->hasCustom) {
+                SourceRangeSelection custom;
+                if (r->custom.hasSpan) {
+                    custom = SourceRangeSelection::MappedRange(
+                        r->custom.span.start, r->custom.span.end);
+                } else {
+                    custom.kind = SourceRangeSelection::Unmapped;
+                }
+                selected.Merge(custom);
+            } else {
+                selected.Merge(RunSourceRange(r->segments, r->segmentCount,
+                                              lo - off, hi - off));
+            }
+        }
+        off += runLen;
+    }
+    return selected;
+}
+
+SourceRangeSelection TextHitsSourceRange(const PaintCtx* ctx, int selA,
+                                         int selB, int scope, EntityId owner) {
+    SourceRangeSelection selected;
+    if (!ctx) {
+        return selected;
+    }
+    int a = selA < selB ? selA : selB;
+    int b = selA < selB ? selB : selA;
+    for (int i = 0; i < ctx->texts.len; i++) {
+        const TextHit& hit = ctx->texts[i];
+        // A run with no map is not Markdown content — a list marker, or a
+        // plugin block that named no source span — and has no part in the
+        // source range. A mapped plugin is decided below as a whole block.
+        if (hit.owner != owner || hit.scope != scope || !hit.map) {
+            continue;
+        }
+        const SelSourceMap* map = hit.map;
+        if (hit.blockPlugin) {
+            bool selectedPlugin = false;
+            if (a != b && ctx->selPoints) {
+                selectedPlugin =
+                    CustomBlockIsSelected(hit.bounds, {ctx->selX0, ctx->selY0},
+                                          {ctx->selX1, ctx->selY1});
+            } else if (a != b) {
+                selectedPlugin = a <= hit.docOff && b > hit.docOff;
+            }
+            if (selectedPlugin && hit.map) {
+                selected.Merge(WholeOf(hit.map->segments, hit.map->count));
+            }
+            continue;
+        }
+        if (hit.atom) {
+            // Images have no rendered bytes. They join the source range
+            // when a selected text run reaches their boundary, even if the
+            // window selection stops before the image's ordering slot.
+            bool reached = false;
+            for (int direction = -1; direction <= 1; direction += 2) {
+                int at = i + direction;
+                while (at >= 0 && at < len(ctx->texts)) {
+                    const TextHit& adjacent = ctx->texts[at];
+                    if (adjacent.owner != owner || adjacent.scope != scope ||
+                        !hit.src || !adjacent.src ||
+                        adjacent.src->block != hit.src->block)
+                        break;
+                    if (!adjacent.atom) {
+                        int end = adjacent.docOff + len(adjacent.text);
+                        reached |= direction < 0 ? a < end && b >= end
+                                                 : a <= adjacent.docOff &&
+                                                       b > adjacent.docOff;
+                        break;
+                    }
+                    at += direction;
+                }
+            }
+            if (reached) {
+                selected.Merge(WholeOf(map->segments, map->count));
+            }
+            continue;
+        }
+        int n = len(hit.text);
+        int lo = a > hit.docOff ? a : hit.docOff;
+        int hi = b < hit.docOff + n ? b : hit.docOff + n;
+        if (lo >= hi) {
+            continue;
+        }
+        if (map->atomic) {
+            selected.Merge(WholeOf(map->segments, map->count));
+        } else {
+            selected.Merge(RunSourceRange(map->segments, map->count,
+                                          lo - hit.docOff + map->offset,
+                                          hi - hit.docOff + map->offset));
+        }
+    }
+    return selected;
+}
+
+bool TextViewState::SelectedSourceRange(const Window* window, Span* out) const {
+    if (format != TextViewFormat::Markdown || !out) {
+        return false;
+    }
+    if (!WindowSelectionHasEntity(window, self)) {
+        return false;
+    }
+    const WindowSelection* s = window->sel;
+    // `select_all` stands until the selection moves; the selection it made
+    // is kept so a later drag is not taken for it.
+    if (selectAllAnchor >= 0 && s->anchor == selectAllAnchor &&
+        s->cursor == selectAllCursor) {
+        out->start = 0;
+        out->end = len(Source());
+        return true;
+    }
+    return TextHitsSourceRange(&window->paint, s->anchor, s->cursor, s->scope,
+                               self)
+        .IntoRange(out);
+}
+
+bool TextViewState::HasSelection(const Window* window) const {
+    return WindowSelectionHasEntity(window, self);
+}
+
+void TextViewState::ClearSelection(Window* window, App*) {
+    WindowSelectionClear(window);
+    selectAllAnchor = -1;
+    selectAllCursor = -1;
+}
+
+void TextViewState::SelectAll(Window* window, App*) {
+    WindowSelectionSelectAll(window, self);
+    const WindowSelection* s = window ? window->sel : nullptr;
+    if (s && WindowSelectionHasEntity(window, self)) {
+        selectAllAnchor = s->anchor;
+        selectAllCursor = s->cursor;
+    }
+}
+
+void TextViewState::OnAction(TextViewState* state, Ctx* cx,
+                             const ActionEvent* event) {
+    if (!state || !state->selectable) {
+        const_cast<ActionEvent*>(event)->propagate = true;
+        return;
+    }
+    if (event->action == input::Copy()) {
+        if (!WindowSelectionCopy(cx->win)) {
+            const_cast<ActionEvent*>(event)->propagate = true;
+        }
+        return;
+    }
+    if (event->action == input::SelectAll()) {
+        state->SelectAll(cx->win, cx->app);
+        Notify(cx);
+        return;
+    }
+    const_cast<ActionEvent*>(event)->propagate = true;
+}
+
+void TextViewState::OnScroll(TextViewState* state, Ctx* cx,
+                             const ScrollEvent* event) {
+    state->scrollY = event->offsetY;
+    Notify(cx);
+}
+
+void TextViewState::OnLineClamp(TextViewState* state, Ctx* cx,
+                                const LineClampEvent* event) {
+    if (!state || !event || state->clamped == event->clamped) {
+        return;
+    }
+    state->clamped = event->clamped;
+    // Rust notifies on a transition so an observer gating an expand button on
+    // is_clamped() gets one more frame with the now-settled answer.
+    Notify(cx);
+}
+
+// What Word and Inline take to mean "name no colour at all", so the run
+// inherits the one the container above the view pushed. A transparent text
+// colour would draw nothing, so nothing else can want it.
+static const Rgba kInheritFg = Rgba{0, 0, 0, 0};
+
+// ─── parse ────────────────────────────────────────────────────────────────
+//
+// src/markdown is the `markdown` crate, ported: it hands back an mdast, the
+// same tree Rust gets from `markdown::to_mdast`. This walk folds that tree
+// into the MdNode tree below, which is what crates/ui/src/text/format/
+// markdown.rs does with `ast_to_node` and `parse_paragraph`.
+
+namespace md = markdown;
+
+// A link reference definition, kept so `[text][id]` can find its URL.
+// crates/ui/src/text/format/markdown.rs puts these in the NodeContext with
+// `cx.add_ref`; there is one parse here, so they live with the builder.
+struct MdDef {
+    Str identifier;
+    Str url;
+};
+
+// Arena::Alloc takes an int byte count. Reject only a shape that cannot be
+// represented by that allocator; this is an overflow guard, not a content
+// limit like the old 32-column/8,192-cell tables.
+template <typename T>
+static T* TextArenaArray(Arena* a, int count) {
+    if (count <= 0 || count > 0x7fffffff / (int)sizeof(T)) {
+        return nullptr;
+    }
+    T* out = (T*)Alloc(a, count * (int)sizeof(T));
+    if (out) {
+        for (int i = 0; i < count; i++) {
+            new (out + i) T();
+        }
+    }
+    return out;
+}
+
+struct MdBuild {
+    Arena* a = nullptr;
+    Str source = {};
+    const MarkdownExtensions* extensions = nullptr;
+    // Where each mdast node sits in `source`, which is what the source
+    // segments below are measured against.
+    const md::NodePositions* positions = nullptr;
+    // Added to every position `positions` reports: nonzero while the walk is
+    // inside an unclaimed math span re-parsed as prose, whose own parse
+    // measured from the start of the span (markdown.rs shift_positions).
+    int32_t posShift = 0;
+    // What `positions` measures from: `source` itself, or, for the tail an
+    // append parses again, the part of it from where that starts. A plugin's
+    // context reads node sources out of it.
+    Str parsed = {};
+    MdNode* cur = nullptr;
+    // The marks in effect, from the enclosing inline nodes.
+    uint8_t marks = 0;
+    Str href = {};
+    ArenaVec<MdDef> defs{};
+};
+
+// ─── source segments ──────────────────────────────────────────────────────
+//
+// markdown.rs pairs every rendered byte of a text node with the bytes of the
+// Markdown it came from, so a selection of the rendered text can be mapped
+// back to the one occurrence that was selected (selected_source_range).
+
+// A node's span in the source: markdown.rs's `node.position()` as a Span.
+static bool MdNodeSpan(MdBuild* b, const md::Node* n, Span* out) {
+    int32_t start = 0;
+    int32_t end = 0;
+    if (!md::NodePosition(b->positions, n, &start, &end)) {
+        return false;
+    }
+    out->start = start + b->posShift;
+    out->end = end + b->posShift;
+    return true;
+}
+
+// The TextLeafKey of `node`'s text: the source start of `n`, the mdast
+// block it was made from — markdown.rs's `span: new_span(val.position, cx)`
+// on the paragraph, heading or code block.
+static void MdSetLeaf(MdBuild* b, MdNode* node, const md::Node* n) {
+    Span span;
+    if (node && n && MdNodeSpan(b, n, &span)) {
+        node->leafStart = span.start;
+        node->leafOrdinal = 0;
+    }
+}
+
+// The bytes of the UTF-8 character that starts with `lead`.
+static int Utf8CharLen(uint8_t lead) {
+    if (lead < 0x80) return 1;
+    if ((lead >> 5) == 0x6) return 2;
+    if ((lead >> 4) == 0xE) return 3;
+    if ((lead >> 3) == 0x1E) return 4;
+    return 1;
+}
+
+// `str::find` for a byte string: where `needle` first starts in `hay`.
+static int FindBytes(Str hay, const char* needle, int n) {
+    for (int i = 0; i + n <= len(hay); i++) {
+        if (memcmp(hay.s + i, needle, (size_t)n) == 0) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+static bool StartsWithBytes(Str s, const char* prefix, int n) {
+    return len(s) >= n && memcmp(s.s, prefix, (size_t)n) == 0;
+}
+
+// push_source_segment: merges `s` into the previous segment when both are
+// linear and adjacent, so that a merged run still maps byte for byte. Any
+// other segment is kept whole on its own.
+static void PushSegment(Vec<SourceSegment>& out, SourceSegment s) {
+    if (out.len > 0) {
+        SourceSegment& prev = out[out.len - 1];
+        if (prev.linear && s.linear && prev.renderedEnd == s.renderedStart &&
+            prev.sourceEnd == s.sourceStart) {
+            prev.renderedEnd = s.renderedEnd;
+            prev.sourceEnd = s.sourceEnd;
+            return;
+        }
+    }
+    VecAppend(out, s);
+}
+
+// A code point as UTF-8, or 0 bytes for one `char::from_u32` refuses.
+static int EncodeUtf8(uint32_t cp, char* out) {
+    if (cp > 0x10FFFF || (cp >= 0xD800 && cp <= 0xDFFF)) return 0;
+    if (cp < 0x80) {
+        out[0] = (char)cp;
+        return 1;
+    }
+    if (cp < 0x800) {
+        out[0] = (char)(0xC0 | (cp >> 6));
+        out[1] = (char)(0x80 | (cp & 0x3F));
+        return 2;
+    }
+    if (cp < 0x10000) {
+        out[0] = (char)(0xE0 | (cp >> 12));
+        out[1] = (char)(0x80 | ((cp >> 6) & 0x3F));
+        out[2] = (char)(0x80 | (cp & 0x3F));
+        return 3;
+    }
+    out[0] = (char)(0xF0 | (cp >> 18));
+    out[1] = (char)(0x80 | ((cp >> 12) & 0x3F));
+    out[2] = (char)(0x80 | ((cp >> 6) & 0x3F));
+    out[3] = (char)(0x80 | (cp & 0x3F));
+    return 4;
+}
+
+// `u32::from_str_radix`: every byte a digit, at least one, no overflow.
+static bool ParseU32(Str s, int radix, uint32_t* out) {
+    if (len(s) <= 0) return false;
+    uint64_t v = 0;
+    for (int i = 0; i < len(s); i++) {
+        char c = s.s[i];
+        int d = -1;
+        if (c >= '0' && c <= '9') {
+            d = c - '0';
+        } else if (radix == 16 && c >= 'a' && c <= 'f') {
+            d = c - 'a' + 10;
+        } else if (radix == 16 && c >= 'A' && c <= 'F') {
+            d = c - 'A' + 10;
+        }
+        if (d < 0) return false;
+        v = v * (uint64_t)radix + (uint64_t)d;
+        if (v > 0xFFFFFFFFull) return false;
+    }
+    *out = (uint32_t)v;
+    return true;
+}
+
+// markdown.rs decoded_entity: a character reference at the start of
+// `source`, as what it decodes to and how many source bytes it takes. Rust
+// looks a named one up in html5ever's table; the markdown crate's own
+// (DecodeNamed) holds the same HTML5 names.
+static bool DecodedEntity(Arena* a, Str source, Str* decoded, int* sourceLen) {
+    if (len(source) < 1 || source.s[0] != '&') return false;
+    int end = -1;
+    for (int i = 1; i < len(source); i++) {
+        char c = source.s[i];
+        bool alnum = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') ||
+                     (c >= 'A' && c <= 'Z');
+        if (c == ';' || !(alnum || c == '#')) {
+            end = i;
+            break;
+        }
+    }
+    if (end < 0 || source.s[end] != ';') return false;
+    // The name between `&` and `;`.
+    Str name((char*)source.s + 1, end - 1);
+    if (len(name) >= 2 && name.s[0] == '#' &&
+        (name.s[1] == 'x' || name.s[1] == 'X')) {
+        uint32_t cp = 0;
+        char buf[4];
+        if (!ParseU32(Str((char*)name.s + 2, len(name) - 2), 16, &cp)) {
+            return false;
+        }
+        int n = EncodeUtf8(cp, buf);
+        if (n <= 0) return false;
+        *decoded = StrDup(a, Str(buf, n));
+    } else if (len(name) >= 1 && name.s[0] == '#') {
+        uint32_t cp = 0;
+        char buf[4];
+        if (!ParseU32(Str((char*)name.s + 1, len(name) - 1), 10, &cp)) {
+            return false;
+        }
+        int n = EncodeUtf8(cp, buf);
+        if (n <= 0) return false;
+        *decoded = StrDup(a, Str(buf, n));
+    } else {
+        Str value = md::DecodeNamed(a, name);
+        if (!value.s) return false;
+        *decoded = value;
+    }
+    *sourceLen = end + 1;
+    return true;
+}
+
+// A UTF-8 character's bytes packed into one key. The lead byte fixes the
+// length, so two different characters never share a key.
+static uint32_t SourceCharKey(const char* ch, int cl) {
+    uint32_t key = 0;
+    for (int i = 0; i < cl; i++) {
+        key = (key << 8) | (uint8_t)ch[i];
+    }
+    return key;
+}
+
+static int CompareSourceCharPos(const void* x, const void* y) {
+    const SourceCharPos* a = (const SourceCharPos*)x;
+    const SourceCharPos* b = (const SourceCharPos*)y;
+    if (a->key != b->key) {
+        return a->key < b->key ? -1 : 1;
+    }
+    return a->offset < b->offset ? -1 : (a->offset > b->offset ? 1 : 0);
+}
+
+// markdown.rs source_char_offset. Successful searches advance the cursor, so
+// their scans do not overlap; a miss does not, so the first miss indexes the
+// rest of the source and every later lookup is a binary search. Rust's
+// BTreeMap<char, Vec<usize>> is one array sorted by (character, offset).
+int SourceCharOffset(Str raw, int rawCursor, const char* ch, int cl,
+                     SourceCharIndex* positions) {
+    uint32_t key = SourceCharKey(ch, cl);
+    if (positions->built) {
+        int lo = 0;
+        int hi = positions->pos.len;
+        while (lo < hi) {
+            int mid = lo + (hi - lo) / 2;
+            const SourceCharPos& p = positions->pos[mid];
+            if (p.key < key || (p.key == key && p.offset < rawCursor)) {
+                lo = mid + 1;
+            } else {
+                hi = mid;
+            }
+        }
+        if (lo < positions->pos.len && positions->pos[lo].key == key) {
+            return positions->pos[lo].offset;
+        }
+        return -1;
+    }
+    int rel =
+        FindBytes(Str((char*)raw.s + rawCursor, len(raw) - rawCursor), ch, cl);
+    if (rel >= 0) {
+        return rawCursor + rel;
+    }
+    for (int i = rawCursor; i < len(raw);) {
+        int n = Utf8CharLen((uint8_t)raw.s[i]);
+        if (i + n > len(raw)) n = len(raw) - i;
+        SourceCharPos p;
+        p.key = SourceCharKey(raw.s + i, n);
+        p.offset = i;
+        VecAppend(positions->pos, p);
+        i += n;
+    }
+    if (positions->pos.len > 1) {
+        qsort(positions->pos.els, (size_t)positions->pos.len,
+              sizeof(SourceCharPos), CompareSourceCharPos);
+    }
+    positions->built = true;
+    return -1;
+}
+
+// markdown.rs aligned_source_segments: walk the rendered text a character at
+// a time and find each one in `raw`, the node's slice of the source. Every
+// lookup is linear in what it consumes: the entity at a cursor is decoded
+// once, a run of blanks is measured once, only the final line may absorb the
+// rest, and a character missing from the source indexes it for the next.
+void AlignedSourceSegments(Arena* a, Str raw, Str rendered, int sourceOffset,
+                           bool decodeEntities, bool decodeEscapes,
+                           Vec<SourceSegment>& out) {
+    int rawCursor = 0;
+    int r = 0;
+    int whitespaceEnd = 0;
+    SourceCharIndex positions;
+    int entityCursor = -1;
+    bool entity = false;
+    Str decoded = {};
+    int entityLen = 0;
+    // Only the final LF may absorb source-only text before it. Find the
+    // preceding line boundary once instead of recounting the suffix per LF.
+    int finalLineStart = 0;
+    if (len(raw) > 0 && raw.s[len(raw) - 1] == '\n') {
+        for (int i = len(raw) - 2; i >= 0; i--) {
+            if (raw.s[i] == '\n') {
+                finalLineStart = i + 1;
+                break;
+            }
+        }
+    }
+    while (r < len(rendered)) {
+        Str rendRest((char*)rendered.s + r, len(rendered) - r);
+        Str remainder((char*)raw.s + rawCursor, len(raw) - rawCursor);
+        if (decodeEntities && entityCursor != rawCursor) {
+            entity = DecodedEntity(a, remainder, &decoded, &entityLen);
+            entityCursor = rawCursor;
+        }
+        if (entity && StartsWithBytes(rendRest, decoded.s, len(decoded))) {
+            SourceSegment s;
+            s.renderedStart = r;
+            s.renderedEnd = r + len(decoded);
+            s.sourceStart = sourceOffset + rawCursor;
+            s.sourceEnd = sourceOffset + rawCursor + entityLen;
+            // Even when the decoded characters take as many bytes as the
+            // entity, as `∾̳` and `&acE;` do, they are not one for one.
+            s.linear = false;
+            PushSegment(out, s);
+            r += len(decoded);
+            rawCursor += entityLen;
+            continue;
+        }
+        int cl = Utf8CharLen((uint8_t)rendered.s[r]);
+        if (r + cl > len(rendered)) cl = len(rendered) - r;
+        const char* ch = rendered.s + r;
+        int rendEnd = r + cl;
+        int relStart = -1;
+        int sourceLen = 0;
+        bool space = cl == 1 && ch[0] == ' ';
+        if (space && rawCursor >= whitespaceEnd) {
+            // Reuse this boundary while consuming a run of literal spaces.
+            // Otherwise a long horizontal-whitespace run also costs O(n^2).
+            whitespaceEnd = rawCursor;
+            while (whitespaceEnd < len(raw) && (raw.s[whitespaceEnd] == ' ' ||
+                                                raw.s[whitespaceEnd] == '\t')) {
+                whitespaceEnd++;
+            }
+        }
+        if (space && whitespaceEnd < len(raw) &&
+            (raw.s[whitespaceEnd] == '\n' || raw.s[whitespaceEnd] == '\r')) {
+            // A soft break rendered as a space: the line ending it stood for.
+            relStart = whitespaceEnd - rawCursor;
+            sourceLen =
+                (whitespaceEnd + 1 < len(raw) && raw.s[whitespaceEnd] == '\r' &&
+                 raw.s[whitespaceEnd + 1] == '\n')
+                    ? 2
+                    : 1;
+        } else if (cl == 1 && ch[0] == '\n' && len(remainder) > 0 &&
+                   remainder.s[len(remainder) - 1] == '\n' &&
+                   rawCursor >= finalLineStart) {
+            // A hard break is the whole of its syntax.
+            relStart = 0;
+            sourceLen = len(remainder);
+        } else if (decodeEscapes && len(remainder) > cl &&
+                   remainder.s[0] == '\\' &&
+                   memcmp(remainder.s + 1, ch, (size_t)cl) == 0) {
+            // An escape maps whole.
+            relStart = 0;
+            sourceLen = 1 + cl;
+        } else if (StartsWithBytes(remainder, ch, cl)) {
+            relStart = 0;
+            sourceLen = cl;
+        } else {
+            int found = SourceCharOffset(raw, rawCursor, ch, cl, &positions);
+            if (found < 0) {
+                // Decoded entities and other source-only syntax have no exact
+                // rendered-byte mapping. Leave a rendered gap for this
+                // character, but keep aligning later characters in the node.
+                r = rendEnd;
+                continue;
+            }
+            relStart = found - rawCursor;
+            sourceLen = cl;
+        }
+        int sourceStart = rawCursor + relStart;
+        int sourceEnd = sourceStart + sourceLen;
+        SourceSegment s;
+        s.renderedStart = r;
+        s.renderedEnd = rendEnd;
+        s.sourceStart = sourceOffset + sourceStart;
+        s.sourceEnd = sourceOffset + sourceEnd;
+        s.linear = sourceLen == cl;
+        PushSegment(out, s);
+        rawCursor = sourceEnd;
+        r = rendEnd;
+    }
+}
+
+// The node's slice of the source, when the span is inside it.
+static bool MdSourceSlice(MdBuild* b, Span span, Str* raw) {
+    if (span.start < 0 || span.end < span.start || span.end > len(b->source)) {
+        return false;
+    }
+    *raw = Str((char*)b->source.s + span.start, span.end - span.start);
+    return true;
+}
+
+// markdown.rs source_segments / mapped_inline: the segments of a text-like
+// node rendered as `rendered`. A text node's span starts after an escape's
+// backslash, which is part of what was rendered, so it is taken back in.
+static void MdSourceSegments(MdBuild* b, const md::Node* n, Str rendered,
+                             bool includePrecedingEscape,
+                             Vec<SourceSegment>& out) {
+    Span span;
+    Str raw;
+    if (!MdNodeSpan(b, n, &span) || !MdSourceSlice(b, span, &raw)) {
+        return;
+    }
+    AlignedSourceSegments(b->a, raw, rendered, span.start, true, true, out);
+    // The text node of an escaped character starts after its backslash. The
+    // backslash and the character map as a whole; the rest of the run stays
+    // linear.
+    if (includePrecedingEscape && span.start >= 1 &&
+        b->source.s[span.start - 1] == '\\' && out.len > 0) {
+        int at = out[0].renderedStart;
+        int firstCharLen = 0;
+        if (at < len(rendered)) {
+            firstCharLen = Utf8CharLen((uint8_t)rendered.s[at]);
+            if (at + firstCharLen > len(rendered)) {
+                firstCharLen = len(rendered) - at;
+            }
+        }
+        if (out[0].linear &&
+            out[0].renderedEnd - out[0].renderedStart > firstCharLen) {
+            SourceSegment rest;
+            rest.renderedStart = out[0].renderedStart + firstCharLen;
+            rest.renderedEnd = out[0].renderedEnd;
+            rest.sourceStart = out[0].sourceStart + firstCharLen;
+            rest.sourceEnd = out[0].sourceEnd;
+            rest.linear = true;
+            out[0].renderedEnd = rest.renderedStart;
+            out[0].sourceEnd = rest.sourceStart;
+            VecInsertAt(out, 1, rest);
+        }
+        out[0].sourceStart -= 1;
+        out[0].linear = false;
+    }
+}
+
+// markdown.rs code_source_segments: a code node's value against the body of
+// its source — past an opening fence's line, and short of a closing fence
+// that really closes it.
+static void MdCodeSourceSegments(MdBuild* b, const md::Node* n, Str code,
+                                 Vec<SourceSegment>& out) {
+    Span span;
+    Str raw;
+    if (!MdNodeSpan(b, n, &span) || !MdSourceSlice(b, span, &raw)) {
+        return;
+    }
+    int lead = 0;
+    while (lead < len(raw) && (raw.s[lead] == ' ' || raw.s[lead] == '\t' ||
+                               raw.s[lead] == '\n' || raw.s[lead] == '\r')) {
+        lead++;
+    }
+    char fence = 0;
+    int fenceLen = 0;
+    if (lead < len(raw) && (raw.s[lead] == '`' || raw.s[lead] == '~')) {
+        fence = raw.s[lead];
+        while (lead + fenceLen < len(raw) && raw.s[lead + fenceLen] == fence) {
+            fenceLen++;
+        }
+        if (fenceLen < 3) {
+            fence = 0;
+        }
+    }
+    int bodyStart = 0;
+    int bodyEnd = len(raw);
+    if (fence) {
+        int firstNewline = -1;
+        int lastNewline = -1;
+        for (int i = 0; i < len(raw); i++) {
+            if (raw.s[i] == '\n') {
+                if (firstNewline < 0) firstNewline = i;
+                lastNewline = i;
+            }
+        }
+        bodyStart = firstNewline < 0 ? len(raw) : firstNewline + 1;
+        int lastLine = lastNewline < 0 ? bodyStart : lastNewline + 1;
+        int cs = lastLine;
+        int ce = len(raw);
+        while (cs < ce && (raw.s[cs] == ' ' || raw.s[cs] == '\t' ||
+                           raw.s[cs] == '\r' || raw.s[cs] == '\n')) {
+            cs++;
+        }
+        while (ce > cs && (raw.s[ce - 1] == ' ' || raw.s[ce - 1] == '\t' ||
+                           raw.s[ce - 1] == '\r' || raw.s[ce - 1] == '\n')) {
+            ce--;
+        }
+        bool closing = ce - cs >= fenceLen;
+        for (int i = cs; closing && i < ce; i++) {
+            closing = raw.s[i] == fence;
+        }
+        bodyEnd = closing ? lastLine : len(raw);
+    }
+    AlignedSourceSegments(b->a,
+                          Str((char*)raw.s + bodyStart, bodyEnd - bodyStart),
+                          code, span.start + bodyStart, false, false, out);
+}
+
+// A node's strings are ArenaStr — an offset into the arena the tree was
+// parsed into, which is the builder's own. This reads one back.
+// One of a node's strings, or an empty Str when it does not carry that one.
+static Str V(MdBuild* b, const md::Node* n, md::NodeStrKind k) {
+    return md::NodeGetStr(b->a, n, k);
+}
+
+static MdNode* Push(MdBuild* b, MdKind k) {
+    MdNode* n = ArenaNew<MdNode>(b->a);
+    n->kind = k;
+    n->parent = b->cur;
+    if (b->cur->last) {
+        b->cur->last->next = n;
+    } else {
+        b->cur->first = n;
+    }
+    b->cur->last = n;
+    b->cur = n;
+    return n;
+}
+
+static void Pop(MdBuild* b) {
+    if (b->cur->parent) {
+        b->cur = b->cur->parent;
+    }
+}
+
+// Appends to the run being built when the marks match and the text is the
+// next byte of the source; otherwise starts a new run. Most of a paragraph is
+// one uninterrupted stretch of source, so this usually collapses to one run
+// pointing straight at the tree's text with nothing copied.
+//
+// `segments` are the piece's source segments in its own offsets. A run that
+// grows keeps the ones it had and takes the new piece's after them, shifted
+// by what it already held — merge_children_with_mark's
+// `merged_source_segments`.
+static void AddText(MdBuild* b, Str s,
+                    const Vec<SourceSegment>* segments = nullptr) {
+    if (len(s) <= 0) {
+        return;
+    }
+    int added = segments ? segments->len : 0;
+    MdNode* n = b->cur;
+    MdRun* r = n->runLast;
+    if (r && !r->imgSrc.s && !r->hasCustom && r->marks == b->marks &&
+        r->href.s == b->href.s && r->text.s + len(r->text) == s.s) {
+        if (added > 0) {
+            int total = r->segmentCount + added;
+            SourceSegment* merged = TextArenaArray<SourceSegment>(b->a, total);
+            if (merged) {
+                for (int i = 0; i < r->segmentCount; i++) {
+                    merged[i] = r->segments[i];
+                }
+                for (int i = 0; i < added; i++) {
+                    SourceSegment seg = (*segments)[i];
+                    seg.renderedStart += len(r->text);
+                    seg.renderedEnd += len(r->text);
+                    merged[r->segmentCount + i] = seg;
+                }
+                r->segments = merged;
+                r->segmentCount = total;
+            }
+        }
+        r->text.len += len(s);
+        return;
+    }
+    r = ArenaNew<MdRun>(b->a);
+    r->text = s;
+    r->marks = b->marks;
+    r->href = b->href;
+    if (added > 0) {
+        SourceSegment* copy = TextArenaArray<SourceSegment>(b->a, added);
+        if (copy) {
+            for (int i = 0; i < added; i++) {
+                copy[i] = (*segments)[i];
+            }
+            r->segments = copy;
+            r->segmentCount = added;
+        }
+    }
+    if (n->runLast) {
+        n->runLast->next = r;
+    } else {
+        n->runFirst = r;
+    }
+    n->runLast = r;
+}
+
+// node.rs InlineNode::image: an image sits in the flow beside the words,
+// carrying the marks in force — an image inside a link is a link.
+static void AddImage(MdBuild* b, Str src, Str alt, float w, float h,
+                     const md::Node* node = nullptr) {
+    if (len(src) <= 0) {
+        return;
+    }
+    MdNode* n = b->cur;
+    MdRun* r = ArenaNew<MdRun>(b->a);
+    // ImageNode::span, which selected_source_range takes in whole.
+    r->hasImgSpan = node && MdNodeSpan(b, node, &r->imgSpan);
+    r->imgSrc = src;
+    r->text = alt;
+    r->imgW = w;
+    r->imgH = h;
+    r->marks = b->marks;
+    r->href = b->href;
+    if (n->runLast) {
+        n->runLast->next = r;
+    } else {
+        n->runFirst = r;
+    }
+    n->runLast = r;
+}
+
+static void AddCustomInline(MdBuild* b, const MarkdownNode& custom,
+                            const md::Node* node) {
+    MdNode* n = b->cur;
+    MdRun* r = ArenaNew<MdRun>(b->a);
+    r->custom = custom;
+    // parse_paragraph: `custom.set_span(span)`, the claimed node's position.
+    r->custom.hasSpan = MdNodeSpan(b, node, &r->custom.span);
+    r->custom.name = StrDup(b->a, custom.name);
+    r->custom.text = StrDup(b->a, custom.text);
+    r->custom.markdown = StrDup(b->a, custom.markdown);
+    // with_inline_source: an object that names no text or Markdown of its
+    // own stands for the source it was parsed from — what as_markdown and
+    // the copy answer, `$x^2$` for a formula that only set its text.
+    Span span = r->custom.span;
+    if (r->custom.hasSpan && span.start >= 0 && span.start <= span.end &&
+        span.end <= len(b->source)) {
+        Str source = Str(b->source.s + span.start, span.end - span.start);
+        if (len(r->custom.text) == 0) {
+            r->custom.text = StrDup(b->a, source);
+        }
+        if (len(r->custom.markdown) == 0) {
+            r->custom.markdown = StrDup(b->a, source);
+        }
+    }
+    // Paragraph::text includes an inline object's atomic plain-text value.
+    // Keeping it on the run also makes table sizing, dumping and accessibility
+    // see the same content as the renderer.
+    r->text = r->custom.text;
+    r->hasCustom = true;
+    r->marks = b->marks;
+    r->href = b->href;
+    if (n->runLast) {
+        n->runLast->next = r;
+    } else {
+        n->runFirst = r;
+    }
+    n->runLast = r;
+}
+
+// "&amp;" -> "&". Returns the entity unchanged when it is not one the crate's
+// table knows. Kept as the public compatibility helper; both parsers decode
+// character references before their trees reach the GPUI projection.
+Str MdDecodeEntity(Arena* a, Str e) {
+    if (len(e) < 3 || e.s[0] != '&' || e.s[len(e) - 1] != ';') {
+        return e;
+    }
+    Str body((char*)e.s + 1, len(e) - 2);
+    Str value;
+    if (len(body) > 1 && body.s[0] == '#') {
+        if (body.s[1] == 'x' || body.s[1] == 'X') {
+            value =
+                md::DecodeNumeric(a, Str((char*)body.s + 2, len(body) - 2), 16);
+        } else {
+            value =
+                md::DecodeNumeric(a, Str((char*)body.s + 1, len(body) - 1), 10);
+        }
+    } else {
+        value = md::DecodeNamed(a, body);
+    }
+    return value.s ? value : e;
+}
+
+// markdown.rs inline_html_tag: whether a raw inline tag closes, and its
+// lower-cased name. False for anything that is not one plain tag, a
+// self-closing one included.
+static bool MdInlineHtmlTag(Str v, bool* closing, char* name, int cap) {
+    int s = 0;
+    int e = len(v);
+    auto space = [](char c) {
+        return c == ' ' || c == '\t' || c == '\n' || c == '\r';
+    };
+    while (s < e && space(v.s[s])) {
+        s++;
+    }
+    while (e > s && space(v.s[e - 1])) {
+        e--;
+    }
+    if (e - s < 2 || v.s[s] != '<' || v.s[e - 1] != '>') {
+        return false;
+    }
+    s++;
+    e--;
+    if (e > s && v.s[e - 1] == '/') {
+        return false;
+    }
+    *closing = s < e && v.s[s] == '/';
+    if (*closing) {
+        s++;
+    }
+    int n = 0;
+    while (s < e && n < cap - 1) {
+        char c = v.s[s];
+        bool alnum = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                     (c >= '0' && c <= '9');
+        if (!alnum) {
+            break;
+        }
+        name[n++] = (c >= 'A' && c <= 'Z') ? (char)(c - 'A' + 'a') : c;
+        s++;
+    }
+    name[n] = 0;
+    return n > 0;
+}
+
+// markdown.rs inline_html_mark: the formatting tags this renderer pairs.
+static uint8_t MdInlineHtmlMark(const char* name) {
+    if (!strcmp(name, "strong") || !strcmp(name, "b")) return MdBold;
+    if (!strcmp(name, "em") || !strcmp(name, "i")) return MdItalic;
+    if (!strcmp(name, "u")) return MdUnderline;
+    if (!strcmp(name, "s") || !strcmp(name, "del") || !strcmp(name, "strike"))
+        return MdDel;
+    return 0;
+}
+
+// One inline tag inside a paragraph. The markdown parser hands `<b>` over as
+// an mdast Html node and leaves the meaning to us; Rust reaches the same tags
+// through html5ever, since markdown.rs sends the node to format::html. A raw
+// HTML *block* is a node of its own and is parsed whole, below.
+static void MdInlineHtml(MdBuild* b, Str tag) {
+    if (b->cur->kind == MdKind::Html) {
+        // Inside a raw HTML block every byte is source, tags included.
+        AddText(b, tag);
+        return;
+    }
+    // A formatting tag with its partner among the siblings was paired by
+    // MdInlineItems and never reaches here. One without a partner is parsed
+    // alone in Rust, which yields an empty element that is dropped.
+    bool closing = false;
+    char name[16];
+    if (MdInlineHtmlTag(tag, &closing, name, (int)sizeof name) &&
+        MdInlineHtmlMark(name)) {
+        return;
+    }
+    HtmlInlineTag t = HtmlParseInlineTag(b->a, tag);
+    if (!t.known) {
+        // An unknown tag is dropped, the way Rust drops what its own
+        // vocabulary does not cover.
+        return;
+    }
+    if (t.isBreak) {
+        AddText(b, StrL("\n"));
+        return;
+    }
+    if (t.isImage) {
+        AddImage(b, t.src, t.alt, t.width, t.height);
+        return;
+    }
+    if (t.close) {
+        b->marks = (uint8_t)(b->marks & ~t.mark);
+        if (t.mark & MdLink) {
+            b->href = {};
+        }
+        return;
+    }
+    b->marks = (uint8_t)(b->marks | t.mark);
+    if (t.mark & MdLink) {
+        b->href = t.href;
+    }
+}
+
+// ─── the mdast walk ───────────────────────────────────────────────────────
+
+static void MdInlineNode(MdBuild* b, const md::Node* n);
+static bool MdClaimedInline(MdBuild* b, const md::Node* n, MarkdownNode* out);
+
+// One inline sibling, and the position table its span is read from: the
+// document's, or that of an unclaimed math span re-parsed as prose.
+struct MdInlineItem {
+    const md::Node* node = nullptr;
+    const md::NodePositions* positions = nullptr;
+    int32_t shift = 0;
+};
+
+static bool MdItemTag(MdBuild* b, const MdInlineItem& item, bool* closing,
+                      char* name, int cap) {
+    return item.node->kind == md::NodeKind::Html &&
+           MdInlineHtmlTag(V(b, item.node, md::NodeStrKind::Value), closing,
+                           name, cap);
+}
+
+// markdown.rs matching_close_tag: the sibling that closes the tag opened at
+// `open`, counting nested tags of the same name. -1 when none does.
+static int MdMatchingCloseTag(MdBuild* b, const MdInlineItem* items, int count,
+                              int open, const char* name) {
+    int depth = 0;
+    for (int i = open + 1; i < count; i++) {
+        bool closing = false;
+        char tag[16];
+        if (!MdItemTag(b, items[i], &closing, tag, (int)sizeof tag) ||
+            strcmp(tag, name) != 0) {
+            continue;
+        }
+        if (!closing) {
+            depth++;
+        } else if (depth == 0) {
+            return i;
+        } else {
+            depth--;
+        }
+    }
+    return -1;
+}
+
+// markdown.rs inline_groups / parse_inline_children. CommonMark hands each
+// raw inline tag over as its own Html node, so `<strong>x</strong>` arrives
+// as three siblings; a formatting tag with its closing tag among them marks
+// what lies between, the way `**x**` does.
+static void MdInlineItems(MdBuild* b, const MdInlineItem* items, int count) {
+    const md::NodePositions* savedPositions = b->positions;
+    int32_t savedShift = b->posShift;
+    for (int i = 0; i < count; i++) {
+        b->positions = items[i].positions;
+        b->posShift = items[i].shift;
+        bool closing = false;
+        char name[16];
+        if (b->cur->kind != MdKind::Html &&
+            MdItemTag(b, items[i], &closing, name, (int)sizeof name) &&
+            !closing) {
+            uint8_t mark = MdInlineHtmlMark(name);
+            int close =
+                mark ? MdMatchingCloseTag(b, items, count, i, name) : -1;
+            if (close >= 0) {
+                uint8_t saved = b->marks;
+                b->marks = (uint8_t)(b->marks | mark);
+                MdInlineItems(b, items + i + 1, close - i - 1);
+                b->marks = saved;
+                i = close;
+                continue;
+            }
+        }
+        MdInlineNode(b, items[i].node);
+    }
+    b->positions = savedPositions;
+    b->posShift = savedShift;
+}
+
+// markdown.rs may_hold_inline_markup: a cheap gate before re-parsing. Every
+// inline construct starts with one of these bytes or is a GFM autolink
+// literal.
+static bool MdMayHoldInlineMarkup(Str literal) {
+    for (int i = 0; i < len(literal); i++) {
+        switch (literal.s[i]) {
+            case '<':
+            case '*':
+            case '_':
+            case '[':
+            case '`':
+            case '~':
+            case '\\':
+            case '!':
+            case '&':
+                return true;
+            default:
+                break;
+        }
+    }
+    return FindBytes(literal, "://", 3) >= 0 ||
+           FindBytes(literal, "www.", 4) >= 0;
+}
+
+// markdown.rs flatten_unclaimed_math / reparse_as_prose. Math parsing is on
+// by default, so prose that merely holds two dollar signs parses as inline
+// math. An unclaimed span whose source holds markup is re-parsed without the
+// math constructs, and its inline children take its place among the
+// siblings, measured from where the span starts. Plain prose keeps the
+// literal node. Answers the re-parse's position table, which the caller
+// frees, or null.
+static md::NodePositions* MdReparseAsProse(MdBuild* b, const md::Node* n,
+                                           Vec<MdInlineItem>& out) {
+    Span span;
+    Str literal;
+    if (!MdNodeSpan(b, n, &span) || !MdSourceSlice(b, span, &literal) ||
+        !MdMayHoldInlineMarkup(literal)) {
+        return nullptr;
+    }
+    md::ParseOptions options = md::ParseOptions::Gfm();
+    options.constructs.mathText = false;
+    options.constructs.mathFlow = false;
+    md::NodePositions* positions = new md::NodePositions();
+    md::Node* root = md::ToMdast(b->a, literal, options, positions);
+    const md::Node* paragraph = nullptr;
+    int blocks = 0;
+    for (const md::Node* child : md::NodeKids(b->a, root)) {
+        paragraph = child;
+        blocks++;
+    }
+    bool allText = true;
+    if (blocks == 1 && paragraph->kind == md::NodeKind::Paragraph) {
+        for (const md::Node* child : md::NodeKids(b->a, paragraph)) {
+            allText = allText && child->kind == md::NodeKind::Text;
+        }
+    }
+    if (blocks != 1 || paragraph->kind != md::NodeKind::Paragraph || allText) {
+        delete positions;
+        return nullptr;
+    }
+    for (const md::Node* child : md::NodeKids(b->a, paragraph)) {
+        MdInlineItem item;
+        item.node = child;
+        item.positions = positions;
+        item.shift = span.start;
+        VecAppend(out, item);
+    }
+    return positions;
+}
+
+static void MdInlineChildren(MdBuild* b, const md::Node* n) {
+    Vec<MdInlineItem> items;
+    Vec<md::NodePositions*> reparsed;
+    for (const md::Node* child : md::NodeKids(b->a, n)) {
+        MarkdownNode claimed;
+        if (child->kind == md::NodeKind::InlineMath &&
+            !MdClaimedInline(b, child, &claimed)) {
+            if (md::NodePositions* p = MdReparseAsProse(b, child, items)) {
+                VecAppend(reparsed, p);
+                continue;
+            }
+        }
+        MdInlineItem item;
+        item.node = child;
+        item.positions = b->positions;
+        item.shift = b->posShift;
+        VecAppend(items, item);
+    }
+    MdInlineItems(b, items.els, items.len);
+    for (int i = 0; i < reparsed.len; i++) {
+        delete reparsed[i];
+    }
+    VecReset(reparsed);
+    VecReset(items);
+}
+
+// The children of `n` with `mark` added to whatever is already in force,
+// which is markdown.rs's merge_children_with_mark.
+static void MdMarked(MdBuild* b, const md::Node* n, uint8_t mark) {
+    uint8_t saved = b->marks;
+    b->marks = (uint8_t)(b->marks | mark);
+    MdInlineChildren(b, n);
+    b->marks = saved;
+}
+
+// The URL a `[text][id]` or `![alt][id]` points at, from the definitions
+// collected below. Empty when the definition is missing, which is what Rust's
+// LinkMark holds until the reference is resolved.
+static Str MdDefUrl(MdBuild* b, Str identifier) {
+    for (const MdDef& def : b->defs) {
+        if (StrEq(def.identifier, identifier)) {
+            return def.url;
+        }
+    }
+    return {};
+}
+
+// Whether an inline plugin claims `n`, and what it made of it.
+static bool MdClaimedInline(MdBuild* b, const md::Node* n, MarkdownNode* out) {
+    if (!b->extensions) {
+        return false;
+    }
+    MarkdownParseContext context;
+    context.arena = b->a;
+    context.source = b->parsed;
+    context.positions = b->positions;
+    for (int i = 0; i < b->extensions->inlineParsers.len; i++) {
+        const MarkdownBlockParser& parser = b->extensions->inlineParsers[i];
+        if (parser.fn && parser.fn(n, &context, parser.data, out)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static void MdInlineNode(MdBuild* b, const md::Node* n) {
+    MarkdownNode custom;
+    if (MdClaimedInline(b, n, &custom)) {
+        AddCustomInline(b, custom, n);
+        return;
+    }
+    switch (n->kind) {
+        case md::NodeKind::Text: {
+            // Only text-node line endings are soft breaks. Explicit Break
+            // nodes and code keep their own line-ending semantics.
+            Str value = V(b, n, md::NodeStrKind::Value);
+            int firstBreak = 0;
+            while (firstBreak < len(value) && value.s[firstBreak] != '\r' &&
+                   value.s[firstBreak] != '\n') {
+                firstBreak++;
+            }
+            if (firstBreak == len(value)) {
+                Vec<SourceSegment> segments;
+                MdSourceSegments(b, n, value, true, segments);
+                AddText(b, value, &segments);
+                break;
+            }
+            StrBuilder text(b->a);
+            text.Reserve(len(value));
+            for (int i = 0; i < len(value); i++) {
+                char c = value.s[i];
+                if (c == '\r' || c == '\n') {
+                    if (c == '\r' && i + 1 < len(value) &&
+                        value.s[i + 1] == '\n') {
+                        i++;
+                    }
+                    c = ' ';
+                }
+                text.AppendChar(c);
+            }
+            Str rendered = text.TakeStr();
+            Vec<SourceSegment> segments;
+            MdSourceSegments(b, n, rendered, true, segments);
+            AddText(b, rendered, &segments);
+            break;
+        }
+        case md::NodeKind::Emphasis:
+            MdMarked(b, n, MdItalic);
+            break;
+        case md::NodeKind::Strong:
+            MdMarked(b, n, MdBold);
+            break;
+        case md::NodeKind::Delete:
+            MdMarked(b, n, MdDel);
+            break;
+        case md::NodeKind::InlineCode:
+        case md::NodeKind::InlineMath: {
+            uint8_t saved = b->marks;
+            if (n->kind == md::NodeKind::InlineCode) {
+                b->marks = (uint8_t)(b->marks | MdCode);
+                Str value = V(b, n, md::NodeStrKind::Value);
+                Vec<SourceSegment> segments;
+                MdCodeSourceSegments(b, n, value, segments);
+                AddText(b, value, &segments);
+            } else {
+                // Math parsing is on by default. An unclaimed node remains
+                // literal prose rather than silently losing its delimiters
+                // or changing to inline-code styling: its own source, or
+                // `$value$` when the parse kept no position.
+                Span span;
+                Str literal;
+                if (!MdNodeSpan(b, n, &span) ||
+                    !MdSourceSlice(b, span, &literal)) {
+                    Str value = V(b, n, md::NodeStrKind::Value);
+                    StrBuilder built(b->a);
+                    built.AppendChar('$');
+                    built.Append(value);
+                    built.AppendChar('$');
+                    literal = built.TakeStr();
+                } else {
+                    literal = StrDup(b->a, literal);
+                }
+                Vec<SourceSegment> segments;
+                MdSourceSegments(b, n, literal, false, segments);
+                AddText(b, literal, &segments);
+            }
+            b->marks = saved;
+            break;
+        }
+        case md::NodeKind::Break: {
+            // CommonMark hard breaks start a new row of the inline flow.
+            Vec<SourceSegment> segments;
+            MdSourceSegments(b, n, StrL("\n"), false, segments);
+            AddText(b, StrL("\n"), &segments);
+            break;
+        }
+        case md::NodeKind::Link:
+        case md::NodeKind::LinkReference: {
+            Str saved = b->href;
+            b->href = n->kind == md::NodeKind::Link
+                          ? V(b, n, md::NodeStrKind::Url)
+                          : MdDefUrl(b, V(b, n, md::NodeStrKind::Identifier));
+            MdMarked(b, n, MdLink);
+            b->href = saved;
+            break;
+        }
+        case md::NodeKind::Image:
+            AddImage(b, V(b, n, md::NodeStrKind::Url),
+                     V(b, n, md::NodeStrKind::Alt), 0, 0, n);
+            break;
+        case md::NodeKind::ImageReference:
+            AddImage(b, MdDefUrl(b, V(b, n, md::NodeStrKind::Identifier)),
+                     V(b, n, md::NodeStrKind::Alt), 0, 0, n);
+            break;
+        case md::NodeKind::FootnoteReference: {
+            // markdown.rs renders the call as an italic `[id]`, mapped onto
+            // its `[^id]`.
+            uint8_t saved = b->marks;
+            b->marks = (uint8_t)(b->marks | MdItalic);
+            StrBuilder call(b->a);
+            call.AppendChar('[');
+            call.Append(V(b, n, md::NodeStrKind::Identifier));
+            call.AppendChar(']');
+            Str rendered = call.TakeStr();
+            Vec<SourceSegment> segments;
+            MdSourceSegments(b, n, rendered, false, segments);
+            AddText(b, rendered, &segments);
+            b->marks = saved;
+            break;
+        }
+        case md::NodeKind::Html:
+            MdInlineHtml(b, V(b, n, md::NodeStrKind::Value));
+            break;
+        default:
+            // Anything else is not inline content; Rust warns and drops it.
+            break;
+    }
+}
+
+// The inline children of `n` as the runs of the current block.
+static void MdInline(MdBuild* b, const md::Node* n) {
+    MdInlineChildren(b, n);
+}
+
+static void MdBlockNode(MdBuild* b, const md::Node* n);
+
+static void MdBlockChildren(MdBuild* b, const md::Node* n) {
+    // A top-level block remembers where its source starts, which is what an
+    // append parses again from (BlockNode::span on the document's blocks).
+    MdNode* parent = b->cur;
+    bool top = parent && parent->kind == MdKind::Doc;
+    for (const md::Node* child : md::NodeKids(b->a, n)) {
+        MdNode* before = top ? parent->last : nullptr;
+        MdBlockNode(b, child);
+        Span span;
+        if (top && MdNodeSpan(b, child, &span)) {
+            for (MdNode* c = before ? before->next : parent->first; c;
+                 c = c->next) {
+                c->blockStart = span.start;
+            }
+        }
+    }
+}
+
+// A code block, however the source spelled it: a fence, an indent, math, or
+// the document's frontmatter.
+//
+// `node` is the mdast node for a fence, an indent or math, whose body the
+// source segments are measured against; frontmatter has none (markdown.rs
+// gives its CodeBlock no segments either).
+static void MdCodeBlock(MdBuild* b, Str value, Str lang,
+                        const md::Node* node = nullptr) {
+    MdNode* n = Push(b, MdKind::Code);
+    n->lang = lang;
+    MdSetLeaf(b, n, node);
+    Vec<SourceSegment> segments;
+    if (node) {
+        MdCodeSourceSegments(b, node, value, segments);
+    }
+    AddText(b, value, &segments);
+    Pop(b);
+}
+
+// One cell of a GFM table. `source` is the mdast cell; a pad has none, and
+// takes no leaf key, because it is not in the document.
+static void MdTableCell(MdBuild* b, md::ArenaAlign align, int32_t column,
+                        const md::Node* source, bool hasTableSpan,
+                        int32_t tableStart, int* ordinal) {
+    MdNode* c = Push(b, MdKind::Cell);
+    if (source && hasTableSpan) {
+        c->leafStart = tableStart;
+        c->leafOrdinal = *ordinal + 1;
+        (*ordinal)++;
+    }
+    if (column < md::ArenaAlignCount(b->a, align)) {
+        switch (md::ArenaAlignAt(b->a, align, column)) {
+            case md::AlignKind::Left:
+                c->align = MdAlignLeft;
+                break;
+            case md::AlignKind::Center:
+                c->align = MdAlignCenter;
+                break;
+            case md::AlignKind::Right:
+                c->align = MdAlignRight;
+                break;
+            case md::AlignKind::None:
+                c->align = MdAlignDefault;
+                break;
+        }
+    }
+    if (source) {
+        MdInline(b, source);
+    }
+    Pop(b);
+}
+
+static void MdTable(MdBuild* b, const md::Node* n) {
+    MdNode* table = Push(b, MdKind::Table);
+    (void)table;
+    // TextLeafKey::table_cell: every cell is known by the table's source
+    // start and its place among all the table's cells.
+    Span tableSpan;
+    bool hasTableSpan = MdNodeSpan(b, n, &tableSpan);
+    int ordinal = 0;
+    // GFM fixes the column count with the header delimiter, not each body
+    // row. markdown-rs keeps a short row short and a long row long; padding
+    // and truncation put every row on that grid.
+    md::ArenaAlign align = md::NodePerKind(b->a, n);
+    int32_t nCols = md::ArenaAlignCount(b->a, align);
+    int32_t rowIndex = 0;
+    for (const md::Node* row : md::NodeKids(b->a, n)) {
+        int32_t at = rowIndex++;
+        if (row->kind != md::NodeKind::TableRow) {
+            continue;
+        }
+        MdNode* r = Push(b, MdKind::Row);
+        // mdast has no thead: the first row is the head.
+        r->head = at == 0;
+        int32_t cellIndex = 0;
+        for (const md::Node* cell : md::NodeKids(b->a, row)) {
+            if (cell->kind != md::NodeKind::TableCell) {
+                continue;
+            }
+            if (cellIndex >= nCols) {
+                break;
+            }
+            MdTableCell(b, align, cellIndex, cell, hasTableSpan,
+                        tableSpan.start, &ordinal);
+            cellIndex++;
+        }
+        while (cellIndex < nCols) {
+            MdTableCell(b, align, cellIndex, nullptr, false, 0, &ordinal);
+            cellIndex++;
+        }
+        Pop(b);
+    }
+    Pop(b);
+}
+
+static void MdBlockNode(MdBuild* b, const md::Node* n) {
+    if (b->extensions) {
+        MarkdownParseContext context;
+        context.arena = b->a;
+        context.source = b->parsed;
+        context.positions = b->positions;
+        for (int i = 0; i < b->extensions->blockParsers.len; i++) {
+            const MarkdownBlockParser& parser = b->extensions->blockParsers[i];
+            MarkdownNode custom;
+            if (!parser.fn || !parser.fn(n, &context, parser.data, &custom)) {
+                continue;
+            }
+            MdNode* node = Push(b, MdKind::Custom);
+            node->custom = custom;
+            // ast_to_node: `node.set_span(span)`.
+            node->custom.hasSpan = MdNodeSpan(b, n, &node->custom.span);
+            node->custom.name = StrDup(b->a, custom.name);
+            node->custom.text = StrDup(b->a, custom.text);
+            node->custom.markdown = StrDup(b->a, custom.markdown);
+            Pop(b);
+            return;
+        }
+    }
+    switch (n->kind) {
+        case md::NodeKind::Paragraph:
+            MdSetLeaf(b, Push(b, MdKind::Paragraph), n);
+            MdInline(b, n);
+            Pop(b);
+            break;
+        case md::NodeKind::Heading: {
+            MdNode* h = Push(b, MdKind::Heading);
+            MdSetLeaf(b, h, n);
+            uint32_t depth = md::NodePerKind(b->a, n);
+            h->level = depth == 0 ? 1 : (uint8_t)depth;
+            MdInline(b, n);
+            Pop(b);
+            break;
+        }
+        case md::NodeKind::Blockquote:
+            Push(b, MdKind::Quote);
+            MdBlockChildren(b, n);
+            Pop(b);
+            break;
+        case md::NodeKind::List: {
+            MdNode* l = Push(b, MdKind::List);
+            l->ordered = n->Has(md::NodeOrdered);
+            l->start =
+                n->Has(md::NodeHasStart) ? (int)md::NodePerKind(b->a, n) : 1;
+            MdBlockChildren(b, n);
+            Pop(b);
+            break;
+        }
+        case md::NodeKind::ListItem: {
+            MdNode* item = Push(b, MdKind::Item);
+            // markdown.rs carries mdast's `checked` straight onto the
+            // BlockNode. to_mdast has already taken the `[x] ` off the front
+            // of the item's first paragraph, so nothing here has to.
+            item->hasCheck = n->Has(md::NodeHasChecked);
+            item->checked = n->Has(md::NodeChecked);
+            MdBlockChildren(b, n);
+            Pop(b);
+            break;
+        }
+        case md::NodeKind::ThematicBreak:
+            Push(b, MdKind::Rule);
+            Pop(b);
+            break;
+        case md::NodeKind::Code:
+            MdCodeBlock(b, V(b, n, md::NodeStrKind::Value),
+                        V(b, n, md::NodeStrKind::Lang), n);
+            break;
+        case md::NodeKind::Math:
+            MdCodeBlock(b, V(b, n, md::NodeStrKind::Value), {}, n);
+            break;
+        case md::NodeKind::Yaml:
+            MdCodeBlock(b, V(b, n, md::NodeStrKind::Value), StrL("yml"));
+            MdSetLeaf(b, b->cur->last, n);
+            break;
+        case md::NodeKind::Toml:
+            MdCodeBlock(b, V(b, n, md::NodeStrKind::Value), StrL("toml"));
+            MdSetLeaf(b, b->cur->last, n);
+            break;
+        case md::NodeKind::Table:
+            MdTable(b, n);
+            break;
+        case md::NodeKind::Html: {
+            // The raw source of the block; MdExpandHtml below turns it into
+            // children, and the node keeps the source for a plugin that
+            // matches on the tag.
+            Push(b, MdKind::Html);
+            Str raw = V(b, n, md::NodeStrKind::Value);
+            b->cur->raw = raw;
+            AddText(b, raw);
+            Pop(b);
+            break;
+        }
+        case md::NodeKind::Break:
+            Push(b, MdKind::Paragraph);
+            AddText(b, StrL("\n"));
+            Pop(b);
+            break;
+        case md::NodeKind::FootnoteDefinition: {
+            // markdown.rs renders the definition as a paragraph opening with
+            // an italic `[id]: `.
+            MdSetLeaf(b, Push(b, MdKind::Paragraph), n);
+            uint8_t saved = b->marks;
+            b->marks = (uint8_t)(b->marks | MdItalic);
+            AddText(b, StrL("["));
+            AddText(b, V(b, n, md::NodeStrKind::Identifier));
+            AddText(b, StrL("]: "));
+            b->marks = saved;
+            for (const md::Node* c : md::NodeKids(b->a, n)) {
+                // Its children are blocks; their inline content joins the one
+                // paragraph, which is what Rust's parse_paragraph does.
+                if (md::NodeHasChildren(c->kind)) {
+                    MdInline(b, c);
+                } else {
+                    AddText(b, V(b, c, md::NodeStrKind::Value));
+                }
+            }
+            Pop(b);
+            break;
+        }
+        case md::NodeKind::Definition:
+            // Collected before the walk; it renders as nothing.
+        default:
+            break;
+    }
+}
+
+// Every link reference definition in the tree, wherever it sits.
+static void MdCollectDefs(MdBuild* b, const md::Node* n) {
+    if (n->kind == md::NodeKind::Definition) {
+        MdDef def;
+        def.identifier = V(b, n, md::NodeStrKind::Identifier);
+        def.url = V(b, n, md::NodeStrKind::Url);
+        b->defs.Append(b->a, def);
+        return;
+    }
+    for (const md::Node* child : md::NodeKids(b->a, n)) {
+        MdCollectDefs(b, child);
+    }
+}
+
+// A raw HTML block arrives as source text on an MdKind::Html node. Turning
+// it into children here rather than at render time means the parse cache
+// holds the finished tree, and it is the same hand-off Rust makes when
+// markdown.rs gives an mdast::Html node to format::html.
+static void MdExpandHtml(Arena* a, MdNode* n) {
+    for (MdNode* c = n->first; c; c = c->next) {
+        MdExpandHtml(a, c);
+    }
+    if (n->kind != MdKind::Html || !n->runFirst) {
+        return;
+    }
+    int nbytes = 0;
+    for (MdRun* r = n->runFirst; r; r = r->next) {
+        nbytes += len(r->text);
+    }
+    char* buf = (char*)Alloc(a, nbytes + 1);
+    if (!buf) {
+        return;
+    }
+    int at = 0;
+    for (MdRun* r = n->runFirst; r; r = r->next) {
+        memcpy(buf + at, r->text.s, (size_t)len(r->text));
+        at += len(r->text);
+    }
+    buf[at] = 0;
+    n->runFirst = nullptr;
+    n->runLast = nullptr;
+    HtmlParseInto(a, n, Str(buf, at));
+}
+
+// `source` from byte `from` on, with every span measured in all of
+// `source`: what an append parses again (parse_content's `node_cx.offset`).
+static MdNode* MdParseWithExtensions(Arena* a, Str source,
+                                     const MarkdownExtensions* extensions,
+                                     int from = 0) {
+    MdNode* doc = ArenaNew<MdNode>(a);
+    doc->kind = MdKind::Doc;
+    if (from < 0 || from > len(source)) {
+        from = 0;
+    }
+    Str parsed = Str(source.s + from, len(source) - from);
+    if (!source.s || len(parsed) <= 0) {
+        return doc;
+    }
+
+    // The GFM dialect, which is what TextView renders: tables, strikethrough,
+    // task lists, footnotes and bare-URL autolinks. `parse_options` in
+    // crates/ui/src/text/markdown_ext.rs asks for the same.
+    md::ParseOptions options = md::ParseOptions::Gfm();
+    // markdown_ext.rs enables both halves together. Inline plugins can claim
+    // InlineMath, block plugins can claim Math, and unclaimed nodes take the
+    // literal/code-block fallbacks above and below.
+    options.constructs.mathText = true;
+    options.constructs.mathFlow = true;
+    options.constructs.frontmatter = extensions && extensions
+                                                       ->enableFrontmatter;
+    // The positions are what the runs' source segments are measured from;
+    // the table is the parse's own and is gone once the tree is folded.
+    md::NodePositions positions;
+    md::Node* root = md::ToMdast(a, parsed, options, &positions);
+
+    MdBuild b;
+    b.a = a;
+    b.source = source;
+    b.parsed = parsed;
+    b.posShift = from;
+    b.extensions = extensions;
+    b.positions = &positions;
+    b.cur = doc;
+    MdCollectDefs(&b, root);
+    MdBlockChildren(&b, root);
+    MdExpandHtml(a, doc);
+    return doc;
+}
+
+MdNode* MdParse(Arena* a, Str source) {
+    return MdParseWithExtensions(a, source, nullptr);
+}
+
+// ─── parse cache ──────────────────────────────────────────────────────────
+//
+// The element tree is rebuilt from the frame arena every frame, but the
+// markdown behind it hardly ever changes. Re-parsing the story's 13 KB README
+// on every render cost 52us and 44 KB of frame arena for a tree identical to
+// the last one, so each window keeps a few parsed documents around, keyed on
+// the source text.
+//
+// A slot owns a copy of the source as well as the nodes, because the tree
+// points into the source instead of copying it (see AddText). That way a
+// caller may hand us a string that only lives for this frame, and comparing
+// the copy is what tells us the cached tree is still the right answer.
+
+struct MdCacheSlot {
+    Arena* a = nullptr; // owns `source` and `doc`
+    Str source = {};
+    MdNode* doc = nullptr;
+    uint64_t used = 0; // lookup stamp for LRU; 0 == empty
+    // Which parser made `doc`. The same bytes are a different tree read as
+    // HTML than read as markdown, so it is part of the key.
+    bool html = false;
+    uint64_t extensionsRevision = 0;
+};
+
+// One story page is on screen at a time and a page holds a handful of these.
+constexpr int kMdCacheSlots = 8;
+
+struct MdCache {
+    MdCacheSlot slots[kMdCacheSlots] = {};
+    uint64_t clock = 0;
+
+    ~MdCache() {
+        for (int i = 0; i < kMdCacheSlots; i++) {
+            if (slots[i].a) {
+                ArenaDelete(slots[i].a);
+            }
+        }
+    }
+};
+
+// The whole point is to be much cheaper than a parse. StrEq of the story's
+// 13 KB README costs 0.2us against 52us to parse it, so there is no hash to
+// reject with first: the length check throws out most misses and StrEq stops
+// at the first byte that differs.
+// The tree for `source`, parsed only when it isn't cached already. Falls back
+// to the frame arena when there is no window to hang a cache off, which is
+// what the tests and any headless measuring pass see.
+static MdNode* MdParseCached(Ctx* cx, Arena* frame, Str source, bool html,
+                             const MarkdownExtensions* extensions) {
+    // Keyed on the parser's *shape*, not on the revision every rebuilt
+    // closure bumps: a render method that builds its plugins again each frame
+    // has to reuse the cached document, or the parse notifies, the notify
+    // renders and the document never settles.
+    uint64_t extensionRevision =
+        extensions ? extensions->ParserFingerprint() : 0;
+    MdCache* c = nullptr;
+    if (cx && cx->win) {
+        auto* slot = KeyedState<Entity<MdCache>>(
+            cx, (uint32_t)HashClickId(StrL("gpui-md-parse-cache")));
+        if (slot) {
+            if (!slot->IsValid()) {
+                *slot = EntityNewState<MdCache>(cx->app);
+            }
+            c = slot->Get(cx);
+        }
+    }
+    if (!c) {
+        return html ? HtmlParse(frame, source)
+                    : MdParseWithExtensions(frame, source, extensions);
+    }
+
+    c->clock++;
+    MdCacheSlot* lru = &c->slots[0];
+    for (int i = 0; i < kMdCacheSlots; i++) {
+        MdCacheSlot* s = &c->slots[i];
+        if (s->used != 0 && s->html == html &&
+            s->extensionsRevision == extensionRevision &&
+            base::StrEq(s->source, source)) {
+            s->used = c->clock;
+            return s->doc;
+        }
+        if (s->used < lru->used) {
+            lru = s;
+        }
+    }
+    // Evict the least recently looked up slot and reuse its arena.
+    if (!lru->a) {
+        lru->a = ArenaNew();
+    } else {
+        lru->a->Reset();
+    }
+    lru->source = StrDup(lru->a, source);
+    lru->html = html;
+    lru->extensionsRevision = extensionRevision;
+    lru->doc = html ? HtmlParse(lru->a, lru->source)
+                    : MdParseWithExtensions(lru->a, lru->source, extensions);
+    lru->used = c->clock;
+    return lru->doc;
+}
+
+MdNode* MdParseCachedForTest(Ctx* cx, Arena* frame, Str source,
+                             const MarkdownExtensions* extensions) {
+    return MdParseCached(cx, frame, source, false, extensions);
+}
+
+// ─── render ───────────────────────────────────────────────────────────────
+
+// The fallback handle_link_click takes when no handler was given: cx.open_url.
+static void MdOpenHref(char* href) {
+    if (href) {
+        OpenUrl(Str(href));
+    }
+}
+
+Listener TextView::LinkListener(Str href) {
+    if (!onLinkHasContext) {
+        return ListenerArg(onLink, (int64_t)href.s);
+    }
+    TextViewLinkBinding* binding = ArenaNew<TextViewLinkBinding>(a);
+    binding->context = onLinkContext;
+    binding->href = href.s;
+    return ListenerArg(onLink, (int64_t)binding);
+}
+
+// heading_metrics: size scale, line height, section gap. Every level is
+// semibold; the size is relative to the body.
+static void HeadingMetrics(int level, float* scale, float* line,
+                           float* section) {
+    switch (level) {
+        case 1:
+            *scale = 1.8f;
+            *line = 1.25f;
+            *section = 1.1f;
+            break;
+        case 2:
+            *scale = 4.f / 3.f;
+            *line = 1.35f;
+            *section = 1.6f;
+            break;
+        case 3:
+            *scale = 17.f / 15.f;
+            *line = 1.35f;
+            *section = 1.4f;
+            break;
+        case 4:
+            *scale = 1.f;
+            *line = 1.35f;
+            *section = 1.4f;
+            break;
+        case 5:
+            *scale = 14.f / 15.f;
+            *line = 1.35f;
+            *section = 1.4f;
+            break;
+        default:
+            *scale = 13.f / 15.f;
+            *line = 1.35f;
+            *section = 1.4f;
+            break;
+    }
+}
+
+static const float kHeadingBottomGap = 0.35f;
+
+static El* ApplyWeight(El* t, int weight) {
+    if (weight >= 3) {
+        return t->Bold();
+    }
+    if (weight == 2) {
+        return t->Semibold();
+    }
+    if (weight == 1) {
+        return t->Medium();
+    }
+    return t;
+}
+
+// text/utils.rs BULLETS, one per nesting depth.
+static Str Bullet(int depth) {
+    switch (depth) {
+        case 0:
+            return StrL("\xE2\x80\xA2 ");
+        case 1:
+            return StrL("\xE2\x97\xA6 ");
+        case 2:
+            return StrL("\xE2\x96\xAA ");
+        case 3:
+            return StrL("\xE2\x80\xA3 ");
+        default:
+            return StrL("\xE2\x81\x83 ");
+    }
+}
+
+int OrderedListOrdinal(int start, int ix) {
+    return start + ix;
+}
+
+Str ListItemPrefix(Arena* a, int ix, int start, bool ordered, int depth) {
+    if (!ordered) {
+        return Bullet(depth);
+    }
+    int ordinal = OrderedListOrdinal(start, ix);
+    if (depth == 0 || start == 0) {
+        return StrDup(a, fmt("%d. ", ordinal));
+    }
+    int alpha = (ordinal > 0 ? ordinal - 1 : 0) % 26;
+    return StrDup(a, fmt("%c. ", (depth == 1 ? 'A' : 'a') + alpha));
+}
+
+// âââ SelectionFormat::Source âââ
+//
+// node.rs reconstructs the Markdown of a selection by walking the BlockNode
+// tree it rendered from. The window's selection here knows only the flat list
+// of painted runs, so the walk happens as the tree is built: each block hands
+// its runs a gpui::SelBlock naming what opens and closes it, and each run a
+// gpui::SelSource naming the marks around it. gpui.cpp's CopyTextHitsIn puts
+// the pieces back together in document order.
+
+// Several short pieces as one arena string. The affixes are three or four
+// parts and none of them wants a builder.
+static Str SrcCat(Arena* a, Str p0, Str p1 = {}, Str p2 = {}, Str p3 = {},
+                  Str p4 = {}) {
+    Str parts[5] = {p0, p1, p2, p3, p4};
+    int n = 0;
+    for (const Str& p : parts) {
+        n += len(p) > 0 ? len(p) : 0;
+    }
+    if (n <= 0) {
+        return Str{};
+    }
+    char* buf = (char*)Alloc(a, n + 1);
+    if (!buf) {
+        return Str{};
+    }
+    int at = 0;
+    for (const Str& p : parts) {
+        if (len(p) <= 0 || !p.s) {
+            continue;
+        }
+        memcpy(buf + at, p.s, (size_t)len(p));
+        at += len(p);
+    }
+    buf[at] = 0;
+    return Str(buf, at);
+}
+
+// As many spaces as `s` is bytes wide, which is the indent Rust's
+// list_selected_source puts under a marker so an item's later lines line up
+// with its text.
+static Str SrcIndent(Arena* a, Str s) {
+    if (len(s) <= 0) {
+        return Str{};
+    }
+    char* buf = (char*)Alloc(a, len(s) + 1);
+    if (!buf) {
+        return Str{};
+    }
+    memset(buf, ' ', (size_t)len(s));
+    buf[len(s)] = 0;
+    return Str(buf, len(s));
+}
+
+// node.rs wrap_with_mark, split into the two halves a run is emitted between.
+// The nesting is that function's: code innermost, then italic, bold,
+// strikethrough, underline, highlight, and the link outermost.
+static Str SrcMarkPre(Arena* a, uint8_t marks) {
+    StrBuilder out(a);
+    auto put = [&](const char* text) { out.Append(Str(text)); };
+    if (marks & MdLink) {
+        put("[");
+    }
+    if (marks & MdHighlight) {
+        put("==");
+    }
+    if (marks & MdUnderline) {
+        put("<u>");
+    }
+    if (marks & MdDel) {
+        put("~~");
+    }
+    if (marks & MdBold) {
+        put("**");
+    }
+    if (marks & MdItalic) {
+        put("*");
+    }
+    if (marks & MdCode) {
+        put("`");
+    }
+    return out.TakeStr();
+}
+
+static Str SrcMarkPost(Arena* a, uint8_t marks, Str href) {
+    StrBuilder out(a);
+    auto put = [&](const char* text) { out.Append(Str(text)); };
+    if (marks & MdCode) {
+        put("`");
+    }
+    if (marks & MdItalic) {
+        put("*");
+    }
+    if (marks & MdBold) {
+        put("**");
+    }
+    if (marks & MdDel) {
+        put("~~");
+    }
+    if (marks & MdUnderline) {
+        put("</u>");
+    }
+    if (marks & MdHighlight) {
+        put("==");
+    }
+    Str tail = out.TakeStr();
+    if (marks & MdLink) {
+        // Rust writes the title too when the link carries one; MdRun keeps
+        // only the url, which is what the parse fold kept.
+        return SrcCat(a, tail, StrL("]("), href, StrL(")"));
+    }
+    return tail;
+}
+
+const SelBlock* TextView::SrcOpen(Str marker, Str post, bool join) {
+    if (!selectable) {
+        return nullptr;
+    }
+    SelBlock* b = ArenaNew<SelBlock>(a);
+    if (!b) {
+        return nullptr;
+    }
+    // The marker a list item left for its first block is spent here; every
+    // later block of the item takes the plain line prefix instead. A block
+    // that continues the previous one's line opens no line and so takes
+    // neither.
+    Str head = {};
+    if (!join) {
+        head = srcMarker.len > 0 ? srcMarker : srcLinePre;
+        srcMarker = Str{};
+    }
+    b->pre = SrcCat(a, head, marker);
+    b->post = post;
+    b->linePre = srcLinePre;
+    b->join = join;
+    srcBlock = b;
+    srcLineStart = true;
+    srcRunLast = nullptr;
+    return b;
+}
+
+void TextView::SrcCell(MdNode* row, MdNode* c, int nCols,
+                       const uint8_t* colAlign) {
+    if (!selectable) {
+        return;
+    }
+    // table_selected_source pipes each row — `| a | b |` — and puts the
+    // alignment row after the header, so the first cell of a row opens the
+    // line, every other cell continues it, and the last cell closes it.
+    bool first = c == row->first;
+    bool last = c->next == nullptr;
+    Str post = last ? StrL(" |") : StrL(" ");
+    if (last && row->head) {
+        // The delimiter row carries the column alignments and has to follow
+        // the header row. Rust's ColumnAlign has no default arm: a column
+        // that named no alignment is Left, which is `:--`.
+        Str line = SrcCat(a, StrL(" |"), StrL("\n"), srcLinePre, StrL("|"));
+        int cells = 0;
+        for (MdNode* q = row->first; q; q = q->next) {
+            cells++;
+        }
+        for (int i = 0; i < cells; i++) {
+            uint8_t al = i < nCols ? colAlign[i] : (uint8_t)MdAlignDefault;
+            Str d = al == MdAlignCenter  ? StrL(" :-: |")
+                    : al == MdAlignRight ? StrL(" --: |")
+                                         : StrL(" :-- |");
+            line = SrcCat(a, line, d);
+        }
+        post = line;
+    }
+    SrcOpen(StrL("| "), post, !first);
+}
+
+El* TextView::SrcMark(El* t, uint8_t marks, Str href) {
+    if (!selectable || !t) {
+        return t;
+    }
+    t->SelectionOwner(BaseTextViewStateCurrent(cx->app));
+    // One record per mark group: an adjacent run with the same marks and the
+    // same href reuses it, and the copier closes a group only when the record
+    // changes — so a bold phrase split into word elements copies as
+    // `**one two three**` rather than as three wrapped words, which is what
+    // reconstruct_markdown gets from walking mark ranges instead of words.
+    bool same = srcRunLast && srcRunLast->block == srcBlock &&
+                srcRunMarks == marks && srcRunHref.len == len(href) &&
+                (len(href) == 0 || srcRunHref.s == href.s);
+    if (!same) {
+        SelSource* s = ArenaNew<SelSource>(a);
+        if (!s) {
+            return t;
+        }
+        s->pre = SrcMarkPre(a, marks);
+        s->post = SrcMarkPost(a, marks, href);
+        s->block = srcBlock;
+        srcRunLast = s;
+        srcRunMarks = marks;
+        srcRunHref = href;
+    }
+    t->SelSrc(srcRunLast, !srcLineStart);
+    srcLineStart = false;
+    return t;
+}
+
+void TextView::SrcBreak() {
+    srcLineStart = true;
+}
+
+El* TextView::SrcMap(El* t, const SourceSegment* segments, int count,
+                     int offset, bool atomic) {
+    if (!selectable || !t) {
+        return t;
+    }
+    SelSourceMap* m = ArenaNew<SelSourceMap>(a);
+    if (!m) {
+        return t;
+    }
+    m->segments = segments;
+    m->count = count;
+    m->offset = offset;
+    m->atomic = atomic;
+    return t->SelMap(m);
+}
+
+// node.rs image_markdown: `![alt](url)`. Rust writes the title after the url
+// when the image carries one; MdRun keeps the url and the alt text, which is
+// what the parse fold kept.
+El* TextView::SrcImage(El* e, MdRun* r) {
+    if (!selectable || !e) {
+        return e;
+    }
+    SelSource* s = ArenaNew<SelSource>(a);
+    if (!s) {
+        return e;
+    }
+    s->pre = SrcCat(a, StrL("!["), r->text, StrL("]("), r->imgSrc, StrL(")"));
+    s->block = srcBlock;
+    // The image has no text of its own — the whole of it is the affix — and
+    // the copier knows that from the run being an image element.
+    e->Selectable()
+        ->SelectionOwner(BaseTextViewStateCurrent(cx->app))
+        ->SelSrc(s, !srcLineStart);
+    srcLineStart = false;
+    // selected_source_range takes an image in whole, as its span.
+    SourceSegment* whole = nullptr;
+    if (r->hasImgSpan) {
+        whole = ArenaNew<SourceSegment>(a);
+        if (whole) {
+            whole->renderedEnd = 1;
+            whole->sourceStart = r->imgSpan.start;
+            whole->sourceEnd = r->imgSpan.end;
+        }
+    }
+    SrcMap(e, whole, whole ? 1 : 0, 0, true);
+    // Not a mark group anything can join: the words after the picture open
+    // one of their own.
+    srcRunLast = nullptr;
+    return e;
+}
+
+// `<mark>`: html.rs takes yellow(200) — a fixed Tailwind step, not a theme
+// color — and leaves the ink alone, which works because the foreground it
+// runs against there is dark. Ours is near-white in the dark theme, so the
+// ink is pinned to the same near-black the light theme already paints with
+// and the highlight reads the same in both.
+static const Rgba kMarkBg = {0xfe, 0xf0, 0x8a, 0xff};
+static const Rgba kMarkFg = {0x0a, 0x0a, 0x0a, 0xff};
+
+// A length measured off a font size: font sizes here are written at a 16 px
+// rem and layout scales them by the window's rem, so a line height or a box
+// taken from one has to scale the same way to stay in step with the text.
+static float FontLen(const Ctx* cx, float v) {
+    return Rems(cx, v / 16.f);
+}
+
+// node.rs puts an img() element in the flow beside the words: its own size
+// unless the document gave one, never wider than the space it has, and — for
+// an image inside a link — the hand and the click the link's words get.
+El* TextView::ImageRun(MdRun* r, float font, Rgba color, bool inFlow) {
+    // node.rs NodeContext::image_source: the view's override when it has
+    // one, the document's own URL otherwise.
+    gpui::ImageSource imgSource =
+        imageSource ? imageSource(r->imgSrc, imageSourceData)
+                    : gpui::ImageSource::FromResource(r->imgSrc);
+    El* e = ImageEl(a, imgSource, r->text)->Font(font)->Fg(color);
+    float w = r->imgW;
+    float h = r->imgH;
+    // inline_flow.rs image_size: a picture in a run of words that names
+    // neither dimension is three quarters of the line it sits on, and as wide
+    // as its own shape makes it — the badge beside a sentence is a glyph, not
+    // a plate. Only the height is named here; the layout takes the width from
+    // the picture's aspect, which is the one it knows and this does not.
+    if (inFlow && w <= 0 && h <= 0) {
+        h = FontLen(cx, font * kLineHeight * 0.75f);
+    }
+    // A vector picture knows its own shape, so a document that gave only one
+    // dimension gets the other rather than a run of text's line height. A
+    // bitmap cannot answer that without being decoded, so this is the SVG
+    // case only — the shipped asset, or one fetched, once it has arrived.
+    if ((w > 0) != (h > 0)) {
+        Size vb = {};
+        int opsLen = 0;
+        const uint8_t* ops =
+            ImageVectorForSource(ImageLookup{}, imgSource, &opsLen);
+        if (ops && DrawOpsViewBox(ops, opsLen, &vb) && vb.w > 0 && vb.h > 0) {
+            if (w > 0) {
+                h = w * (vb.h / vb.w);
+            } else {
+                w = h * (vb.w / vb.h);
+            }
+        }
+    }
+    if (w > 0) {
+        e->W(w);
+    }
+    if (h > 0) {
+        e->H(h);
+    }
+    // `img(..).object_fit(Contain).max_w(relative(1.))`: the limit is present
+    // even when HTML supplied a width. The README's showcase image says
+    // width=1763, for example, but Rust scales it to the text column.
+    e->MaxW(kFill);
+    if ((r->marks & MdLink) && len(r->href) > 0) {
+        e->Cursor(CursorKind::Pointer);
+        if (onLink.IsValid()) {
+            e->OnClick(LinkListener(r->href));
+        } else {
+            e->OnClick(MkFunc0(MdOpenHref, r->href.s));
+        }
+    }
+    return e;
+}
+
+// One styled word. Everything a TextMark can say about a run, applied to the
+// element that carries it — node.rs 1390 builds the same HighlightStyle.
+El* TextView::Word(Str w, float font, Rgba color, uint8_t marks, int weight,
+                   Str href) {
+    Rgba c = color;
+    if (marks & MdLink) {
+        // node.rs: `highlight.color = Some(node_cx.style.link())`. It used to
+        // be `cx.theme().link`; the style carries the role now.
+        c = textViewStyle.link;
+    }
+    if (marks & MdHighlight) {
+        c = kMarkFg;
+    }
+    El* t = TextEl(a, w)->Font(font);
+    if (c.a) {
+        t->Fg(c);
+    }
+    ApplyWeight(t, (marks & MdBold) ? (weight > 2 ? weight : 2) : weight);
+    if (marks & MdItalic) {
+        t->Italic();
+    }
+    if (marks & (MdLink | MdUnderline)) {
+        // Rust hands the run an `UnderlineStyle { thickness: px(1.) }`, which
+        // GPUI draws as a quad under the whole run — the spaces inside it as
+        // well. A shaper's own underline stops at the last glyph, so a word
+        // that carries a trailing space would leave a gap before the next
+        // one and a multi-word link would be underlined word by word. The
+        // rule goes on as a span instead, which is the same 1-DIP quad over
+        // the run's full advance.
+        TextSpan* sp = ArenaNew<TextSpan>(a);
+        sp->lo = 0;
+        sp->hi = len(w);
+        // The rule takes the colour the glyphs will: a run that named none
+        // draws in the theme's own foreground, and a span with no alpha is
+        // not drawn at all.
+        sp->color = c.a ? c : textViewStyle.foreground;
+        // link_underline: the rule is the link colour at 40% opacity.
+        if (marks & MdLink) {
+            sp->color.a = (uint8_t)((float)sp->color.a * 0.4f + 0.5f);
+        }
+        sp->underline = true;
+        t->Underlines(sp, 1);
+    }
+    if (marks & MdDel) {
+        t->Strikethrough();
+    }
+    if (marks & MdHighlight) {
+        t->Bg(kMarkBg);
+    } else if (marks & MdCode) {
+        // inline.rs shapes inline code in the theme's monospace face at
+        // 0.875 of the surrounding font size. Its background has four DIP of
+        // horizontal breathing room and the theme's small radius.
+        float radius = base_theme::Theme::Global(cx->app).tokens.radius.sm;
+        t->Font(font * 0.875f)
+            ->Mono()
+            ->PadX(4)
+            ->Radius(radius)
+            ->Bg(textViewStyle.InlineCodeBackground());
+        if (textViewStyle.inlineCodeFields) {
+            t->Refine(textViewStyle.inlineCode, textViewStyle.inlineCodeFields);
+        }
+    }
+    if (selectable) {
+        t->Selectable();
+    }
+    SrcMark(t, marks, href);
+    if ((marks & MdLink) && len(href) > 0) {
+        // handle_link_click: the handler if one was given, the desktop's
+        // browser otherwise. The href is NUL-terminated in the arena the
+        // parse lives in, so the handler gets a `const char*` it can read for
+        // the length of the call — the same rule every hit-test payload
+        // follows.
+        t->Cursor(CursorKind::Pointer);
+        if (onLink.IsValid()) {
+            t->OnClick(LinkListener(href));
+        } else {
+            t->OnClick(MkFunc0(MdOpenHref, href.s));
+        }
+    }
+    return t;
+}
+
+static bool IsPlainRun(MdRun* r) {
+    if (!r || r->next || r->marks != 0 || len(r->imgSrc) > 0 || r->hasCustom) {
+        return false;
+    }
+    for (int i = 0; i < len(r->text); i++) {
+        if (r->text.s[i] == '\n') {
+            return false;
+        }
+    }
+    return true;
+}
+
+// A cell's text-align. Rust gives the flow itself the alignment (node.rs
+// render_wrap_table); here the row of words is a flex line, so the line is
+// what justifies. A left-aligned or default flow still fills the cell, which
+// is what lets a long one wrap.
+static El* AlignRow(El* row, uint8_t align) {
+    if (align == MdAlignCenter) {
+        return row->JustifyCenter();
+    }
+    if (align == MdAlignRight) {
+        return row->JustifyEnd();
+    }
+    return row;
+}
+
+El* TextView::Inline(MdNode* n, float font, Rgba color, int weight,
+                     uint8_t align) {
+    // The common case is one unmarked stretch of source. Keeping it as a
+    // single TextEl lets the text engine break the line on its own metrics,
+    // which is both better looking and cheaper than a row of word elements.
+    if (IsPlainRun(n->runFirst)) {
+        El* t = TextEl(a, n->runFirst->text)->Font(font)->Wrap();
+        if (color.a) {
+            t->Fg(color);
+        }
+        ApplyWeight(t, weight);
+        if (selectable) {
+            t->Selectable();
+            SrcMark(t, 0);
+            SrcMap(t, n->runFirst->segments, n->runFirst->segmentCount, 0);
+        }
+        RangeWashes(t, n, 0, len(n->runFirst->text));
+        int reveal = 0;
+        if (RevealIn(n, &reveal)) {
+            RevealMark(t, 0, reveal);
+        }
+        // text_center / text_right on the cell: the run fills the cell and
+        // each of its wrapped lines is aligned inside it.
+        if (align == MdAlignCenter) {
+            t->TextCenter();
+        } else if (align == MdAlignRight) {
+            t->TextRight();
+        }
+        return t->W(kFill)->ReportLineSpan(FontLen(cx, font * kLineHeight));
+    }
+    // Otherwise the flow is a column of wrapping rows — a hard break ends a
+    // row — and each row is a run of styled words. Every word carries its own
+    // trailing space rather than the row carrying a gap: a gap would put a
+    // space between an emphasis run and the punctuation after it ("**bold**:"
+    // reads as "bold :") and would loosen wrapped-line leading.
+    // should_render_inline_flow: a paragraph that mixes words with a picture
+    // lays the picture out as part of the line. One that is a picture and
+    // nothing else is a block, and keeps the picture's own size.
+    bool inFlow = false;
+    for (MdRun* r = n->runFirst; r && !inFlow; r = r->next) {
+        inFlow = r->hasCustom || (len(r->imgSrc) <= 0 && len(r->text) > 0);
+    }
+    El* col = Div(a)->FlexCol()->W(kFill);
+    El* row = AlignRow(Div(a)->FlexRow()->FlexWrap()->W(kFill), align);
+    int wordCap = 1;
+    for (MdRun* r = n->runFirst; r; r = r->next) {
+        if (len(r->text) > 0) {
+            wordCap += len(r->text);
+        }
+    }
+    char* word = (char*)Alloc(a, wordCap);
+    if (!word) {
+        return col;
+    }
+    int wordLen = 0;
+    uint8_t marks = 0;
+    Str href = {};
+    // The run the word being gathered comes from, and where in its text the
+    // word starts: what the word's source map is measured from.
+    MdRun* wordRun = nullptr;
+    int wordStart = 0;
+    // Where the run being walked starts in the node's text, which is the
+    // byte space its range highlights use.
+    int runOffset = 0;
+    int nextRunOffset = 0;
+    int revealOffset = 0;
+    bool hasReveal = RevealIn(n, &revealOffset);
+    El* lastWord = nullptr;
+    int lastWordLo = 0;
+    auto flush = [&]() {
+        if (wordLen <= 0) {
+            return;
+        }
+        El* w = Word(StrDup(a, Str(word, wordLen)), font, color, marks, weight,
+                     href);
+        if (wordRun) {
+            SrcMap(w, wordRun->segments, wordRun->segmentCount, wordStart);
+            RangeWashes(w, n, runOffset + wordStart,
+                        runOffset + wordStart + wordLen,
+                        (marks & MdHighlight) != 0);
+            // The word the reveal starts in, or, for a line break that lays
+            // out no word, the first word after it.
+            if (hasReveal && revealOut &&
+                runOffset + wordStart + wordLen > revealOffset) {
+                RevealMark(w, runOffset + wordStart, revealOffset);
+            }
+            lastWord = w;
+            lastWordLo = runOffset + wordStart;
+        }
+        row->Child(w);
+        wordLen = 0;
+    };
+    for (MdRun* r = n->runFirst; r; r = r->next) {
+        flush();
+        marks = r->marks;
+        href = r->href;
+        runOffset = nextRunOffset;
+        nextRunOffset += len(r->text);
+        if (r->hasCustom) {
+            const MarkdownInlineRenderer* renderer =
+                markdownExtensions.InlineRenderer(r->custom.name);
+            InlineRenderContext context;
+            context.fontSize = font;
+            context.lineHeight = font * kLineHeight;
+            context.remSize = 16;
+            context.textStyle.fontSize = font;
+            context.textStyle.lineHeight = kLineHeight;
+            context.textStyle.color = color;
+            int inheritedWeight =
+                (marks & MdBold) ? (weight > 2 ? weight : 2) : weight;
+            context.textStyle.fontBold = inheritedWeight >= 3;
+            context.textStyle.fontSemibold = inheritedWeight == 2;
+            context.textStyle.fontMedium = inheritedWeight == 1;
+            context.textStyle.italic = (marks & MdItalic) != 0;
+            context.textStyle.fontMono = (marks & MdCode) != 0;
+            context.textStyle.underline = (marks & (MdLink | MdUnderline)) != 0;
+            context.textStyle.strike = (marks & MdDel) != 0;
+            if (marks & MdLink) {
+                context.textStyle.color = textViewStyle.link;
+            }
+            InlineElement rendered;
+            if (renderer) {
+                if (renderer->renderInline) {
+                    rendered = renderer->renderInline(cx, &r->custom, &context,
+                                                      renderer->data);
+                } else if (renderer->render) {
+                    rendered = InlineElement::New(
+                        renderer->render(cx, &r->custom, renderer->data));
+                }
+            }
+            if (rendered.element) {
+                if (rendered.hasBaseline) {
+                    rendered.element->MarginT(std::max(
+                        0.f, context.lineHeight * 0.75f - rendered.baseline));
+                }
+                row->Child(rendered.element);
+            } else if (r->custom.text) {
+                El* w = Word(r->custom.text, font, color, marks, weight, href);
+                // An inline plugin node is selected as a unit, and maps to
+                // `MarkdownNode::source_range`.
+                SourceSegment* whole = nullptr;
+                if (r->custom.hasSpan) {
+                    whole = ArenaNew<SourceSegment>(a);
+                    if (whole) {
+                        whole->renderedEnd = len(r->custom.text);
+                        whole->sourceStart = r->custom.span.start;
+                        whole->sourceEnd = r->custom.span.end;
+                    }
+                }
+                row->Child(SrcMap(w, whole, whole ? 1 : 0, 0, true));
+            }
+            continue;
+        }
+        if (len(r->imgSrc) > 0) {
+            row->Child(SrcImage(ImageRun(r, font, color, inFlow), r));
+            continue;
+        }
+        wordRun = r;
+        for (int i = 0; i < len(r->text); i++) {
+            char c = r->text.s[i];
+            if (c == '\n') {
+                flush();
+                SrcBreak();
+                col->Child(row);
+                row = AlignRow(Div(a)->FlexRow()->FlexWrap()->W(kFill), align);
+                continue;
+            }
+            if (wordLen == 0) {
+                wordStart = i;
+            }
+            word[wordLen++] = c;
+            if (c == ' ') {
+                flush();
+            }
+        }
+    }
+    flush();
+    // A reveal past the last word: that word's line.
+    if (hasReveal && revealOut && lastWord) {
+        RevealMark(lastWord, lastWordLo, revealOffset);
+    }
+    col->Child(row);
+    return col->ReportLineSpan(FontLen(cx, font * kLineHeight));
+}
+
+static int RunsLen(MdNode* n) {
+    int total = 0;
+    for (MdRun* r = n->runFirst; r; r = r->next) {
+        total += len(r->text);
+    }
+    return total;
+}
+
+// The text of one cell, its runs joined. A cell that holds a pipe or a
+// backslash has to escape it, or the row it is written into stops parsing
+// where the pipe is — which is what `Table::to_markdown` does upstream.
+static Str TableCellText(Arena* a, MdNode* c) {
+    int n = 0;
+    for (MdRun* r = c->runFirst; r; r = r->next) {
+        for (int i = 0; i < len(r->text); i++) {
+            char ch = r->text.s[i];
+            n += (ch == '|' || ch == '\\') ? 2 : 1;
+        }
+    }
+    char* buf = (char*)Alloc(a, n + 1);
+    if (!buf) {
+        return {};
+    }
+    int at = 0;
+    for (MdRun* r = c->runFirst; r; r = r->next) {
+        for (int i = 0; i < len(r->text); i++) {
+            char ch = r->text.s[i];
+            if (ch == '|' || ch == '\\') {
+                buf[at++] = '\\';
+            }
+            // A newline inside a cell would end the row; GFM has no way to
+            // carry one, so it becomes a space the way a soft break does.
+            buf[at++] = (ch == '\n' || ch == '\r') ? ' ' : ch;
+        }
+    }
+    buf[at] = 0;
+    return Str(buf, at);
+}
+
+// `Table::to_markdown`: the table as GFM, outer pipes and all, with the
+// delimiter row carrying each column's alignment. BlockNode::to_markdown used
+// to join cells straight out of the paragraph writer — which trails a blank
+// line — and emit no outer pipes, so a single-column table did not round-trip;
+// this is the fixed shape.
+static Str TableToMarkdown(Arena* a, MdNode* n, const Str* cells, int cols,
+                           int rows, const uint8_t* align) {
+    (void)n;
+    StrBuilder out;
+    for (int r = 0; r < rows; r++) {
+        out.Append(StrL("|"));
+        for (int c = 0; c < cols; c++) {
+            out.Append(StrL(" "));
+            out.Append(cells[r * cols + c]);
+            out.Append(StrL(" |"));
+        }
+        out.Append(StrL("\n"));
+        if (r != 0) {
+            continue;
+        }
+        // The delimiter row, right under the header.
+        out.Append(StrL("|"));
+        for (int c = 0; c < cols; c++) {
+            switch (align[c]) {
+                case MdAlignLeft:
+                    out.Append(StrL(" :--- |"));
+                    break;
+                case MdAlignCenter:
+                    out.Append(StrL(" :---: |"));
+                    break;
+                case MdAlignRight:
+                    out.Append(StrL(" ---: |"));
+                    break;
+                default:
+                    out.Append(StrL(" --- |"));
+                    break;
+            }
+        }
+        out.Append(StrL("\n"));
+    }
+    return StrDup(a, out.TakeStr());
+}
+
+static void TableDimensions(MdNode* table, int* rowsOut, int* colsOut) {
+    int rows = 0;
+    int cols = 0;
+    for (MdNode* r = table ? table->first : nullptr; r; r = r->next) {
+        rows++;
+        int rowCols = 0;
+        for (MdNode* c = r->first; c; c = c->next) {
+            rowCols++;
+        }
+        if (rowCols > cols) {
+            cols = rowCols;
+        }
+    }
+    if (rowsOut) {
+        *rowsOut = rows;
+    }
+    if (colsOut) {
+        *colsOut = cols;
+    }
+}
+
+static int TableCellCount(int rows, int cols) {
+    if (rows <= 0 || cols <= 0 || rows > 0x7fffffff / cols) {
+        return 0;
+    }
+    return rows * cols;
+}
+
+Str MdTableToMarkdown(Arena* a, MdNode* table) {
+    if (!table) {
+        return {};
+    }
+    int rows = 0;
+    int cols = 0;
+    TableDimensions(table, &rows, &cols);
+    int cellCount = TableCellCount(rows, cols);
+    if (cellCount <= 0) {
+        return {};
+    }
+    uint8_t* align = TextArenaArray<uint8_t>(a, cols);
+    Str* cells = TextArenaArray<Str>(a, cellCount);
+    if (!align || !cells) {
+        return {};
+    }
+    for (MdNode* r = table->first; r; r = r->next) {
+        int ix = 0;
+        for (MdNode* c = r->first; c; c = c->next, ix++) {
+            if (align[ix] == MdAlignDefault) {
+                align[ix] = c->align;
+            }
+        }
+    }
+    int ri = 0;
+    for (MdNode* r = table->first; r; r = r->next, ri++) {
+        int ix = 0;
+        for (MdNode* c = r->first; c && ix < cols; c = c->next, ix++) {
+            cells[ri * cols + ix] = TableCellText(a, c);
+        }
+    }
+    return TableToMarkdown(a, table, cells, cols, rows, align);
+}
+
+// The actions row a caller hangs under a table, from the table it is under.
+El* TextView::TableActionsRow(MdNode* n, int nCols, const uint8_t* colAlign) {
+    if (!tableActions || nCols <= 0) {
+        return nullptr;
+    }
+    int rows = 0;
+    TableDimensions(n, &rows, nullptr);
+    int cellCount = TableCellCount(rows, nCols);
+    if (cellCount <= 0) {
+        return nullptr;
+    }
+    Str* cells = TextArenaArray<Str>(a, cellCount);
+    if (!cells) {
+        return nullptr;
+    }
+    int ri = 0;
+    for (MdNode* r = n->first; r; r = r->next, ri++) {
+        int ix = 0;
+        for (MdNode* c = r->first; c && ix < nCols; c = c->next, ix++) {
+            cells[ri * nCols + ix] = TableCellText(a, c);
+        }
+    }
+    TableData data;
+    data.cols = nCols;
+    data.header = cells;
+    // Everything under the header row, which is what `rows` is upstream.
+    data.rows = rows > 1 ? cells + nCols : nullptr;
+    data.rowCount = rows > 1 ? rows - 1 : 0;
+    data.markdown = TableToMarkdown(a, n, cells, nCols, rows, colAlign);
+    return tableActions(cx, tableActionsData, &data);
+}
+
+// The offset one scrolling code block is at. Rust keeps a ScrollHandle in
+// keyed state under `block_element_id("codeblock-scroll", span, ix)`; the key
+// here is the view and which code block in it this is, as a table's is.
+struct MdCodeScroll {
+    float y = 0;
+};
+
+static void OnMdCodeScroll(MdCodeScroll* st, Ctx* cx, const ScrollEvent* ev) {
+    st->y = ev->offsetY;
+    Notify(cx);
+}
+
+El* TextView::CodeBlock(MdNode* n) {
+    // node.rs takes the corner radius off the Base theme's own tokens; the
+    // colours are the style's.
+    float radius = base_theme::Theme::Global(cx->app).tokens.radius.md;
+    // code_block.selected_source wraps the selected code in a fence carrying
+    // the block's language, so it round-trips as Markdown rather than pasting
+    // as bare text. The opening fence ends its own line, so the prefix the
+    // block sits under has to start the first code line again.
+    SrcOpen(SrcCat(a, StrL("```"), n->lang, StrL("\n"), srcLinePre),
+            SrcCat(a, StrL("\n"), srcLinePre, StrL("```")));
+    // px_4 on the sides, 14 below, and 28 above when the language label
+    // sits in that corner. A 1 px border, line height 1.6.
+    bool showLang = len(n->lang) > 0 && !codeActions;
+    El* box = Div(a)
+                  ->FlexCol()
+                  ->W(kFill)
+                  ->PadX(16)
+                  ->PadT(showLang ? 28.f : 14.f)
+                  ->PadB(14)
+                  ->Border(1, textViewStyle.border)
+                  ->Radius(radius)
+                  ->Bg(textViewStyle.codeBackground);
+    if (textViewStyle.codeBlockFields) {
+        box->Refine(textViewStyle.codeBlock, textViewStyle.codeBlockFields);
+    }
+    // The runs are verbatim text with embedded newlines. They go into one
+    // TextEl rather than one per line: the text engine then lays every line
+    // out against the same metrics, so a line that needs a font fallback (box
+    // drawing, CJK) cannot set its own leading and make the block ragged.
+    // Nothing wraps, so a long line clips the way a <pre> does.
+    int nBytes = RunsLen(n);
+    while (nBytes > 0 && n->runLast && len(n->runLast->text) > 0 &&
+           n->runLast->text.s[len(n->runLast->text) - 1] == '\n') {
+        // The fence's own trailing newline would paint an empty last line.
+        n->runLast->text.len--;
+        nBytes--;
+    }
+    char* buf = (char*)Alloc(a, nBytes + 1);
+    if (!buf) {
+        return box;
+    }
+    int at = 0;
+    for (MdRun* r = n->runFirst; r; r = r->next) {
+        memcpy(buf + at, r->text.s, (size_t)len(r->text));
+        at += len(r->text);
+    }
+    buf[at] = 0;
+    // Syntax highlighting is opt-in: the view's own highlighter, then the one
+    // TextViewDefaults installed, then none at all. Base ships no language
+    // support, which is what let the renderer come down here.
+    CodeBlockHighlighterFn highlighter = codeHighlighter;
+    void* highlighterData = codeHighlighterData;
+    if (!highlighter && !onInvertedSurface) {
+        TextViewDefaults defaults = TextViewDefaults::Global(cx->app);
+        highlighter = defaults.codeBlockHighlighter;
+        highlighterData = defaults.codeBlockHighlighterData;
+    }
+    ArenaVec<CodeHighlight> spans{};
+    if (highlighter) {
+        gpui::CodeBlock block =
+            gpui::CodeBlock::FromCode(Str(buf, at), n->lang);
+        highlighter(highlighterData, &block, a, &spans);
+    }
+    // CodeBlock::source_segments: a fenced, indented or math block is one
+    // run, and its segments are in the code's own offsets.
+    const SourceSegment* segments = nullptr;
+    int segmentCount = 0;
+    if (n->runFirst && n->runFirst == n->runLast) {
+        segments = n->runFirst->segments;
+        segmentCount = n->runFirst->segmentCount;
+    }
+    if (spans.len > 0) {
+        box->Child(CodeLines(Str(buf, at), spans, segments, segmentCount, n));
+    } else {
+        El* t = TextEl(a, Str(buf, at))
+                    ->Font(codeFont)
+                    ->Fg(textViewStyle.foreground)
+                    ->Mono();
+        if (selectable) {
+            t->Selectable();
+            SrcMark(t, 0);
+            SrcMap(t, segments, segmentCount, 0);
+        }
+        RangeWashes(t, n, 0, at);
+        int reveal = 0;
+        if (RevealIn(n, &reveal)) {
+            RevealMark(t, 0, reveal);
+        }
+        box->Child(t->ReportLineSpan(FontLen(cx, codeFont * 1.6f)));
+    }
+    El* actionsBox = nullptr;
+    if (codeActions) {
+        // `div().id("actions").absolute().top_2().right_2().bg(muted)
+        // .rounded(radius)`, over the block it belongs to.
+        El* actions = codeActions(cx, codeActionsData, Str(buf, at), n->lang);
+        if (actions) {
+            actionsBox = Div(a)
+                             ->Absolute()
+                             ->Top(Rems(cx, 0.5f))
+                             ->Right(Rems(cx, 0.5f))
+                             ->Radius(radius)
+                             ->Bg(textViewStyle.codeBackground)
+                             ->Child(actions);
+        }
+    }
+    El* langLabel = nullptr;
+    if (showLang) {
+        float xs = base_theme::Theme::Global(cx->app).tokens.typography.xs.size;
+        langLabel = Div(a)->Absolute()->Top(7)->Right(12)->Child(
+            TextEl(a, n->lang)->Font(xs)->Fg(textViewStyle.mutedForeground));
+    }
+    if (!codeBlockScroll) {
+        if (actionsBox) {
+            box->Child(actionsBox);
+        }
+        if (langLabel) {
+            box->Child(langLabel);
+        }
+        return box;
+    }
+    // Scroll mode, which Rust opts into by setting `style.code_block`'s
+    // `overflow.y` to `Overflow::Scroll`. The block scrolls under its own
+    // handle with a vertical mask over it, so an ancestor list does not
+    // scroll on the same wheel until the code reaches its edge, and it draws
+    // its own scrollbar. Rust lays the mask and the scrollbar beside the
+    // scrolled block; the integrated scroll element here is all three, so
+    // only the actions are left as a sibling — which is what keeps them
+    // pinned to the block's corner instead of moving with the code.
+    codeIx++;
+    uint32_t name =
+        (uint32_t)(cx->self.index + 1) * 1000003u + (uint32_t)codeIx;
+    uint32_t key =
+        KeyedKey(name, (uint32_t)HashClickId(StrL("codeblock-scroll")));
+    Entity<MdCodeScroll> ent = KeyedEntity<MdCodeScroll>(cx, key);
+    MdCodeScroll* st = ent.Get(cx->app);
+    Scrollbar::Apply(cx, box, StrL("scroll"), st ? st->y : 0, 0,
+                     ListenTo(ent, &OnMdCodeScroll), ScrollAxis::Vertical)
+        ->ScrollId((int)key);
+    ScrollableMask::Apply(box, Axis::Vertical);
+    El* frame = Div(a)->W(kFill)->MinW(0)->Child(box);
+    if (actionsBox) {
+        frame->Child(actionsBox);
+    }
+    if (langLabel) {
+        frame->Child(langLabel);
+    }
+    return frame;
+}
+
+// The highlighted form: one row per line, one element per run of a color.
+// This is where the single-TextEl argument above gives way — a line has to
+// be several elements to be several colors — so the rows carry the line box
+// themselves and every element in them is the same mono face at the same
+// size, which keeps the lines from setting their own leading.
+El* TextView::CodeLines(Str code, const ArenaVec<CodeHighlight>& spans,
+                        const SourceSegment* segments, int segmentCount,
+                        const MdNode* leaf) {
+    const int count = len(spans);
+    El* col = Div(a)->FlexCol()->W(kFill);
+    float lineH = FontLen(cx, codeFont * 1.6f);
+    El* row = Div(a)->FlexRow()->H(lineH);
+    // The run being gathered: adjacent tokens of one color are one element,
+    // which keeps a line of code down to a handful.
+    char* piece = (char*)Alloc(a, len(code) + 1);
+    if (!piece) {
+        return col->ReportLineSpan(lineH);
+    }
+    int len = 0;
+    // Where the piece being gathered starts in `code`, for its source map.
+    int pieceStart = 0;
+    int revealOffset = 0;
+    bool hasReveal = RevealIn(leaf, &revealOffset);
+    El* lastPiece = nullptr;
+    int lastPieceLo = 0;
+    Rgba color = textViewStyle.foreground;
+    auto flush = [&]() {
+        if (len <= 0) {
+            return;
+        }
+        El* t = TextEl(a, StrDup(a, Str(piece, len)))
+                    ->Font(codeFont)
+                    ->Fg(color)
+                    ->Mono();
+        if (selectable) {
+            t->Selectable();
+            SrcMark(t, 0);
+            SrcMap(t, segments, segmentCount, pieceStart);
+        }
+        // A carriage return is dropped from the piece, which shifts what
+        // follows it on its line by a byte; code with CRLF endings is the
+        // only kind that has one.
+        RangeWashes(t, leaf, pieceStart, pieceStart + len);
+        if (hasReveal && revealOut && pieceStart + len > revealOffset) {
+            RevealMark(t, pieceStart, revealOffset);
+        }
+        lastPiece = t;
+        lastPieceLo = pieceStart;
+        row->Child(t);
+        len = 0;
+    };
+
+    // The highlighter answers byte ranges; everything a range does not cover
+    // keeps the body colour. A range that runs past the end of the code, or
+    // backwards, is dropped rather than clamped — `highlighted_styles`
+    // filters `range.start <= range.end && range.end <= code_len`.
+    int at = 0;
+    int next = 0;
+    while (at < code.len) {
+        while (next < count &&
+               (spans[next].end <= at || spans[next].start > spans[next].end ||
+                spans[next].end > code.len)) {
+            next++;
+        }
+        int stop = code.len;
+        Rgba c = textViewStyle.foreground;
+        if (next < count) {
+            if (spans[next].start > at) {
+                stop = spans[next].start;
+            } else {
+                stop = spans[next].end;
+                c = spans[next].color;
+            }
+        }
+        for (int i = at; i < stop; i++) {
+            char ch = code.s[i];
+            if (ch == '\n') {
+                flush();
+                SrcBreak();
+                col->Child(row);
+                row = Div(a)->FlexRow()->H(lineH);
+                continue;
+            }
+            if (ch == '\r') {
+                continue;
+            }
+            if (c.a != color.a || c.r != color.r || c.g != color.g ||
+                c.b != color.b) {
+                flush();
+                color = c;
+            }
+            if (len == 0) {
+                pieceStart = i;
+            }
+            piece[len++] = ch;
+        }
+        if (stop <= at) {
+            // An empty or already-consumed range would stall the walk.
+            next++;
+            continue;
+        }
+        at = stop;
+    }
+    flush();
+    if (hasReveal && revealOut && lastPiece) {
+        RevealMark(lastPiece, lastPieceLo, revealOffset);
+    }
+    col->Child(row);
+    return col->ReportLineSpan(lineH);
+}
+
+void TableRowCornerRadii(const Style& table, uint32_t fields, bool first,
+                         bool last, float* tl, float* tr, float* br,
+                         float* bl) {
+    *tl = *tr = *br = *bl = 0;
+    if (!first && !last) {
+        return;
+    }
+    float srcTl = 0;
+    float srcTr = 0;
+    float srcBr = 0;
+    float srcBl = 0;
+    if (table.hasCorners) {
+        srcTl = table.corners.tl;
+        srcTr = table.corners.tr;
+        srcBr = table.corners.br;
+        srcBl = table.corners.bl;
+    } else if (fields & StyleFieldRadius) {
+        srcTl = srcTr = srcBr = srcBl = table.radius;
+    } else {
+        return;
+    }
+    // The frame's 1px border sits between the frame and the rows.
+    auto inset = [](float radius) { return radius > 1.f ? radius - 1.f : 0.f; };
+    if (first) {
+        *tl = inset(srcTl);
+        *tr = inset(srcTr);
+    }
+    if (last) {
+        *br = inset(srcBr);
+        *bl = inset(srcBl);
+    }
+}
+
+static void RoundTableRow(El* row, const TextViewStyle& style, bool first,
+                          bool last) {
+    float tl = 0;
+    float tr = 0;
+    float br = 0;
+    float bl = 0;
+    TableRowCornerRadii(style.table, style.tableFields, first, last, &tl, &tr,
+                        &br, &bl);
+    if (tl == 0 && tr == 0 && br == 0 && bl == 0) {
+        return;
+    }
+    row->Corners(tl, tr, br, bl);
+}
+
+// node.rs TableColumn. max is the content width, min the floor, and the
+// divider is the border the slack after the cell draws.
+struct TableCol {
+    float maxW = 0;
+    float minW = 0;
+    float divider = 0;
+};
+
+static const float kTableCellPad = 24.f;
+static const float kTableCellMin = 48.f;
+static const float kTableCellBorder = 1.f;
+static const float kTableCellGrow = 1000000.f;
+static const float kTableSlackGrow = 1.f;
+static const float kTableWrapLines = 2.f;
+static const float kTableWrapMin = 160.f;
+static const float kTableWrapMax = 480.f;
+
+static float DeviceCeil(const Ctx* cx, float width) {
+    float scale = 1.f;
+    if (cx && cx->win && cx->win->paint.dpi > 0) {
+        scale = cx->win->paint.dpi / 96.f;
+    }
+    float px = width * scale;
+    float whole = (float)(int)px;
+    if (whole < px) {
+        whole += 1.f;
+    }
+    return whole / scale;
+}
+
+static void CellFont(const TextView* tv, bool head, float* size, int* weight) {
+    float font = tv->baseFont * (14.f / 15.f);
+    int w = 0;
+    const TextViewStyle& st = tv->textViewStyle;
+    const gpui::Style* styles[3] = {&st.table, nullptr, &st.tableCell};
+    uint32_t fields[3] = {st.tableFields, 0, st.tableCellFields};
+    if (head) {
+        styles[1] = &st.tableHead;
+        fields[1] = st.tableHeadFields;
+    }
+    for (int i = 0; i < 3; i++) {
+        if (!styles[i]) {
+            continue;
+        }
+        const gpui::Style& s = *styles[i];
+        if ((fields[i] & StyleFieldFontSize) && s.fontSize > 0) {
+            font = s.fontSize;
+        }
+        if (s.fontWeight) {
+            w = s.fontWeight;
+        } else if (s.fontBold) {
+            w = (int)FontWeight::Bold;
+        } else if (s.fontSemibold) {
+            w = (int)FontWeight::Semibold;
+        } else if (s.fontMedium) {
+            w = (int)FontWeight::Medium;
+        }
+    }
+    *size = font;
+    *weight = w;
+}
+
+static float CellPadX(const TextViewStyle& st) {
+    if (st.tableCellFields & StyleFieldPad) {
+        return st.tableCell.pad.left + st.tableCell.pad.right;
+    }
+    return kTableCellPad;
+}
+
+// The widest line of a cell, shaped with the row's font. A newline starts
+// a new line; runs on one line add.
+static float CellTextWidth(TextView* tv, MdNode* cell, bool head) {
+    if (!cell) {
+        return 0;
+    }
+    float size = 0;
+    int weight = 0;
+    CellFont(tv, head, &size, &weight);
+    PaintCtx* paint = tv->cx && tv->cx->win ? &tv->cx->win->paint : nullptr;
+    float line = 0;
+    float widest = 0;
+    for (MdRun* run = cell->runFirst; run; run = run->next) {
+        Str text = run->text;
+        int i = 0;
+        int n = len(text);
+        while (i <= n) {
+            int start = i;
+            while (i < n && text.s[i] != '\n') {
+                i++;
+            }
+            if (i > start) {
+                Str seg(text.s + start, i - start);
+                float w = 0;
+                if (paint) {
+                    w = MeasureText(paint, seg, size, 0, false, weight).w;
+                } else {
+                    w = (float)(i - start) * size * 0.5f;
+                }
+                line += w;
+            }
+            if (i >= n) {
+                break;
+            }
+            if (line > widest) {
+                widest = line;
+            }
+            line = 0;
+            i++;
+        }
+    }
+    if (line > widest) {
+        widest = line;
+    }
+    return widest;
+}
+
+static void MeasureTableColumns(TextView* tv, MdNode* n, int nCols, bool scroll,
+                                TableCol* cols, uint8_t* colAlign) {
+    for (int i = 0; i < nCols; i++) {
+        cols[i] = {};
+        colAlign[i] = MdAlignDefault;
+    }
+    for (MdNode* r = n->first; r; r = r->next) {
+        int ix = 0;
+        for (MdNode* c = r->first; c && ix < nCols; c = c->next, ix++) {
+            if (colAlign[ix] == MdAlignDefault) {
+                colAlign[ix] = c->align;
+            }
+            float text = CellTextWidth(tv, c, r->head);
+            float border = ix + 1 < nCols ? kTableCellBorder : 0;
+            float w = text + kTableCellPad + border;
+            if (w < kTableCellMin) {
+                w = kTableCellMin;
+            }
+            if (w > cols[ix].maxW) {
+                cols[ix].maxW = w;
+                cols[ix].divider = border;
+            }
+        }
+    }
+    float padDelta = CellPadX(tv->textViewStyle) - kTableCellPad;
+    bool nowrap = tv->textViewStyle.tableCell.whiteSpaceSet &&
+                  !tv->textViewStyle.tableCell.wrap;
+    float wrapFloor = tv->tableColW > 0 ? tv->tableColW : Rems(tv->cx, 4.f);
+    for (int i = 0; i < nCols; i++) {
+        float w = cols[i].maxW + padDelta;
+        float border = i + 1 < nCols ? kTableCellBorder : 0;
+        if (w < border) {
+            w = border;
+        }
+        cols[i].divider = border;
+        float floor = w;
+        if (scroll && nowrap) {
+            floor = w;
+        } else if (scroll) {
+            floor = w / kTableWrapLines;
+            floor = ClampF(floor, kTableWrapMin, kTableWrapMax);
+            if (floor > w) {
+                floor = w;
+            }
+        } else if (w < wrapFloor) {
+            floor = w;
+        } else {
+            floor = wrapFloor;
+        }
+        float maxW = DeviceCeil(tv->cx, w - border);
+        float minW = DeviceCeil(tv->cx, floor - border);
+        if (minW > maxW) {
+            minW = maxW;
+        }
+        cols[i].maxW = maxW;
+        cols[i].minW = minW;
+    }
+    // The widest floor is the common width the big columns shrink to. A
+    // column already at or under that width keeps its text on one line:
+    // equal flex-grow would otherwise spend the leftover on the wide
+    // columns and wrap the narrow one. A scrolling table then grows its
+    // track and scrolls instead of squeezing that text.
+    float ceiling = 0;
+    for (int i = 0; i < nCols; i++) {
+        if (cols[i].minW > ceiling) {
+            ceiling = cols[i].minW;
+        }
+    }
+    for (int i = 0; i < nCols; i++) {
+        if (cols[i].maxW <= ceiling) {
+            cols[i].minW = cols[i].maxW;
+        }
+    }
+}
+
+static El* TableSlack(TextView* tv, Arena* a, float grow, bool border) {
+    El* slack = Div(a)->Basis(0)->Grow(grow)->Shrink0();
+    if (border) {
+        slack->BorderR(1, tv->textViewStyle.border);
+    }
+    if (tv->textViewStyle.tableCell.hasBg) {
+        slack->Bg(tv->textViewStyle.tableCell.bg.color);
+    }
+    return slack;
+}
+
+// render_table_rows: each column is a cell that grows up to its content
+// width, plus slack that takes only the spare after every cell has frozen.
+// Narrow columns therefore keep their text on one line while the widest
+// ones share what is left and wrap.
+void TextView::AppendTableCells(El* row, MdNode* r, const float* maxW,
+                                const float* minW, int nCols,
+                                const uint8_t* colAlign) {
+    TextView* tv = this;
+    Arena* arena = this->a;
+    float total = 0;
+    for (int i = 0; i < nCols; i++) {
+        total += maxW[i];
+    }
+    if (total < 1.f) {
+        total = 1.f;
+    }
+    MdNode* c = r->first;
+    for (int col = 0; col < nCols; col++) {
+        bool last = col + 1 == nCols;
+        uint8_t align = MdAlignDefault;
+        if (c) {
+            align = c->align;
+        }
+        if (align == MdAlignDefault) {
+            align = colAlign[col];
+        }
+        float share = kTableSlackGrow * maxW[col] / total;
+        float lead = 0;
+        float trail = share;
+        if (align == MdAlignCenter) {
+            lead = share * 0.5f;
+            trail = share * 0.5f;
+        } else if (align == MdAlignRight) {
+            lead = share;
+            trail = 0;
+        }
+        if (lead > 0) {
+            row->Child(TableSlack(tv, arena, lead, false));
+        }
+        El* cell = Div(arena)
+                       ->Basis(0)
+                       ->Grow(kTableCellGrow)
+                       ->MinW(minW[col])
+                       ->MaxW(maxW[col])
+                       ->ClipX()
+                       ->PadX(12)
+                       ->PadY(7);
+        if (tv->textViewStyle.tableCellFields) {
+            cell->Refine(tv->textViewStyle.tableCell, tv->textViewStyle
+                                                          .tableCellFields);
+        }
+        if (c) {
+            tv->SrcCell(r, c, nCols, colAlign);
+            cell->Child(tv->Inline(c, tv->baseFont * (14.f / 15.f),
+                                   r->head ? kInheritFg : tv->BlockFg(), 0,
+                                   align));
+            c = c->next;
+        }
+        row->Child(cell);
+        if (trail > 0 || !last) {
+            row->Child(TableSlack(tv, arena, trail, !last));
+        }
+    }
+}
+
+// node.rs render_scroll_table, which is what `style.table` opts a table into
+// with overflow-x: scroll. The columns are as wide as the widest text in
+// them — measured, not counted, since a character count is a poor guess on a
+// proportional font — and they grow to fill a frame wider than the content.
+// A narrower frame squeezes them, their text wrapping, until each is down to
+// its floor; below that the table keeps the floors and scrolls, so nothing
+// it holds is ever out of reach.
+// The offset one scrolling table is at. Rust keeps a ScrollHandle in keyed
+// state under the table's own span; the key here is the view and which table
+// in it this is, which is the same thing said with what this tree has.
+struct MdTableScroll {
+    float x = 0;
+};
+
+static void OnMdTableScroll(MdTableScroll* st, Ctx* cx, const ScrollEvent* ev) {
+    st->x = ev->offsetX;
+    Notify(cx);
+}
+
+El* TextView::ScrollTable(MdNode* n) {
+    // The frame's border_1 on both sides. Column floors live on the cells.
+    const float kTableBorder = 2.f;
+
+    // node.rs paints the frame from the Base theme's surface and the style's
+    // border; the radius arrives through `style.table()`, which is what the
+    // themed façade fills in.
+    Rgba surface = textViewStyle.hasTableBackground
+                       ? textViewStyle.tableBackground
+                       : base_theme::Theme::Global(cx->app)
+                             .tokens.colors.surface;
+    int rows = 0;
+    int nCols = 0;
+    TableDimensions(n, &rows, &nCols);
+    if (rows <= 0 || nCols <= 0) {
+        return Div(a);
+    }
+    TableCol* cols = TextArenaArray<TableCol>(a, nCols);
+    uint8_t* colAlign = TextArenaArray<uint8_t>(a, nCols);
+    if (!cols || !colAlign) {
+        return Div(a);
+    }
+    MeasureTableColumns(this, n, nCols, true, cols, colAlign);
+    float* maxW = TextArenaArray<float>(a, nCols);
+    float* minW = TextArenaArray<float>(a, nCols);
+    if (!maxW || !minW) {
+        return Div(a);
+    }
+    float minTotal = kTableBorder;
+    for (int i = 0; i < nCols; i++) {
+        maxW[i] = cols[i].maxW;
+        minW[i] = cols[i].minW;
+        minTotal += cols[i].minW + cols[i].divider;
+    }
+
+    // Row track sized to max(viewport, column floors). The frame stays on
+    // the viewport below, so a radius does not travel with the rows.
+    El* track = Div(a)->FlexCol()->W(kFill)->MinW(minTotal);
+    int rowIx = 0;
+    for (MdNode* r = n->first; r; r = r->next, rowIx++) {
+        El* row = Div(a)->FlexRow()->W(kFill);
+        if (r->next) {
+            row->BorderB(1, textViewStyle.border);
+        }
+        if (r->head) {
+            row->Bg(textViewStyle.codeBackground)->Fg(textViewStyle.foreground);
+            if (textViewStyle.tableHeadFields) {
+                row->Refine(textViewStyle.tableHead, textViewStyle
+                                                         .tableHeadFields);
+            }
+        }
+        // A scrolled track can still meet the viewport with a square edge.
+        // The mask that clips it is rectangular.
+        RoundTableRow(row, textViewStyle, rowIx == 0, r->next == nullptr);
+        AppendTableCells(row, r, maxW, minW, nCols, colAlign);
+        track->Child(row);
+    }
+    // The viewport owns the visible frame, including any caller-provided
+    // radius. The border stays here so the rounded frame does not move
+    // while the wider row track scrolls under it. The offset is the
+    // table's own, so two tables in a document scroll apart.
+    // Which table in this view it is — the parse is rebuilt every frame, so
+    // the node's address is not a name that lasts, and its position in the
+    // document is.
+    tableIx++;
+    uint32_t name =
+        (uint32_t)(cx->self.index + 1) * 1000003u + (uint32_t)tableIx;
+    uint32_t key = KeyedKey(name, (uint32_t)HashClickId(StrL("md-table")));
+    Entity<MdTableScroll> ent = KeyedEntity<MdTableScroll>(cx, key);
+    MdTableScroll* st = ent.Get(cx->app);
+    El* scroller = Div(a)
+                       ->W(kFill)
+                       ->ClipX()
+                       ->ScrollX(st ? st->x : 0)
+                       ->Bg(surface)
+                       ->Border(1, textViewStyle.border);
+    if (textViewStyle.tableFields) {
+        scroller->Refine(textViewStyle.table, textViewStyle.tableFields);
+    }
+    scroller->ScrollId((int)key)
+        ->OnScroll(ListenTo(ent, &OnMdTableScroll))
+        ->Child(track);
+    // horizontal_scroll_area: the viewport clips and the mask over it takes
+    // the wheel, so the gesture locks to the axis it started on and a
+    // vertical-dominant trackpad swipe belongs to the enclosing TextView
+    // rather than to this table. #2881 had replaced it with a plain
+    // overflow-x scroller and lost that; #2890 put it back.
+    scroller = HorizontalScrollArea(cx, StrL("md-table"), scroller);
+    El* actions = TableActionsRow(n, nCols, colAlign);
+    if (!actions) {
+        return scroller;
+    }
+    // A small gap, so the buttons' hover backgrounds stay clear of the
+    // table's border. Where they sit along the row is the caller's business.
+    // mt_1 on the actions row.
+    return Div(a)
+        ->FlexCol()
+        ->W(kFill)
+        ->Gap(Rems(cx, 0.25f))
+        ->Child(scroller)
+        ->Child(actions);
+}
+
+// node.rs render_table, the non-scrolling half. Columns are measured, not
+// counted. Narrow ones keep their content width; only the widest shrink,
+// down to a rems(4) floor (TableColumnWidth when the caller set one). A
+// table whose floors do not fit is clipped rather than scrolled.
+//
+// Column alignment is the delimiter row's (`|:--:|`) or, for an HTML table,
+// the cell's align attribute. A body cell with none of its own takes the
+// header cell's, which is how a markdown table says it once.
+El* TextView::Table(MdNode* n) {
+    Rgba surface = textViewStyle.hasTableBackground
+                       ? textViewStyle.tableBackground
+                       : base_theme::Theme::Global(cx->app)
+                             .tokens.colors.surface;
+    int rows = 0;
+    int nCols = 0;
+    TableDimensions(n, &rows, &nCols);
+    if (rows <= 0 || nCols <= 0) {
+        return Div(a);
+    }
+    TableCol* cols = TextArenaArray<TableCol>(a, nCols);
+    uint8_t* colAlign = TextArenaArray<uint8_t>(a, nCols);
+    if (!cols || !colAlign) {
+        return Div(a);
+    }
+    MeasureTableColumns(this, n, nCols, false, cols, colAlign);
+    float* maxW = TextArenaArray<float>(a, nCols);
+    float* minW = TextArenaArray<float>(a, nCols);
+    if (!maxW || !minW) {
+        return Div(a);
+    }
+    for (int i = 0; i < nCols; i++) {
+        maxW[i] = cols[i].maxW;
+        minW[i] = cols[i].minW;
+    }
+
+    El* table = Div(a)->FlexCol()->W(kFill)->ClipX()->Bg(surface)->Border(
+        1, textViewStyle.border);
+    if (textViewStyle.tableFields) {
+        table->Refine(textViewStyle.table, textViewStyle.tableFields);
+    }
+    int rowIx = 0;
+    for (MdNode* r = n->first; r; r = r->next, rowIx++) {
+        El* row = Div(a)->FlexRow()->W(kFill);
+        if (r->next) {
+            row->BorderB(1, textViewStyle.border);
+        }
+        if (r->head) {
+            row->Bg(textViewStyle.codeBackground)->Fg(textViewStyle.foreground);
+            if (textViewStyle.tableHeadFields) {
+                row->Refine(textViewStyle.tableHead, textViewStyle
+                                                         .tableHeadFields);
+            }
+        }
+        RoundTableRow(row, textViewStyle, rowIx == 0, r->next == nullptr);
+        AppendTableCells(row, r, maxW, minW, nCols, colAlign);
+        table->Child(row);
+    }
+    El* actions = TableActionsRow(n, nCols, colAlign);
+    if (!actions) {
+        return table;
+    }
+    return Div(a)
+        ->FlexCol()
+        ->W(kFill)
+        ->Gap(Rems(cx, 0.25f))
+        ->Child(table)
+        ->Child(actions);
+}
+
+Rgba TextView::BlockFg() const {
+    // Unset is not `theme.foreground`: node.rs names no colour on a paragraph
+    // or a heading, so the run takes whatever the container above the view
+    // pushed — an alert's variant colour, a blockquote's grey. A transparent
+    // colour is what says "inherit" to Word and Inline below.
+    return blockFgSet ? blockFg : kInheritFg;
+}
+
+// render_list_item_row: a task list item draws a checkbox where the bullet or
+// the number would go — `rems(0.875)` square, square-cornered, the style's own
+// foreground as its border, filled with a tick when the item is ticked. The
+// box is centred in a cell as tall as the line rather than nudged down by a
+// fixed `rems(0.4)`, which is what keeps it on the first line at any text
+// size, and `mr_1p5` sits in front of it.
+static El* TaskBox(const Ctx* cx, Arena* a, const TextViewStyle& style,
+                   float lineHeight, bool on) {
+    // rems(0.9375), 4 px radius, a 1.5 px muted border. Checked fills with
+    // the link colour.
+    El* box = Div(a)
+                  ->Flex()
+                  ->W(Rems(cx, 0.9375f))
+                  ->H(Rems(cx, 0.9375f))
+                  ->Shrink0()
+                  ->ItemsCenter()
+                  ->JustifyCenter()
+                  ->Radius(4)
+                  ->Border(1.5f, on ? style.link : style.mutedForeground);
+    if (on) {
+        Rgba tick = style.isDark ? RgbaHex(0x000000) : RgbaHex(0xffffff);
+        box->Bg(style.link)
+            ->Child(IconEl(a, IconName::Check, Rems(cx, 0.75f))->Fg(tick));
+    }
+    // mr_2, as padding on the cell that holds the box.
+    return Div(a)
+        ->Shrink0()
+        ->H(lineHeight)
+        ->Flex()
+        ->ItemsCenter()
+        ->PadR(Rems(cx, 0.5f))
+        ->Child(box);
+}
+
+El* TextView::Item(MdNode* n, Str marker, int depth) {
+    El* content = Div(a)->FlexCol()->Flex1()->MinW(0)->ClipX();
+    // list_selected_source: the item's first line carries the Markdown
+    // marker, and every line under it is indented by the marker's width so
+    // continuations and nested lists line up with the item's text. A task
+    // item's `[x] ` rides on the first line with the marker and is not part
+    // of that indent, which is Rust indenting by `marker.len()` alone.
+    Str savedPre = srcLinePre;
+    Str md = srcItemMarker;
+    Str pad = srcItemPad.len > 0 ? srcItemPad : md;
+    srcItemMarker = Str{};
+    srcItemPad = Str{};
+    srcMarker = SrcCat(a, srcMarker.len > 0 ? srcMarker : srcLinePre, md);
+    srcLinePre = SrcCat(a, srcLinePre, SrcIndent(a, pad));
+    // An item's blocks are below; runs sit on the item itself only when
+    // something built the tree by hand, since mdast gives even a tight list
+    // item a paragraph of its own.
+    if (n->runFirst) {
+        SrcOpen({}, {});
+        content->Child(Inline(n, baseFont, BlockFg(), 0));
+    }
+    // Everything under a task item is rendered with `todo: checked.is_some()`,
+    // which is what takes the bullets off a plain list nested inside one.
+    bool savedTodo = inTodo;
+    inTodo = n->hasCheck;
+    uint8_t savedPrev = flowPrev;
+    flowPrev = 0;
+    Blocks(content, n, depth, true);
+    flowPrev = savedPrev;
+    inTodo = savedTodo;
+    // An item with nothing selectable in it never spent its marker.
+    srcMarker = Str{};
+    srcLinePre = savedPre;
+    if (n->checked) {
+        content->Fg(textViewStyle.mutedForeground);
+    }
+    El* row = Div(a)->FlexRow()->W(kFill)->ItemsStart();
+    if (n->hasCheck) {
+        row->Child(TaskBox(cx, a, textViewStyle,
+                           FontLen(cx, baseFont * kLineHeight), n->checked));
+    } else if (len(marker) > 0) {
+        // The marker hangs in a 1.4em column, right-aligned, muted, with
+        // the trailing space trimmed off the drawn text.
+        float indent = baseFont * 1.4f;
+        Str shown = marker;
+        if (len(shown) > 0 && shown.s[len(shown) - 1] == ' ') {
+            shown.len--;
+        }
+        row->Child(Div(a)
+                       ->W(indent)
+                       ->Shrink0()
+                       ->PadR(indent * 0.3f)
+                       ->Child(TextEl(a, shown)
+                                   ->Font(baseFont)
+                                   ->W(kFill)
+                                   ->TextRight()
+                                   ->Fg(textViewStyle.mutedForeground)));
+    }
+    return row->Child(content);
+}
+
+// char::is_whitespace.
+static bool StreamIsWhitespace(uint32_t c) {
+    return c == ' ' || (c >= 0x09 && c <= 0x0d) || c == 0x85 || c == 0xa0 ||
+           c == 0x1680 || (c >= 0x2000 && c <= 0x200a) || c == 0x2028 ||
+           c == 0x2029 || c == 0x202f || c == 0x205f || c == 0x3000;
+}
+
+// stream_fade.rs is_cjk.
+static bool StreamIsCjk(uint32_t c) {
+    return (c >= 0x3040 && c <= 0x30ff)       // Hiragana, Katakana
+           || (c >= 0x3400 && c <= 0x4dbf)    // CJK Extension A
+           || (c >= 0x4e00 && c <= 0x9fff)    // CJK Unified Ideographs
+           || (c >= 0xac00 && c <= 0xd7af)    // Hangul syllables
+           || (c >= 0xf900 && c <= 0xfaff)    // CJK Compatibility
+           || (c >= 0x20000 && c <= 0x2fa1f); // Extensions B and later
+}
+
+void StreamFadeUnits(Str text, int start, int end, Vec<Span>* out) {
+    end = std::min(end, len(text));
+    int unitStart = start;
+    bool unitHasGlyph = false;
+    bool hasPrevious = false;
+    uint32_t previous = 0;
+    for (int at = 0; at < end;) {
+        uint32_t c = 0;
+        int step = Utf8At(text, at, &c);
+        if (step <= 0) {
+            step = 1;
+        }
+        if (at >= start) {
+            bool space = StreamIsWhitespace(c);
+            bool startsUnit = unitHasGlyph && !space &&
+                              (StreamIsCjk(c) ||
+                               (hasPrevious && (StreamIsWhitespace(previous) ||
+                                                StreamIsCjk(previous))));
+            if (startsUnit && at > unitStart) {
+                VecAppend(*out, Span{unitStart, at});
+                unitStart = at;
+                unitHasGlyph = false;
+            }
+            unitHasGlyph |= !space;
+        }
+        previous = c;
+        hasPrevious = true;
+        at += step;
+    }
+    if (unitStart < end) {
+        VecAppend(*out, Span{unitStart, end});
+    }
+}
+
+static int StreamCommonPrefix(Str a, Str b) {
+    int n = std::min(len(a), len(b));
+    int at = 0;
+    while (at < n && a.s[at] == b.s[at]) at++;
+    // UTF-8 continuation bytes cannot begin the newly fading range.
+    while (at > 0 && at < len(b) && ((uint8_t)b.s[at] & 0xc0) == 0x80) at--;
+    return at;
+}
+
+// ─── range highlights ─────────────────────────────────────────────────────
+//
+// range_highlight.rs: application-supplied highlights over the text a
+// TextViewState renders. Ranges address the rendered text, the string plain
+// copy produces: an application searches RenderedText() and hands the
+// ranges it found back. Each range is split into the text leaves it covers (a
+// paragraph, a heading, a code block, a table cell), which paint it as a
+// wash behind their glyphs, so a highlight never changes layout. Text outside
+// every leaf (the separators between blocks and cells, custom blocks, HTML
+// blocks, inline objects) is left unpainted.
+
+Str RangeHighlightError::Display(Arena* a) const {
+    switch (kind) {
+        case RangeHighlightErrorKind::Unsupported:
+            return StrL("HTML views do not support range highlights");
+        case RangeHighlightErrorKind::InvalidRange:
+            return StrDup(
+                a, fmt("highlight %d is not a range of the text", index));
+        case RangeHighlightErrorKind::None:
+            break;
+    }
+    return {};
+}
+
+// LeafSpan: where one leaf's text sits in the rendered text.
+struct RenderedLeafSpan {
+    Span range = {};
+    TextLeafKey key = {};
+    // Inline objects in the leaf's text, in leaf offsets, as
+    // RenderedIndex::objects[objFirst..objFirst + objCount]. They paint as
+    // objects rather than as text, so no highlight paints them.
+    int objFirst = 0;
+    int objCount = 0;
+    // row_source_end, for a table cell: where the source of the row holding
+    // it ends, or -1 when the parser recorded none. Computed here once so
+    // remap needs only the index, not the parse it came from.
+    int rowSourceEnd = -1;
+};
+
+struct RenderedIndex {
+    Str text = {};
+    // The source the parse read, which remap compares with the next one.
+    Str source = {};
+    // In document order, so by their position in `text`.
+    Vec<RenderedLeafSpan> leaves;
+    Vec<Span> objects;
+    // Where the text of each top-level block sits, in document order.
+    Vec<Span> blocks;
+    // Where the pieces of `text` came from in the source, with the rendered
+    // half in offsets of `text`, in the order of `text`. Text the parser
+    // recorded no source position for is in none.
+    Vec<SourceSegment> sourceMap;
+
+    ~RenderedIndex() {
+        StrFree(text);
+        StrFree(source);
+    }
+};
+
+static bool RenderedCharBoundary(Str s, int at) {
+    return at == len(s) || (at < len(s) && ((uint8_t)s.s[at] & 0xc0) != 0x80);
+}
+
+// paragraph_source_end: where the source of a paragraph's text ends, or -1.
+static int MdParagraphSourceEnd(const MdNode* n) {
+    int end = -1;
+    for (const MdRun* r = n->runFirst; r; r = r->next) {
+        for (int i = 0; i < r->segmentCount; i++) {
+            end = std::max(end, r->segments[i].sourceEnd);
+        }
+        if (r->hasCustom && r->custom.hasSpan) {
+            end = std::max(end, r->custom.span.end);
+        }
+    }
+    return end;
+}
+
+// IndexBuilder: builds the rendered text the way BlockNode::text does,
+// recording each leaf, and where its text came from in the source, as it
+// goes.
+struct RenderedIndexBuilder {
+    StrBuilder text;
+    RenderedIndex* index = nullptr;
+
+    // Records `segments` of `piece`, which is about to be pushed at `offset`.
+    //
+    // A segment that is empty or does not address `piece` maps nothing and is
+    // left out, so a bad one cannot map a range to text it did not render.
+    void PushSourceSegments(int offset, Str piece,
+                            const SourceSegment* segments, int count) {
+        for (int i = 0; i < count; i++) {
+            SourceSegment s = segments[i];
+            if (s.renderedStart >= s.renderedEnd ||
+                s.sourceStart >= s.sourceEnd || s.renderedStart < 0 ||
+                s.renderedEnd > len(piece) ||
+                !RenderedCharBoundary(piece, s.renderedStart) ||
+                !RenderedCharBoundary(piece, s.renderedEnd)) {
+                continue;
+            }
+            s.renderedStart += offset;
+            s.renderedEnd += offset;
+            VecAppend(index->sourceMap, s);
+        }
+    }
+
+    // Records that all of `piece`, an object about to be pushed at `offset`,
+    // was rendered from the node's source range, which maps only as a whole.
+    void PushObjectSource(int offset, Str piece, const MarkdownNode& node) {
+        if (!node.hasSpan) {
+            return;
+        }
+        SourceSegment whole;
+        whole.renderedEnd = len(piece);
+        whole.sourceStart = node.span.start;
+        whole.sourceEnd = node.span.end;
+        whole.linear = false;
+        PushSourceSegments(offset, piece, &whole, 1);
+    }
+
+    void PushLeaf(const MdNode* n, bool withObjects, int rowSourceEnd) {
+        int start = len(text);
+        int objFirst = len(index->objects);
+        for (const MdRun* r = n->runFirst; r; r = r->next) {
+            if (len(r->imgSrc) > 0) {
+                // InlineNode::image: an image run's text is its alt, which
+                // is no part of the rendered text.
+                continue;
+            }
+            if (withObjects && r->hasCustom) {
+                int at = len(text) - start;
+                VecAppend(index->objects, Span{at, at + len(r->text)});
+                PushObjectSource(len(text), r->text, r->custom);
+            } else {
+                PushSourceSegments(len(text), r->text, r->segments,
+                                   r->segmentCount);
+            }
+            text.Append(r->text);
+        }
+        if (n->leafStart >= 0 && len(text) > start) {
+            RenderedLeafSpan leaf;
+            leaf.range = Span{start, len(text)};
+            leaf.key = TextLeafKey{n->leafStart, n->leafOrdinal};
+            leaf.objFirst = objFirst;
+            leaf.objCount = len(index->objects) - objFirst;
+            leaf.rowSourceEnd = rowSourceEnd;
+            VecAppend(index->leaves, leaf);
+        } else {
+            index->objects.len = objFirst;
+        }
+    }
+
+    void PushTable(const MdNode* table) {
+        for (const MdNode* row = table->first; row; row = row->next) {
+            if (!row->first) {
+                continue;
+            }
+            int rowEnd = -1;
+            for (const MdNode* c = row->first; c; c = c->next) {
+                rowEnd = std::max(rowEnd, MdParagraphSourceEnd(c));
+            }
+            for (const MdNode* c = row->first; c; c = c->next) {
+                if (c != row->first) {
+                    text.AppendChar(' ');
+                }
+                PushLeaf(c, true, rowEnd);
+            }
+            text.AppendChar('\n');
+        }
+    }
+
+    void PushBlock(const MdNode* n) {
+        int start = len(text);
+        switch (n->kind) {
+            case MdKind::Doc:
+            case MdKind::Quote:
+            case MdKind::Html:
+            case MdKind::Group:
+                for (const MdNode* c = n->first; c; c = c->next) {
+                    PushBlock(c);
+                }
+                break;
+            case MdKind::List:
+            case MdKind::Item:
+                for (const MdNode* c = n->first; c; c = c->next) {
+                    PushBlock(c);
+                }
+                return;
+            case MdKind::Paragraph:
+            case MdKind::Heading:
+                PushLeaf(n, true, -1);
+                break;
+            case MdKind::Code:
+                PushLeaf(n, false, -1);
+                break;
+            case MdKind::Table:
+                PushTable(n);
+                break;
+            case MdKind::Custom:
+                PushObjectSource(len(text), n->custom.text, n->custom);
+                text.Append(n->custom.text);
+                break;
+            case MdKind::Row:
+            case MdKind::Cell:
+            case MdKind::Rule:
+                break;
+        }
+        if (len(text) > start) {
+            text.AppendChar('\n');
+        }
+    }
+};
+
+RenderedIndex* RenderedIndexNew(const MdNode* doc, Str source) {
+    RenderedIndex* index = new RenderedIndex();
+    RenderedIndexBuilder builder;
+    builder.index = index;
+    for (const MdNode* c = doc ? doc->first : nullptr; c; c = c->next) {
+        int start = len(builder.text);
+        builder.PushBlock(c);
+        VecAppend(index->blocks, Span{start, len(builder.text)});
+    }
+    index->text = builder.text.TakeStr();
+    index->source = StrDup(source);
+    return index;
+}
+
+void RenderedIndexFree(RenderedIndex* index) {
+    delete index;
+}
+
+Str RenderedIndexText(const RenderedIndex* index) {
+    return index ? index->text : Str{};
+}
+
+Str RenderedIndexSource(const RenderedIndex* index) {
+    return index ? index->source : Str{};
+}
+
+int RenderedIndexLeafCount(const RenderedIndex* index) {
+    return index ? len(index->leaves) : 0;
+}
+
+Span RenderedIndexLeafRange(const RenderedIndex* index, int ix) {
+    return index->leaves[ix].range;
+}
+
+const SourceSegment* RenderedIndexSourceMap(const RenderedIndex* index,
+                                            int* count) {
+    *count = index ? len(index->sourceMap) : 0;
+    return index ? index->sourceMap.els : nullptr;
+}
+
+// RenderedText::range_for_source and RenderedIndex::range_for_source: the
+// smallest range of the text holding every character whose source overlaps
+// `source`.
+bool RenderedIndexRangeForSource(const RenderedIndex* index, Span source,
+                                 Span* out) {
+    if (!index || source.start < 0 || source.start >= source.end ||
+        source.end > len(index->source) ||
+        !RenderedCharBoundary(index->source, source.start) ||
+        !RenderedCharBoundary(index->source, source.end)) {
+        return false;
+    }
+    Str text = index->text;
+    bool found = false;
+    Span range = {};
+    for (int i = 0; i < len(index->sourceMap); i++) {
+        const SourceSegment& s = index->sourceMap[i];
+        if (!(s.sourceStart < source.end && s.sourceEnd > source.start)) {
+            continue;
+        }
+        Span piece = {s.renderedStart, s.renderedEnd};
+        if (s.linear) {
+            int start = std::max(s.sourceStart, source.start) - s.sourceStart;
+            int end = std::min(s.sourceEnd, source.end) - s.sourceStart;
+            // floor_char_boundary / ceil_char_boundary.
+            piece.start = std::min(s.renderedStart + start, len(text));
+            while (piece.start > 0 &&
+                   !RenderedCharBoundary(text, piece.start)) {
+                piece.start--;
+            }
+            piece.end = std::min(s.renderedStart + end, len(text));
+            while (piece.end < len(text) &&
+                   !RenderedCharBoundary(text, piece.end)) {
+                piece.end++;
+            }
+        }
+        if (!found) {
+            range = piece;
+            found = true;
+        } else {
+            range.start = std::min(range.start, piece.start);
+            range.end = std::max(range.end, piece.end);
+        }
+    }
+    if (found) {
+        *out = range;
+    }
+    return found;
+}
+
+// One resolved piece of a highlight: a leaf and the range of it painted.
+struct RangePiece {
+    TextLeafKey key = {};
+    Span range = {};
+    Rgba color = {0, 0, 0, 0};
+};
+
+// RenderedIndex::resolve: the leaf ranges `range` paints over, which are
+// none when it covers no leaf text, or false when it is not a range of the
+// text.
+static bool RenderedIndexResolve(const RenderedIndex* index, Span range,
+                                 Rgba color, Vec<RangePiece>& pieces) {
+    Str text = RenderedIndexText(index);
+    if (range.start < 0 || range.start > range.end || range.end > len(text) ||
+        !RenderedCharBoundary(text, range.start) ||
+        !RenderedCharBoundary(text, range.end)) {
+        return false;
+    }
+    if (!index) {
+        return true;
+    }
+    int n = len(index->leaves);
+    // partition_point(|leaf| leaf.range.end <= range.start)
+    int lo = 0;
+    int hi = n;
+    while (lo < hi) {
+        int mid = (lo + hi) / 2;
+        if (index->leaves[mid].range.end <= range.start) {
+            lo = mid + 1;
+        } else {
+            hi = mid;
+        }
+    }
+    for (int i = lo; i < n; i++) {
+        const RenderedLeafSpan& leaf = index->leaves[i];
+        if (leaf.range.start >= range.end) {
+            break;
+        }
+        int end = std::min(range.end, leaf.range.end) - leaf.range.start;
+        int cursor = std::max(range.start, leaf.range.start) - leaf.range.start;
+        for (int j = 0; j < leaf.objCount; j++) {
+            Span object = index->objects[leaf.objFirst + j];
+            if (object.start >= end) {
+                break;
+            }
+            if (object.end <= cursor) {
+                continue;
+            }
+            if (object.start > cursor) {
+                VecAppend(
+                    pieces,
+                    RangePiece{leaf.key, Span{cursor, object.start}, color});
+            }
+            cursor = object.end;
+        }
+        if (cursor < end) {
+            VecAppend(pieces, RangePiece{leaf.key, Span{cursor, end}, color});
+        }
+    }
+    return true;
+}
+
+// Stable, so each leaf keeps the application's order. A search hands its
+// matches over in document order, which this sorts in one pass.
+static void SortPieces(Vec<RangePiece>& pieces) {
+    for (int i = 1; i < len(pieces); i++) {
+        RangePiece piece = pieces[i];
+        int j = i - 1;
+        while (j >= 0 && piece.key < pieces[j].key) {
+            pieces[j + 1] = pieces[j];
+            j--;
+        }
+        pieces[j + 1] = piece;
+    }
+}
+
+// Groups the pieces into a frame; null when there are none.
+static RangeHighlightFrame* FrameFromPieces(Vec<RangePiece>& pieces) {
+    SortPieces(pieces);
+    if (len(pieces) == 0) {
+        return nullptr;
+    }
+    RangeHighlightFrame* frame = new RangeHighlightFrame();
+    for (const RangePiece& piece : pieces) {
+        int nLeaves = len(frame->leaves);
+        if (nLeaves == 0 || !(frame->leaves[nLeaves - 1].key == piece.key)) {
+            RangeHighlightFrame::Leaf leaf;
+            leaf.key = piece.key;
+            leaf.first = len(frame->backgrounds);
+            VecAppend(frame->leaves, leaf);
+            nLeaves++;
+        }
+        frame->leaves[nLeaves - 1].count++;
+        VecAppend(frame->backgrounds,
+                  RangeBackground{piece.range, piece.color});
+    }
+    return frame;
+}
+
+RangeHighlightError RangeHighlightFrameNew(const RenderedIndex* index,
+                                           const RangeHighlight* highlights,
+                                           int count,
+                                           RangeHighlightFrame** out) {
+    *out = nullptr;
+    Vec<RangePiece> pieces;
+    for (int i = 0; i < count; i++) {
+        if (!RenderedIndexResolve(index, highlights[i].range,
+                                  highlights[i].background, pieces)) {
+            return RangeHighlightError::InvalidRange(i);
+        }
+    }
+    *out = FrameFromPieces(pieces);
+    return RangeHighlightError{};
+}
+
+const RangeBackground* RangeHighlightFrame::Backgrounds(TextLeafKey key,
+                                                        int* count) const {
+    int lo = 0;
+    int hi = len(leaves);
+    while (lo < hi) {
+        int mid = (lo + hi) / 2;
+        if (leaves[mid].key < key) {
+            lo = mid + 1;
+        } else {
+            hi = mid;
+        }
+    }
+    if (lo < len(leaves) && leaves[lo].key == key) {
+        *count = leaves[lo].count;
+        return backgrounds.els + leaves[lo].first;
+    }
+    *count = 0;
+    return nullptr;
+}
+
+void RangeHighlightFrameFree(RangeHighlightFrame* frame) {
+    delete frame;
+}
+
+static const RenderedLeafSpan* RenderedIndexFind(const RenderedIndex* index,
+                                                 TextLeafKey key) {
+    int lo = 0;
+    int hi = len(index->leaves);
+    while (lo < hi) {
+        int mid = (lo + hi) / 2;
+        if (index->leaves[mid].key < key) {
+            lo = mid + 1;
+        } else {
+            hi = mid;
+        }
+    }
+    if (lo < len(index->leaves) && index->leaves[lo].key == key) {
+        return &index->leaves[lo];
+    }
+    return nullptr;
+}
+
+static Str LeafText(const RenderedIndex* index, const RenderedLeafSpan* leaf) {
+    return Str(index->text.s + leaf->range.start, leaf->range.end - leaf->range
+                                                                        .start);
+}
+
+// range_highlight.rs LeafRemap: where the text leaves of one parse are
+// found in the parse after it. A block that starts before the first change of
+// the source is found at the same offset, and one after the last change at an
+// offset moved by the change in length; a block that starts between them is
+// gone. A leaf keeps its text up to where it first differs from before.
+//
+// With `tail_only`, the new parse appended to the old one and parsed only
+// its last block again, from `tailStart`: every block before that was kept
+// as it was, so its leaves are kept without comparing them.
+struct LeafRemap {
+    const RenderedIndex* prev = nullptr;
+    const RenderedIndex* next = nullptr;
+    int oldLen = 0;
+    int newLen = 0;
+    int unchangedPrefix = 0;
+    int unchangedSuffix = 0;
+    int tailStart = -1;
+
+    static LeafRemap New(const RenderedIndex* prev, const RenderedIndex* next,
+                         bool tailOnly = false, int tailStart = -1) {
+        LeafRemap r;
+        r.prev = prev;
+        r.next = next;
+        Str oldSource = prev->source;
+        Str newSource = next->source;
+        r.oldLen = len(oldSource);
+        r.newLen = len(newSource);
+        if (tailOnly) {
+            r.tailStart = tailStart >= 0 ? tailStart : r.oldLen;
+            r.unchangedPrefix = r.oldLen;
+            return r;
+        }
+        int shorter = std::min(r.oldLen, r.newLen);
+        int prefix = 0;
+        while (prefix < shorter && oldSource.s[prefix] == newSource.s[prefix]) {
+            prefix++;
+        }
+        // One source extending the other, as when text is appended, has no
+        // unchanged suffix.
+        r.unchangedPrefix = prefix;
+        if (prefix != shorter) {
+            // Where the two overlap, as when a deleted block starts like the
+            // block after it, the end wins: the blocks after a change keep
+            // following their text rather than their offset.
+            int suffix = 0;
+            while (suffix < shorter && oldSource.s[r.oldLen - 1 - suffix] ==
+                                           newSource.s[r.newLen - 1 - suffix]) {
+                suffix++;
+            }
+            r.unchangedPrefix = std::min(prefix, shorter - suffix);
+            r.unchangedSuffix = suffix;
+        }
+        return r;
+    }
+
+    // Where leaf `key` is in the new parse, and how much of its text is
+    // unchanged; false when it is gone.
+    bool Leaf(TextLeafKey key, TextLeafKey* newKey, int* unchanged) const {
+        int start = key.BlockStart();
+        if (tailStart >= 0 && start < tailStart) {
+            *newKey = key;
+            *unchanged = 0x7fffffff;
+            return true;
+        }
+        int moved = -1;
+        if (start < unchangedPrefix) {
+            moved = start;
+        } else if (start >= oldLen - unchangedSuffix) {
+            moved = start + newLen - oldLen;
+        }
+        if (moved < 0) {
+            return false;
+        }
+        const RenderedLeafSpan* oldLeaf = RenderedIndexFind(prev, key);
+        if (!oldLeaf) {
+            return false;
+        }
+        // A table's cells are only known by their place in it, so after a
+        // change inside the table a cell is the same one only when the source
+        // of its whole row ends before that change.
+        if (key.CellIx() >= 0 && start < unchangedPrefix &&
+            (oldLeaf->rowSourceEnd < 0 ||
+             oldLeaf->rowSourceEnd > unchangedPrefix)) {
+            return false;
+        }
+        *newKey = key.MovedTo(moved);
+        const RenderedLeafSpan* newLeaf = RenderedIndexFind(next, *newKey);
+        if (!newLeaf) {
+            return false;
+        }
+        *unchanged = StreamCommonPrefix(LeafText(prev, oldLeaf),
+                                        LeafText(next, newLeaf));
+        return true;
+    }
+};
+
+// RangeHighlightFrame::remap: the highlights that still describe `next`,
+// each following its leaf as far as the leaf's text is unchanged, dropped
+// with a leaf that is gone.
+RangeHighlightFrame* RangeHighlightFrameRemap(const RangeHighlightFrame* frame,
+                                              const RenderedIndex* prev,
+                                              const RenderedIndex* next,
+                                              bool tailOnly, int tailStart) {
+    if (!frame || !prev || !next) {
+        return nullptr;
+    }
+    LeafRemap remap = LeafRemap::New(prev, next, tailOnly, tailStart);
+    Vec<RangePiece> pieces;
+    for (const RangeHighlightFrame::Leaf& leaf : frame->leaves) {
+        TextLeafKey newKey = {};
+        int common = 0;
+        if (!remap.Leaf(leaf.key, &newKey, &common)) {
+            continue;
+        }
+        for (int i = 0; i < leaf.count; i++) {
+            const RangeBackground& bg = frame->backgrounds[leaf.first + i];
+            if (bg.range.start < common) {
+                Span clipped = {bg.range.start, std::min(bg.range.end, common)};
+                VecAppend(pieces, RangePiece{newKey, clipped, bg.color});
+            }
+        }
+    }
+    // Moving keys keeps their order, but stay safe for the binary search.
+    return FrameFromPieces(pieces);
+}
+
+// LeafSpan::text_offset_near: `offset` in the leaf's text, moved out of an
+// inline object onto the text after it, or before it at the end of the leaf.
+// False when the leaf has no text outside its objects.
+static bool LeafTextOffsetNear(const RenderedIndex* index,
+                               const RenderedLeafSpan* leaf, int offset,
+                               int* out) {
+    auto objectAt = [&](int at) -> const Span* {
+        for (int i = 0; i < leaf->objCount; i++) {
+            const Span& object = index->objects[leaf->objFirst + i];
+            if (object.start <= at && at < object.end) {
+                return &object;
+            }
+        }
+        return nullptr;
+    };
+    int after = offset;
+    while (const Span* object = objectAt(after)) {
+        after = object->end;
+    }
+    if (after < leaf->range.end - leaf->range.start) {
+        *out = after;
+        return true;
+    }
+    int before = offset;
+    while (const Span* object = objectAt(before)) {
+        if (object->start == 0) {
+            return false;
+        }
+        before = object->start - 1;
+    }
+    *out = before;
+    return true;
+}
+
+bool RenderedIndexLocate(const RenderedIndex* index, Span range,
+                         TextViewReveal* out) {
+    Vec<RangePiece> pieces;
+    if (!RenderedIndexResolve(index, range, Rgba{}, pieces) || !index) {
+        return false;
+    }
+    out->block = false;
+    if (len(pieces) > 0) {
+        out->key = pieces[0].key;
+        out->offset = pieces[0].range.start;
+        return true;
+    }
+    int nBlocks = len(index->blocks);
+    if (nBlocks == 0) {
+        return false;
+    }
+    // The top-level block `range` starts in, or the last one.
+    int blockIx = 0;
+    while (blockIx < nBlocks && index->blocks[blockIx].end <= range.start) {
+        blockIx++;
+    }
+    blockIx = std::min(blockIx, nBlocks - 1);
+    int blockStart = index->blocks[blockIx].start;
+    int nLeaves = len(index->leaves);
+    int ix = 0;
+    while (ix < nLeaves && index->leaves[ix].range.end <= range.start) {
+        ix++;
+    }
+    const RenderedLeafSpan* leaf = nullptr;
+    int offset = 0;
+    if (ix < nLeaves && index->leaves[ix].range.start <= range.start &&
+        range.start < index->leaves[ix].range.end) {
+        leaf = &index->leaves[ix];
+        offset = range.start - leaf->range.start;
+    } else if (ix > 0 && index->leaves[ix - 1].range.start >= blockStart) {
+        // A position after the text of a leaf, on the separators after it
+        // or at the end of the text, is on the line of the last character
+        // before it in its block.
+        leaf = &index->leaves[ix - 1];
+        Str text = LeafText(index, leaf);
+        int last = len(text) - 1;
+        while (last > 0 && ((uint8_t)text.s[last] & 0xc0) == 0x80) {
+            last--;
+        }
+        offset = std::max(last, 0);
+    }
+    int nearText = 0;
+    if (leaf && LeafTextOffsetNear(index, leaf, offset, &nearText)) {
+        out->key = leaf->key;
+        out->offset = nearText;
+        return true;
+    }
+    out->block = true;
+    out->blockIx = blockIx;
+    return true;
+}
+
+RangeHighlightError TextViewState::RevealRange(Span range, App* app,
+                                               Window* window) {
+    if (format != TextViewFormat::Markdown) {
+        return RangeHighlightError::Unsupported();
+    }
+    Str rendered = RenderedIndexText(renderedIndex);
+    if (len(rendered) == 0 && range.start == 0 && range.end == 0) {
+        // Nothing to reveal in an empty view.
+        reveal.pending = false;
+        return RangeHighlightError{};
+    }
+    TextViewReveal next;
+    if (!RenderedIndexLocate(renderedIndex, range, &next)) {
+        return RangeHighlightError::InvalidRange(0);
+    }
+    next.pending = true;
+    next.requestedAt = TimeNow();
+    reveal = next;
+    if (app && self.IsValid()) NotifyEntity(app, self, window);
+    return RangeHighlightError{};
+}
+
+bool RenderedText::RangeForSource(Span range, Span* out) const {
+    return RenderedIndexRangeForSource(index, range, out);
+}
+
+gpui::RenderedText TextViewState::RenderedText() const {
+    gpui::RenderedText out;
+    out.owner = self;
+    out.revision = renderedRevision;
+    out.text = RenderedIndexText(renderedIndex);
+    out.source = RenderedIndexSource(renderedIndex);
+    out.index = renderedIndex;
+    return out;
+}
+
+RangeHighlightError TextViewState::SetRangeHighlights(
+    const RangeHighlight* highlights, int count, App* app, Window* window) {
+    if (format != TextViewFormat::Markdown) {
+        return RangeHighlightError::Unsupported();
+    }
+    RangeHighlightFrame* frame = nullptr;
+    RangeHighlightError error =
+        RangeHighlightFrameNew(renderedIndex, highlights, count, &frame);
+    if (!error.IsOk()) {
+        return error;
+    }
+    RangeHighlightFrameFree(rangeHighlights);
+    rangeHighlights = frame;
+    if (app && self.IsValid()) NotifyEntity(app, self, window);
+    return error;
+}
+
+void TextViewState::ClearRangeHighlights(App* app, Window* window) {
+    if (!rangeHighlights) {
+        return;
+    }
+    RangeHighlightFrameFree(rangeHighlights);
+    rangeHighlights = nullptr;
+    if (app && self.IsValid()) NotifyEntity(app, self, window);
+}
+
+// ─── parsing (state.rs increment_update / parse_content) ──────────────────
+
+// MAX_SYNC_FULL_REPLACE_BYTES: a replacement this small parses at once, so
+// its first layout has the exact content height.
+static const int kMaxSyncFullReplaceBytes = 4 * 1024;
+
+// A fade recorded as a parse lands starts on the first frame that shows it:
+// it is stamped with this, plus its stagger, and the frame that samples it
+// first puts its own time in its place.
+static const double kFadeAtFirstFrame = -1e12;
+
+// ParsedContent: the parse that landed. Its nodes point into `source`, which
+// it owns, and live in `arenas` -- more than one after an append, which
+// keeps the blocks before its tail in the arenas they were made in.
+struct TextViewParse {
+    Vec<Arena*> arenas;
+    MdNode* doc = nullptr;
+    Str source = {};
+    bool html = false;
+    uint64_t fingerprint = 0;
+};
+
+static void TextViewParseFree(TextViewParse* p) {
+    if (!p) {
+        return;
+    }
+    for (int i = 0; i < len(p->arenas); i++) {
+        ArenaDelete(p->arenas[i]);
+    }
+    StrFree(p->source);
+    delete p;
+}
+
+// The last painted frame's runs point into the parse it rendered, and so
+// do the window's selection and any copy until the next frame paints. A
+// parse that is no longer current is kept a while, the way the parse cache
+// kept its last few documents.
+static void TextViewParseRetire(TextViewState* s, TextViewParse* p) {
+    if (!p) {
+        return;
+    }
+    const int n = (int)dimof(s->retiredParses);
+    TextViewParseFree(s->retiredParses[n - 1]);
+    for (int i = n - 1; i > 0; i--) {
+        s->retiredParses[i] = s->retiredParses[i - 1];
+    }
+    s->retiredParses[0] = p;
+}
+
+// One parse off the UI thread: the whole text, or for an append the part
+// from `from` on, into an arena of its own. `state` is cleared if the state
+// goes before it lands.
+struct TextViewParseJob {
+    TextViewState* state = nullptr;
+    Str source = {};
+    int from = 0;
+    bool append = false;
+    bool html = false;
+    bool frontmatter = false;
+    bool mdx = false;
+    uint64_t fingerprint = 0;
+    uint64_t revision = 0;
+    App* app = nullptr;
+    Arena* arena = nullptr;
+    MdNode* doc = nullptr;
+    Arena* parserArena = nullptr;
+    MarkdownExtensions extensions = {};
+};
+
+static MarkdownExtensions CopyParserExtensions(Arena* a,
+                                               const MarkdownExtensions& src) {
+    MarkdownExtensions copy;
+    copy.enableFrontmatter = src.enableFrontmatter;
+    copy.enableMdx = src.enableMdx;
+    copy.parserRevision = src.parserRevision;
+    for (const auto& parser : src.blockParsers)
+        copy.blockParsers.Append(a, parser);
+    for (const auto& parser : src.inlineParsers)
+        copy.inlineParsers.Append(a, parser);
+    // The renderer names are part of parser configuration identity. No
+    // renderer is called by parsing, but keep its name outside the frame.
+    for (auto renderer : src.blockRenderers) {
+        renderer.name = StrDup(a, renderer.name);
+        copy.blockRenderers.Append(a, renderer);
+    }
+    for (auto renderer : src.inlineRenderers) {
+        renderer.name = StrDup(a, renderer.name);
+        copy.inlineRenderers.Append(a, renderer);
+    }
+    return copy;
+}
+
+// parse_content: markdown from `from` on with its spans measured in all of
+// `source`, or the HTML from `from` on (HTML blocks carry no spans, so an
+// append parses only the new text).
+static MdNode* TextViewParseSource(Arena* a, Str source, int from, bool html,
+                                   const MarkdownExtensions* extensions) {
+    if (html) {
+        return HtmlParse(a, Str(source.s + from, len(source) - from));
+    }
+    return MdParseWithExtensions(a, source, extensions, from);
+}
+
+static void TextViewParseDetach(TextViewParseJob* job) {
+    if (job) {
+        job->state = nullptr;
+    }
+}
+
+static void TextViewParseWork(TextViewParseJob* job) {
+    job->arena = ArenaNew();
+    job->doc = TextViewParseSource(job->arena, job->source, job->from,
+                                   job->html, &job->extensions);
+    ArenaDelete(job->parserArena);
+    job->parserArena = nullptr;
+}
+
+// What an update parses: the text from where an append parses again, or
+// from the start. `append` is false when the text was replaced since the
+// committed parse, or an append comes before the background parser took in
+// a small replacement (UpdateOptions::merge into a full parse).
+static bool TextViewParseAppend(const TextViewState* s, uint64_t fingerprint,
+                                int* from) {
+    const TextViewParse* p = s->parsed;
+    bool html = s->format == TextViewFormat::Html;
+    if (!p || p->fingerprint != fingerprint || p->html != html ||
+        s->fullUpdateRevision > s->committedRevision || s->baselinePending ||
+        len(s->text) <= len(p->source) || !StrStartsWith(s->text, p->source)) {
+        *from = 0;
+        return false;
+    }
+    // The last block parses again with the appended text, so a block the
+    // new text continues (an unclosed list, a fence) is not split in two.
+    const MdNode* last = p->doc ? p->doc->last : nullptr;
+    *from = !html && last && last->blockStart >= 0 ? last->blockStart
+                                                   : len(p->source);
+    return true;
+}
+
+// The parse of `revision` lands: `doc`, in `arena`, parsed from `source`
+// (handed over) from `from` on. An append replaces the committed parse's
+// last block, if it parsed it again, and keeps the ones before it.
+static void TextViewCommit(TextViewState* s, App* app, Arena* arena,
+                           MdNode* doc, Str source, bool append, int from,
+                           uint64_t revision, uint64_t fingerprint,
+                           double now) {
+    bool tailOnly = append && s->fullUpdateRevision <= s->committedRevision;
+    TextViewParse* p = s->parsed;
+    if (append && p && p->doc) {
+        if (p->doc->last && from < len(p->source)) {
+            // The last block was parsed again; drop the old one.
+            MdNode* prev = nullptr;
+            for (MdNode* c = p->doc->first; c && c != p->doc->last;
+                 c = c->next) {
+                prev = c;
+            }
+            if (prev) {
+                prev->next = nullptr;
+            } else {
+                p->doc->first = nullptr;
+            }
+            p->doc->last = prev;
+        }
+        for (MdNode* c = doc ? doc->first : nullptr; c;) {
+            MdNode* next = c->next;
+            c->parent = p->doc;
+            c->next = nullptr;
+            if (p->doc->last) {
+                p->doc->last->next = c;
+            } else {
+                p->doc->first = c;
+            }
+            p->doc->last = c;
+            c = next;
+        }
+        VecAppend(p->arenas, arena);
+        // The runs last painted point into the old source: retire it.
+        TextViewParse* old = new TextViewParse();
+        old->source = p->source;
+        TextViewParseRetire(s, old);
+        p->source = source;
+    } else {
+        TextViewParse* next = new TextViewParse();
+        VecAppend(next->arenas, arena);
+        next->doc = doc;
+        next->source = source;
+        TextViewParseRetire(s, p);
+        s->parsed = next;
+        p = next;
+    }
+    p->html = s->format == TextViewFormat::Html;
+    p->fingerprint = fingerprint;
+    s->committedRevision = revision;
+    s->ReconcileRangeHighlights(p->doc, p->source, now, tailOnly,
+                                tailOnly ? from : -1);
+    if (app && s->self.IsValid()) {
+        NotifyEntity(app, s->self, nullptr);
+    }
+}
+
+// The background parser takes in a small replacement that parsed at once
+// (BaselineAck): until it has, an append merges into one full parse.
+// It names the state directly, as a parse job does, and the state clears that
+// when it goes: a queued ack can outlive the state and the App it was in.
+struct TextViewBaselineAck {
+    TextViewState* state = nullptr;
+};
+
+static void TextViewBaselineDetach(TextViewState* s) {
+    if (s->baselineAck) {
+        s->baselineAck->state = nullptr;
+        s->baselineAck = nullptr;
+    }
+}
+
+static void TextViewBaselineAcked(TextViewBaselineAck* ack) {
+    if (TextViewState* s = ack->state) {
+        s->baselinePending = false;
+        s->baselineAck = nullptr;
+    }
+    delete ack;
+}
+
+Str TextViewState::Source() const {
+    return parsed ? parsed->source : Str{};
+}
+
+int TextViewState::ParsedBlockCount() const {
+    int n = 0;
+    for (const MdNode* c = parsed && parsed->doc ? parsed->doc->first : nullptr;
+         c; c = c->next) {
+        n++;
+    }
+    return n;
+}
+
+void TextViewState::StartParse(App* app, Window* window,
+                               const MarkdownExtensions* extensions, bool now) {
+    (void)window;
+    bool html = format == TextViewFormat::Html;
+    if (extensions && !html) {
+        Arena* next = ArenaNew();
+        parserExtensions = CopyParserExtensions(next, *extensions);
+        ArenaDelete(parserArena);
+        parserArena = next;
+        parserFingerprint = extensions->ParserFingerprint();
+        parserFrontmatter = extensions->enableFrontmatter;
+        parserMdx = extensions->enableMdx;
+        parserPlugins = extensions->blockParsers.len > 0 ||
+                        extensions->inlineParsers.len > 0;
+    }
+    uint64_t fingerprint = html ? 0 : parserFingerprint;
+    if (parseFlight) {
+        parseQueued = true;
+        return;
+    }
+    if (parsed && committedRevision == updateRevision &&
+        parsed->fingerprint == fingerprint && parsed->html == html) {
+        return;
+    }
+    int from = 0;
+    bool append = TextViewParseAppend(this, fingerprint, &from);
+    // With no main thread for the executor to land a parse on -- no app has
+    // started one -- the parse happens here.
+    bool sync = (!append && len(text) <= kMaxSyncFullReplaceBytes) ||
+                !ExecOnMainThread() || now;
+    if (sync) {
+        Arena* arena = ArenaNew();
+        Str source = StrDup(text);
+        MdNode* doc =
+            TextViewParseSource(arena, source, from, html, &parserExtensions);
+        TextViewCommit(this, app, arena, doc, source, append, from,
+                       updateRevision, fingerprint, kFadeAtFirstFrame);
+        if (!append && app && self.IsValid()) {
+            baselinePending = true;
+            // An ack still on its way is for an older baseline: this one
+            // is what clears the flag now.
+            TextViewBaselineDetach(this);
+            auto* ack = new TextViewBaselineAck();
+            ack->state = this;
+            baselineAck = ack;
+            ExecPost(MkFunc0(&TextViewBaselineAcked, ack));
+        }
+        return;
+    }
+    auto* job = new TextViewParseJob();
+    job->state = this;
+    job->app = app;
+    job->source = StrDup(text);
+    job->from = from;
+    job->append = append;
+    job->html = html;
+    job->frontmatter = parserFrontmatter;
+    job->mdx = parserMdx;
+    job->fingerprint = fingerprint;
+    job->revision = updateRevision;
+    job->parserArena = ArenaNew();
+    job->extensions = CopyParserExtensions(job->parserArena, parserExtensions);
+    parseFlight = job;
+    if (!ExecSpawn(MkFunc0(&TextViewParseWork, job),
+                   MkFunc0(&TextViewState::ParseLanded, job))) {
+        // No executor to run it on: the parse happens here instead.
+        TextViewParseWork(job);
+        ParseLanded(job);
+    }
+}
+
+static void TextViewParseJobDiscard(TextViewParseJob* job) {
+    ArenaDelete(job->parserArena);
+    if (job->arena) ArenaDelete(job->arena);
+    StrFree(job->source);
+    delete job;
+}
+
+// commit_parsed_update: commit a result of the background parser. `job` is
+// consumed.
+//
+// A stream that appends faster than a parse completes has always moved past
+// the revision the result was parsed from, so only discarding results of an
+// older revision would show nothing until the stream stops. A result parsed
+// since the text was last replaced is a prefix of the current text and is
+// committed; one from before that replacement, or older than what is already
+// committed, is discarded.
+void TextViewState::CommitParsedUpdate(TextViewParseJob* job) {
+    TextViewState* s = job->state;
+    if (job->fingerprint !=
+            (s->format == TextViewFormat::Html ? 0 : s->parserFingerprint) ||
+        job->revision < s->fullUpdateRevision ||
+        job->revision <= s->committedRevision) {
+        TextViewParseJobDiscard(job);
+        return;
+    }
+    bool overtaken = job->revision < s->updateRevision;
+    TextViewCommit(s, job->app, job->arena, job->doc, job->source, job->append,
+                   job->from, job->revision, job->fingerprint,
+                   kFadeAtFirstFrame);
+    // This result may cover only part of the queued appends. Keep the
+    // uncommitted tail pending, rather than consuming its fade with the
+    // earlier chunk (stream_fade.note_extend).
+    if (overtaken && s->motion.streamFadeMs > 0 && !s->streamFadePending) {
+        s->streamFadePending = true;
+        s->streamFadeReplace = false;
+    }
+    delete job;
+}
+
+void TextViewState::ParseLanded(TextViewParseJob* job) {
+    TextViewState* s = job->state;
+    if (!s) {
+        TextViewParseJobDiscard(job);
+        return;
+    }
+    s->parseFlight = nullptr;
+    App* app = job->app;
+    CommitParsedUpdate(job);
+    if (s->parseQueued || s->committedRevision != s->updateRevision) {
+        s->parseQueued = false;
+        s->StartParse(app, nullptr);
+    }
+}
+
+TextViewParseJob* TextViewParseNowForTest(TextViewState* s, App* app) {
+    bool html = s->format == TextViewFormat::Html;
+    uint64_t fingerprint = html ? 0 : s->parserFingerprint;
+    auto* job = new TextViewParseJob();
+    job->state = s;
+    job->app = app;
+    job->source = StrDup(s->text);
+    job->append = TextViewParseAppend(s, fingerprint, &job->from);
+    job->html = html;
+    job->frontmatter = s->parserFrontmatter;
+    job->mdx = s->parserMdx;
+    job->fingerprint = fingerprint;
+    job->revision = s->updateRevision;
+    job->parserArena = ArenaNew();
+    job->extensions =
+        CopyParserExtensions(job->parserArena, s->parserExtensions);
+    TextViewParseWork(job);
+    return job;
+}
+
+void TextViewState::ReconcileRangeHighlights(const MdNode* doc, Str source,
+                                             double now, bool tailOnly,
+                                             int tailStart) {
+    RenderedIndex* next = RenderedIndexNew(doc, source);
+    // The tracker compares rendered text, not source, so `**bo` completing
+    // into bold `bold` fades the changed glyphs rather than mapping source
+    // bytes.
+    RecordStreamFade(renderedIndex, next, now);
+    if (rangeHighlights) {
+        RangeHighlightFrame* moved = RangeHighlightFrameRemap(
+            rangeHighlights, renderedIndex, next, tailOnly, tailStart);
+        RangeHighlightFrameFree(rangeHighlights);
+        rangeHighlights = moved;
+    }
+    // PendingReveal::remap: the reveal follows its line as long as the text
+    // it starts at is unchanged; a whole-block reveal does not survive.
+    if (reveal.pending) {
+        TextLeafKey key = {};
+        int unchanged = 0;
+        if (!reveal.block && renderedIndex &&
+            LeafRemap::New(renderedIndex, next, tailOnly, tailStart)
+                .Leaf(reveal.key, &key, &unchanged) &&
+            reveal.offset < unchanged) {
+            reveal.key = key;
+        } else {
+            reveal.pending = false;
+        }
+    }
+    RenderedIndexFree(renderedIndex);
+    renderedIndex = next;
+    renderedRevision++;
+}
+
+void TextViewState::RecordStreamFade(const RenderedIndex* prev,
+                                     const RenderedIndex* next, double now) {
+    bool pending = streamFadePending;
+    bool replace = streamFadeReplace;
+    streamFadePending = false;
+    streamFadeReplace = false;
+    if (motion.streamFadeMs <= 0) {
+        VecClear(fadeSegments);
+        return;
+    }
+    if (!pending || !next) {
+        return;
+    }
+    if (replace) {
+        VecClear(fadeSegments);
+        return;
+    }
+    Vec<Span> units;
+    for (int li = 0; li < len(next->leaves); li++) {
+        const RenderedLeafSpan& leaf = next->leaves[li];
+        Str leafText = LeafText(next, &leaf);
+        int leafLen = len(leafText);
+        const RenderedLeafSpan* old =
+            prev ? RenderedIndexFind(prev, leaf.key) : nullptr;
+        int prefix =
+            old ? StreamCommonPrefix(LeafText(prev, old), leafText) : 0;
+        // Text past the divergence is repainted, so its earlier fade no
+        // longer describes what is on screen.
+        for (int i = len(fadeSegments) - 1; i >= 0; i--) {
+            StreamFadeSegment& s = fadeSegments[i];
+            if (!(s.key == leaf.key)) {
+                continue;
+            }
+            s.range.end = std::min(s.range.end, prefix);
+            if (s.range.start >= s.range.end) {
+                VecRemoveAt(fadeSegments, i);
+            }
+        }
+        if (prefix >= leafLen) {
+            continue;
+        }
+        if (motion.streamFadeStaggerMs <= 0) {
+            VecAppend(fadeSegments,
+                      StreamFadeSegment{leaf.key, Span{prefix, leafLen}, now});
+            continue;
+        }
+        VecClear(units);
+        StreamFadeUnits(leafText, prefix, leafLen, &units);
+        double step = motion.StaggerStepMs(len(units)) / 1000.0;
+        for (int u = 0; u < len(units); u++) {
+            VecAppend(fadeSegments,
+                      StreamFadeSegment{leaf.key, units[u], now + step * u});
+        }
+    }
+}
+
+int TextViewState::StreamFadeFrame(Arena* a, double now,
+                                   StreamFadeRange** out) {
+    *out = nullptr;
+    if (len(fadeSegments) == 0) {
+        return 0;
+    }
+    if (MotionReduced() || motion.streamFadeMs <= 0) {
+        VecClear(fadeSegments);
+        return 0;
+    }
+    for (int i = 0; i < len(fadeSegments); i++) {
+        StreamFadeSegment& s = fadeSegments[i];
+        if (s.startedAt < kFadeAtFirstFrame / 2) {
+            s.startedAt = now + (s.startedAt - kFadeAtFirstFrame);
+        }
+    }
+    Timing timing = Timing::New(motion.streamFadeMs)
+                        .Ease(motion.streamFadeEasing);
+    StreamFadeRange* ranges =
+        (StreamFadeRange*)Alloc(a, len(fadeSegments) * (int)sizeof(*ranges));
+    int n = 0;
+    for (int i = 0; i < len(fadeSegments);) {
+        const StreamFadeSegment& s = fadeSegments[i];
+        // saturating_duration_since: a word whose turn has not come yet is
+        // sampled at its start, fully transparent.
+        float elapsedMs = (float)std::max(0.0, (now - s.startedAt) * 1000.0);
+        TimingSample sample = timing.Sample(elapsedMs);
+        if (sample.finished) {
+            VecRemoveAt(fadeSegments, i);
+            continue;
+        }
+        if (ranges) {
+            float fadeOut = 1.f - sample.directedProgress;
+            ranges[n].key = s.key;
+            ranges[n].range = s.range;
+            ranges[n].fadeOut = std::min(std::max(fadeOut, 0.f), 1.f);
+            n++;
+        }
+        i++;
+    }
+    *out = ranges;
+    return n;
+}
+
+El* TextView::RangeWashes(El* t, const MdNode* leaf, int lo, int hi,
+                          bool markOver) {
+    // fade_highlights: the streamed fade of this leaf's bytes [lo, hi),
+    // rebased to lo, over whatever the run paints.
+    if (t && nStreamFades > 0 && leaf && leaf->leafStart >= 0 && hi > lo) {
+        TextLeafKey key{leaf->leafStart, leaf->leafOrdinal};
+        int n = 0;
+        for (int i = 0; i < nStreamFades; i++) {
+            const StreamFadeRange& f = streamFades[i];
+            if (f.key == key && f.range.start < hi && f.range.end > lo) {
+                n++;
+            }
+        }
+        TextFade* fades = n ? TextArenaArray<TextFade>(a, n) : nullptr;
+        if (fades) {
+            int at = 0;
+            for (int i = 0; i < nStreamFades; i++) {
+                const StreamFadeRange& f = streamFades[i];
+                if (f.key == key && f.range.start < hi && f.range.end > lo) {
+                    fades[at].lo = std::max(f.range.start, lo) - lo;
+                    fades[at].hi = std::min(f.range.end, hi) - lo;
+                    fades[at].fadeOut = f.fadeOut;
+                    at++;
+                }
+            }
+            t->Fades(fades, at);
+        }
+    }
+    if (!t || !rangeHighlights || !leaf || leaf->leafStart < 0 || hi <= lo) {
+        return t;
+    }
+    int count = 0;
+    const RangeBackground* bgs = rangeHighlights->Backgrounds(
+        TextLeafKey{leaf->leafStart, leaf->leafOrdinal}, &count);
+    int n = 0;
+    for (int i = 0; i < count; i++) {
+        if (bgs[i].range.start < hi && bgs[i].range.end > lo) {
+            n++;
+        }
+    }
+    if (n == 0) {
+        return t;
+    }
+    TextSpan* washes = TextArenaArray<TextSpan>(a, n + (markOver ? 1 : 0));
+    if (!washes) {
+        return t;
+    }
+    int at = 0;
+    for (int i = 0; i < count; i++) {
+        if (bgs[i].range.start < hi && bgs[i].range.end > lo) {
+            washes[at].lo = std::max(bgs[i].range.start, lo) - lo;
+            washes[at].hi = std::min(bgs[i].range.end, hi) - lo;
+            washes[at].bg = bgs[i].color;
+            at++;
+        }
+    }
+    if (markOver) {
+        // A `<mark>` background paints over a highlight; inline code's, the
+        // element's own box, paints under it. The mark's box background
+        // would go down first, so it moves into the washes after the
+        // highlights.
+        washes[at].lo = 0;
+        washes[at].hi = hi - lo;
+        washes[at].bg = t->style.bg.color;
+        t->style.hasBg = false;
+        at++;
+    }
+    // Painted as inline.rs paints a highlight: its glyphs' boxes.
+    t->glyphWashes = true;
+    return t->Washes(washes, at);
+}
+
+// REVEAL_TIMEOUT and REVEAL_ATTEMPTS: how long a reveal keeps trying, and
+// how many frames whose line was painted but hidden it gets.
+static const double kRevealTimeoutSeconds = 1.0;
+static const int kRevealAttempts = 8;
+
+// The scroll box a scrollable TextView puts its document in.
+static uint32_t TextViewScrollKey(Entity<TextViewState> state) {
+    uint32_t name = (uint32_t)(state.id.index + 1) * 1000003u +
+                    (uint32_t)(state.id.gen + 1);
+    return KeyedKey(name, (uint32_t)HashClickId(StrL("TextViewScrollState")));
+}
+
+void TextView::RevealFrame(TextViewState* managed) {
+    TextViewReveal& reveal = managed->reveal;
+    if (reveal.pending &&
+        (managed->maxLines >= 0 ||
+         TimeNow() - reveal.requestedAt > kRevealTimeoutSeconds ||
+         reveal.attempts >= kRevealAttempts)) {
+        reveal.pending = false;
+    }
+    if (!reveal.pending) return;
+    reveal.line = {};
+    reveal.hasMask = false;
+    revealTarget = &reveal;
+    revealOut = &reveal.line;
+}
+
+void TextView::RevealPainted(PaintCtx* ctx, El* element, void* data) {
+    TextView* view = (TextView*)data;
+    TextViewState* managed = view->state.Get(ctx->app);
+    if (!managed) return;
+    const WindowSelection* selection = ctx->window ? ctx->window->sel : nullptr;
+    if (selection && managed->selectAllAnchor >= 0 &&
+        selection->anchor == managed->selectAllAnchor &&
+        selection->cursor == managed->selectAllCursor) {
+        managed->SelectAll(ctx->window, ctx->app);
+    }
+    if (!managed->reveal.pending) return;
+    TextViewReveal& reveal = managed->reveal;
+    Bounds line = reveal.line;
+    if (line.w <= 0 && line.h <= 0) {
+        WindowRequestAnimationFrame(ctx->window);
+        return;
+    }
+    // Descendants have reported this frame's positions; the enclosing
+    // content mask is still active.
+    WinSize size = WindowSize(ctx->window);
+    Bounds visible = reveal.hasMask    ? reveal.mask
+                     : ctx->hasHitMask ? ctx->hitMask
+                                       : Bounds{0, 0, size.dipW, size.dipH};
+    bool shown =
+        reveal.block
+            ? line.y + line.h > visible.y && line.y < visible.y + visible.h
+            : line.y >= visible.y - 0.5f &&
+                  line.y + line.h <= visible.y + visible.h + 0.5f;
+    if (shown) {
+        reveal.pending = false;
+        return;
+    }
+    reveal.attempts++;
+    if (view->scrollable) {
+        float y = managed->scrollY;
+        if (line.y < visible.y)
+            y -= visible.y - line.y;
+        else
+            y += line.y + line.h - (visible.y + visible.h);
+        managed->scrollY = std::min(
+            std::max(y, 0.f), std::max(element->contentH - element->h, 0.f));
+    } else {
+        WindowRequestAutoscroll(ctx->window, line);
+        if (view->onReveal.IsValid()) {
+            TextViewRevealEvent event;
+            event.line = line;
+            ListenerCall(ctx->app, ctx->window, view->onReveal, &event);
+        }
+    }
+    if (reveal.block) reveal.pending = false;
+    WindowRequestAnimationFrame(ctx->window);
+}
+
+// The view reports its own box while a reveal is pending, for RevealFrame.
+static El* RevealReportView(El* element, TextViewState* managed) {
+    if (element && managed && managed->reveal.pending && !element->boundsOut) {
+        element->BoundsOut(&managed->reveal.view);
+    }
+    return element;
+}
+
+bool TextView::RevealIn(const MdNode* leaf, int* offset) const {
+    if (!revealTarget || !revealOut || revealTarget->block || !leaf ||
+        leaf->leafStart < 0 ||
+        !(TextLeafKey{leaf->leafStart, leaf->leafOrdinal} == revealTarget
+                                                                 ->key)) {
+        return false;
+    }
+    *offset = revealTarget->offset;
+    return true;
+}
+
+static void RevealLineMask(PaintCtx* ctx, El*, void* data) {
+    auto* reveal = (TextViewReveal*)data;
+    reveal->hasMask = ctx->hasHitMask;
+    reveal->mask = ctx->hitMask;
+}
+
+void TextView::RevealMark(El* t, int lo, int offset) {
+    Str text = t ? t->text : Str{};
+    if (len(text) <= 0 || !revealOut) {
+        return;
+    }
+    int at = std::min(std::max(offset - lo, 0), len(text));
+    // Text with no glyph of its own, a line break, reveals the line after
+    // it; the end of the text the last character.
+    if (at < len(text) && text.s[at] == '\n' && at + 1 < len(text)) {
+        at++;
+    }
+    if (at >= len(text)) {
+        at = len(text) - 1;
+        while (at > 0 && ((uint8_t)text.s[at] & 0xc0) == 0x80) {
+            at--;
+        }
+    }
+    int hi = at + 1;
+    while (hi < len(text) && ((uint8_t)text.s[hi] & 0xc0) == 0x80) {
+        hi++;
+    }
+    t->RangeOut(at, hi, revealOut);
+    t->lifecycle = ArenaNew<ElLifecycle>(a);
+    t->lifecycle->afterPaint = &RevealLineMask;
+    t->lifecycle->user = (void*)revealTarget;
+    // One element reports the line: the first to reach the offset.
+    revealOut = nullptr;
+}
+
+El* TextView::Blocks(El* into, MdNode* n, int depth, bool inList) {
+    bool outer = blockDepth++ == 0;
+    if (outer) {
+        flowPrev = 0;
+    }
+    int blockIx = 0;
+    for (MdNode* c = n->first; c; c = c->next, blockIx++) {
+        El* e = Block(c, depth, inList, c->next == nullptr);
+        if (e && c->kind != MdKind::Heading && c->kind != MdKind::Rule) {
+            flowPrev = 3;
+        }
+        if (e && outer && revealTarget && revealTarget->block && revealOut &&
+            revealTarget->blockIx == blockIx) {
+            // RevealTarget::Block: the whole top-level block reports its box.
+            e->BoundsOut(revealOut);
+            revealOut = nullptr;
+        }
+        if (e) {
+            into->Child(e);
+        }
+    }
+    blockDepth--;
+    return into;
+}
+
+// The text a plugin's parser is given: an HTML block's raw source, and every
+// other block's runs laid end to end.
+Str TextView::BlockText(MdNode* n) {
+    if (n->kind == MdKind::Html && n->raw.len > 0) {
+        return n->raw;
+    }
+    int total = 0;
+    for (MdRun* r = n->runFirst; r; r = r->next) {
+        total += len(r->text);
+    }
+    if (total <= 0) {
+        return Str{};
+    }
+    if (!n->runFirst->next) {
+        return n->runFirst->text;
+    }
+    char* buf = (char*)Alloc(a, total + 1);
+    if (!buf) {
+        return Str{};
+    }
+    int at = 0;
+    for (MdRun* r = n->runFirst; r; r = r->next) {
+        memcpy(buf + at, r->text.s, (size_t)len(r->text));
+        at += len(r->text);
+    }
+    buf[at] = 0;
+    return Str(buf, at);
+}
+
+// Every registered plugin is offered the block, in the order they were added.
+El* TextView::MarkBlockPlugin(El* el, Str plain, Str markdown, bool hasSpan,
+                              Span span) {
+    if (!selectable || !el) {
+        return el;
+    }
+    // The plugin's own element keeps its text. The box around it is what
+    // the drag measures, and it carries the plain text and the markdown.
+    El* box = Div(a)->W(kFill)->MinW(0)->Child(el);
+    box->BlockPluginSelection(plain)
+        ->SelectionOwner(BaseTextViewStateCurrent(cx->app));
+    if (len(markdown) > 0) {
+        SelSource* marks = ArenaNew<SelSource>(a);
+        if (marks) {
+            marks->pre = markdown;
+            box->SelSrc(marks, false);
+        }
+    }
+    el = box;
+    if (hasSpan) {
+        SourceSegment* whole = ArenaNew<SourceSegment>(a);
+        if (whole) {
+            whole->renderedEnd = 1;
+            whole->sourceStart = span.start;
+            whole->sourceEnd = span.end;
+            SrcMap(el, whole, 1, 0, true);
+        }
+    }
+    return el;
+}
+
+El* TextView::PluginBlock(MdNode* n) {
+    if (plugins.len <= 0) {
+        return nullptr;
+    }
+    Str text = BlockText(n);
+    for (int i = 0; i < plugins.len; i++) {
+        MdPluginNode node;
+        node.name = plugins[i].name;
+        if (!plugins[i].parse(cx, n, text, plugins[i].data, &node)) {
+            continue;
+        }
+        if (El* el = plugins[i].render(cx, &node, plugins[i].data)) {
+            return MarkBlockPlugin(el, node.text, node.markdown, node.hasSpan,
+                                   node.span);
+        }
+    }
+    return nullptr;
+}
+
+El* TextView::Block(MdNode* n, int depth, bool inList, bool isLast) {
+    // paragraph_gap is rems(0.75) by default, held as DIPs at a 16 px rem.
+    float gap = Rems(cx, paragraphGap / 16.f);
+    if (n->kind == MdKind::Custom) {
+        float pad = (inList || isLast) ? 0.f : gap;
+        const struct MarkdownBlockRenderer* renderer =
+            markdownExtensions.Renderer(n->custom.name);
+        El* content = renderer && renderer->fn
+                          ? renderer->fn(cx, &n->custom, renderer->data)
+                          : nullptr;
+        if (content) {
+            content =
+                MarkBlockPlugin(content, n->custom.text, n->custom.markdown,
+                                n->custom.hasSpan, n->custom.span);
+        }
+        if (!content && n->custom.text.s) {
+            SrcOpen({}, {});
+            content = TextEl(a, n->custom.text)->Font(baseFont)->Wrap();
+            if (selectable) {
+                content->Selectable();
+                SrcMark(content, 0);
+            }
+        }
+        return content ? Div(a)->W(kFill)->PadB(pad)->Child(content) : nullptr;
+    }
+    // A plugin's block stands in for whatever markdown made of it, and takes
+    // the paragraph gap the block it replaced would have carried.
+    if (El* claimed = PluginBlock(n)) {
+        float pad = (inList || isLast) ? 0.f : gap;
+        return Div(a)->W(kFill)->PadB(pad)->Child(claimed);
+    }
+    // node.rs render_block: every block but the last one in its container
+    // carries the paragraph gap below it, and a block inside a list item
+    // carries none.
+    float mb = (inList || isLast) ? 0.f : gap;
+    switch (n->kind) {
+        case MdKind::Paragraph:
+            SrcOpen({}, {});
+            return Div(a)->W(kFill)->PadB(mb)->Child(
+                Inline(n, baseFont, BlockFg(), 0));
+        case MdKind::Heading: {
+            float scale = 1.f;
+            float line = 1.35f;
+            float section = 1.4f;
+            HeadingMetrics(n->level, &scale, &line, &section);
+            float font = baseFont * scale;
+            gpui::Style refine;
+            uint32_t refineFields = textViewStyle
+                                        .Heading((uint8_t)n->level, &refine);
+            if ((refineFields & StyleFieldFontSize) && refine.fontSize > 0) {
+                font = refine.fontSize;
+            }
+            font = FontPx(cx, font);
+            char hashes[8] = {};
+            int nh = n->level > 0 && n->level < 8 ? n->level : 1;
+            for (int i = 0; i < nh; i++) {
+                hashes[i] = '#';
+            }
+            SrcOpen(SrcCat(a, Str(hashes, nh), StrL(" ")), {});
+            // The previous block's gap counts toward the section gap. A
+            // heading after a heading stays close. The first block, and one
+            // inside a list, sits flush.
+            float top = 0;
+            bool flush = inList || depth > 0 || flowPrev == 0;
+            if (!flush) {
+                if (flowPrev == 1) {
+                    top = font * 0.25f;
+                } else if (flowPrev == 2) {
+                    top = font * section - baseFont * 1.6f;
+                } else {
+                    top = font * section - gap;
+                }
+                if (top < 0) {
+                    top = 0;
+                }
+            }
+            float bottom = isLast ? 0.f : font * kHeadingBottomGap;
+            Rgba fg = n->level >= 6 ? textViewStyle.mutedForeground : BlockFg();
+            El* text = Inline(n, font, fg, 2);
+            if (text) {
+                text->LineHeight(line);
+            }
+            El* box = Div(a)->W(kFill)->PadT(top)->PadB(bottom)->Child(text);
+            StyleApplyFields(&box->style, refine,
+                             refineFields & ~(uint32_t)StyleFieldFontSize);
+            flowPrev = 1;
+            flowPrevLevel = n->level;
+            flowPrevSpace = font * kHeadingBottomGap;
+            return box;
+        }
+        case MdKind::Rule: {
+            float space = baseFont * 1.6f;
+            float top = 0;
+            bool flush = inList || depth > 0 || flowPrev == 0;
+            if (!flush) {
+                float above = gap;
+                if (flowPrev == 2) {
+                    above = space;
+                } else if (flowPrev == 1) {
+                    above = flowPrevSpace;
+                }
+                top = space - above;
+                if (top < 0) {
+                    top = 0;
+                }
+            }
+            flowPrev = 2;
+            return Div(a)
+                ->W(kFill)
+                ->PadT(top)
+                ->PadB(isLast ? 0.f : space)
+                ->Child(Div(a)->H(1)->W(kFill)->Bg(textViewStyle.border));
+        }
+        case MdKind::Quote: {
+            El* inner = Div(a)
+                            ->FlexCol()
+                            ->W(kFill)
+                            ->Fg(textViewStyle.mutedForeground)
+                            ->BorderL(2, textViewStyle.border)
+                            ->PadL(baseFont * 0.9f);
+            // text_color(muted_foreground) on the quote, and nothing inside
+            // it naming a colour of its own: the paragraphs and headings it
+            // holds inherit the grey rather than painting themselves black.
+            Rgba savedFg = blockFg;
+            bool savedSet = blockFgSet;
+            blockFg = textViewStyle.mutedForeground;
+            blockFgSet = true;
+            // node.rs prefixes every line of a selected blockquote with
+            // `> ` so it round-trips; nested quotes stack the prefix.
+            Str savedPre = srcLinePre;
+            srcLinePre = SrcCat(a, srcLinePre, StrL("> "));
+            uint8_t savedPrev = flowPrev;
+            flowPrev = 0;
+            Blocks(inner, n, depth, false);
+            flowPrev = savedPrev;
+            srcLinePre = savedPre;
+            blockFg = savedFg;
+            blockFgSet = savedSet;
+            return Div(a)->W(kFill)->PadB(mb)->Child(inner);
+        }
+        case MdKind::List: {
+            El* list = Div(a)->FlexCol()->W(kFill)->MinW(0)->PadB(mb);
+            if (depth > 0) {
+                list->PadL(baseFont * 1.4f);
+            }
+            int ix = 0;
+            for (MdNode* c = n->first; c; c = c->next) {
+                if (c->kind != MdKind::Item) {
+                    continue;
+                }
+                Str marker = ListItemPrefix(a, ix, n->start, n->ordered, depth);
+                // list_selected_source restores the Markdown marker rather
+                // than the bullet glyph the item is drawn with, and puts the
+                // task list's checkbox after it.
+                Str src = n->ordered ? StrDup(a, fmt("%d. ", OrderedListOrdinal(
+                                                                 n->start, ix)))
+                                     : StrL("- ");
+                srcItemPad = src;
+                if (c->hasCheck) {
+                    // The checkbox stands where the prefix would: `when(!todo
+                    // && checked.is_none())` is what draws one at all.
+                    src = SrcCat(a, src,
+                                 c->checked ? StrL("[x] ") : StrL("[ ] "));
+                    marker = Str{};
+                } else if (inTodo) {
+                    marker = Str{};
+                }
+                srcItemMarker = src;
+                El* item = Item(c, marker, depth + 1);
+                if (ix > 0) {
+                    item->PadT(baseFont * 0.25f);
+                }
+                list->Child(item);
+                ix++;
+            }
+            return list;
+        }
+        case MdKind::Code:
+            return Div(a)->W(kFill)->PadB(mb)->Child(CodeBlock(n));
+        case MdKind::Table:
+            return Div(a)->W(kFill)->PadB(mb)->Child(
+                tableScroll ? ScrollTable(n) : Table(n));
+        case MdKind::Item: {
+            // Only reached for a stray list item; treat it as its contents.
+            El* box = Div(a)->FlexCol()->W(kFill)->PadB(mb);
+            if (n->runFirst) {
+                SrcOpen({}, {});
+                box->Child(Inline(n, baseFont, BlockFg(), 0));
+            }
+            return Blocks(box, n, depth, inList);
+        }
+        case MdKind::Html:
+        case MdKind::Group: {
+            // BlockNode::Root: the children in the parent's flow, no box.
+            // The gap goes on the group rather than on its last child, so a
+            // <div> of paragraphs sits the same distance from what follows it
+            // as a paragraph would.
+            if (!n->first) {
+                return nullptr;
+            }
+            El* box = Div(a)->FlexCol()->W(kFill)->PadB(mb);
+            return Blocks(box, n, depth, inList);
+        }
+        case MdKind::Doc:
+        case MdKind::Row:
+        case MdKind::Cell:
+        case MdKind::Custom:
+            return nullptr;
+    }
+    return nullptr;
+}
+
+void TextView::PrepareInheritedColor(PaintCtx*, El* element, Rgba inherited,
+                                     void* data) {
+    TextView* view = (TextView*)data;
+    Rgba color = (view->outerStyleFields & StyleFieldColor)
+                     ? view->outerStyle.color
+                     : inherited;
+    if (!TextRgbaEq(element->style.color, view->textViewStyle.foreground)) {
+        color = element->style.color;
+    }
+    element->lifecycle->prepareStyle = nullptr;
+    view->outerStyle.color = color;
+    view->outerStyleFields |= StyleFieldColor;
+    // Rebuild palette-dependent descendants, keeping the root's identity,
+    // listeners and any sizing chained onto IntoEl's result.
+    El* resolved = view->IntoEl();
+    element->first = resolved->first;
+    element->last = resolved->last;
+    element->style.color = resolved->style.color;
+    element->style.hasColor = resolved->style.hasColor;
+    element->lifecycle = resolved->lifecycle;
+}
+
+El* TextView::IntoEl() {
+    TextView* inheritedBuilder = nullptr;
+    if (!inheritedColorResolved && !textViewStyleSet &&
+        TextViewDefaults::Global(cx->app).inheritTextColor) {
+        inheritedBuilder = ArenaNew<TextView>(a);
+        *inheritedBuilder = *this;
+        // EntityRender's Ctx is a stack value; deferred construction runs
+        // after it returns, so keep a frame-owned copy beside the builder.
+        inheritedBuilder->cx = ArenaNew<Ctx>(a);
+        *inheritedBuilder->cx = *cx;
+        inheritedBuilder->inheritedColorResolved = true;
+    }
+
+    // inline.rs RetainedLayout and node.rs ParagraphRenderCache: Rust hands
+    // StyledText between frames through a table keyed by InlineState, and
+    // caches concatenated highlights on the paragraph. This tree keeps the
+    // parsed MdRun list on MdNode (MdParseCached) and reshapes in paint from
+    // those runs; there is no StyledText object to retain. The gpui::test
+    // that two copies of one document keep two layouts needs TestAppContext.
+    // The style this view renders with: its own, then the application's
+    // TextViewDefaults, then the Base theme's palette. A Base application
+    // that installs neither still gets a readable document.
+    if (!textViewStyleSet) {
+        TextViewDefaults defaults = TextViewDefaults::Global(cx->app);
+        TextViewStyle resolved =
+            defaults.hasStyle
+                ? defaults.style
+                : TextViewStyle::FromTheme(base_theme::Theme::Global(cx->app));
+        // Sizes named on the builder outlive the style swap: they are the
+        // caller's, not the palette's.
+        resolved.paragraphGap = textViewStyle.paragraphGap;
+        // Follow the text color the container sets for its surface, so rich
+        // text stays readable in a filled bubble or a selected row. The
+        // color is supplied by PrepareInheritedColor when it is inherited.
+        if (defaults.inheritTextColor && (outerStyleFields & StyleFieldColor) &&
+            !TextRgbaEq(outerStyle.color, resolved.foreground)) {
+            onInvertedSurface = resolved.IsInvertedBy(outerStyle.color);
+            resolved = resolved.OnTextColor(outerStyle.color);
+        }
+        textViewStyle = resolved;
+    }
+    if (!state.IsValid()) {
+        uint32_t kind = (uint32_t)HashClickId(
+            html ? StrL("TextViewStateHtml") : StrL("TextViewStateMarkdown"));
+        uint32_t key = KeyedKey(KeyedName(cx, source), kind);
+        state = cx->win ? KeyedEntity<TextViewState>(cx, key)
+                        : EntityNewState<TextViewState>(cx->app);
+        if (TextViewState* managed = state.Get(cx)) {
+            if (!managed->self.IsValid()) managed->self = state.id;
+            bool sameAllocation = managed->elementTextPtr == source.s &&
+                                  managed->elementTextLen == len(source) &&
+                                  len(managed->text) == len(source);
+            if (!sameAllocation && !base::StrEq(managed->text, source)) {
+                StrFree(managed->text);
+                managed->text = StrDup(source);
+                managed->revision++;
+                managed->selectionRevision++;
+                managed->updateRevision++;
+                managed->fullUpdateRevision = managed->updateRevision;
+            }
+            managed->elementTextPtr = source.s;
+            managed->elementTextLen = len(source);
+            managed->format =
+                html ? TextViewFormat::Html : TextViewFormat::Markdown;
+        }
+    }
+    TextViewState* managed = state.Get(cx);
+    if (managed) {
+        source = managed->text;
+        html = managed->format == TextViewFormat::Html;
+        managed->selectable = selectable;
+        managed->selectionFormat = selFormat;
+        managed->scrollable = scrollable;
+        managed->maxLines = scrollable ? -1 : maxLines;
+        if (motionSet) {
+            managed->motion = motion;
+            if (motion.streamFadeMs <= 0) {
+                managed->streamFadePending = false;
+                managed->streamFadeReplace = false;
+                VecClear(managed->fadeSegments);
+            }
+        } else {
+            motion = managed->motion;
+        }
+        // A style that moved — a theme change, most often — invalidates the
+        // selection layout the last frame published.
+        if (!inheritedBuilder) {
+            if (!managed->textViewStyle.Equals(textViewStyle)) {
+                managed->selectionRevision++;
+            }
+            managed->textViewStyle = textViewStyle;
+        }
+    }
+
+    BaseTextViewStatePush(cx->app, state.id);
+    // A state renders the parse that landed last. One that has none for its
+    // text yet, or whose parser changed, starts one here: at once when it is
+    // small, and otherwise in the background with copied registrations while
+    // the last document stays up. A state-less caller parses through the cache.
+    MdNode* doc = nullptr;
+    if (managed) {
+        uint64_t fingerprint =
+            html ? 0 : markdownExtensions.ParserFingerprint();
+        bool stale = !managed->parsed ||
+                     managed->parsed->fingerprint != fingerprint ||
+                     managed->committedRevision != managed->updateRevision;
+        if (stale) {
+            if (managed->parserFingerprint != fingerprint) {
+                // A new parser parses everything again.
+                managed->fullUpdateRevision = ++managed->updateRevision;
+            }
+        }
+        // Refresh captures even when the parser shape is unchanged. The
+        // next text update uses the current registrations, as Rust does.
+        managed->StartParse(cx->app, cx->win, &markdownExtensions, !cx->win);
+        doc = managed->parsed ? managed->parsed->doc : nullptr;
+    } else {
+        doc = MdParseCached(cx, a, source, html,
+                            html ? nullptr : &markdownExtensions);
+    }
+    if (!doc) {
+        doc = ArenaNew<MdNode>(a);
+        doc->kind = MdKind::Doc;
+    }
+    rangeHighlights = nullptr;
+    revealTarget = nullptr;
+    revealOut = nullptr;
+    blockDepth = 0;
+    streamFades = nullptr;
+    nStreamFades = 0;
+    if (managed) {
+        double now = MotionNow(cx);
+        rangeHighlights = managed->rangeHighlights;
+        RevealFrame(managed);
+        StreamFadeRange* fades = nullptr;
+        nStreamFades = managed->StreamFadeFrame(a, now, &fades);
+        streamFades = fades;
+        // A streamed fade repaints at about 30 fps on a timer, not at the
+        // display's refresh rate; the frame the tick paints arms the next
+        // one.
+        if (nStreamFades > 0 && !managed->fadeTick) {
+            managed->fadeTick =
+                WindowSetTimeout(cx->win, kStreamFadeTickMs,
+                                 ListenTo(state, &TextViewState::OnFadeTick));
+        }
+    }
+    // Rust keeps selection_format on the view's own state and reconstructs
+    // the source when the copy asks for it. The copy is the window's here,
+    // so the view says what format it wants and the runs it builds below
+    // carry the Markdown that format needs.
+    if (selectable) {
+        WindowSelectionSetFormat(
+            cx->win, html ? gpui::SelectionFormat::Plain : selFormat);
+    }
+    // `.text_color(text_view_style.foreground())` on the root: every block
+    // below names no colour of its own, so this is what they inherit.
+    El* root = Div(a)->FlexCol()->W(kFill);
+    if (textViewStyle.foreground.a) {
+        root->Fg(textViewStyle.foreground);
+    }
+    // Defer palette-dependent rendering until ancestors have supplied their
+    // color. In particular, do not invoke the default highlighter on an
+    // inverted surface before layout has resolved it.
+    El* element = inheritedBuilder ? root : Blocks(root, doc, 0, false);
+    BaseTextViewStatePop(cx->app);
+
+    // max_lines is fit-content only: cap at body-text leading, keep the full
+    // subtree laid out underneath, then let paint snap the mask to a whole
+    // Inline boundary. A zero count intentionally produces an empty box.
+    if (!scrollable && maxLines >= 0) {
+        float cap = FontLen(cx, baseFont * kLineHeight) * (float)maxLines;
+        element->LineClamp(
+            cap, state.IsValid() ? ListenTo(state, &TextViewState::OnLineClamp)
+                                 : Listener{});
+    }
+
+    if (scrollable && cx->win && managed) {
+        uint32_t key = TextViewScrollKey(state);
+        element = Div(a)
+                      ->FlexCol()
+                      ->W(kFill)
+                      ->H(kFill)
+                      ->ClipY()
+                      ->ScrollY(managed->scrollY)
+                      ->ScrollId((int)key)
+                      ->OnScroll(ListenTo(state, &TextViewState::OnScroll))
+                      ->Child(element);
+    }
+    if (outerStyleFields) {
+        element->Refine(outerStyle, outerStyleFields);
+    }
+    if (selectable && state.IsValid()) {
+        TextViewInitKeys();
+        int focus = HashClickId(
+            StrDup(a, fmt("text-view-%d-%u", state.id.index, state.id.gen)));
+        Listener onAction = ListenTo(state, &TextViewState::OnAction);
+        element->KeyContext(StrL("TextView"))
+            ->FocusId(focus)
+            ->FocusOnPress()
+            ->OnAction(input::Copy(), onAction)
+            ->OnAction(input::SelectAll(), onAction);
+    }
+    element = RevealReportView(element, managed);
+    element->lifecycle = ArenaNew<ElLifecycle>(a);
+    element->lifecycle->afterPaint = &TextView::RevealPainted;
+    element->lifecycle->user = this;
+    if (inheritedBuilder) {
+        inheritedBuilder->state = state;
+        inheritedBuilder->textViewStyle = textViewStyle;
+        element->lifecycle->prepareStyle = &TextView::PrepareInheritedColor;
+        element->lifecycle->user = inheritedBuilder;
+    }
+    return element;
+}
+
+// ─── builder ──────────────────────────────────────────────────────────────
+
+TextView* TextView::New(Ctx* cx, Str source) {
+    Arena* a = cx->a;
+    TextView* t = ArenaNew<TextView>(a);
+    t->a = a;
+    t->cx = cx;
+    t->source = source;
+    // Left unresolved: IntoEl picks the caller's style, the application's
+    // defaults or the Base palette, in that order.
+    t->textViewStyle = TextViewStyle::Default();
+    return t;
+}
+
+Text Text::FromStr(Str value) {
+    Text out;
+    out.string = value;
+    return out;
+}
+
+Text Text::FromView(TextView* value) {
+    Text out;
+    out.view = value;
+    return out;
+}
+
+Text Text::Style(const TextViewStyle& style) const {
+    Text out = *this;
+    if (out.view) {
+        out.view->Style(style);
+    }
+    return out;
+}
+
+Str Text::GetText(const App* app) const {
+    if (!view) {
+        return string;
+    }
+    if (view->state.IsValid()) {
+        if (TextViewState* managed = view->state.Get((App*)app)) {
+            return managed->Source();
+        }
+    }
+    return view->source;
+}
+
+El* Text::IntoEl(Ctx* cx) const {
+    if (view) {
+        return view->IntoEl();
+    }
+    return TextEl(cx->a, string);
+}
+
+TextView* MarkdownView(Ctx* cx, Str source) {
+    return TextView::New(cx, source);
+}
+
+TextView* HtmlView(Ctx* cx, Str source) {
+    return TextView::NewHtml(cx, source);
+}
+
+TextView* TextView::NewHtml(Ctx* cx, Str source) {
+    TextView* t = TextView::New(cx, source);
+    t->html = true;
+    return t;
+}
+
+TextView* TextView::New(Ctx* cx, Entity<TextViewState> managed) {
+    TextView* t = TextView::New(cx, Str{});
+    t->state = managed;
+    return t;
+}
+
+TextView* TextView::TableActions(TableActionsFn fn, void* data) {
+    tableActions = fn;
+    tableActionsData = data;
+    return this;
+}
+
+TextView* TextView::ImageSource(ImageSourceFn fn, void* data) {
+    imageSource = fn;
+    imageSourceData = data;
+    return this;
+}
+
+TextView* TextView::CodeBlockActions(CodeBlockActionsFn fn, void* data) {
+    codeActions = fn;
+    codeActionsData = data;
+    return this;
+}
+
+TextView* TextView::Plugin(Str name, MdPluginParseFn parse,
+                           MdPluginRenderFn render, void* data) {
+    if (!parse || !render) {
+        return this;
+    }
+    plugins.Append(a, MdPlugin{name, parse, render, data});
+    return this;
+}
+
+TextView* TextView::OnLink(Listener fn) {
+    onLink = fn;
+    onLinkContext = 0;
+    onLinkHasContext = false;
+    return this;
+}
+
+TextView* TextView::OnLinkWithContext(Listener fn, int64_t context) {
+    onLink = fn;
+    onLinkContext = context;
+    onLinkHasContext = true;
+    return this;
+}
+
+TextView* TextView::Font(float px) {
+    baseFont = px;
+    return this;
+}
+
+TextView* TextView::HeadingFont(float px) {
+    headingFont = px;
+    return this;
+}
+
+TextView* TextView::Style(const TextViewStyle& value) {
+    textViewStyle = value;
+    textViewStyleSet = true;
+    paragraphGap = value.paragraphGap;
+    return this;
+}
+
+TextView* TextView::CodeBlockHighlighter(CodeBlockHighlighterFn fn,
+                                         void* data) {
+    codeHighlighter = fn;
+    codeHighlighterData = data;
+    return this;
+}
+
+TextView* TextView::Refine(const gpui::Style& value, uint32_t fields) {
+    StyleApplyFields(&outerStyle, value, fields);
+    outerStyleFields |= fields;
+    return this;
+}
+
+TextView* TextView::Selectable(bool on) {
+    selectable = on;
+    return this;
+}
+
+TextView* TextView::SelFormat(gpui::SelectionFormat fmt) {
+    selFormat = fmt;
+    return this;
+}
+
+TextView* TextView::TableColumnWidth(float px) {
+    tableColW = px;
+    return this;
+}
+
+TextView* TextView::TableScroll(bool on) {
+    tableScroll = on;
+    return this;
+}
+
+TextView* TextView::CodeBlockScroll(bool on) {
+    codeBlockScroll = on;
+    return this;
+}
+
+TextView* TextView::Scrollable(bool on) {
+    scrollable = on;
+    return this;
+}
+
+TextView* TextView::MaxLines(int count) {
+    maxLines = count >= 0 ? count : 0;
+    return this;
+}
+
+TextView* TextView::ParagraphGap(float px) {
+    paragraphGap = px;
+    textViewStyle.paragraphGap = px;
+    return this;
+}
+
+TextView* TextView::MarkdownExtensionsSet(
+    const MarkdownExtensions& extensions) {
+    markdownExtensions.enableMdx = extensions.enableMdx;
+    markdownExtensions.revision = extensions.revision;
+    for (int i = 0; i < extensions.blockParsers.len; i++) {
+        markdownExtensions.blockParsers.Append(a, extensions.blockParsers[i]);
+    }
+    for (int i = 0; i < extensions.blockRenderers.len; i++) {
+        markdownExtensions.blockRenderers
+            .Append(a, extensions.blockRenderers[i]);
+    }
+    for (int i = 0; i < extensions.inlineParsers.len; i++) {
+        markdownExtensions.inlineParsers.Append(a, extensions.inlineParsers[i]);
+    }
+    for (int i = 0; i < extensions.inlineRenderers.len; i++) {
+        markdownExtensions.inlineRenderers
+            .Append(a, extensions.inlineRenderers[i]);
+    }
+    return this;
+}
+
+TextView* TextView::MarkdownBlockParser(MarkdownBlockParserFn parser,
+                                        void* data) {
+    markdownExtensions.BlockParser(a, parser, data);
+    return this;
+}
+
+TextView* TextView::MarkdownBlockRenderer(Str name,
+                                          MarkdownBlockRenderFn renderer,
+                                          void* data) {
+    markdownExtensions.BlockRenderer(a, name, renderer, data);
+    return this;
+}
+
+TextView* TextView::Plugin(const MarkdownPlugin& plugin) {
+    markdownExtensions.Plugin(a, plugin);
+    return this;
+}
+
+TextView* TextView::Plugin(const TextViewPlugin& plugin) {
+    return plugin.Setup(this);
+}
+
+TextView* TextView::OnReveal(Listener fn) {
+    onReveal = fn;
+    return this;
+}
+
+TextView* TextView::Motion(TextViewMotion value) {
+    motion = value;
+    motionSet = true;
+    return this;
+}
+
+// compat.rs STREAM_FADE / STREAM_FADE_STAGGER: how long a word of streamed
+// text takes to reach full color, and how much later each further word of
+// the same chunk starts. Measured from claude.ai: ~6 words every ~100 ms,
+// transparent to solid in ~250-300 ms.
+static const float kStreamFadeMs = 280.f;
+static const float kStreamFadeStaggerMs = 10.f;
+
+TextView* TextView::StreamFade(bool value) {
+    return Motion(value ? TextViewMotion{}
+                              .WithStreamFade(kStreamFadeMs)
+                              .WithStreamFadeStagger(kStreamFadeStaggerMs)
+                              .WithStreamFadeEasing(Easing::EaseOut())
+                        : TextViewMotion{});
+}
+
+} // namespace gpui

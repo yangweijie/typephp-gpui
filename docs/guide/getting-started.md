@@ -24,10 +24,12 @@ composer install
 
 ## 2. 放置 gpui-kit-cpp 源码
 
-上游无 git remote，需自备源码树，放到 `vendor/gpui-kit-cpp`（或设 `GPUI_DIR` 指到任意路径）：
+上游源码已 **vendored 进本仓库**（`upstream/gpui-kit-cpp`，22M 源码子集，含我们那 7 个宿主补丁）。
+构建前 `cmd/sync-upstream.sh` 会把它复制成沙箱 `build/gpui-kit-cpp`，补丁与 amalgam/out 都落在
+沙箱里，跟踪的源码树不被弄脏。要用自己的源码树，设 `GPUI_DIR` 指过去（同步会自动跳过）：
 
 ```bash
-export GPUI_DIR=/path/to/gpui-kit-cpp   # 可选；默认 vendor/gpui-kit-cpp
+export GPUI_DIR=/path/to/gpui-kit-cpp   # 可选；默认 build/gpui-kit-cpp（upstream/ 的沙箱）
 ```
 
 `bin/gpui doctor` 会检查源码是否就位、5 个补丁是否已落。

@@ -1,0 +1,190 @@
+name: build
+
+# Compiles every example on all three desktop platforms plus wasm, and runs
+# the test suite on each. It also cross-compiles the portable library for
+# Android and iOS with their vendor SDKs. The desktop jobs compile the source
+# tree as separate translation units. Dedicated Windows and Linux jobs repeat the build with
+# clang and the mini markdown parser; Windows compiles all three paint
+# backends. The wasm job runs the same suite under node, which is the only
+# place this tree is checked on a 32-bit word.
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # The Rust spec tree under .work/ is a reading reference, not a build input.
+  GPUI_NO_RUST_TREE: "1"
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: windows
+            os: windows-latest
+          - name: linux
+            os: ubuntu-latest
+          - name: macos
+            os: macos-latest
+          # A target rather than a host: emscripten runs anywhere, so this
+          # builds on the cheapest runner.
+          - name: wasm
+            os: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Audit Base/UI port map
+        run: bun cmd/audit-port.ts
+
+      # X11, cairo and Pango are to Linux what Direct2D and DirectWrite are to
+      # Windows: system libraries, found through pkg-config. --build-only is
+      # the subset a compile needs, so this and a developer setup cannot drift.
+      # It includes the soft dependencies, WebKitGTK among them, so this job
+      # builds the real Linux webview; linux-clang-mini builds without it.
+      - name: Install Linux dependencies
+        if: matrix.name == 'linux'
+        run: bash cmd/ubuntu-install-deps.sh --build-only
+
+      - name: Install Android NDK
+        if: matrix.name == 'windows'
+        shell: powershell
+        run: |
+          powershell -ExecutionPolicy Bypass -File cmd/android-install-deps.ps1
+          powershell -ExecutionPolicy Bypass -File cmd/android-install-deps.ps1 -Check
+
+      - name: Cross-compile Android library
+        if: matrix.name == 'windows'
+        run: bun cmd/mobile-build.ts -android -rel
+
+      - name: Cross-compile iOS library
+        if: matrix.name == 'macos'
+        run: bun cmd/mobile-build.ts -ios -rel
+
+      # cl.exe is not on PATH on the runners, and vcvars64 only applies to the
+      # shell that calls it, so the build has to run in the same step.
+      - name: Build (Windows)
+        if: matrix.name == 'windows'
+        shell: cmd
+        run: |
+          set VSWHERE="%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe"
+          for /f "usebackq delims=" %%i in (`%VSWHERE% -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VSPATH=%%i"
+          if not defined VSPATH (echo could not find a VC toolset & exit /b 1)
+          call "%VSPATH%\VC\Auxiliary\Build\vcvars64.bat" || exit /b 1
+          bun cmd/build.ts -rel -all || exit /b 1
+          bun cmd/build.ts -rel gpui_shell || exit /b 1
+          bun cmd/test.ts -rel || exit /b 1
+          bun cmd/build-no-amalgam.ts -rel
+
+      - name: Build (Linux / macOS)
+        if: matrix.name == 'linux' || matrix.name == 'macos'
+        run: bun cmd/build.ts -rel -all
+
+      # -all builds the examples only. The shell CLI is a console target, and
+      # nothing else compiles it, so an API change can break it unnoticed.
+      - name: Build gpui_shell (Linux / macOS)
+        if: matrix.name == 'linux' || matrix.name == 'macos'
+        run: bun cmd/build.ts -rel gpui_shell
+
+      # Generate the exact source set shipped by gpui-kit-cpp-dist and compile
+      # every example against it. This catches amalgamation-only Linux failures
+      # before a downstream project vendors gpui.cpp.
+      - name: Build published amalgam (Linux)
+        if: matrix.name == 'linux'
+        run: bun cmd/update-dist.ts -no-publish
+
+      # Linux AppNew opens X11 even for tests that never create a window.
+      - name: Test (Linux)
+        if: matrix.name == 'linux'
+        run: xvfb-run -a bun cmd/test.ts -rel
+
+      # macOS runners have no login session; the tests draw no window.
+      - name: Test (macOS)
+        if: matrix.name == 'macos'
+        run: bun cmd/test.ts -rel
+
+      # Amalgamation can hide missing includes, declarations and duplicate
+      # internal names. Keep the installed-library shape healthy on every
+      # desktop platform, not just on a developer's current host.
+      - name: Build without amalgamation (Linux / macOS)
+        if: matrix.name == 'linux' || matrix.name == 'macos'
+        run: bun cmd/build-no-amalgam.ts -rel
+
+      - uses: emscripten-core/setup-emsdk@v16
+        if: matrix.name == 'wasm'
+        with:
+          version: latest
+
+      - name: Build (wasm)
+        if: matrix.name == 'wasm'
+        run: bun cmd/build.ts -wasm -rel -all
+
+      # Under node, not a browser: the suite draws nothing and needs no canvas.
+      - name: Test (wasm)
+        if: matrix.name == 'wasm'
+        run: bun cmd/run.ts -wasm -rel tests
+
+  compiler-portability:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: windows-clang-mini-all-backends
+            os: windows-latest
+          - name: linux-clang-mini
+            os: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      # Without WebKitGTK, so the soft-dependency path (wry_linux.cpp's
+      # no-webview half) keeps compiling and testing too.
+      - name: Install Linux dependencies
+        if: matrix.name == 'linux-clang-mini'
+        run: bash cmd/ubuntu-install-deps.sh --build-only --without-webkit
+
+      # windows-latest carries clang 20.1.8, which miscompiles the shell's
+      # suspend_never coroutines at /O2 and strands their task registry slots.
+      - name: Install clang-cl 22
+        if: matrix.name == 'windows-clang-mini-all-backends'
+        shell: powershell
+        run: choco upgrade llvm --version=22.1.7 --yes --no-progress
+
+      # Compile every Windows backend into the examples. The suite does not
+      # paint, so tests stay on the default backend — same as the MSVC job.
+      - name: Build and test (clang-cl)
+        if: matrix.name == 'windows-clang-mini-all-backends'
+        shell: cmd
+        run: |
+          set VSWHERE="%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe"
+          for /f "usebackq delims=" %%i in (`%VSWHERE% -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VSPATH=%%i"
+          if not defined VSPATH (echo could not find a VC toolset & exit /b 1)
+          call "%VSPATH%\VC\Auxiliary\Build\vcvars64.bat" || exit /b 1
+          bun cmd/build.ts -clang -rel -markdown=mini -html=mini --win-backend=all -all || exit /b 1
+          bun cmd/test.ts -clang -rel -markdown=full -html=full
+
+      - name: Build and test (clang++)
+        if: matrix.name == 'linux-clang-mini'
+        run: |
+          bun cmd/build.ts -clang -rel -markdown=mini -html=mini -all
+          xvfb-run -a bun cmd/test.ts -clang -rel -markdown=full -html=full

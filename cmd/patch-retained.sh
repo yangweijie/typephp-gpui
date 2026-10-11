@@ -7,11 +7,11 @@
 # / ShellRuntimeImpl 只在 runtime.cpp、不在 amalgam 头里，shim 够不着。本补丁加一层薄
 # 公开转发。上游更新后重跑即可；补丁后需重跑 bun cmd/build.ts 生成 amalgam。
 #
-# 用法：GPUI_DIR=<gpui-kit-cpp> cmd/patch-retained.sh   （默认 vendor/gpui-kit-cpp）
+# 用法：GPUI_DIR=<gpui-kit-cpp> cmd/patch-retained.sh   （默认 build/gpui-kit-cpp（upstream/ 的沙箱副本））
 
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-GPUI_DIR="${GPUI_DIR:-$ROOT/vendor/gpui-kit-cpp}"
+GPUI_DIR="${GPUI_DIR:-$ROOT/build/gpui-kit-cpp}"
 HDR="$GPUI_DIR/src/shell/runtime.h"
 SRC="$GPUI_DIR/src/shell/runtime.cpp"
 MARK="CreateRetainedInput"

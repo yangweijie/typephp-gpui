@@ -9,11 +9,11 @@
 # shimId 对任何 JS 条目恒为 0 → 零回归。
 #
 # 前置：cmd/patch-registered-cb.sh 已跑（提供 CallbackEntry.shimId + 弱符号）。
-# 用法：GPUI_DIR=<gpui-kit-cpp> cmd/patch-dispatch-cb.sh   （默认 vendor/gpui-kit-cpp）
+# 用法：GPUI_DIR=<gpui-kit-cpp> cmd/patch-dispatch-cb.sh   （默认 build/gpui-kit-cpp（upstream/ 的沙箱副本））
 
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-GPUI_DIR="${GPUI_DIR:-$ROOT/vendor/gpui-kit-cpp}"
+GPUI_DIR="${GPUI_DIR:-$ROOT/build/gpui-kit-cpp}"
 SRC="$GPUI_DIR/src/shell/runtime.cpp"
 MARK="typephp-gpui: shim route (DispatchArgs)"
 

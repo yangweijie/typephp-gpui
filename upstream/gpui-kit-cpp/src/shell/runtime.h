@@ -1,0 +1,290 @@
+#ifndef GPUI_SHELL_RUNTIME_H_
+#define GPUI_SHELL_RUNTIME_H_
+
+#include "shell/metrics.h"
+#include "shell/policy.h"
+#include "shell/retained.h"
+#include "shell/snapshot.h"
+
+namespace gpui {
+
+struct ViewType;
+struct ViewObject;
+struct ScriptView;
+struct LoadedApplication;
+struct ShellRuntimeImpl;
+struct ShellRuntimeControl;
+struct ShellRuntimeAccess;
+} // namespace gpui
+namespace gpui::shell {
+struct MaterializedDependencies;
+class FrozenComponentRegistry;
+struct ComponentAppEffectInstall;
+} // namespace gpui::shell
+namespace gpui {
+struct ShellTaskDriver;
+struct InlineTokenContext;
+struct InlineTokenClickEvent;
+struct InlineTokenHoverEvent;
+
+class ShellRuntime {
+  public:
+    // `components` is the catalog a script imports from its module (Rust's
+    // `new_isolated_with_components`); null is the bare runtime, which
+    // declares no component module at all. Borrowed for the runtime's life.
+    static ShellRuntime* New(
+        App* app = nullptr, ShellError* error = nullptr,
+        const shell::FrozenComponentRegistry* components = nullptr);
+    const shell::FrozenComponentRegistry* Components() const;
+    // Adapter-owned retained state, when `handle` is live and of `kind`.
+    void* ComponentState(uint64_t handle, const char* kind,
+                         Str* error = nullptr, Arena* a = nullptr) const;
+    // Why the last registered component this runtime materialized failed:
+    // the message Rust's `check` answers with. A registered failure renders
+    // as "Failed to render X" rather than failing the frame, so this is how a
+    // host (and a test) reads the reason. Empty until one fails.
+    Str LastComponentFailure() const;
+    void NoteComponentFailure(Str message);
+    // How many registered failures this runtime has noted. What an adapter
+    // building a deferred factory compares before and after, to learn that
+    // something inside it failed — which Rust's factory answers as an Err.
+    uint64_t ComponentFailureCount() const;
+    ShellRuntime* Retain();
+    void Release();
+
+    // Loads an application's JavaScript entry without exposing engine
+    // values: quickjs/mod.rs `load_application`, the host-facing load.
+    // Resolution, declaration refresh, module generations, capabilities and
+    // watcher-compatible module leases are those of LoadApp. Null with
+    // `error` set when the entry does not load. The answer is the caller's,
+    // freed with LoadedApplicationFree, mounted or not.
+    //
+    // The load and the mount use the default policy, as Rust's do: a host
+    // grants authority by updating it (ShellExportModule,
+    // PolicyUpdateDefaultCapabilities) before it loads.
+    LoadedApplication* LoadApplication(Str directory,
+                                       Str entry = StrL("main.js"),
+                                       ShellError* error = nullptr);
+    // Creates, initializes and mounts a loaded application as a ScriptView:
+    // quickjs/mod.rs `mount_application`. Refuses an application another
+    // runtime loaded ("loaded application belongs to a different
+    // ShellRuntime"), without consuming it, and a second mount ("loaded
+    // application has already been mounted"). The owner consumes the handle
+    // before construction, so a failed attempt — an init() that throws — is
+    // terminal too. Invalid, with `error` set, on any failure.
+    Entity<ScriptView> MountApplication(LoadedApplication* application,
+                                        Window* window, App* app,
+                                        ShellError* error = nullptr);
+
+    // The engine-facing loads below are crate-internal in Rust
+    // (`pub(crate) load_app` and friends): hosts mount through
+    // LoadApplication; the runtime's own paths (reload, plugins) and its
+    // tests reach the refcounted ViewType directly.
+    ViewType* LoadSource(Str name, Str source, ShellError* error = nullptr);
+    ViewType* LoadSource(Str name, Str source, Policy* policy,
+                         ShellError* error = nullptr);
+    ViewType* LoadApp(Str directory, Str entry = StrL("main.js"),
+                      ShellError* error = nullptr);
+    ViewType* LoadApp(Str directory, Str entry, Policy* policy,
+                      ShellError* error = nullptr);
+    // Reload's entry point. `reuse` is the running application's already
+    // materialized dependencies, handed to its replacement instead of being
+    // fetched again: the watcher only scans .js and .mjs, so a reload cannot
+    // have been triggered by a manifest change and the set is provably the
+    // same. Fetching it again meant a `git fetch` per dependency on the UI
+    // thread, once per keystroke-triggered reload.
+    ViewType* ReloadApp(Str directory, Str entry, Policy* policy,
+                        const shell::MaterializedDependencies* reuse,
+                        ShellError* error = nullptr);
+    // Rust's `new_isolated_with_dependency_store`: an empty root is the
+    // per-user Git dependency cache, and a test points this at its own.
+    void SetDependencyCacheRoot(Str root);
+    ViewObject* Instantiate(ViewType* type, Window* window, App* app,
+                            Policy* policy = nullptr,
+                            ShellError* error = nullptr, EntityId view = {});
+    RenderSnapshot* BuildSnapshot(ViewObject* object, Window* window, App* app,
+                                  EntityId view = {}, Policy* policy = nullptr,
+                                  ShellError* error = nullptr);
+    Str RenderToSpec(Arena* into, ViewObject* object, Window* window, App* app,
+                     EntityId view = {}, Policy* policy = nullptr,
+                     ShellError* error = nullptr);
+
+    bool Eval(Str source, Str name = StrL("<eval>"),
+              ShellError* error = nullptr);
+    bool DrainJobs(int limit = 1024, ShellError* error = nullptr);
+    RuntimeMetrics ReadMetrics() const;
+    void RecordMaterialize(uint64_t nanos);
+    void RecordStructure(bool repeated);
+    int LiveCallbacks() const;
+    int LiveEntities() const;
+    int LiveNestedViews() const;
+    int LiveTasks() const;
+    int LiveTemplates() const;
+    shell::RetainedEntry* Retained(shell::EntityHandle handle) const;
+
+    // typephp-gpui: thin public forwarders onto the private RetainedStore
+    // (impl->retained). The script-binding path creates these during snapshot
+    // build; the PHP firewall builds the arena directly, so it must create
+    // retained entities itself and store the returned handle in Component::handle.
+    shell::EntityHandle CreateRetainedInput(bool textarea, Str placeholder,
+                                            Str value, int rows, App* app,
+                                            EntityId owner, void* application);
+    shell::EntityHandle CreateRetainedSlider(float min, float max, float step,
+                                             App* app, EntityId owner,
+                                             void* application);
+    shell::EntityHandle CreateRetainedFocus(App* app, EntityId owner, void* application);
+
+    // typephp-gpui: register a synthetic callback entry that carries a shim id
+    // (our Box2 callbackId) instead of a QuickJS function. InvokeWith routes it
+    // to the window's event queue. Returns the runtime CallbackId to store in a
+    // ComponentArgument.callback, or 0 on failure.
+    shell::CallbackId PushShimCallback(EntityId view, uint64_t shimId);
+    EntityId NestedView(shell::EntityHandle handle, App* app) const;
+
+    // typephp-gpui: register an entity the host already owns (our PhpView, a
+    // WebView wrapper view) as a nested view, so a ChildView spec node can render
+    // it. QuickJS's cx.new is otherwise the only registrant and it brings a
+    // ScriptView plus a Policy; a host entity brings neither, so owner, policy and
+    // application stay empty — DropNestedViewAt then only EntityDrops the view, and
+    // the owner/application sweeps never reach it. Returns the handle to put in
+    // Component::handle, or 0 when the entity is not live.
+    shell::EntityHandle RegisterHostView(EntityId view, App* app);
+
+    // ScriptView registers its dirty bit so cx.notify() can invalidate the
+    // JavaScript description as well as the native window. Ordinary repaint
+    // causes then replay the published snapshot without entering QuickJS.
+    void RegisterScriptView(EntityId view, bool* dirty);
+    void UnregisterScriptView(EntityId view, bool* dirty);
+    void InvalidateScriptView(EntityId view);
+    void ReleaseOwnedEntities(EntityId view);
+    void ReleaseApplicationState(ViewObject* object);
+
+    // component_registry.rs ComponentAppEffects, the runtime's half
+    // (schedule_component_app_effect and what it defers). The application
+    // a live root ScriptView of this runtime renders, or null.
+    void* ScriptViewApplication(EntityId view, App* app) const;
+    bool ScheduleComponentAppEffect(
+        void* application, EntityId view, Str key, Str revision, Window* window,
+        App* app, const shell::ComponentAppEffectInstall& install, Str* error,
+        Arena* a);
+    // The deferred apply `token` names; what `window.defer` runs.
+    void ApplyComponentAppEffect(uint64_t token, App* app);
+    // Runs the cleanups installed for `view`'s generations: the release
+    // subscription Rust takes on the root view.
+    void CleanupComponentAppEffects(EntityId view);
+
+    void DispatchClick(shell::CallbackId callback, const ClickEvent& event,
+                       Window* window, App* app);
+    void DispatchMouseMove(shell::CallbackId callback,
+                           const MouseMoveEvent& event, Window* window,
+                           App* app);
+    void DispatchChange(shell::CallbackId callback, bool value, Window* window,
+                        App* app);
+    void DispatchIndex(shell::CallbackId callback, uint32_t value,
+                       Window* window, App* app);
+    void DispatchNumbers(shell::CallbackId callback, const float* values,
+                         int count, Window* window, App* app);
+    void DispatchString(shell::CallbackId callback, Str value, Window* window,
+                        App* app);
+    void DispatchSignal(shell::CallbackId callback, Window* window, App* app);
+    // The keyboard, the pointer and one named action.
+    //
+    // The keystroke is handed over twice, and both forms earn their place.
+    // `key` and `modifiers` are what the event holds, and a script that wants
+    // one half of a chord reads them; `keystroke` is the "cmd-shift-s"
+    // spelling a key binding is written in, which is the form a comparison is
+    // actually written against.
+    void DispatchKey(shell::CallbackId callback, const KeyEvent& event,
+                     bool* propagate, Window* window, App* app);
+    void DispatchMouseButton(shell::CallbackId callback, MouseButton button,
+                             float x, float y, int clickCount,
+                             Modifiers modifiers, Bounds bounds, bool hasBounds,
+                             Window* window, App* app);
+    void DispatchScrollWheel(shell::CallbackId callback,
+                             const ScrollWheelEvent& event, Bounds bounds,
+                             bool hasBounds, bool* propagate, Window* window,
+                             App* app);
+    void DispatchAction(shell::CallbackId callback, Str action, bool* propagate,
+                        Window* window, App* app);
+    void DispatchCalendarEvent(shell::EntityHandle handle,
+                               const CalendarEvent& event, Window* window,
+                               App* app);
+    // Draws one piece of a dock's chrome by asking the script, and replays a
+    // cached description when neither the handler nor the container's state
+    // has moved. See src/shell/dock.h.
+    El* DescribeDockChrome(Ctx* cx, shell::EntityHandle dock,
+                           shell::DockChromeSlot slot, uint64_t key,
+                           shell::CallbackId handler, Str payload);
+    void DispatchItemSecondaryClick(shell::CallbackId callback, Str key,
+                                    const MouseDownEvent& event, Window* window,
+                                    App* app);
+    void DispatchInputEvent(shell::EntityHandle handle, const InputEvent& event,
+                            Window* window, App* app);
+    void DispatchSliderEvent(shell::EntityHandle handle,
+                             const SliderEvent& event, Window* window,
+                             App* app);
+    void DispatchOtpEvent(shell::EntityHandle handle, const OtpEvent& event,
+                          Window* window, App* app);
+    void RenderVirtualItems(shell::CallbackId render, shell::CallbackId getKey,
+                            shell::CallbackId onItemClick,
+                            shell::CallbackId onItemSecondaryClick, int first,
+                            int end, Ctx* cx, El** out);
+    // Token chips are built while materializing, not while describing. A
+    // dedicated generation holds callbacks the renderer registers (a nested
+    // button's on_click) and is retired at the next materialize, after last
+    // frame's clicks have already run.
+    void BeginTokenFrame();
+    El* RenderInlineToken(shell::CallbackId render,
+                          const InlineTokenContext* ctx, Str text, Ctx* cx);
+    void DispatchTokenClick(shell::CallbackId click,
+                            const InlineTokenClickEvent* ev, Str text, Ctx* cx);
+    void DispatchTokenHover(shell::CallbackId hover,
+                            const InlineTokenHoverEvent* ev, Str text, Ctx* cx);
+
+  private:
+    friend struct ShellRuntimeAccess;
+    friend struct ShellTaskDriver;
+    friend void ShellRuntimeRetireSnapshot(void*, uint64_t);
+    void ResumeTask(uint32_t id, Ctx* cx);
+    ShellRuntime();
+    ~ShellRuntime();
+
+    uint32_t refs = 1;
+    ShellRuntimeImpl* impl = nullptr;
+    ShellRuntimeControl* control = nullptr;
+};
+
+// Frees a LoadedApplication, mounted or not.
+void LoadedApplicationFree(LoadedApplication* application);
+
+ViewType* ViewTypeRetain(ViewType* type);
+void ViewTypeRelease(ViewType* type);
+
+// The dependencies the application this type came from materialized. Reload
+// hands them to the replacement rather than fetching them again.
+const shell::MaterializedDependencies* ViewTypeDependencies(ViewType* type);
+ViewObject* ViewObjectRetain(ViewObject* object);
+void ViewObjectRelease(ViewObject* object);
+void ShellSetDevelopmentMode(bool enabled);
+bool ShellDevelopmentMode();
+
+struct ShellExitRequest {
+    int code = 0;
+    EntityId view = {};
+};
+using ShellExitHandler = void (*)(const ShellExitRequest&, Ctx*);
+void ShellOnExitRequest(ShellExitHandler handler);
+
+// lib.rs `init`: the base layer the bare runtime needs. Once, at startup,
+// before any script runs.
+void ShellInit(App* app);
+// lib.rs `init_with_components`: runs the startup the catalog carries
+// (ComponentRegistry::WithInitializer), then ShellInit. The runtime still
+// names no component library; a catalog without an initializer behaves
+// exactly like ShellInit. A host holding only the frozen catalog — the
+// shipped gpui_shell command — starts its components this way.
+void ShellInitWithComponents(App* app,
+                             const shell::FrozenComponentRegistry* components);
+
+} // namespace gpui
+#endif // GPUI_SHELL_RUNTIME_H_

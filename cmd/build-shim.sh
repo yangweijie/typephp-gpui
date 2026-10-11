@@ -5,11 +5,11 @@
 # 在 gpui-kit-cpp 里生成 .work/ 并编译出 gpui.o / quickjs.o / AppLog.o（这三个
 # 直接复用，省掉每次重编 32 万行 amalgam）。本脚本只编译 gpui_shim.cpp 并归档。
 #
-# 用法：GPUI_DIR=<gpui-kit-cpp> cmd/build-shim.sh   （默认 vendor/gpui-kit-cpp）
+# 用法：GPUI_DIR=<gpui-kit-cpp> cmd/build-shim.sh   （默认 build/gpui-kit-cpp（upstream/ 的沙箱副本））
 
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-GPUI_DIR="${GPUI_DIR:-$ROOT/vendor/gpui-kit-cpp}"
+GPUI_DIR="${GPUI_DIR:-$ROOT/build/gpui-kit-cpp}"
 WORK="$GPUI_DIR/.work"
 OBJ="$GPUI_DIR/out/mac/rel/obj"
 OUT_DIR="$ROOT/cpp-src/build"

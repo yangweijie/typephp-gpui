@@ -58,7 +58,7 @@ php bin/gpui new myapp
 
 | 变量 | 默认 | 作用 |
 |------|------|------|
-| `GPUI_DIR` | `vendor/gpui-kit-cpp` | gpui-kit-cpp 源码树位置 |
+| `GPUI_DIR` | `build/gpui-kit-cpp` | 构建沙箱（由 `cmd/sync-upstream.sh` 从 `upstream/gpui-kit-cpp` 复制）；指到别处即"外部源码树"模式 |
 | `NANO_DIR` | `vendor/swoole/php-nano` | php-nano 位置（patch-nano 用） |
 
 ## composer scripts 一览

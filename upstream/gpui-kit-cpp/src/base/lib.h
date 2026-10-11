@@ -1,0 +1,103 @@
+#ifndef GPUI_BASE_LIB_H_
+#define GPUI_BASE_LIB_H_
+/* gpui-base unstyled primitives. Visuals belong to the caller (showcase /
+ * theme). */
+
+#include "base/accordion.h"
+#include "base/actions.h"
+#include "base/alert_dialog.h"
+#include "base/animation.h"
+#include "base/auto_scroll.h"
+#include "base/avatar.h"
+#include "base/button.h"
+#include "base/calendar.h"
+#include "base/checkbox.h"
+#include "base/collapsible.h"
+#include "base/color_picker.h"
+#include "base/combobox.h"
+#include "base/component_traits.h"
+#include "base/date_picker.h"
+#include "base/dialog.h"
+#include "base/dock.h"
+#include "base/dock_layout.h"
+#include "base/dock_state.h"
+#include "base/dock_registry.h"
+#include "base/element_ext.h"
+#include "base/event.h"
+#include "base/focus_trap.h"
+#include "base/geometry.h"
+#include "base/global_state.h"
+#include "base/history.h"
+#include "base/undo_history.h"
+#include "base/hover_card.h"
+#include "base/index_path.h"
+#include "base/input.h"
+#include "base/input_core.h"
+#include "base/input_editor.h"
+#include "base/input_lsp.h"
+#include "base/input_rope.h"
+#include "base/input_keys.h"
+#include "base/link.h"
+#include "base/list_settings.h"
+#include "base/measure.h"
+#include "base/motion.h"
+#include "base/nav_stack.h"
+#include "base/number_input.h"
+#include "base/otp_input.h"
+#include "base/pagination.h"
+#include "base/popover.h"
+#include "base/popup.h"
+#include "base/positioner.h"
+#include "base/progress.h"
+#include "base/questionnaire.h"
+#include "base/radio.h"
+#include "base/radio_group.h"
+#include "base/resizable.h"
+#include "base/root.h"
+#include "base/scrollable_mask.h"
+#include "base/scrollbar.h"
+#include "base/scroll_bounce.h"
+#include "base/select.h"
+#include "base/selectable_text.h"
+#include "base/sheet.h"
+#include "base/slider.h"
+#include "base/state_style.h"
+#include "base/styled.h"
+#include "base/switch.h"
+#include "base/table.h"
+#include "base/tabs.h"
+#include "base/text.h"
+#include "base/text_boundary.h"
+#include "base/text_format.h"
+#include "base/touch_selection.h"
+#include "base/text_selection.h"
+#include "base/theme.h"
+#include "base/theme_tokens.h"
+#include "base/time_field.h"
+#include "base/toast.h"
+#include "base/toggle.h"
+#include "base/toggle_group.h"
+#include "base/toolbar.h"
+#include "base/tooltip.h"
+#include "base/tree.h"
+#include "base/virtual_list.h"
+
+namespace gpui {
+
+// gpui-kit::is_mobile: a target property, never a screen-size heuristic.
+constexpr bool IsMobile() {
+    return GPUI_OS_IOS || GPUI_OS_ANDROID;
+}
+
+// Re-read the operating system preference and make it the motion default.
+void ApplySystemReduceMotion();
+// Writes one system reading into the flag unless the application has taken
+// the flag over since the reading Base last applied.
+void ApplyReduceMotionPreference(bool reduce);
+
+// crates/base/src/lib.rs::init. Safe to call more than once; every key module
+// binds once per keymap generation and every App global is ensured once.
+void BaseInit(App* app);
+
+} // namespace gpui
+#endif // GPUI_BASE_LIB_H_

@@ -1,0 +1,30 @@
+#include "ui/lib.h"
+
+namespace gpui {
+namespace component {
+
+void Init(App* app) {
+    if (!app) {
+        return;
+    }
+    ThemeRegistryInit(app);
+    UiGlobalStateInit(app);
+    BaseInit(app);
+    ThemeSyncBase(app);
+    InputLanguageInit(app);
+    RootInit(app);
+
+    DatePickerInitKeys();
+    CarouselInitKeys();
+    ListInitKeys();
+    CommandInitKeys();
+    NotificationInitSystem(app);
+    PopupMenuInitKeys();
+    TableInitKeys();
+    TextViewInitKeys();
+    SelectInitKeys();
+    DiffInitKeys();
+}
+
+} // namespace component
+} // namespace gpui

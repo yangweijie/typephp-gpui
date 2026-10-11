@@ -4,7 +4,7 @@
 # 常驻 Focus 实体。与 patch-retained.sh 同构、独立幂等。补丁后须重跑 bun cmd/build.ts。
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-GPUI_DIR="${GPUI_DIR:-$ROOT/vendor/gpui-kit-cpp}"
+GPUI_DIR="${GPUI_DIR:-$ROOT/build/gpui-kit-cpp}"
 HDR="$GPUI_DIR/src/shell/runtime.h"
 SRC="$GPUI_DIR/src/shell/runtime.cpp"
 MARK="CreateRetainedFocus"
