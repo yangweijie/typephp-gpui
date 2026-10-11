@@ -482,3 +482,26 @@ SFINAE，但代价是每次上游动模板都要重打 + bridge 吞 54K 行头�
 
 **留给用户定的两件事**：其余 7 页英文要不要翻（约 5.6 万字符）；gpui-kit-cpp 用哪种托管形态
 （私有仓库 / 本地 bare / vendored）——后者的唯一收益是让 CI 能跑原生链三道门禁。
+
+### 用户两项决定 + 原生链进 CI（run `38142514806`，2026-10-11 13:16Z）
+
+**决定一：英文其余 7 页暂停**——"文档内容还要调整，翻了白翻"。骨架（locales / 语言切换 /
+en nav 只列真存在的页）已就位，补页时不用再动结构。
+
+**决定二：gpui-kit-cpp 走 vendored 源码子集**。`upstream/gpui-kit-cpp` = 22M / 1198 文件
+（src/assets/cmd/examples/gpui_shell + 根文档；去掉 out/.work/tests/bench/web 与上游留下的
+3MB `*.bak`）。它**已含 7 个宿主补丁**，补丁脚本保留作幂等复现与审计。构建改走沙箱
+`build/gpui-kit-cpp`（`cmd/sync-upstream.sh`），补丁/amalgam/out 全落沙箱 ⇒ 跟踪树不被弄脏；
+所有脚本默认 `GPUI_DIR` 从 `vendor/` 改到 `build/`，显式设 `GPUI_DIR` = 外部源码树模式。
+**踩到一个顺序坑**：同步必须排在补丁之前，否则干净 checkout 上沙箱目录还不存在，补丁脚本
+sed 找不到文件。
+
+**验证不是只看"构建成功"**：从零删沙箱跑完整链 → `diff -r upstream/src 沙箱/src` **0 行**
+（证明跟踪树一个字节都没被写）→ 六道门禁全绿 → 推上去。
+
+**结果**：CI 四 job 全绿，`native`（macos-15）**3m27s**，日志里 `SHIM CPP TESTS OK` +
+`SELFTEST OK`。这顺带答了一个我原本没把握的问题：**托管 macOS runner 能开真窗口**。
+门禁 5（`--shot`/shotdiff）仍留本地——CI 上硬跑只会得到"能出图但图是空的"这种最坏证据。
+testing.md 里"原生链托管 runner 拉不到"那句已订正成四 job 的实测表。
+
+提交：`72a021c`（vendored + 沙箱）、`43695be`（native job）。

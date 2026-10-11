@@ -135,8 +135,23 @@ tree 32（通知层）**必须跑够墙钟才拍得到**：通知入场是动画
 
 ## CI
 
-`.github/workflows/ci.yml` 只跑自足的 PHP 层（php -l + Pest + PHPStan）。原生链（3/4/5）依赖
-gpui-kit-cpp 源码，托管 runner 拉不到 → 本地或 self-hosted 跑。
+`.github/workflows/ci.yml` 四个 job：
+
+| job | 跑什么 | runner | 实测 |
+| --- | --- | --- | --- |
+| `php` | `php -l` 全源 + Pest + PHPStan | ubuntu-24.04 / PHP 8.5 | ~14s |
+| `docs` | `npm ci` + `vitepress build`（顺带是死链门禁）+ 产物页数与 `base` 断言 | ubuntu-24.04 / Node 24 | ~12s |
+| `native` | `bin/gpui build hello`（同步沙箱→7 补丁→amalgam→shim 库→tpc nano）+ `cmd/test-shim.sh` + `hello --selftest` | **macos-15** | ~3m27s |
+| `deploy` | 把 `docs` 的产物发到 GitHub Pages（只在 main 的 push） | ubuntu-24.04 | ~45s |
+
+**门禁 3/4 现在真的进 CI 了**——前提是 gpui-kit-cpp 已 vendored 进本仓库
+（`upstream/gpui-kit-cpp`，构建时由 `cmd/sync-upstream.sh` 复制成沙箱 `build/gpui-kit-cpp`，
+补丁与 amalgam/out 都落沙箱，跟踪树不被弄脏）。这一跑同时答了一个没把握的问题：
+**托管 macOS runner 能开真窗口**——`--selftest` 的 21 条链路里有窗口、有事件、有 retained
+取值，它绿了。
+
+**门禁 5（`--shot` / shotdiff）仍只在本地**：它抓的是真实在屏 `NSView`，CI 上没有可依赖的
+窗口会话与显示，硬跑会得到"能出图但图是空的"这种最坏证据。这一刀归人。
 
 ## 下一步
 
