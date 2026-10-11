@@ -17,8 +17,10 @@
 
 /* ─────────────────────── 应用与窗口生命周期 ─────────────────────── */
 
-/** 初始化 gpui App + component::Init + ShellRuntime + 事件泵基础设施。幂等，无返回值。 */
-function gpui_app_create(): void {}
+/** 初始化 gpui App + component::Init + ShellRuntime + 事件泵基础设施。幂等。
+ *  返回类型须与 bridge 的 php_gpui_app_create()（返回 Variant）一致，声明 void 会让
+ *  AOT 生成的返回值写回错位 → 段错误。副作用调用，调用方忽略返回值即可。 */
+function gpui_app_create(): mixed {}
 
 /**
  * 打开一个窗口并挂载 ScriptView（其 Render 从 bridge 拉当前 Element 树 materialize）。

@@ -123,6 +123,7 @@ Phase 4/5/6 主体完成（渲染 bug 修复、定时器、Slot+组件、Markdow
 | `Unsupported file type: project.macos.yml.gen`（tpc 拒） | @ROOT@ 解析后生成 yml 喂 tpc | tpc 只认 `.yml`/`.yaml` 扩展名，生成文件改名 `project.macos.gen.yml`。 |
 | `-x objective-c++` 把 `.o` 当源码编（"not valid UTF-8"） | test-shim.sh 单条命令编链 | 拆两步：`-c` 只编 test.cpp（带 -x），链接阶段不带 -x，clang 自动识别 .o。 |
 | `Cannot redeclare App::lastError()` | 新增错误回传方法 | 既有 `lastError()` 是 PHP handler 异常属性，新 C 侧通道改名 `registeredError()`。 |
+| selftest `exit=139`（SIGSEGV）——phpstan 驱动把 stub `gpui_app_create` 改 `: void` | 提交前漏跑 selftest（只跑了 phpstan/pest） | stub 返回类型须匹配 bridge `php_gpui_app_create()` 的 `Variant`；声明 void 令 AOT 生成的返回值写回错位。stub 回退 `: mixed`（附注释）；phpstan 的 resultUnused 靠 FakeBridge（src，phpstan 扫这个）的 `: void` 消除，两者解耦。**教训：改 stub/C++ 后必须跑原生 selftest，不能只跑 PHP 层门禁。** |
 
 ## Notes
 - gpui-kit-cpp 的 component_shell 层已经实现了 QuickJS 脚本绑定（ScriptView/ShellRuntime/RenderSnapshot/SpecNode），这是最接近"用脚本语言描述 UI"的先例。TypePHP 桥接可以参考 SpecNode/ComponentKind 的设计，把 PHP 数组翻译成 SpecNode 再 ShellMaterialize 成 El 树。
