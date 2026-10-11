@@ -61,6 +61,7 @@ function patchManifest(): array {
         ['patch-retained.sh',      "$gpui/src/shell/runtime.cpp",    'CreateRetainedInput'],
         ['patch-focus.sh',         "$gpui/src/shell/runtime.cpp",    'CreateRetainedFocus'],
         ['patch-registered-cb.sh', "$gpui/src/shell/runtime.cpp",    'PushShimCallback'],
+        ['patch-dispatch-cb.sh',   "$gpui/src/shell/runtime.cpp",    'typephp-gpui: shim route (DispatchArgs)'],
     ];
 }
 
@@ -100,7 +101,7 @@ switch ($cmd) {
         if (!is_file($yml)) { err("找不到示例配置：$yml"); exit(1); }
 
         // 1) 补丁（幂等）——含 Stage D 的 registered-cb。
-        foreach (['patch-nano.sh', 'patch-view.sh', 'patch-retained.sh', 'patch-focus.sh', 'patch-registered-cb.sh'] as $p) {
+        foreach (['patch-nano.sh', 'patch-view.sh', 'patch-retained.sh', 'patch-focus.sh', 'patch-registered-cb.sh', 'patch-dispatch-cb.sh'] as $p) {
             $rc = run("bash $root/cmd/$p");
             if ($rc !== 0) { err("补丁失败：$p"); exit($rc); }
         }
