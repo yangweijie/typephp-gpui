@@ -238,6 +238,82 @@ void testCapabilityGates() {
     CHECK(copyOut(nullptr, 8, gpui::Str("x")) == 0);
 }
 
+// 6) 缺口服务：解压要读得懂**外部真数据**，HTTP 判据要只认 http(s)。
+//    那两串向量是开发机上 PHP 的 zlib 生成的 "hello gpui" 容器，与
+//    examples/hello 的 selftest 第 13 步、tests/SystemTest.php 的 inflate 那条用的是
+//    同一批字节 —— 三方钉一处：gpui 的解压器、gpui 侧的 C++ 调用、PHP 自己的 zlib。
+void testGapServices() {
+    std::puts("gap services");
+    const char plain[] = "hello gpui";
+    const int plainLen = 10;
+    static const uint8_t kZlib[] = {
+        0x78, 0x9C, 0xCB, 0x48, 0xCD, 0xC9, 0xC9, 0x57,
+        0x48, 0x2F, 0x28, 0xCD, 0x04, 0x00, 0x15, 0x74, 0x03, 0xEA};
+    static const uint8_t kGzip[] = {
+        0x1F, 0x8B, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x13, 0xCB, 0x48,
+        0xCD, 0xC9, 0xC9, 0x57, 0x48, 0x2F, 0x28, 0xCD, 0x04, 0x00, 0x52, 0x1A,
+        0x59, 0x50, 0x0A, 0x00, 0x00, 0x00};
+
+    gpui::Str out{};
+    gpui::Str msg{};
+    CHECK(gpui::shell::ZlibInflate(
+        gpui::Str((const char*)kZlib, (int)sizeof(kZlib)), false, &out, &msg));
+    CHECK(out.len == plainLen);
+    CHECK(out.s && std::memcmp(out.s, plain, (size_t)plainLen) == 0);
+    if (out.s) base::StrFree(out);
+    if (msg.s) base::StrFree(msg);
+    out = {}; msg = {};
+
+    CHECK(gpui::shell::ZlibInflate(
+        gpui::Str((const char*)kGzip, (int)sizeof(kGzip)), true, &out, &msg));
+    CHECK(out.len == plainLen);
+    CHECK(out.s && std::memcmp(out.s, plain, (size_t)plainLen) == 0);
+    if (out.s) base::StrFree(out);
+    if (msg.s) base::StrFree(msg);
+    out = {}; msg = {};
+
+    // 坏数据：报失败，不能崩、也不能吐出东西来。
+    CHECK(!gpui::shell::ZlibInflate(gpui::Str("not a zlib stream"), false, &out,
+                                    &msg));
+    CHECK(out.s == nullptr || out.len == 0);
+    if (out.s) base::StrFree(out);
+    if (msg.s) base::StrFree(msg);
+    out = {}; msg = {};
+
+    // 回环 + 互操作前提：ZlibDeflate 写的是 stored 块（不压缩），但容器得自洽且
+    // 头是对的——否则"只加壳"这个说法本身就不成立。
+    gpui::Str packed{};
+    gpui::Str e1{};
+    CHECK(gpui::shell::ZlibDeflate(gpui::Str(plain), false, &packed, &e1));
+    CHECK(packed.len > 2);
+    CHECK(packed.s && (uint8_t)packed.s[0] == 0x78);
+    CHECK(gpui::shell::ZlibInflate(packed, false, &out, &msg));
+    CHECK(out.len == plainLen);
+    CHECK(out.s && std::memcmp(out.s, plain, (size_t)plainLen) == 0);
+    if (out.s) base::StrFree(out);
+    if (msg.s) base::StrFree(msg);
+    if (packed.s) base::StrFree(packed);
+    if (e1.s) base::StrFree(e1);
+    out = {}; msg = {}; packed = {}; e1 = {};
+
+    CHECK(gpui::shell::ZlibDeflate(gpui::Str(plain), true, &packed, &e1));
+    CHECK(packed.s && (uint8_t)packed.s[0] == 0x1F && (uint8_t)packed.s[1] == 0x8B);
+    CHECK(gpui::shell::ZlibInflate(packed, true, &out, &msg));
+    CHECK(out.len == plainLen);
+    if (out.s) base::StrFree(out);
+    if (msg.s) base::StrFree(msg);
+    if (packed.s) base::StrFree(packed);
+    if (e1.s) base::StrFree(e1);
+
+    // HttpUrlIsRemote：http(s) 之外一律不试。
+    CHECK(gpui::HttpUrlIsRemote(gpui::Str("https://example.com")));
+    CHECK(gpui::HttpUrlIsRemote(gpui::Str("http://h/p?q#f")));
+    CHECK(!gpui::HttpUrlIsRemote(gpui::Str("data:text/plain,hi")));
+    CHECK(!gpui::HttpUrlIsRemote(gpui::Str("ftp://h/f")));
+    CHECK(!gpui::HttpUrlIsRemote(gpui::Str("//h/x")));
+    CHECK(!gpui::HttpUrlIsRemote(gpui::Str("")));
+}
+
 } // namespace
 
 int main() {
@@ -246,6 +322,7 @@ int main() {
     testToComponentArg();
     testBuildComponentArgs();
     testCapabilityGates();
+    testGapServices();
     if (g_failures) {
         std::fprintf(stderr, "SHIM CPP TESTS FAIL (%d)\n", g_failures);
         return 1;

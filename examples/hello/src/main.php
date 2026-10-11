@@ -16,6 +16,10 @@ function main(int $argc, array $argv): void
         runSelfTest();
         return;
     }
+    if (in_array('--caps', $argv, true)) {
+        runCaps();
+        return;
+    }
     $shotIdx = array_search('--shot', $argv, true);
     if ($shotIdx !== false) {
         $path = isset($argv[$shotIdx + 1]) ? (string) $argv[$shotIdx + 1] : '/tmp/hello.png';
@@ -200,11 +204,110 @@ function runSelfTest(): void
     $sheetClosed = $app->closeSheet();
     $ok = $ok && $sheetOpened === 1 && $sheetDuring && $sheetClosed && $app->hasSheet() === false;
 
+    // 12) WebView：ChildView + host 注册的 nested view 真建出了 OS 控件。
+    //     探针读的是 wry 报的当前地址与应用盒子（不是 shim 自己记的数）。--shot 里
+    //     webview 那块是空白——离屏 cacheDisplayInRect 合成不了跨进程表面——所以这条
+    //     才是它的机器验收口；"在屏真看得见"仍属人看项。
+    $app->render(El::vFlex([
+        El::webviewHtml('<html><body style="margin:0;background:#1e6fd9">wv</body></html>', 'wv'),
+    ])->sizeFull());
+    $app->loop(3);
+    $probe = $app->webviewProbe('wv');
+    $navBack = $app->webviewBack('wv');
+    $navFwd = $app->webviewForward('wv');
+    $ok = $ok && $probe['ok'] && $probe['w'] > 0 && $probe['h'] > 0 && $navBack && $navFwd;
+
+    // 13) 解压：喂**外部真数据**——这两串是开发机上 PHP 的 zlib 生成的 "hello gpui"
+    //     的 zlib / gzip 容器（不是 gpui 自己写的 stored 壳），所以它量的是
+    //     "gpui 的解压器读得懂标准 deflate 流"。字节用转义写死，不依赖 hex2bin。
+    $plain = 'hello gpui';
+    $zlib = "\x78\x9C\xCB\x48\xCD\xC9\xC9\x57\x48\x2F\x28\xCD\x04\x00\x15\x74\x03\xEA";
+    $gzip = "\x1F\x8B\x08\x00\x00\x00\x00\x00\x00\x13\xCB\x48\xCD\xC9\xC9\x57\x48"
+        . "\x2F\x28\xCD\x04\x00\x52\x1A\x59\x50\x0A\x00\x00\x00";
+    $infZ = App::inflate($zlib);
+    $infG = App::inflate($gzip, true);
+    $infBad = App::inflate('not a zlib stream');
+    $ok = $ok && $infZ === $plain && $infG === $plain && $infBad === null;
+
+    // 14) 目录监听：走 gpui 自己的测试接缝（DirWatchAdd + DirWatchSignal），完全不碰
+    //     文件系统，验的是"信号 → 主线程 post → 入队 → poll → dispatch"整条路。
+    //     OS 那一半（FSEvents/inotify/ReadDirectoryChangesW）是 gpui 自己的代码。
+    $watchHits = 0;
+    $app->on('themes', 'dirChange', function () use (&$watchHits): void {
+        $watchHits++;
+    });
+    $watchId = \gpui_watch_fake($win, 'themes');
+    $app->loop(5);
+    $ok = $ok && $watchId > 0 && $watchHits > 0;
+
+    // 15) HTTP 路由：打一个 loopback 上必然没人监听的端口（127.0.0.1:1），于是整条
+    //     异步路（executor → 主线程 done → 入队 → poll → 取应答）都走通而不碰外网。
+    //     断言的是"应答事件到了 + 取到的内容是 ok=false/status=0"，不是"能上网"。
+    $httpHits = 0;
+    $app->on('probe', 'http', function () use (&$httpHits): void {
+        $httpHits++;
+    });
+    $schemeRejected = $app->httpGet('data:text/plain,hi', 'probe') === false;
+    $queued = $app->httpGet('http://127.0.0.1:1/nope', 'probe');
+    $app->loop(60);
+    $resp = $app->httpResponse('probe');
+    $again = $app->httpResponse('probe');
+    $ok = $ok && $schemeRejected && $queued && $httpHits > 0
+        && $resp !== null && $resp['ok'] === false && $resp['status'] === 0
+        && $again === null;
+
     echo $ok
-        ? "SELFTEST OK (input + click + timer hits={$timerHits} + dialog + registered-cb + err-channel + appmenu + clipboard + urlgate + fps + sheet)\n"
-        : "SELFTEST FAIL (input='{$got}' fired=" . ($fired ? '1' : '0') . " clicks={$clicks} timer={$timerHits} dlg=$before/$opened/$during/$after ddcb=" . ($ddFired ? '1' : '0') . "/{$ddFires} err='$err' menu=$menuN/$menuCount clip='$clip' want='$payload' fps=$fps1/$fpsVis/$fps2/$fpsOff/$fpsAgain sheet=$sheetOpened/" . ($sheetDuring ? '1' : '0') . "/" . ($sheetClosed ? '1' : '0') . ")\n";
+        ? sprintf(
+            "SELFTEST OK (input + click + timer hits=%d + dialog + registered-cb + err-channel"
+            . " + appmenu + clipboard + urlgate + fps + sheet + webview %.0fx%.0f"
+            . " + inflate + dirChange x%d + http ok=%s/%d)\n",
+            $timerHits,
+            $probe['w'],
+            $probe['h'],
+            $watchHits,
+            $resp === null ? 'null' : var_export($resp['ok'], true),
+            $resp === null ? -1 : $resp['status']
+        )
+        : "SELFTEST FAIL (input='{$got}' fired=" . ($fired ? '1' : '0') . " clicks={$clicks} timer={$timerHits} dlg=$before/$opened/$during/$after ddcb=" . ($ddFired ? '1' : '0') . "/{$ddFires} err='$err' menu=$menuN/$menuCount clip='$clip' want='$payload' fps=$fps1/$fpsVis/$fps2/$fpsOff/$fpsAgain sheet=$sheetOpened/" . ($sheetDuring ? '1' : '0') . "/" . ($sheetClosed ? '1' : '0') . " wv=" . json_encode($probe) . " inf=" . var_export([$infZ, $infG, $infBad], true) . " watch=$watchId/$watchHits http=" . ($schemeRejected ? '1' : '0') . "/$queued/$httpHits/" . json_encode($resp) . ")\n";
     $app->close();
     exit($ok ? 0 : 1);
+}
+
+/**
+ * --caps：让编译产物自己报哪些原生能力已经在 PHP 侧可用。
+ *
+ * 存在的理由：桥一个 PHP 本来就有的函数是净负价值（多一条 C ABI、多一个会漂移的
+ * 替身实现）。"纯计算/压缩/网络"这类服务要不要接，看这张表的结果定，不看上游文档
+ * 或 nano 文档的措辞。退出码恒 0，输出供人读。
+ *
+ * 判据是 function_exists，不是"真调用一次"：这里试过用调用当判据，结果撞到一个
+ * nano 的行为差异——把不存在的函数名放进变量再 `$fn()` 走的是回调路径，报
+ * `Invalid callback ... not found or invalid function name` 并 **abort（SIGABRT）**，
+ * 不抛可 catch 的 Error。nano 的扩展集是 Composer 在编译前定的，不是按源码用没用裁的，
+ * 所以 function_exists 就是忠实探针。
+ */
+function runCaps(): void
+{
+    $groups = [
+        'hash' => ['hash', 'hash_hmac'],
+        'random' => ['random_bytes', 'random_int'],
+        'zlib' => ['gzcompress', 'gzuncompress', 'gzencode', 'gzdecode'],
+        'curl' => ['curl_init', 'curl_exec'],
+        'socket' => ['socket_create', 'stream_socket_client'],
+        'proc' => ['proc_open', 'exec'],
+        'fs' => ['file_get_contents', 'scandir', 'touch'],
+        'dirwatch' => ['inotify_add_watch'],
+    ];
+    foreach ($groups as $name => $fns) {
+        $have = [];
+        foreach ($fns as $fn) {
+            if (function_exists($fn)) {
+                $have[] = $fn;
+            }
+        }
+        printf("%-8s %s\n", $name, $have === [] ? '-' : implode(', ', $have));
+    }
+    exit(0);
 }
 
 /**
@@ -351,6 +454,24 @@ function runShot(string $path, int $tree = 0): void
             29 => El::vFlex([
                 El::text('Inspector host')->font(18.0)->semibold(),
             ])->p(16.0)->gap(8.0)->itemsStart(),
+            30 => El::vFlex([
+                El::text('WebView host')->font(18.0)->semibold(),
+                // 本地 HTML：不联网、内容确定，才配当回归基线。
+                El::webviewHtml(
+                    '<html><head><style>html,body{margin:0;background:#1e6fd9;'
+                    . 'color:#fff;font:700 42px/1.6 -apple-system,sans-serif;'
+                    . 'text-align:center}</style></head><body>GPUI WEBVIEW</body></html>',
+                    'wv1'
+                )->w(520.0)->h(360.0),
+            ])->p(16.0)->gap(12.0)->itemsStart(),
+            31 => El::hFlex([
+                El::vFlex([
+                    El::text('被检查的内容')->font(18.0)->semibold(),
+                    El::input()->id('probe')->placeholder('type here')->onChange(),
+                ])->flex1()->p(16.0)->gap(8.0)->itemsStart(),
+                // DevTools 面板停靠在右边：⌘I 只开拾取模式，面板本体得这样摆。
+                El::inspector('devtools')->w(320.0),
+            ])->sizeFull(),
             default => El::vFlex([
                 El::text('Hello, World!')->font(20.0)->semibold(),
                 El::text('Clicked: 0 times — vol: 30')->font(14.0),
@@ -404,6 +525,13 @@ function runShot(string $path, int $tree = 0): void
         // inspector 没有可读的状态查询，所以它的验收只能是像素：开→出图。
         $app->toggleInspector();
         echo "inspector_toggled=1\n";
+        $app->loop(3);
+    }
+    if ($tree === 31) {
+        // 面板只在 inspector 开着的时候画：component::Inspector::IntoEl() 关着返回
+        // null（inspector.h:63 的契约），所以这张图得先开拾取模式。
+        $app->toggleInspector();
+        echo "inspector_panel_toggled=1\n";
         $app->loop(3);
     }
     echo "--- debug tree (tree={$tree}) ---\n" . \gpui_debug_tree($app->handle()) . "\n---\n";

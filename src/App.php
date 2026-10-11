@@ -301,6 +301,113 @@ final class App
         return (bool) \gpui_fps_visible($this->handle());
     }
 
+    /**
+     * 内嵌浏览器历史后退（页内 history.back()）。$id 是 El::webview() 给的那个 id；
+     * 该 id 还没渲染出 webview 时返回 false。换地址不用这里——改 El::webview($url, $id)
+     * 的 $url 即可，同一 id 复用同一个控件、走 load 而不是重建。
+     */
+    public function webviewBack(string $id): bool
+    {
+        return (bool) \gpui_webview_nav($this->handle(), $id, -1);
+    }
+
+    /** 内嵌浏览器历史前进。见 webviewBack()。 */
+    public function webviewForward(string $id): bool
+    {
+        return (bool) \gpui_webview_nav($this->handle(), $id, 1);
+    }
+
+    /**
+     * 读内嵌浏览器**控件自己**报的状态：['ok'=>bool,'url'=>string,'w'=>float,'h'=>float]。
+     * w/h 是元素布局那一帧真正应用给 OS 控件的盒子（逻辑点），不是 PHP 侧记的数。
+     *
+     * 为什么需要它：webview 是盖在窗口上的 OS 控件、不是 gpui 画的，离屏截图
+     * （cacheDisplayInRect）合成不了跨进程表面，所以 --shot 里它那块是空白。空白既
+     * 可能是"控件没建成"也可能是"建成了但抓不到"——这条把它们分开。在屏是否真显示
+     * 仍需人看。
+     *
+     * @return array{ok:bool,url:string,w:float,h:float}
+     */
+    public function webviewProbe(string $id): array
+    {
+        /** @var array{ok?:bool,url?:string,w?:float,h?:float} $raw */
+        $raw = \gpui_webview_probe($this->handle(), $id);
+        return [
+            'ok' => (bool) ($raw['ok'] ?? false),
+            'url' => (string) ($raw['url'] ?? ''),
+            'w' => (float) ($raw['w'] ?? 0),
+            'h' => (float) ($raw['h'] ?? 0),
+        ];
+    }
+
+    // ── 缺口服务：HTTP / 目录监听 / 解压 ──
+
+    /**
+     * 发一个异步 HTTP GET。$id 是这次请求的标识，应答落地时收到
+     * ['type'=>'http','id'=>$id] 事件，再用 httpResponse($id) 读内容。
+     * 走 gpui 的异步路（HttpSend 阻塞，绝不能在渲染期间调）。url 必须是 http(s)，
+     * 否则返回 false 且不发请求。
+     */
+    public function httpGet(string $url, string $id): bool
+    {
+        return (bool) \gpui_http_get($this->handle(), $id, $url);
+    }
+
+    /**
+     * 取回并丢掉一条已落地的应答：['ok'=>bool,'status'=>int,'body'=>string,'contentType'=>string]。
+     * 没有这个 id（或已经读过）返回 null。body 是原始字节，二进制安全。
+     *
+     * @return array{ok:bool,status:int,body:string,contentType:string}|null
+     */
+    public function httpResponse(string $id): ?array
+    {
+        /** @var array{ok?:bool,status?:int,body?:string,contentType?:string} $raw */
+        $raw = \gpui_http_response($this->handle(), $id);
+        if ($raw === []) {
+            return null;
+        }
+        return [
+            'ok' => (bool) ($raw['ok'] ?? false),
+            'status' => (int) ($raw['status'] ?? 0),
+            'body' => (string) ($raw['body'] ?? ''),
+            'contentType' => (string) ($raw['contentType'] ?? ''),
+        ];
+    }
+
+    /**
+     * 监听一个目录（非递归）。有文件被创建/写入/改名/删除时收到
+     * ['type'=>'dirChange','id'=>$id]；一串连续变更由 gpui 合并成一次通知，
+     * 且不报告是哪个文件——上游唯一的用法（主题热重载）就是整目录重扫。
+     *
+     * @return int watch id（>0）；失败返回 0
+     */
+    public function watchDir(string $dir, string $id, bool $create = false): int
+    {
+        return (int) \gpui_watch_dir($this->handle(), $id, $dir, $create);
+    }
+
+    public function unwatchDir(int $watchId): void
+    {
+        \gpui_unwatch_dir($this->handle(), $watchId);
+    }
+
+    /**
+     * 解 zlib（$gzip=false）或 gzip（$gzip=true）的字节；解不开返回 null。
+     *
+     * 为什么要桥它：TypePHP nano 产物里没有 ext/zlib（`hello --caps` 实测
+     * gzcompress/gzdecode 全空）。压缩侧故意不接——gpui 的 ZlibDeflate 写 stored 块，
+     * 只加壳不压缩，接过来是个骗人的 API。
+     */
+    public static function inflate(string $data, bool $gzip = false): ?string
+    {
+        /** @var array{ok?:bool,data?:string,error?:string} $raw */
+        $raw = \gpui_inflate($data, $gzip);
+        if (!($raw['ok'] ?? false)) {
+            return null;
+        }
+        return (string) ($raw['data'] ?? '');
+    }
+
     // ── 事件循环 ──
 
     /**

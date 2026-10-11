@@ -165,6 +165,68 @@ int gpui_shim_sheet_show(void* win, void* dlg, const char* anchor);
 int gpui_shim_close_sheet(void* win);
 int gpui_shim_has_sheet(void* win);
 
+/* WebView：一个 OS 控件盖在窗口上（不是 gpui 画的），按 elementId 常驻。
+ * 返回 ChildView 节点的 spec id，样式/挂父与普通节点一样走 push/attach 那套。
+ * 首次渲染时才真建（gpui::WebViewNew 靠跑窗口消息循环来建，所以"已建"标志必须先落，
+ * 见 webview.h:118-123）；之后换内容走 load（url 优先于 html），不重建控件。
+ * url 与 html 都为空 = 建一个空白控件不加载任何东西。 */
+uint32_t gpui_shim_webview(void* win, const char* id, const char* url,
+                           const char* html);
+/* 历史导航：dir=-1 后退、+1 前进（在页内 eval history.back()/forward()）。
+ * 该 id 还没有 webview 时返回 0。 */
+int gpui_shim_webview_nav(void* win, const char* id, int dir);
+/* 探针：读**控件自己**报的状态，不是 shim 记的数。
+ * 有 webview 时返回 1，并填 outUrl（当前地址，至多 outlen-1 字节）、
+ * outW/outH（WebViewEl 上一帧真正应用给 OS 控件的盒子，逻辑点）。
+ * 用途是把"像素是空白"和"控件根本没建成"区分开——离屏 cacheDisplayInRect 抓不到
+ * WKWebView 这种跨进程表面，所以它的验收只能靠这里 + 在屏人看。 */
+int gpui_shim_webview_probe(void* win, const char* id, char* outUrl, int outlen,
+                            double* outW, double* outH);
+
+/* 窗口 inspector（DevTools）面板，作为元素挂进树——与 ⌘I 那个是同一套组件，
+ * ⌘I 是"拾取模式开关"、看不到面板本体（gpui 也没有面板开合的查询接口）。
+ * 按 id 各持一个 nested view：同一帧里放两个 inspector 节点会渲染两次，若共用一个
+ * entity 就会把同一个 El* 交给两个父节点。 */
+uint32_t gpui_shim_inspector(void* win, const char* id);
+
+/* ── 缺口服务：HTTP / 目录监听 / 解压 ─────────────────────────────────────
+ * 这三样在编译产物里 PHP 侧没有（`hello --caps` 实测 curl/socket/inotify/zlib 全空），
+ * 所以桥它们是真补位；sha256/random 反过来不桥，因为 hash()/random_bytes() 本来就在。 */
+
+/* 异步 HTTP GET。起得来返回 1，应答稍后经 {type:'http', id:phpId} 事件到达。
+ * url 必须是 http(s)（gpui 自己的 HttpUrlIsRemote 判），否则返回 0 且不发。
+ * 走 gpui::HttpSendAsync：HttpSend 阻塞、绝不能在 UI 线程调（sys/http.h:18），
+ * 而 done 保证在主线程被调（http.h:100），所以入队无需加锁。 */
+int gpui_shim_http_get(void* win, const char* php_id, const char* url);
+/* 取已落地的应答。返回 body 字节数；out 为 NULL 时是 dry run，只回所需长度，
+ * 用来定缓冲。没有这个 id 返回 -1。
+ * outStatus 写 HTTP 状态（0 = 没拿到），outOk 写传输是否完成（真 = 服务器答了）。
+ * 记录不在此处销毁（要销毁得等调用方读完），由 gpui_shim_http_free 收走；
+ * 未读的应答会攒着，所以 PHP 侧收到 http 事件就该读掉。 */
+int gpui_shim_http_response(void* win, const char* php_id, char* out, int outcap,
+                            int* outStatus, int* outOk, char* outCt, int ctCap);
+/* 丢掉某条应答。返回 1 = 确实删掉了一条。 */
+int gpui_shim_http_free(void* win, const char* php_id);
+
+/* 起一个目录监听。成功返回 watch id（>0），失败返回 0。变更经
+ * {type:'dirChange', id:phpId} 通知；突发由 gpui 合并成一次调用，主线程派发。
+ * 不报告是哪个文件、怎么变的——上游唯一的调用方（主题热重载）就是整目录重扫。 */
+int gpui_shim_watch_dir(void* win, const char* php_id, const char* dir,
+                        int create);
+/* 停监听。onChange 不会再被调，即便已经排了一次。未知/0 号忽略。 */
+void gpui_shim_unwatch_dir(void* win, int watch_id);
+/* 测试接缝：建一个没有 OS 半的 watch（gpui::DirWatchAdd）并立刻打一次信号
+ * （DirWatchSignal），于是"信号 → 主线程 post → 入队 → poll"整条路走通而完全不碰
+ * 文件系统。dir_watch.h:86 写明这正是它存在的理由。 */
+int gpui_shim_watch_fake(void* win, const char* php_id);
+
+/* 解 zlib / gzip（gpui::shell::ZlibInflate，真解 Huffman）。
+ * 返回所需输出字节数；out 为 NULL 时是 dry run。失败返回 -1 并把原因写进 err。
+ * 为什么只接解压不接压缩：shell::ZlibDeflate 写的是 stored 块（DeflateStored），
+ * 只加壳不压缩，接过来会是个名字骗人的 API。 */
+int gpui_shim_inflate(const char* in, int inlen, int gzip, char* out, int outcap,
+                      char* err, int errcap);
+
 /* 渲染一帧 = 重放一遍扁平 spec 指令序列。begin 清空 arena。 */
 void gpui_shim_render_begin(void* win);
 /* 压入一个组件节点，返回其 spec id；kind 是字符串（div/text/button/...）。

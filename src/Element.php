@@ -156,6 +156,51 @@ class Element
         return $e;
     }
 
+    /**
+     * 内嵌浏览器（WKWebView / WebView2 / WebKitGTK 那一层）。$url 是地址，$id 是
+     * 跨帧定位用的元素 id——同一个 id 复用同一个控件，换 url 走 load 而不是重建。
+     *
+     * ⚠ 它不是 gpui 画的：盖住元素树里排在它后面的东西、不随容器滚动、没有圆角，
+     * 所以要给它自己的一块盒子。
+     *
+     * 不要链式 `->id()`：那会多记一个 method('id') op，而 ChildView 节点不接方法。
+     */
+    public static function webview(string $url, string $id = ''): self
+    {
+        $e = new self();
+        $e->kind = 'webview';
+        $e->value = $url;
+        $e->id = $id;
+        return $e;
+    }
+
+    /**
+     * 内嵌浏览器，内容是一段本地 HTML（不联网、内容确定，才配当回归对照）。
+     * 同一个 id 换 $html 会走 load 而不是重建控件；同一帧里 url 和 html 都给时以
+     * url 为准。
+     */
+    public static function webviewHtml(string $html, string $id = ''): self
+    {
+        $e = new self();
+        $e->kind = 'webview';
+        $e->text = $html;
+        $e->id = $id;
+        return $e;
+    }
+
+    /**
+     * 把 DevTools（元素 inspector）作为一块面板挂进自己的布局里。
+     * 与 ⌘I / App::toggleInspector() 是同一套组件——但那个只是"拾取模式开关"，
+     * 面板本体得由这里摆出来。story 里的用法就是把它停靠在右侧。
+     */
+    public static function inspector(string $id = ''): self
+    {
+        $e = new self();
+        $e->kind = 'inspector';
+        $e->id = $id;
+        return $e;
+    }
+
     public static function link(string $label, string $href = ''): self
     {
         $e = new self();

@@ -135,3 +135,29 @@ function gpui_close_sheet(mixed $window): bool {}
 
 /** 当前是否有打开的 Sheet。 */
 function gpui_has_sheet(mixed $window): bool {}
+
+/** 内嵌浏览器历史导航：$dir<0 后退、$dir>0 前进。该 id 没有 webview 时返回 false。 */
+function gpui_webview_nav(mixed $window, string $id, int $dir): bool {}
+
+/** 内嵌浏览器控件自己报的状态：['ok'=>bool,'url'=>string,'w'=>float,'h'=>float]。 */
+function gpui_webview_probe(mixed $window, string $id): array {}
+
+/* ─────────────────────── 缺口服务：HTTP / 目录监听 / 解压 ─────────────────────── */
+
+/** 异步 HTTP GET。应答经 ['type'=>'http','id'=>$id] 事件到达；url 非 http(s) 返回 false。 */
+function gpui_http_get(mixed $window, string $id, string $url): bool {}
+
+/** 取回并丢掉一条已落地的应答：['ok','status','body','contentType']；没有这条返回空数组。 */
+function gpui_http_response(mixed $window, string $id): array {}
+
+/** 监听目录（非递归），成功返回 watch id>0、失败 0；变更收到 ['type'=>'dirChange','id']。 */
+function gpui_watch_dir(mixed $window, string $id, string $dir, bool $create): int {}
+
+/** 停止监听。未知/0 号忽略。 */
+function gpui_unwatch_dir(mixed $window, int $watchId): void {}
+
+/** 测试接缝：不碰文件系统走一遍"信号→主线程→入队"（gpui 的 DirWatchAdd）。 */
+function gpui_watch_fake(mixed $window, string $id): int {}
+
+/** 解 zlib/gzip：['ok'=>bool,'data'=>string,'error'=>string]。nano 里没有 gz* 函数。 */
+function gpui_inflate(string $data, bool $gzip): array {}

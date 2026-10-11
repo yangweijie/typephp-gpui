@@ -19,6 +19,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <deque>
+#include <memory>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -45,6 +46,9 @@ gpui::ShellRuntime* g_runtime = nullptr;
 bool g_runtimeReady = false;
 
 // 一个窗口的全部状态。对 bridge 是 opaque void*。
+struct WebViewView;  // 定义在 PhpView 之后；Box2 只存它的指针。
+struct WatchCtx;     // 同上：目录监听的一条 watch 上下文。
+
 class Box2 {
   public:
     gpui::Window* window = nullptr;
@@ -75,6 +79,34 @@ class Box2 {
     bool closed = false;
     // 打开的 dialog 内容 Box2（保活到窗口析构；demo 规模够用）。
     std::vector<Box2*> dialogs;
+    // elementId → WebView 包装 view。holder entity 由本 Box 建、也必须由本 Box 在
+    // AppClose **之前**显式 drop：ChildView 每帧只是 EntityRender，不接管生命周期，
+    // 而 webview.h:50-51 要求 OS 控件在父窗口销毁前放手。
+    struct WebEntry {
+        gpui::EntityId holder = {};
+        uint64_t token = 0;
+        WebViewView* view = nullptr;  // 由 holder 的 deleter 释放，不自己 delete
+    };
+    std::unordered_map<std::string, WebEntry> webviews;
+    // elementId → inspector 面板的 holder。面板本身无跨帧状态（每帧 New→IntoEl），
+    // 这里要的只是一个能 EntityRender 的挂载点；按 id 各持一个，避免同一帧里两个
+    // inspector 节点把同一个 El* 交给两个父节点。
+    struct InspEntry {
+        gpui::EntityId holder = {};
+        uint64_t token = 0;
+    };
+    std::unordered_map<std::string, InspEntry> inspectors;
+    // 已落地的 http 应答：phpId → 内容。body 自己拷了一份（HttpAsyncResult.response
+    // 只在回调期间有效，http.h:95），所以拷贝必须发生在回调里。
+    struct HttpResponse {
+        bool ok = false;
+        int status = 0;
+        std::string body;        // 二进制安全，可以含 '\0'
+        std::string contentType;
+    };
+    std::unordered_map<std::string, HttpResponse> httpResponses;
+    // 目录监听：watch id → 该 watch 的堆上下文（onChange 靠它反查 phpId 与 box）。
+    std::unordered_map<int, WatchCtx*> watchCtx;
 
     // 幂等：同 (elementId,type) 复用同一 callbackId，避免每帧无限增长。
     // (id,type) 是 App->on 的路由键，本就一对一映射到一个 handler，复用安全。
@@ -424,6 +456,113 @@ struct PhpView {
     }
 };
 
+// WebView 的包装 view。`gpui::WebView` 自己**不是** view：webview.cpp:95 用
+// EntityNewState 建它，注释写明 "a WebView has no Render of its own here, since
+// WebViewEl hands the element to whoever wants it"。而 ChildView 走的是
+// EntityRender，所以要有这么一层把 WebViewEl 交出去。
+struct WebViewView {
+    std::string key;
+    std::string wantUrl;    // PHP 这一帧要的地址
+    std::string wantHtml;   // 或这段本地 HTML
+    std::string loadedUrl;  // 已经交给控件的内容，用来判"这一帧要不要再喂一次"
+    std::string loadedHtml;
+    bool started = false;
+    gpui::Entity<gpui::WebView> web = {};
+
+    static gpui::El* Render(void* self, gpui::Ctx* cx) {
+        WebViewView* v = static_cast<WebViewView*>(self);
+        if (!v || !cx || !cx->a) return nullptr;
+        if (!v->started) {
+            // 标志必须先落再建：WebViewNew 靠跑窗口消息循环来创建控件，本次调用的那一帧
+            // 可能在它返回之前被重建第二次（webview.h:118-123）。
+            v->started = true;
+            wry::WebViewAttributes attrs;
+            // 空 Str 才是"没设"；设了空串是 Some("")，会被当成一个真地址去加载。
+            if (!v->wantUrl.empty()) attrs.url = cppStr(v->wantUrl);
+            if (!v->wantHtml.empty()) attrs.html = cppStr(v->wantHtml);
+            v->web = gpui::WebViewNew(cx, &attrs);
+            v->loadedUrl = v->wantUrl;
+            v->loadedHtml = v->wantHtml;
+        } else if (v->web.id.IsValid()) {
+            gpui::WebView* w = v->web.Get(cx->app);
+            if (!w) return gpui::Div(cx->a);
+            // 换内容走 load，不重建控件——重建要再跑一次嵌套消息循环。url 优先：
+            // 同一帧里两个都变时，以地址为准。
+            if (!v->wantUrl.empty() && v->wantUrl != v->loadedUrl) {
+                gpui::WebViewLoadUrl(w, cppStr(v->wantUrl));
+                v->loadedUrl = v->wantUrl;
+                v->loadedHtml = v->wantHtml;
+            } else if (v->wantUrl.empty() && v->wantHtml != v->loadedHtml) {
+                if (wry::WebView* raw = gpui::WebViewRaw(w)) {
+                    wry::WebViewLoadHtml(raw, cppStr(v->wantHtml));
+                    v->loadedHtml = v->wantHtml;
+                }
+            }
+        }
+        if (!v->web.id.IsValid()) return gpui::Div(cx->a);
+        return gpui::Div(cx->a)->SizeFull()->Child(gpui::WebViewEl(v->web, cx));
+    }
+};
+
+// Inspector（DevTools）面板的包装 view。gpui 侧每帧 New→IntoEl 就够了
+// （examples/story/story.cpp:1961 的用法），所以这一层没有跨帧状态。
+struct InspectorView {
+    static gpui::El* Render(void* self, gpui::Ctx* cx) {
+        (void)self;
+        if (!cx || !cx->a) return nullptr;
+        gpui::component::Inspector* panel = gpui::component::Inspector::New(cx);
+        if (!panel) return gpui::Div(cx->a);
+        gpui::El* el = panel->IntoEl();
+        return el ? el : gpui::Div(cx->a);
+    }
+};
+
+// 一次在飞请求的上下文。done 保证在主线程被调（http.h:100），所以这里入队不需要锁。
+struct HttpCtx {
+    Box2* box;
+    std::string phpId;
+};
+
+// 目录监听的一条 watch 上下文。DirWatchStop 之后 onChange 不会再被调
+// （dir_watch.h:72 明说，即便已经排过一次），所以停掉就能释放。
+struct WatchCtx {
+    Box2* box;
+    std::string phpId;
+};
+
+void OnHttpDone(HttpCtx* ctx, gpui::HttpAsyncResult result) {
+    std::unique_ptr<HttpCtx> guard(ctx);  // 回调拥有它，出去就释放
+    if (!guard->box || guard->box->closed) return;
+    Box2::HttpResponse rec;
+    rec.ok = result.ok;
+    if (result.response) {
+        rec.status = result.response->status;
+        const gpui::Vec<uint8_t>& body = result.response->body;
+        if (body.els && body.len > 0)
+            rec.body.assign(reinterpret_cast<const char*>(body.els),
+                            static_cast<size_t>(body.len));
+        if (result.response->contentType.s &&
+            result.response->contentType.len > 0)
+            rec.contentType.assign(result.response->contentType.s,
+                                   static_cast<size_t>(
+                                       result.response->contentType.len));
+    }
+    Box2* box = guard->box;
+    const std::string id = guard->phpId;
+    box->httpResponses[id] = std::move(rec);
+    // 事件只报"这条 id 有答案了"，内容留给 gpui_shim_http_response 取——
+    // GpuiEvent 的 vstr 只有 256 字节，装不下应答体。
+    box->enqueueRaw("http", id.c_str(), GPUI_ARG_NUM,
+                    static_cast<double>(box->httpResponses[id].status),
+                    box->httpResponses[id].ok ? 1 : 0, nullptr);
+}
+
+void OnDirWatch(WatchCtx* ctx) {
+    if (!ctx || !ctx->box || ctx->box->closed) return;
+    ctx->box->enqueueRaw("dirChange", ctx->phpId.c_str(), GPUI_ARG_NIL, 0, 0,
+                         nullptr);
+}
+
 void ensureApp() {
     if (g_app) return;
     g_app = gpui::AppNew();
@@ -504,6 +643,30 @@ int gpui_shim_poll(void* win, GpuiEvent* out) {
 void gpui_shim_close(void* win) {
     auto* box = static_cast<Box2*>(win);
     if (!box) return;
+    // WebView 的 OS 控件必须在父窗口销毁之前放手（webview.h:50-51），所以这一段排在
+    // AppClose 前面。holder entity 不在 ShellRoot 的拆除路径里（ChildView 每帧只是
+    // EntityRender，不接管生命周期），只能自己 drop；先 drop WebView 再 drop holder，
+    // 因为 holder 的 deleter 会 delete WebViewView 本体。
+    for (auto& kv : box->webviews) {
+        Box2::WebEntry& e = kv.second;
+        if (e.view && e.view->web.id.IsValid())
+            gpui::EntityDrop(g_app, e.view->web.id);
+        if (e.holder.IsValid()) gpui::EntityDrop(g_app, e.holder);
+        e.holder = {};
+        e.view = nullptr;
+    }
+    box->webviews.clear();
+    for (auto& kv : box->inspectors) {
+        if (kv.second.holder.IsValid()) gpui::EntityDrop(g_app, kv.second.holder);
+    }
+    box->inspectors.clear();
+    // 目录监听：先 stop 再释放上下文。dir_watch.h:72 保证 stop 之后 onChange 不会再被
+    // 调（哪怕已经排过一次），所以这一步之后没人再持有 WatchCtx 指针。
+    for (auto& kv : box->watchCtx) gpui::DirWatchStop(kv.first);
+    for (auto& kv : box->watchCtx) delete kv.second;
+    box->watchCtx.clear();
+    // 未读的应答：body 是我们自己拷的 std::string，随 map 一起走。
+    box->httpResponses.clear();
     if (box->window) {
         gpui::AppClose(box->window);
         box->window = nullptr;  // AppClose 已撤窗口及其定时器；置空防后续误用
@@ -915,6 +1078,210 @@ int gpui_shim_has_sheet(void* win) {
     if (!box || !box->window) return 0;
     gpui::Ctx cx = overlayCtx(box);
     return gpui::ShellRootHasSheet(&cx) ? 1 : 0;
+}
+
+uint32_t gpui_shim_webview(void* win, const char* id, const char* url,
+                           const char* html) {
+    auto* box = static_cast<Box2*>(win);
+    if (!box || !box->window || !g_runtime) return 0;
+    std::string key = (id && *id) ? id : std::string("__webview");
+    Box2::WebEntry& e = box->webviews[key];
+    if (!e.holder.IsValid()) {
+        auto* view = new WebViewView();
+        view->key = key;
+        view->wantUrl = url ? url : "";
+        view->wantHtml = html ? html : "";
+        e.view = view;
+        e.holder = gpui::EntityNewRaw(
+            g_app, view, (gpui::RenderFn)&WebViewView::Render,
+            [](void* p) { delete static_cast<WebViewView*>(p); });
+        e.token = g_runtime->RegisterHostView(e.holder, g_app);
+        if (e.token == 0) {
+            // 注册失败（token 空间耗尽）：把刚建的实体放干净，别留一个没人渲染的 entity。
+            // 只 drop holder——它的 deleter 负责 delete WebViewView 本体，再 delete 一次
+            // 就是 double-free。
+            gpui::EntityDrop(g_app, e.holder);
+            e.holder = {};
+            e.view = nullptr;
+            return 0;
+        }
+    } else {
+        if (url) e.view->wantUrl = url;
+        if (html) e.view->wantHtml = html;
+    }
+    gpui::shell::Component c;
+    c.kind = gpui::shell::ComponentKind::ChildView;
+    c.handle = e.token;
+    return box->specs.Push(c);
+}
+
+int gpui_shim_webview_probe(void* win, const char* id, char* outUrl, int outlen,
+                            double* outW, double* outH) {
+    auto* box = static_cast<Box2*>(win);
+    if (outUrl && outlen > 0) outUrl[0] = '\0';
+    if (outW) *outW = 0;
+    if (outH) *outH = 0;
+    if (!box || !id || !g_app) return 0;
+    auto it = box->webviews.find(id);
+    if (it == box->webviews.end() || !it->second.view) return 0;
+    gpui::WebView* w = it->second.view->web.Get(g_app);
+    if (!w) return 0;
+    wry::WebView* raw = gpui::WebViewRaw(w);
+    if (!raw) return 0;
+    if (outUrl && outlen > 0) {
+        gpui::Str u = wry::WebViewUrlTemp(raw);
+        copyOut(outUrl, outlen, u);
+    }
+    wry::Rect r{};
+    if (wry::WebViewBounds(raw, &r)) {
+        if (outW) *outW = r.size.width;
+        if (outH) *outH = r.size.height;
+    }
+    return 1;
+}
+
+uint32_t gpui_shim_inspector(void* win, const char* id) {
+    auto* box = static_cast<Box2*>(win);
+    if (!box || !box->window || !g_runtime) return 0;
+    std::string key = (id && *id) ? id : std::string("__inspector");
+    Box2::InspEntry& e = box->inspectors[key];
+    if (!e.holder.IsValid()) {
+        e.holder = gpui::EntityNewRaw(
+            g_app, new InspectorView(), (gpui::RenderFn)&InspectorView::Render,
+            [](void* p) { delete static_cast<InspectorView*>(p); });
+        e.token = g_runtime->RegisterHostView(e.holder, g_app);
+        if (e.token == 0) {
+            // 只 drop holder：deleter 负责 delete InspectorView，再 delete 就是 double-free。
+            gpui::EntityDrop(g_app, e.holder);
+            e.holder = {};
+            return 0;
+        }
+    }
+    gpui::shell::Component c;
+    c.kind = gpui::shell::ComponentKind::ChildView;
+    c.handle = e.token;
+    return box->specs.Push(c);
+}
+
+// ── 缺口服务：HTTP / 目录监听 / 解压 ──────────────────────────────────────
+// HttpCtx / WatchCtx 与两个回调在上面的匿名 namespace 里：它们要碰 Box2，而 Box2
+// 是匿名类型，在外面再声明一次同名 struct 会让查找二义。
+
+int gpui_shim_http_get(void* win, const char* php_id, const char* url) {
+    auto* box = static_cast<Box2*>(win);
+    if (!box || !box->window || !php_id || !*php_id || !url || !*url) return 0;
+    gpui::Str u = cstr(url);
+    // 只放行 http/https：data:/file:/ftp: 归别人管（http.h:89）。
+    if (!gpui::HttpUrlIsRemote(u)) return 0;
+    gpui::HttpReq req{};
+    req.url = u;  // HttpSendAsync 返回前把字段拷走，借用的缓冲安全
+    auto* ctx = new HttpCtx{box, std::string(php_id)};
+    if (!gpui::HttpSendAsync(req, base::MkFunc1(OnHttpDone, ctx))) {
+        delete ctx;
+        return 0;
+    }
+    return 1;
+}
+
+int gpui_shim_http_response(void* win, const char* php_id, char* out, int outcap,
+                            int* outStatus, int* outOk, char* outCt, int ctCap) {
+    auto* box = static_cast<Box2*>(win);
+    if (!box || !php_id) return -1;
+    auto it = box->httpResponses.find(php_id);
+    if (it == box->httpResponses.end()) return -1;
+    const Box2::HttpResponse& r = it->second;
+    if (outStatus) *outStatus = r.status;
+    if (outOk) *outOk = r.ok ? 1 : 0;
+    if (outCt && ctCap > 0) copyOut(outCt, ctCap, cstr(r.contentType.c_str()));
+    int n = static_cast<int>(r.body.size());
+    if (!out || outcap <= 0) return n;
+    int m = n < outcap ? n : outcap;
+    if (m > 0) std::memcpy(out, r.body.data(), static_cast<size_t>(m));
+    return m;
+}
+
+int gpui_shim_http_free(void* win, const char* php_id) {
+    auto* box = static_cast<Box2*>(win);
+    if (!box || !php_id) return 0;
+    return box->httpResponses.erase(php_id) > 0 ? 1 : 0;
+}
+
+int gpui_shim_watch_dir(void* win, const char* php_id, const char* dir,
+                        int create) {
+    auto* box = static_cast<Box2*>(win);
+    if (!box || !php_id || !*php_id || !dir || !*dir) return 0;
+    auto* ctx = new WatchCtx{box, std::string(php_id)};
+    gpui::DirWatchError err = gpui::DirWatchError::None;
+    int id = gpui::DirWatchStart(cstr(dir), base::MkFunc0(OnDirWatch, ctx),
+                                 create != 0, &err);
+    if (id == 0) {
+        delete ctx;
+        return 0;
+    }
+    box->watchCtx[id] = ctx;
+    return id;
+}
+
+void gpui_shim_unwatch_dir(void* win, int watch_id) {
+    auto* box = static_cast<Box2*>(win);
+    if (!box || watch_id <= 0) return;
+    auto it = box->watchCtx.find(watch_id);
+    gpui::DirWatchStop(watch_id);
+    if (it != box->watchCtx.end()) {
+        delete it->second;
+        box->watchCtx.erase(it);
+    }
+}
+
+int gpui_shim_watch_fake(void* win, const char* php_id) {
+    auto* box = static_cast<Box2*>(win);
+    if (!box || !php_id || !*php_id) return 0;
+    auto* ctx = new WatchCtx{box, std::string(php_id)};
+    int id = gpui::DirWatchAdd(base::MkFunc0(OnDirWatch, ctx));
+    if (id == 0) {
+        delete ctx;
+        return 0;
+    }
+    box->watchCtx[id] = ctx;
+    gpui::DirWatchSignal(id);  // 排一次主线程回调；要 pump 一下才落地
+    return id;
+}
+
+int gpui_shim_inflate(const char* in, int inlen, int gzip, char* out, int outcap,
+                      char* err, int errcap) {
+    if (err && errcap > 0) err[0] = '\0';
+    if (!in || inlen < 0) return -1;
+    gpui::Str output{};   // 成功时是解出来的字节，调用方拷走后 StrFree
+    gpui::Str message{};  // 失败时是原因
+    bool ok = gpui::shell::ZlibInflate(gpui::Str(in, inlen), gzip != 0, &output,
+                                       &message);
+    if (!ok) {
+        copyOut(err, errcap > 0 ? errcap : 1, message);
+        if (message.s) gpui::StrFree(message);
+        if (output.s) gpui::StrFree(output);
+        return -1;
+    }
+    int n = output.len;
+    if (out && outcap > 0) {
+        int m = n < outcap ? n : outcap;
+        if (m > 0) std::memcpy(out, output.s, static_cast<size_t>(m));
+    }
+    if (output.s) gpui::StrFree(output);
+    if (message.s) gpui::StrFree(message);
+    return n;
+}
+
+int gpui_shim_webview_nav(void* win, const char* id, int dir) {
+    auto* box = static_cast<Box2*>(win);
+    if (!box || !id || !g_app) return 0;
+    auto it = box->webviews.find(id);
+    if (it == box->webviews.end() || !it->second.view) return 0;
+    gpui::WebView* w = it->second.view->web.Get(g_app);
+    if (!w) return 0;
+    if (dir < 0) gpui::WebViewBack(w);
+    else if (dir > 0) gpui::WebViewForward(w);
+    else return 0;
+    return 1;
 }
 
 void gpui_shim_nullary_style(void* win, uint32_t spec, const char* name) {

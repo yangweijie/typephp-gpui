@@ -197,7 +197,15 @@ uint32_t emitTree(void* win, Array node) {
         Variant rv = node.get("registered");
         if (rv.isBool()) registered = rv.toBool();
     }
-    if (registered) {
+    if (kind == "webview") {
+        // 不是 spec 里的普通 kind：ChildView 节点要一个 host 注册的 nested-view
+        // token，那只有 shim 能给。value 是地址、text 是本地 HTML。返回的仍是普通
+        // spec id，所以样式、挂父、槽位这套照旧走。
+        spec = gpui_shim_webview(win, id.c_str(), value.c_str(), text.c_str());
+    } else if (kind == "inspector") {
+        // 同一条 ChildView 路：DevTools 面板作为元素挂进树（⌘I 只是拾取开关）。
+        spec = gpui_shim_inspector(win, id.c_str());
+    } else if (registered) {
         // catalog 组件：kind 是导出名，ctorArgs 按声明顺序的扁平实参。
         std::deque<std::string> strPool;
         std::deque<std::vector<GpuiArg>> subPool;
@@ -516,6 +524,85 @@ void php_gpui_set_timer(Variant boxVar, String id, Int intervalMs) {
     if (win) gpui_shim_set_timer(win, i.c_str(), (int)intervalMs);
 }
 
+// ── 缺口服务：HTTP / 目录监听 / 解压 ─────────────────────────────────────
+
+Bool php_gpui_http_get(Variant boxVar, String id, String url) {
+    void* win = winOf(boxVar);
+    std::string i(id.data(), id.length());
+    std::string u(url.data(), url.length());
+    return win && gpui_shim_http_get(win, i.c_str(), u.c_str()) != 0;
+}
+
+// 读一条已落地的应答并把它丢掉（一次性语义：读完就 free，省得 PHP 侧记着收尸）。
+// body 是二进制的，所以走 String(ptr,len)，不能靠 '\0' 定界。
+Array php_gpui_http_response(Variant boxVar, String id) {
+    void* win = winOf(boxVar);
+    Array out;
+    std::string i(id.data(), id.length());
+    if (!win) return out;
+    int status = 0, ok = 0;
+    char ct[128];
+    ct[0] = '\0';
+    int need = gpui_shim_http_response(win, i.c_str(), nullptr, 0, &status, &ok,
+                                       ct, (int)sizeof(ct));
+    if (need < 0) return out;  // 没有这条
+    std::vector<char> body(static_cast<size_t>(need) + 1, '\0');
+    int got = gpui_shim_http_response(win, i.c_str(), body.data(),
+                                      (int)body.size(), &status, &ok, ct,
+                                      (int)sizeof(ct));
+    gpui_shim_http_free(win, i.c_str());
+    out.set("ok", Variant(ok != 0));
+    out.set("status", Variant(status));
+    out.set("contentType", Variant(ct));
+    out.set("body",
+            Variant(String(body.data(), static_cast<size_t>(got > 0 ? got : 0))));
+    return out;
+}
+
+Int php_gpui_watch_dir(Variant boxVar, String id, String dir, Bool create) {
+    void* win = winOf(boxVar);
+    std::string i(id.data(), id.length());
+    std::string d(dir.data(), dir.length());
+    return win ? gpui_shim_watch_dir(win, i.c_str(), d.c_str(), create ? 1 : 0)
+               : 0;
+}
+
+void php_gpui_unwatch_dir(Variant boxVar, Int watchId) {
+    void* win = winOf(boxVar);
+    if (win) gpui_shim_unwatch_dir(win, (int)watchId);
+}
+
+Int php_gpui_watch_fake(Variant boxVar, String id) {
+    void* win = winOf(boxVar);
+    std::string i(id.data(), id.length());
+    return win ? gpui_shim_watch_fake(win, i.c_str()) : 0;
+}
+
+// ['ok'=>bool,'data'=>string,'error'=>string]；data 二进制安全，同上。
+Array php_gpui_inflate(String data, Bool gzip) {
+    std::string in(data.data(), data.length());
+    Array out;
+    char err[256];
+    err[0] = '\0';
+    int need = gpui_shim_inflate(in.data(), (int)in.size(), gzip ? 1 : 0, nullptr,
+                                 0, err, (int)sizeof(err));
+    if (need < 0) {
+        out.set("ok", Variant(false));
+        out.set("data", Variant(String("", (size_t)0)));
+        out.set("error", Variant(err));
+        return out;
+    }
+    std::vector<char> buf(static_cast<size_t>(need) + 1, '\0');
+    int got = gpui_shim_inflate(in.data(), (int)in.size(), gzip ? 1 : 0,
+                                buf.data(), (int)buf.size(), err,
+                                (int)sizeof(err));
+    out.set("ok", Variant(true));
+    out.set("data",
+            Variant(String(buf.data(), static_cast<size_t>(got > 0 ? got : 0))));
+    out.set("error", Variant(String("", (size_t)0)));
+    return out;
+}
+
 void php_gpui_set_theme(Variant boxVar, String mode) {
     void* win = winOf(boxVar);
     std::string m(mode.data(), mode.length());
@@ -600,4 +687,27 @@ Bool php_gpui_close_sheet(Variant boxVar) {
 Bool php_gpui_has_sheet(Variant boxVar) {
     void* win = winOf(boxVar);
     return win && gpui_shim_has_sheet(win) != 0;
+}
+
+// 历史导航：dir<0 后退、dir>0 前进。该 id 还没有 webview 时返回 false。
+Bool php_gpui_webview_nav(Variant boxVar, String id, Int dir) {
+    void* win = winOf(boxVar);
+    std::string i(id.data(), id.length());
+    return win && gpui_shim_webview_nav(win, i.c_str(), (int)dir) != 0;
+}
+
+// 控件自己报的状态：['ok'=>bool,'url'=>string,'w'=>float,'h'=>float]。
+Array php_gpui_webview_probe(Variant boxVar, String id) {
+    void* win = winOf(boxVar);
+    std::string i(id.data(), id.length());
+    char url[1024];
+    double w = 0, h = 0;
+    bool ok = win && gpui_shim_webview_probe(win, i.c_str(), url, (int)sizeof(url),
+                                             &w, &h) != 0;
+    Array out;
+    out.set("ok", Variant(ok));
+    out.set("url", Variant(ok ? url : ""));
+    out.set("w", Variant(w));
+    out.set("h", Variant(h));
+    return out;
 }

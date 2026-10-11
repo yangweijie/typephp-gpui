@@ -70,6 +70,21 @@ namespace TypePHP\Gpui {
         /** 模拟打开的 sheet 数（同一时刻只有一个，故只取 0/1） */
         public static int $sheetCount = 0;
 
+        /** @var array<int, array{id:string,dir:int}> webview 历史导航调用记录 */
+        public static array $webviewNavs = [];
+
+        /** @var array<string,string> 脚本化的 http 应答体：请求 id → body（替身不联网） */
+        public static array $httpBodies = [];
+
+        /** @var array<int, array{id:string,url:string}> httpGet 调用记录 */
+        public static array $httpRequests = [];
+
+        /** 下一个假 watch id（0 保留为"没有 watch"，与 gpui 一致） */
+        public static int $nextWatchId = 1;
+
+        /** @var array<int,string> 活着的目录监听：watch id → phpId */
+        public static array $watches = [];
+
         public static function reset(): void
         {
             self::$inputValues = [];
@@ -85,6 +100,11 @@ namespace TypePHP\Gpui {
             self::$inspectorOpen = false;
             self::$fpsAnchor = null;
             self::$sheetCount = 0;
+            self::$webviewNavs = [];
+            self::$httpBodies = [];
+            self::$httpRequests = [];
+            self::$nextWatchId = 1;
+            self::$watches = [];
             self::$windows = [];
             self::$nextWindowId = 1;
             self::$eventQueue = [];
@@ -162,6 +182,39 @@ namespace TypePHP\Gpui {
         private static function isValidPort(string $port): bool
         {
             return $port !== '' && ctype_digit($port) && (int) $port <= 65535;
+        }
+
+        /**
+         * 该窗口渲染过的树里出现过的 webview 节点：id => 地址（本地 HTML 节点记空串）。
+         * 替身没有控件实体，只能靠"这棵树里有过这个 id"来应答；真实侧答的是 wry 报的
+         * 当前地址与布局应用给 OS 控件的盒子，所以这里 w/h 恒为 0——不拿它当验收。
+         *
+         * @return array<string,string>
+         */
+        public static function renderedWebviews(mixed $window): array
+        {
+            $found = [];
+            foreach (self::$renderLog[(int) $window] ?? [] as $tree) {
+                self::collectWebviews($tree, $found);
+            }
+
+            return $found;
+        }
+
+        /** @param array<string,string> $found */
+        private static function collectWebviews(array $node, array &$found): void
+        {
+            if (($node['kind'] ?? null) === 'webview') {
+                $id = (string) ($node['id'] ?? '');
+                if ($id !== '' && !isset($found[$id])) {
+                    $found[$id] = (string) ($node['value'] ?? '');
+                }
+            }
+            foreach (($node['children'] ?? []) as $kid) {
+                if (is_array($kid)) {
+                    self::collectWebviews($kid, $found);
+                }
+            }
         }
     }
 }
@@ -383,5 +436,101 @@ namespace {
     function gpui_has_sheet(mixed $window): bool
     {
         return FakeBridge::$sheetCount > 0;
+    }
+
+    function gpui_webview_nav(mixed $window, string $id, int $dir): bool
+    {
+        FakeBridge::$webviewNavs[] = ['id' => $id, 'dir' => $dir];
+
+        return array_key_exists($id, FakeBridge::renderedWebviews($window));
+    }
+
+    function gpui_webview_probe(mixed $window, string $id): array
+    {
+        $seen = FakeBridge::renderedWebviews($window);
+        $ok = array_key_exists($id, $seen);
+
+        return [
+            'ok' => $ok,
+            'url' => $ok ? $seen[$id] : '',
+            // 替身没有布局，应用盒子无从谈起——真实侧由 wry::WebViewBounds 报。
+            'w' => 0.0,
+            'h' => 0.0,
+        ];
+    }
+
+    function gpui_http_get(mixed $window, string $id, string $url): bool
+    {
+        // 只放行 http(s)，与 gpui::HttpUrlIsRemote 同一条规则（data:/file:/ftp: 归别人）。
+        if ($id === '' || !preg_match('#^https?://#i', $url)) {
+            return false;
+        }
+        FakeBridge::$httpRequests[] = ['id' => $id, 'url' => $url];
+
+        return true;
+    }
+
+    function gpui_http_response(mixed $window, string $id): array
+    {
+        if (!array_key_exists($id, FakeBridge::$httpBodies)) {
+            return [];
+        }
+        $body = FakeBridge::$httpBodies[$id];
+        unset(FakeBridge::$httpBodies[$id]);
+
+        return ['ok' => true, 'status' => 200, 'body' => $body,
+            'contentType' => 'text/plain'];
+    }
+
+    function gpui_watch_dir(mixed $window, string $id, string $dir, bool $create): int
+    {
+        if ($id === '' || $dir === '') {
+            return 0;
+        }
+        $watchId = FakeBridge::$nextWatchId++;
+        FakeBridge::$watches[$watchId] = $id;
+
+        return $watchId;
+    }
+
+    function gpui_unwatch_dir(mixed $window, int $watchId): void
+    {
+        unset(FakeBridge::$watches[$watchId]);
+    }
+
+    function gpui_watch_fake(mixed $window, string $id): int
+    {
+        if ($id === '') {
+            return 0;
+        }
+        $watchId = FakeBridge::$nextWatchId++;
+        FakeBridge::$watches[$watchId] = $id;
+        // 真实现是"排一次主线程回调"，要 pump 一下才落地；替身直接入队。
+        FakeBridge::pushEvent((int) $window, 'dirChange', $id);
+
+        return $watchId;
+    }
+
+    function gpui_inflate(string $data, bool $gzip): array
+    {
+        // 先看容器头，不拿坏数据去撞 PHP 的 warning（Pest 的 error handler 不吃 @）。
+        // gpui 的 ZlibInflate 同样从头开始判（standard.cpp 里那句 "invalid zlib header"）。
+        // 这里只认 PHP 自己写出来的那两种头：zlib 的 0x78、gzip 的 1f 8b。
+        $headOk = $data !== '' && ($gzip
+            ? strncmp($data, "\x1f\x8b", 2) === 0
+            : $data[0] === "\x78");
+        if (!$headOk) {
+            return ['ok' => false, 'data' => '', 'error' => 'bad container header'];
+        }
+
+        // 与 gpui::ZlibInflate 同一档语义：gzip=true 吃 gzip 容器，false 吃 zlib 头
+        // （不是 raw deflate）。跑测试的是普通 PHP，ext/zlib 在——所以这条断言量的是
+        // "两侧的 zlib 语义一致"，而原生门禁量的是 gpui 自己那个解压器。
+        $out = $gzip ? @gzdecode($data) : @gzuncompress($data);
+        if ($out === false) {
+            return ['ok' => false, 'data' => '', 'error' => 'inflate failed'];
+        }
+
+        return ['ok' => true, 'data' => $out, 'error' => ''];
     }
 }
