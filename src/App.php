@@ -32,6 +32,15 @@ final class App
     private int $frames = 0;
     private string $lastError = '';
 
+    /** Sheet 可滑出的边。 */
+    public const SHEET_ANCHORS = ['top', 'bottom', 'left', 'right'];
+
+    /** 帧率 HUD 的位置，取自 gpui 的 FpsAnchorNames()。 */
+    public const FPS_ANCHORS = [
+        'top_left', 'top_right', 'bottom_left', 'bottom_right',
+        'top_center', 'bottom_center', 'left_center', 'right_center',
+    ];
+
     // ── 生命周期 ──
 
     /**
@@ -175,6 +184,26 @@ final class App
     }
 
     /**
+     * 从窗口边缘滑出 Sheet（同一时刻只有一个，后开的替换先开的），返回 1 表示已打开。
+     * $anchor = top|bottom|left|right。
+     */
+    public function openSheet(Element $tree, string $anchor = 'right'): int
+    {
+        self::oneOf('openSheet', $anchor, self::SHEET_ANCHORS);
+        return (int) \gpui_open_sheet($this->handle(), $tree->toArray(), $anchor);
+    }
+
+    public function closeSheet(): bool
+    {
+        return (bool) \gpui_close_sheet($this->handle());
+    }
+
+    public function hasSheet(): bool
+    {
+        return (bool) \gpui_has_sheet($this->handle());
+    }
+
+    /**
      * 装原生 app 菜单条（macOS 系统菜单栏，非窗口内）。
      * $menus = [['name'=>'File','items'=>[['label'=>'New','action'=>'file.new'],['separator'=>true],...]], ...]
      * 带 action 的项点击后经基石旁路回 PHP：App->on($action, 'action', $handler)。返回装入菜单数。
@@ -208,6 +237,68 @@ final class App
     public function setTheme(string $mode): void
     {
         \gpui_set_theme($this->handle(), $mode);
+    }
+
+    // ── 系统能力 ──
+
+    /** 读系统粘贴板文本；空剪贴板或内容非文本返回 null。 */
+    public function clipboardText(): ?string
+    {
+        $s = (string) \gpui_clipboard_text($this->handle());
+        return $s === '' ? null : $s;
+    }
+
+    public function setClipboardText(string $text): void
+    {
+        \gpui_set_clipboard_text($this->handle(), $text);
+    }
+
+    /**
+     * 原生文件/目录选择对话框，返回选中的单个路径；取消返回 null。
+     *
+     * ⚠ 只能在事件回调里调：对话框自带嵌套消息循环，一直跑到用户选完。
+     * 渲染期间调用会在一次 render 里重入平台模态循环。
+     */
+    public function promptForPath(bool $directories = false, string $title = ''): ?string
+    {
+        $p = (string) \gpui_prompt_for_path($this->handle(), $directories, $title);
+        return $p === '' ? null : $p;
+    }
+
+    /**
+     * 交给系统浏览器。URL 先过 gpui 自己的白名单（IsOpenableUrl），
+     * javascript: 之类被拒时不打开并返回 false。无窗口参数：这是 app 级动作。
+     */
+    public function openUrl(string $url): bool
+    {
+        return (bool) \gpui_open_url($url);
+    }
+
+    /** 开/关窗口 inspector（DevTools），与 ⌘I 同一个。 */
+    public function toggleInspector(): void
+    {
+        \gpui_toggle_inspector($this->handle());
+    }
+
+    /**
+     * 弹帧率 HUD。$anchor 见 self::FPS_ANCHORS。
+     * HUD 由窗口根持有：已在位时重复调用只是移动它，隐藏再显示保留历史。
+     */
+    public function showFpsHud(string $anchor = 'top_right'): bool
+    {
+        self::oneOf('showFpsHud', $anchor, self::FPS_ANCHORS);
+        return (bool) \gpui_show_fps($this->handle(), $anchor);
+    }
+
+    /** 收起帧率 HUD；原本没弹返回 false。 */
+    public function hideFpsHud(): bool
+    {
+        return (bool) \gpui_hide_fps($this->handle());
+    }
+
+    public function fpsHudVisible(): bool
+    {
+        return (bool) \gpui_fps_visible($this->handle());
     }
 
     // ── 事件循环 ──
@@ -277,6 +368,18 @@ final class App
     }
 
     // ── 内部 ──
+
+    /**
+     * @param list<string> $allowed
+     */
+    private static function oneOf(string $method, string $value, array $allowed): void
+    {
+        if (!in_array($value, $allowed, true)) {
+            throw new \InvalidArgumentException(
+                "App::$method(): '$value' 非法，允许 [" . implode(', ', $allowed) . ']'
+            );
+        }
+    }
 
     private function drainEvents(): void
     {

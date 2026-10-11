@@ -127,6 +127,44 @@ void gpui_shim_set_app_menus(void* win, const GpuiMenu* menus, int count);
 /* 读回已装菜单数（BaseAppMenus），验证安装。 */
 int  gpui_shim_app_menu_count(void* win);
 
+/* ── 系统能力 ──────────────────────────────────────────────────────────
+ * 每一项都只包 gpui.o 里已存在的符号：不新增上游补丁，不引外部库。 */
+
+/* 剪贴板文本。gpui::ClipboardGetText 要的 Arena 用窗口 spec arena 同一块。
+ * 空剪贴板/非文本 → 返回 0（PHP 侧读作 null）；否则写 out 并返回长度。 */
+int  gpui_shim_clipboard_get_text(void* win, char* out, int outlen);
+void gpui_shim_clipboard_set_text(void* win, const char* text);
+
+/* 原生文件/目录选择对话框。directories!=0 选目录，title 可为空串。
+ * ⚠ PromptForPathTemp 自带嵌套消息循环、跑到用户选完为止，所以只能在事件回调
+ * 里调，绝不能在 render 期间调：那时 PHP 正阻塞在本次调用内、gpui_shim_pump 没有
+ * 被驱动，gpui 的 modal 循环只会把事件入队，不会重入脚本 VM。
+ * 取消 / wasm / Linux 无 zenity+kdialog → 返回 0。 */
+int gpui_shim_prompt_for_path(void* win, int directories, const char* title,
+                              char* out, int outlen);
+
+/* 交给系统浏览器。先过 gpui 自己的 IsOpenableUrl 白名单（一条规则管住
+ * Link.href / cx.open_url / TextView 的链接处理），被拒时不打开、返回 0。 */
+int gpui_shim_open_url(const char* url);
+
+/* DevTools：⌘I 那个 inspector 的程序化入口（KeymapDefaults 已自动绑按键）。 */
+void gpui_shim_toggle_inspector(void* win);
+
+/* 帧率 HUD。anchor 是 FpsAnchorNames() 里的名字（top_left / top_right /
+ * bottom_left / bottom_right / top_center / bottom_center / left_center /
+ * right_center）；名字非法返回 0 且不弹。HUD 由窗口根持有：重复调用只是移动或
+ * 重配置已存在的那个，隐藏再显示保留历史。render 期间调用被拒（返回 0）。 */
+int gpui_shim_show_fps(void* win, const char* anchor);
+int gpui_shim_hide_fps(void* win);
+int gpui_shim_fps_visible(void* win);
+
+/* Sheet：从窗口边缘滑出的面板，同一时刻只有一个，后开的替换先开的。内容 Box2
+ * 复用 gpui_shim_dialog_begin 建的那个。anchor=top|bottom|left|right（空或非法
+ * 按 right，对应 gpui::Placement）。 */
+int gpui_shim_sheet_show(void* win, void* dlg, const char* anchor);
+int gpui_shim_close_sheet(void* win);
+int gpui_shim_has_sheet(void* win);
+
 /* 渲染一帧 = 重放一遍扁平 spec 指令序列。begin 清空 arena。 */
 void gpui_shim_render_begin(void* win);
 /* 压入一个组件节点，返回其 spec id；kind 是字符串（div/text/button/...）。

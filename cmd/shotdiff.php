@@ -30,7 +30,9 @@ if (!is_file($bin)) {
     exit(2);
 }
 
-$trees = [0, 10, 11, 12, 13, 14, 20, 21, 22, 23, 25, 26];
+// 24（catalog MenuBar）不在窗口内，抓不到，故不入基线。
+// 27/28/29 = 帧率 HUD / Sheet / inspector，Wave1 系统能力的像素验收。
+$trees = [0, 10, 11, 12, 13, 14, 20, 21, 22, 23, 25, 26, 27, 28, 29];
 $baselineDir = "$root/tests/baseline/$example";
 $tmpDir = sys_get_temp_dir() . "/gpui-shotdiff-$example";
 @mkdir($baselineDir, 0777, true);

@@ -97,3 +97,41 @@ function gpui_set_timer(mixed $window, string $id, int $intervalMs): void {}
 
 /** 切换主题：'light' | 'dark'。 */
 function gpui_set_theme(mixed $window, string $mode): void {}
+
+/* ─────────────────────── 系统能力 ─────────────────────── */
+
+/** 读系统粘贴板文本；空剪贴板/内容非文本返回空串（App 读成 null）。 */
+function gpui_clipboard_text(mixed $window): string {}
+
+/** 写系统粘贴板文本。 */
+function gpui_set_clipboard_text(mixed $window, string $text): void {}
+
+/**
+ * 原生文件/目录选择对话框，返回选中路径；取消或平台无对话框返回空串。
+ * ⚠ 只能在事件回调里调：对话框自带嵌套消息循环，跑到用户选完为止。
+ */
+function gpui_prompt_for_path(mixed $window, bool $directories, string $title): string {}
+
+/** 交给系统浏览器（先过 gpui 的 IsOpenableUrl 白名单）。被拒返回 false。app 级，无窗口参数。 */
+function gpui_open_url(string $url): bool {}
+
+/** 开/关窗口 inspector（DevTools），与 ⌘I 同一个。 */
+function gpui_toggle_inspector(mixed $window): void {}
+
+/** 弹帧率 HUD，$anchor 见 App::FPS_ANCHORS；非法名或渲染期间调用返回 false。 */
+function gpui_show_fps(mixed $window, string $anchor): bool {}
+
+/** 收起帧率 HUD；原本没弹返回 false。 */
+function gpui_hide_fps(mixed $window): bool {}
+
+/** 帧率 HUD 当前是否可见。 */
+function gpui_fps_visible(mixed $window): bool {}
+
+/** 用一棵 Element 树打开 Sheet；$anchor=top|bottom|left|right，返回 1 表示已打开。 */
+function gpui_open_sheet(mixed $window, array $tree, string $anchor): int {}
+
+/** 关闭 Sheet；原本没有返回 false。 */
+function gpui_close_sheet(mixed $window): bool {}
+
+/** 当前是否有打开的 Sheet。 */
+function gpui_has_sheet(mixed $window): bool {}

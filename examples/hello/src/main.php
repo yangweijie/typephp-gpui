@@ -24,7 +24,7 @@ function main(int $argc, array $argv): void
         return;
     }
 
-    $state = ['count' => 0, 'name' => '', 'vol' => 30];
+    $state = ['count' => 0, 'name' => '', 'vol' => 30, 'path' => ''];
 
     $app = new App();
     $app->create();
@@ -41,7 +41,9 @@ function main(int $argc, array $argv): void
             El::hFlex([
                 El::button('+1')->id('inc')->onClick()->primary(),
                 El::button('Reset')->id('reset')->onClick()->ghost(),
+                El::button('Open…')->id('pick')->onClick()->ghost(),
             ])->gap(8.0)->itemsCenter(),
+            El::text($state['path'] !== '' ? "Picked: {$state['path']}" : 'Open… 走原生对话框（无人值守自检里不测，见 runSelfTest 注释）')->font(12.0),
         ])
             ->sizeFull()
             ->gap(8.0)
@@ -61,6 +63,14 @@ function main(int $argc, array $argv): void
     });
     $app->on('vol', 'change', function (array $e) use (&$state): void {
         $state['vol'] = (int) ($e['value'] ?? 0);
+    });
+    // 对话框自带嵌套消息循环，跑到用户选完为止：只能在事件回调里调，
+    // 不能在一次 render 里调。
+    $app->on('pick', 'click', function () use ($app, &$state): void {
+        $picked = $app->promptForPath(false, '选一个文件');
+        if ($picked !== null) {
+            $state['path'] = $picked;
+        }
     });
 
     $app->loop();
@@ -162,9 +172,37 @@ function runSelfTest(): void
     $menuCount = $app->appMenuCount();
     $ok = $ok && $menuN === 2 && $menuCount === 2;
 
+    // 8) 剪贴板回环：写系统粘贴板再读回。走的是 NSPasteboard，不是我们的缓存，
+    //    所以这条绿的是"gpui 的粘贴板实现真被接到了 PHP"。
+    $payload = "SELFTEST-{$timerHits}-Ω";
+    $app->setClipboardText($payload);
+    $clip = $app->clipboardText();
+    $ok = $ok && $clip === $payload;
+
+    // 9) openUrl 白名单：只验被拒的一侧。放行的一侧会真的拉起浏览器，
+    //    无人值守的自检不该有那种副作用；接受路径由 tests/cpp/shim_test.cpp
+    //    直接量 gpui::IsOpenableUrl 钉住。
+    $ok = $ok && $app->openUrl('javascript:alert(1)') === false;
+
+    // 10) 帧率 HUD 生命周期：show → visible → 重复 show（只是移动，仍 true）→
+    //     hide → 再 hide 返回 false。
+    $fps1 = $app->showFpsHud('top_right');
+    $fpsVis = $app->fpsHudVisible();
+    $fps2 = $app->showFpsHud('bottom_left');
+    $fpsOff = $app->hideFpsHud();
+    $fpsAgain = $app->hideFpsHud();
+    $ok = $ok && $fps1 && $fpsVis && $fps2 && $fpsOff && $fpsAgain === false;
+
+    // 11) Sheet 生命周期：openSheet → hasSheet → closeSheet → hasSheet 假。
+    //     内容 Box2 复用 dialog_begin 那条路径，所以这条同时验 overlay 内容盒子。
+    $sheetOpened = $app->openSheet(El::vFlex([El::text('sheet')])->p(16.0), 'right');
+    $sheetDuring = $app->hasSheet();
+    $sheetClosed = $app->closeSheet();
+    $ok = $ok && $sheetOpened === 1 && $sheetDuring && $sheetClosed && $app->hasSheet() === false;
+
     echo $ok
-        ? "SELFTEST OK (input + click + timer hits={$timerHits} + dialog + registered-cb + err-channel + appmenu)\n"
-        : "SELFTEST FAIL (input='{$got}' fired=" . ($fired ? '1' : '0') . " clicks={$clicks} timer={$timerHits} dlg=$before/$opened/$during/$after ddcb=" . ($ddFired ? '1' : '0') . "/{$ddFires} err='$err' menu=$menuN/$menuCount)\n";
+        ? "SELFTEST OK (input + click + timer hits={$timerHits} + dialog + registered-cb + err-channel + appmenu + clipboard + urlgate + fps + sheet)\n"
+        : "SELFTEST FAIL (input='{$got}' fired=" . ($fired ? '1' : '0') . " clicks={$clicks} timer={$timerHits} dlg=$before/$opened/$during/$after ddcb=" . ($ddFired ? '1' : '0') . "/{$ddFires} err='$err' menu=$menuN/$menuCount clip='$clip' want='$payload' fps=$fps1/$fpsVis/$fps2/$fpsOff/$fpsAgain sheet=$sheetOpened/" . ($sheetDuring ? '1' : '0') . "/" . ($sheetClosed ? '1' : '0') . ")\n";
     $app->close();
     exit($ok ? 0 : 1);
 }
@@ -303,6 +341,16 @@ function runShot(string $path, int $tree = 0): void
                     ->item('Quit', 'dd-quit'),
                 El::text('Click the button to open the popup menu.')->font(13.0),
             ])->p(16.0)->gap(12.0)->itemsStart(),
+            27 => El::vFlex([
+                El::text('FPS HUD host')->font(18.0)->semibold(),
+                El::text('HUD 由窗口根持有，不在这棵树里。')->font(13.0),
+            ])->p(16.0)->gap(8.0)->itemsStart(),
+            28 => El::vFlex([
+                El::text('Sheet host')->font(18.0)->semibold(),
+            ])->p(16.0)->gap(8.0)->itemsStart(),
+            29 => El::vFlex([
+                El::text('Inspector host')->font(18.0)->semibold(),
+            ])->p(16.0)->gap(8.0)->itemsStart(),
             default => El::vFlex([
                 El::text('Hello, World!')->font(20.0)->semibold(),
                 El::text('Clicked: 0 times — vol: 30')->font(14.0),
@@ -332,6 +380,31 @@ function runShot(string $path, int $tree = 0): void
         echo "dialog_open_returned=$n dialog_count=" . $app->dialogCount() . "\n";
         $app->loop(3);
         echo "after_loop dialog_count=" . $app->dialogCount() . "\n";
+    }
+    if ($tree === 27) {
+        // 帧率 HUD：窗口根持有的浮层，重复调用只是移动它。
+        $shown = $app->showFpsHud('top_right');
+        echo 'fps_shown=' . ($shown ? '1' : '0')
+            . ' visible=' . ($app->fpsHudVisible() ? '1' : '0') . "\n";
+        $app->loop(3);
+    }
+    if ($tree === 28) {
+        $n = $app->openSheet(
+            El::vFlex([
+                El::text('Sheet Title')->font(20.0)->semibold(),
+                El::text('Slides in from the edge its anchor names.')->font(14.0),
+                El::button('Done')->id('done')->primary(),
+            ])->p(24.0)->gap(12.0),
+            'right'
+        );
+        echo 'sheet_opened=' . $n . ' has=' . ($app->hasSheet() ? '1' : '0') . "\n";
+        $app->loop(3);
+    }
+    if ($tree === 29) {
+        // inspector 没有可读的状态查询，所以它的验收只能是像素：开→出图。
+        $app->toggleInspector();
+        echo "inspector_toggled=1\n";
+        $app->loop(3);
     }
     echo "--- debug tree (tree={$tree}) ---\n" . \gpui_debug_tree($app->handle()) . "\n---\n";
     $ok = $app->snapshot($path, 800, 600);

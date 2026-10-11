@@ -521,3 +521,83 @@ void php_gpui_set_theme(Variant boxVar, String mode) {
     std::string m(mode.data(), mode.length());
     gpui_shim_set_theme(win, m.c_str());
 }
+
+// ── 系统能力（见 cpp-src/gpui_shim.h 同名段落）──────────────────────────
+// 空值语义统一在 PHP 层翻译：shim/bridge 只回 ""，App 把 "" 读成 null。
+
+String php_gpui_clipboard_text(Variant boxVar) {
+    void* win = winOf(boxVar);
+    // 粘贴板内容没有长度上限，缓冲开在堆上（64 KiB 之外截断）。
+    std::vector<char> buf(65536);
+    buf[0] = '\0';
+    if (win) gpui_shim_clipboard_get_text(win, buf.data(), (int)buf.size());
+    return String(buf.data());
+}
+
+void php_gpui_set_clipboard_text(Variant boxVar, String text) {
+    void* win = winOf(boxVar);
+    std::string t(text.data(), text.length());
+    if (win) gpui_shim_clipboard_set_text(win, t.c_str());
+}
+
+// ⚠ 自带嵌套消息循环：只能在事件回调里调，render 期间调用会重入平台模态循环。
+String php_gpui_prompt_for_path(Variant boxVar, Bool directories, String title) {
+    void* win = winOf(boxVar);
+    char buf[4096];
+    buf[0] = '\0';
+    std::string t(title.data(), title.length());
+    if (win)
+        gpui_shim_prompt_for_path(win, directories ? 1 : 0, t.c_str(), buf,
+                                  (int)sizeof(buf));
+    return String(buf);
+}
+
+// 无窗口参数：OpenUrl 是 app 级动作，gpui 自己也不看窗口。
+Bool php_gpui_open_url(String url) {
+    std::string u(url.data(), url.length());
+    return gpui_shim_open_url(u.c_str()) != 0;
+}
+
+void php_gpui_toggle_inspector(Variant boxVar) {
+    void* win = winOf(boxVar);
+    if (win) gpui_shim_toggle_inspector(win);
+}
+
+Bool php_gpui_show_fps(Variant boxVar, String anchor) {
+    void* win = winOf(boxVar);
+    std::string a(anchor.data(), anchor.length());
+    return win && gpui_shim_show_fps(win, a.c_str()) != 0;
+}
+
+Bool php_gpui_hide_fps(Variant boxVar) {
+    void* win = winOf(boxVar);
+    return win && gpui_shim_hide_fps(win) != 0;
+}
+
+Bool php_gpui_fps_visible(Variant boxVar) {
+    void* win = winOf(boxVar);
+    return win && gpui_shim_fps_visible(win) != 0;
+}
+
+// Sheet 与 Dialog 同族：内容 Box2 由 dialog_begin 建，sheet_show 打开它。
+Int php_gpui_open_sheet(Variant boxVar, Array tree, String anchor) {
+    void* win = winOf(boxVar);
+    if (!win) return 0;
+    void* dlg = gpui_shim_dialog_begin(win);
+    if (!dlg) return 0;
+    gpui_shim_render_begin(dlg);
+    uint32_t root = emitTree(dlg, tree);
+    gpui_shim_render_end(dlg, root);
+    std::string a(anchor.data(), anchor.length());
+    return gpui_shim_sheet_show(win, dlg, a.c_str());
+}
+
+Bool php_gpui_close_sheet(Variant boxVar) {
+    void* win = winOf(boxVar);
+    return win && gpui_shim_close_sheet(win) != 0;
+}
+
+Bool php_gpui_has_sheet(Variant boxVar) {
+    void* win = winOf(boxVar);
+    return win && gpui_shim_has_sheet(win) != 0;
+}

@@ -134,6 +134,21 @@ gpui::Str cppStr(const std::string& s) {
     return gpui::Str(s.data(), (int)s.size());
 }
 
+gpui::Str cstr(const char* s) {
+    return gpui::Str(s ? s : "", s ? (int)std::strlen(s) : 0);
+}
+
+// gpui::Str → C 缓冲：至多 outlen-1 字节 + '\0'，返回写出的长度（空串返回 0）。
+int copyOut(char* out, int outlen, gpui::Str s) {
+    if (!out || outlen <= 0) return 0;
+    out[0] = '\0';
+    int n = s.len;
+    if (n > outlen - 1) n = outlen - 1;
+    if (n > 0 && s.s) std::memcpy(out, s.s, (size_t)n);
+    out[n] = '\0';
+    return n;
+}
+
 // 进 arena 的字符串必须拷进 arena 自身：bridge 传来的 const char* 是 emitTree 返回即
 // 销毁的临时 std::string，只存视图会悬垂（曾致 size("100%") 变乱码、布局塌缩）。
 gpui::Str AStr(gpui::Arena* a, const char* s) {
@@ -802,6 +817,104 @@ int gpui_shim_app_menu_count(void* win) {
     int n = 0;
     gpui::BaseAppMenus(g_app, &n);
     return n;
+}
+
+// ── 系统能力 ────────────────────────────────────────────────────────────
+// 每一项都只包 gpui.o 里已有的符号：不新增上游补丁，不引外部库。
+
+int gpui_shim_clipboard_get_text(void* win, char* out, int outlen) {
+    auto* box = static_cast<Box2*>(win);
+    if (!box || !box->window) return 0;
+    return copyOut(out, outlen,
+                   gpui::ClipboardGetText(box->specs.Storage(), box->window));
+}
+
+void gpui_shim_clipboard_set_text(void* win, const char* text) {
+    auto* box = static_cast<Box2*>(win);
+    if (!box || !box->window) return;
+    // mac 侧 ClipboardSetText 当场把文本转成 NSString 交给粘贴板，借用缓冲安全。
+    gpui::ClipboardSetText(box->window, cstr(text));
+}
+
+int gpui_shim_prompt_for_path(void* win, int directories, const char* title,
+                              char* out, int outlen) {
+    auto* box = static_cast<Box2*>(win);
+    if (!box || !box->window) return 0;
+    gpui::PathPrompt opts{};
+    // 两个都 false 是"什么都选不了"，故选目录时把 files 关掉。
+    opts.directories = directories != 0;
+    opts.files = !opts.directories;
+    opts.title = cstr(title);
+    return copyOut(out, outlen, gpui::PromptForPathTemp(box->window, opts));
+}
+
+int gpui_shim_open_url(const char* url) {
+    if (!url || !*url) return 0;
+    gpui::Str u = cstr(url);
+    // 与 Link.href / TextView 同一条规则，不另开一套白名单。
+    if (!gpui::IsOpenableUrl(u)) return 0;
+    gpui::OpenUrl(u);
+    return 1;
+}
+
+void gpui_shim_toggle_inspector(void* win) {
+    auto* box = static_cast<Box2*>(win);
+    if (!box || !box->window) return;
+    gpui::WindowToggleInspector(box->window);
+}
+
+int gpui_shim_show_fps(void* win, const char* anchor) {
+    auto* box = static_cast<Box2*>(win);
+    if (!box || !box->window) return 0;
+    gpui::FpsHudRequest req{};
+    if (anchor && *anchor && !gpui::FpsAnchorFromName(cstr(anchor), &req.anchor))
+        return 0;
+    gpui::Ctx cx = overlayCtx(box);
+    return gpui::ShellRootShowFpsMonitor(&cx, req) ? 1 : 0;
+}
+
+int gpui_shim_hide_fps(void* win) {
+    auto* box = static_cast<Box2*>(win);
+    if (!box || !box->window) return 0;
+    gpui::Ctx cx = overlayCtx(box);
+    return gpui::ShellRootHideFpsMonitor(&cx) ? 1 : 0;
+}
+
+int gpui_shim_fps_visible(void* win) {
+    auto* box = static_cast<Box2*>(win);
+    if (!box || !box->window) return 0;
+    gpui::Ctx cx = overlayCtx(box);
+    return gpui::ShellRootFpsMonitorVisible(&cx) ? 1 : 0;
+}
+
+int gpui_shim_sheet_show(void* win, void* dlgv, const char* anchor) {
+    auto* box = static_cast<Box2*>(win);
+    auto* dlg = static_cast<Box2*>(dlgv);
+    if (!box || !box->window || !dlg) return 0;
+    gpui::Placement p = gpui::Placement::Right;
+    std::string a = anchor ? anchor : "";
+    if (a == "top") p = gpui::Placement::Top;
+    else if (a == "bottom") p = gpui::Placement::Bottom;
+    else if (a == "left") p = gpui::Placement::Left;
+    gpui::Ctx cx = overlayCtx(box);
+    if (!gpui::ShellRootOpenSheetView(&cx, dlg->viewEntity, p)) return 0;
+    // 内容 Box2 与 dialog 同一套：保活到窗口析构时统一 delete。
+    box->dialogs.push_back(dlg);
+    return 1;
+}
+
+int gpui_shim_close_sheet(void* win) {
+    auto* box = static_cast<Box2*>(win);
+    if (!box || !box->window) return 0;
+    gpui::Ctx cx = overlayCtx(box);
+    return gpui::ShellRootCloseSheet(&cx) ? 1 : 0;
+}
+
+int gpui_shim_has_sheet(void* win) {
+    auto* box = static_cast<Box2*>(win);
+    if (!box || !box->window) return 0;
+    gpui::Ctx cx = overlayCtx(box);
+    return gpui::ShellRootHasSheet(&cx) ? 1 : 0;
 }
 
 void gpui_shim_nullary_style(void* win, uint32_t spec, const char* name) {

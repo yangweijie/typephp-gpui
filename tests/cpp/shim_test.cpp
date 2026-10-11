@@ -176,6 +176,68 @@ void testBuildComponentArgs() {
     gpui::ArenaDelete(a);
 }
 
+// 5) 系统能力的纯判据：open_url 白名单 + FPS 锚点名 + copyOut 截断。
+//    URL 表与 tests/SystemTest.php 里 'the url gate mirrors gpui' 那条逐条同内容，
+//    于是替身（FakeBridge::isOpenableUrl）与真实判据（gpui::IsOpenableUrl）
+//    被同一组用例从两侧钉住。
+void testCapabilityGates() {
+    std::puts("capability gates");
+    struct Case {
+        const char* url;
+        bool want;
+    };
+    static const Case kCases[] = {
+        {"https://example.com/x?y=1", true},
+        {"HTTP://EXAMPLE.COM", true},
+        {"https://user:pw@example.com/p", true},
+        {"http://host:8080", true},
+        {"http://[::1]", true},
+        {"http://[::1]:8080/p", true},
+        {"http://@example.com", true},
+        {"http://", false},
+        {"http://example.com@", false},
+        {"http://host:", false},
+        {"http://host:abc", false},
+        {"http://host:99999", false},
+        {"http://[]:80", false},
+        {"http://:80", false},
+        {"http://exa\nmple.com", false},
+        {"http://ex\\ample.com", false},
+        {"javascript:alert(1)", false},
+        {"mailto:a@b.c", false},
+        {"not a url", false},
+        {"ftp://example.com", false},
+    };
+    for (const Case& c : kCases) {
+        CHECK(gpui::IsOpenableUrl(gpui::Str(c.url)) == c.want);
+    }
+
+    // authority 扫描看长度不看 '\0'，所以串里嵌 NUL 也得被拒。
+    gpui::Str nulIn("http://a\0b.com", 13);
+    CHECK(nulIn.len == 13);
+    CHECK(!gpui::IsOpenableUrl(nulIn));
+
+    // FPS 锚点：App::FPS_ANCHORS 的八个名字全认，非法名返回 false 且不动 *out。
+    const char* names[] = {"top_left",     "top_right",     "bottom_left",
+                           "bottom_right", "top_center",    "bottom_center",
+                           "left_center",  "right_center"};
+    for (const char* n : names) {
+        gpui::FpsAnchor a = gpui::FpsAnchor::TopLeft;
+        CHECK(gpui::FpsAnchorFromName(gpui::Str(n), &a));
+    }
+    gpui::FpsAnchor keep = gpui::FpsAnchor::BottomCenter;
+    CHECK(!gpui::FpsAnchorFromName(gpui::Str("middle"), &keep));
+    CHECK(keep == gpui::FpsAnchor::BottomCenter);
+
+    // copyOut：截到 outlen-1 且必带终止符；空串返回 0；out 为空不崩。
+    char buf[8];
+    CHECK(copyOut(buf, (int)sizeof(buf), gpui::Str("abcdefghij")) == 7);
+    CHECK(std::strcmp(buf, "abcdefg") == 0);
+    CHECK(copyOut(buf, (int)sizeof(buf), gpui::Str("")) == 0);
+    CHECK(buf[0] == '\0');
+    CHECK(copyOut(nullptr, 8, gpui::Str("x")) == 0);
+}
+
 } // namespace
 
 int main() {
@@ -183,6 +245,7 @@ int main() {
     testAStrCopiesIntoArena();
     testToComponentArg();
     testBuildComponentArgs();
+    testCapabilityGates();
     if (g_failures) {
         std::fprintf(stderr, "SHIM CPP TESTS FAIL (%d)\n", g_failures);
         return 1;

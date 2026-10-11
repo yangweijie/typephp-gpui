@@ -46,12 +46,45 @@ namespace TypePHP\Gpui {
         /** app 菜单条：最近一次 set_app_menus 装入的菜单数 */
         public static int $appMenuCount = 0;
 
+        /** @var string|null 模拟系统粘贴板（null = 空剪贴板） */
+        public static ?string $clipboard = null;
+
+        /** @var string|null 下一次 prompt_for_path 的答案（null = 用户取消） */
+        public static ?string $nextPromptPath = null;
+
+        /** @var array<int, array{directories:bool,title:string}> prompt_for_path 调用记录 */
+        public static array $promptRequests = [];
+
+        /** @var array<int, string> 被白名单放行的 open_url */
+        public static array $openedUrls = [];
+
+        /** @var array<int, string> 被白名单拒绝的 open_url */
+        public static array $rejectedUrls = [];
+
+        /** 模拟 inspector 开合（toggle 翻转） */
+        public static bool $inspectorOpen = false;
+
+        /** @var string|null 帧率 HUD 的锚点（null = 未显示） */
+        public static ?string $fpsAnchor = null;
+
+        /** 模拟打开的 sheet 数（同一时刻只有一个，故只取 0/1） */
+        public static int $sheetCount = 0;
+
         public static function reset(): void
         {
             self::$inputValues = [];
             self::$snapshotRequests = [];
             self::$toasts = [];
             self::$dialogCount = 0;
+            self::$appMenuCount = 0;
+            self::$clipboard = null;
+            self::$nextPromptPath = null;
+            self::$promptRequests = [];
+            self::$openedUrls = [];
+            self::$rejectedUrls = [];
+            self::$inspectorOpen = false;
+            self::$fpsAnchor = null;
+            self::$sheetCount = 0;
             self::$windows = [];
             self::$nextWindowId = 1;
             self::$eventQueue = [];
@@ -63,6 +96,72 @@ namespace TypePHP\Gpui {
         public static function pushEvent(int $windowId, string $type, string $id, mixed $value = null): void
         {
             self::$eventQueue[] = ['window' => $windowId, 'type' => $type, 'id' => $id, 'value' => $value];
+        }
+
+        /**
+         * gpui::IsOpenableUrl 的 PHP 重写，判据取同一条规则：只放行 http/https，
+         * 长度 ≤32768，authority 不含控制字符/DEL/反斜杠，host 非空，
+         * 端口是 ≤65535 的十进制，IPv6 字面量须成对且非空。
+         */
+        public static function isOpenableUrl(string $url): bool
+        {
+            if ($url === '' || strlen($url) > 32768) {
+                return false;
+            }
+            $sep = strpos($url, '://');
+            if ($sep === false || $sep === 0) {
+                return false;
+            }
+            $scheme = strtolower(substr($url, 0, $sep));
+            if ($scheme !== 'http' && $scheme !== 'https') {
+                return false;
+            }
+            $rest = substr($url, $sep + 3);
+            $authority = '';
+            for ($i = 0, $n = strlen($rest); $i < $n; $i++) {
+                $c = $rest[$i];
+                if ($c === '/' || $c === '?' || $c === '#') {
+                    break;
+                }
+                $o = ord($c);
+                if ($o <= 0x20 || $o >= 0x7f || $c === '\\') {
+                    return false;
+                }
+                $authority .= $c;
+            }
+            $at = strrpos($authority, '@');
+            $hostPort = $at === false ? $authority : substr($authority, $at + 1);
+
+            if ($hostPort === '') {
+                return false;
+            }
+            if ($hostPort[0] === '[') {
+                // 真实判据是 close <= hostStart + 1 即拒：方括号里必须有内容。
+                $close = strpos($hostPort, ']');
+                if ($close === false || $close <= 1) {
+                    return false;
+                }
+                $after = substr($hostPort, $close + 1);
+                if ($after === '') {
+                    return true;
+                }
+
+                return $after[0] === ':' && self::isValidPort(substr($after, 1));
+            }
+            $colon = strpos($hostPort, ':');
+            if ($colon === false) {
+                return true;
+            }
+            if ($colon === 0) {
+                return false;
+            }
+
+            return self::isValidPort(substr($hostPort, $colon + 1));
+        }
+
+        private static function isValidPort(string $port): bool
+        {
+            return $port !== '' && ctype_digit($port) && (int) $port <= 65535;
         }
     }
 }
@@ -206,5 +305,83 @@ namespace {
     function gpui_set_theme(mixed $window, string $mode): void
     {
         // no-op
+    }
+
+    function gpui_clipboard_text(mixed $window): string
+    {
+        return FakeBridge::$clipboard ?? '';
+    }
+
+    function gpui_set_clipboard_text(mixed $window, string $text): void
+    {
+        FakeBridge::$clipboard = $text;
+    }
+
+    function gpui_prompt_for_path(mixed $window, bool $directories, string $title): string
+    {
+        FakeBridge::$promptRequests[] = ['directories' => $directories, 'title' => $title];
+
+        return FakeBridge::$nextPromptPath ?? '';
+    }
+
+    function gpui_open_url(string $url): bool
+    {
+        if (!FakeBridge::isOpenableUrl($url)) {
+            FakeBridge::$rejectedUrls[] = $url;
+
+            return false;
+        }
+        FakeBridge::$openedUrls[] = $url;
+
+        return true;
+    }
+
+    function gpui_toggle_inspector(mixed $window): void
+    {
+        FakeBridge::$inspectorOpen = !FakeBridge::$inspectorOpen;
+    }
+
+    function gpui_show_fps(mixed $window, string $anchor): bool
+    {
+        if (!in_array($anchor, \TypePHP\Gpui\App::FPS_ANCHORS, true)) {
+            return false;
+        }
+        FakeBridge::$fpsAnchor = $anchor;
+
+        return true;
+    }
+
+    function gpui_hide_fps(mixed $window): bool
+    {
+        $wasUp = FakeBridge::$fpsAnchor !== null;
+        FakeBridge::$fpsAnchor = null;
+
+        return $wasUp;
+    }
+
+    function gpui_fps_visible(mixed $window): bool
+    {
+        return FakeBridge::$fpsAnchor !== null;
+    }
+
+    function gpui_open_sheet(mixed $window, array $tree, string $anchor): int
+    {
+        // Sheet 同一时刻只有一个：后开的替换先开的，而不是叠两层。
+        FakeBridge::$sheetCount = 1;
+
+        return 1;
+    }
+
+    function gpui_close_sheet(mixed $window): bool
+    {
+        $wasOpen = FakeBridge::$sheetCount > 0;
+        FakeBridge::$sheetCount = 0;
+
+        return $wasOpen;
+    }
+
+    function gpui_has_sheet(mixed $window): bool
+    {
+        return FakeBridge::$sheetCount > 0;
     }
 }
