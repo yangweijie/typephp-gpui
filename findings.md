@@ -258,3 +258,11 @@ Dock 是 gpui-kit-cpp 最复杂的 shell 组件（materialize.cpp:1259-1374、25
 ⇒ **VirtualList 真·懒委托（gpui 拉行、行内容由 PHP 现生成）不可行**。可行路径是 **PHP 窗口化**：gpui 发一个带 scrollTop 的滚动事件（数字，可跨 C ABI）→ PHP 每帧只渲可见行窗口 → 下一帧生效。符合 enqueue/pull 模型、可 `--shot` 验证。代价：非 gpui 主动拉行，是 PHP 推窗口；需补一条 scroll-offset→PHP 的事件通道（小机制，非重入）。
 
 MenuBar 侧：catalog MenuBar 仍被 root-app 挡；已用 `BaseSetAppMenus` 走通**安装**（MenuBar-1，selftest appMenuCount 证）。动作→PHP（MenuBar-2）需每帧在根元素绑 `ActionCallback` op（name=action, callback=shim rtCb）→ WindowDispatchAction 冒泡到根 → DispatchArgs 基石旁路。可行但耦合渲染树，ROI 低（系统菜单栏不可视验证）。
+
+### VirtualList 定论：gpui 原生虚拟化 = 渲染委托，防火墙不可达
+
+读 `LazyListElement`（materialize.cpp:1161-1245）：gpui 的 list/uniform_list 虚拟化靠 `spec->renderItems` **渲染委托**——`runtime->RenderVirtualItems(spec->renderItems, spec->getKey, ...)` 在需要可见行时**同步回调**产出行元素。`renderItems` 是 CallbackId（JS）。⇒ 与 build-delegate 同一堵墙：**gpui→脚本同步回调**，纯 C ABI 防火墙（phpx↔gpui 隔离，闭包/zval 不可跨界）无法提供。
+
+**epic 边界（定论）**：本防火墙支持 **gpui→PHP 异步**（事件入队→主循环 pull→dispatch，含 Stage D/基石的 shimId 旁路），但**不支持 gpui→PHP 同步取值**（渲染委托、虚拟列表行生产者、Dock chrome 委托）。凡"gpui 主动拉脚本要返回值"的组件（VirtualList/Dock/依赖 AppEffects 的 catalog MenuBar）都在此墙外，非增量能及——要么放弃异步防火墙模型改同步重入（与 AOT/nano 冲突），要么在 PHP 侧另实现。
+
+**PHP 侧替代（唯一可行方向）**：PHP 自算窗口——只把可见行渲进普通滚动容器。但绝对 scrollTop 反馈到 PHP 也不干净（gpui 把滚动位存 `ShellScrollPosition` keyed state 供 Scrollbar 读，非回调），只能用 `on_scroll_wheel` 的 deltaY 累加**近似**偏移 → 窗口化。可用但不精确、且非真惰性。属"近似功能"而非"复刻 gpui 虚拟化"。

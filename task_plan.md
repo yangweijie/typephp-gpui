@@ -96,6 +96,7 @@ Phase 4/5/6 主体完成（渲染 bug 修复、定时器、Slot+组件、Markdow
 - [x] **root-app epic 基石**（2026-10-11，commit d9672d8）：`cmd/patch-dispatch-cb.sh` 把 Stage D 的 shimId 旁路从 `InvokeWith` 扩到通用调用器 `DispatchArgs`（+前向声明）→ 所有 runtime 回调（菜单动作/retained/点击）可回 PHP。shimId 对 JS 恒 0，六门禁全绿零回归。**这是可复用资产**。
 - [~] **MenuBar**：catalog MenuBar 被 `AppEffects`（root-app）挡死（见 findings）。替代路 `BaseSetAppMenus` 装的是 **macOS 系统菜单栏**（屏幕顶，`--shot` 抓不到窗口 → 不可视验证），且动作路由需每帧在聚焦视图绑 `ActionCallback`（复杂，且 Quit/Cut/Copy/Paste 多已被系统接管）→ **ROI 低**。基石已就位，但 MenuBar 本身不建议强做。
 - [ ] **A 类 VirtualList/Dock**：基石只解锁"事件型回调"，VirtualList 行渲染要"回调返回 Element"（BuildWith 型），是**另一种机制**，基石不直接覆盖。仍需专门设计。
+  - **定论（2026-10-11，见 findings）**：gpui 原生 list 虚拟化靠 `spec->renderItems` **渲染委托**（`RenderVirtualItems` 同步回调 JS），与 build-delegate 同属"gpui→脚本同步取值"类 → **纯 C ABI 防火墙不可达**。epic 边界：防火墙支持 gpui→PHP **异步**（事件），不支持 **同步取值**。VirtualList/Dock/catalog-MenuBar 全在此墙外。唯一可行是 PHP 侧近似窗口化（`on_scroll_wheel` deltaY 累加估偏移，非真惰性）。
 - [x] **文档**（2026-10-11）：**VitePress** 文档站 `docs/`（用户定）——index + guide{getting-started, architecture, components, events, testing, cli} + contributing。`npm install`+`docs:build` 验证 rc=0（8 页渲染）。node_modules/dist 由 docs/.gitignore 排除，package-lock 入库。
 
 ## Key Questions
