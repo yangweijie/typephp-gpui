@@ -322,3 +322,67 @@ tree29 出图 = 整窗淡蓝底 + 描边（选中高亮），没有 inspector �
 （`TestSuite::beforeEach->get($this->filename)`）⇒ 写在 Pest.php 里的裸 `beforeEach()` 也打不中。
 可用形式：`uses(TestCase::class)->in(__DIR__)->beforeEach(...)`（实测钩子生效）。
 原有 25 个测试恰好不依赖 reset，所以一直没暴露。
+
+## Wave 2：ChildView 打通 + 「要不要桥」交给产物自己回答（2026-10-11）
+
+### ChildView 实测可用，WebView 与 Inspector 面板共用一条路
+第 7 个补丁 `cmd/patch-nested-view.sh` 给 `ShellRuntime` 开 `RegisterHostView(EntityId, App*)`：
+把宿主已有的 entity 追加进 `impl->nestedViews` 并回 token。安全性逐条核过：
+`DropNestedViewAt` 只做 `EntityDrop` + `PolicyRelease`，而 `policy.cpp:56` 的
+`PolicyRelease` 对 null 直接返回；entry 的 `owner`/`application` 留空 ⇒
+`ReleaseOwnedEntities` / `ReleaseApplicationState` 那两次按 owner/application 的清扫永不到它，
+生命周期完全归宿主。零改动既有路径。
+
+**关键坑（实测出来的）**：`gpui::WebView` 自己**不是 view**——`webview.cpp:95` 用
+`EntityNewState` 建它，注释写明"a WebView has no Render of its own here"。而 ChildView 走
+`EntityRender`，所以必须有一层自己的 wrapper view 返回 `WebViewEl(...)`。Inspector 面板
+不需要状态（`story.cpp:1961` 就是每帧 `New(cx)->IntoEl()`），但 `inspector.h:63` 的契约是
+**关着的时候 IntoEl 返回 null** ⇒ tree31 必须先 `toggleInspector()` 才拍得到面板，
+否则得到一张"面板不存在"的假基线。
+
+**验收分层**：WebView 在离屏 `cacheDisplayInRect` 里**必然空白**（跨进程表面不被合成），
+所以它的机器验收换成 `webviewProbe()`——读 `wry::WebViewUrlTemp` + `WebViewBounds`，
+即**控件自己报**的当前地址与布局实际应用的盒子（selftest 打出 400×300）。tree30 降级为
+"webview 没把布局搞塌"的布局基线，不再冒充能力验收。
+
+### Wave2-D（sha256 / secureRandom / zlib）被 `hello --caps` 砍掉
+新加 `--caps` 让编译产物自己报原生能力：
+`hash, hash_hmac` ✓ · `random_bytes, random_int` ✓ · zlib ✗ · curl ✗ · socket ✗ · proc  ·
+fs(file_get_contents/scandir/touch) ✓ · inotify ✗。
+⇒ sha256/secureRandom **不桥**（PHP 侧本来就有，桥过来是净负价值：多一条 C ABI + 一个会漂移
+的替身）；`shell::ZlibDeflate` **不桥**（`DeflateStored` 只加壳不压缩，名字会骗人）；
+`ZlibInflate` 值得桥（真解 Huffman，且 nano 不带 ext/zlib）；`HttpSendAsync` / `DirWatchStart`
+**优先级升高**（curl/socket/inotify 全空，是真缺口）。
+
+**探针方法学的坑**：先用"把函数名放进变量再 `$fn()`"当判据，撞到 nano 行为差异——对不存在的
+函数走动态调用报 `Invalid callback ... not found or invalid function name` 并 **SIGABRT**，
+不抛可 catch 的 Error。改用 `function_exists`（nano 的扩展集由 Composer 编译前决定，不按源码
+用没用裁，所以它是忠实探针）。
+
+## Wave2-E：三个真缺口接完，验收靠"外部数据 + 失败路径"（2026-10-11）
+
+**接了什么**：`HttpSendAsync` → `http` 事件、`DirWatchStart/Stop` → `dirChange` 事件、
+`shell::ZlibInflate` → `App::inflate`。事件槽只有 256 字节，所以**事件只报"有结果了"，
+内容另取**（`httpResponse($id)` 一次性读走即销毁）。
+
+**三条实测出来的前提**（都不是想当然）：
+1. `HttpSendAsync` 的 `done` **保证在主线程**（`http.h:100`），`DirWatch` 的 `onChange`
+   经 `ExecPost` 也在主线程（`dir_watch.h:16`）⇒ 入队不需要锁。我们的 pump 里确实有
+   `ExecDrain()`（`window_mac.cpp:2326`，GpuiAppRunStep 补丁内），否则回调永远落不了地。
+2. `HttpSetEnabled(false)` **不是** `HttpSendAsync` 的测试接缝——`gHttpEnabled` 只在
+   `HttpFetch` 表路径上被读（`http.cpp:315`）。所以 http 的无人值守验收换成
+   `http://127.0.0.1:1/`：loopback 上必然拒绝，整条异步路走通而不碰外网。
+3. `DirWatchAdd(Func0)` + `DirWatchSignal(id)` 是**官方**测试接缝（`dir_watch.h:86`
+   原文："A test stands in for the OS by calling DirWatchAdd and DirWatchSignal"）⇒
+   dirChange 的验收完全不碰文件系统。
+
+**zlib 的语义钉法（三方锚）**：开发机上用 PHP 的 zlib 生成 "hello gpui" 的两种容器
+（zlib 18 字节 / gzip 30 字节），同一批字节写死在三处：`tests/cpp/shim_test.cpp`（gpui 的
+解压器，C++ 直调）、`examples/hello` selftest #13（跨整条 bridge）、`tests/SystemTest.php`
+（替身用 PHP 自己的 `gzuncompress`/`gzdecode`）。顺带确认 `ZlibDeflate` 的头真是 0x78 /
+1f 8b —— 它"只加壳"这件事因此是可证的，不是猜的。
+
+**踩到**：`Box2` 成员里写 `std::unordered_map<int, struct WatchCtx*>` 会**在 Box2 内部**
+声明一个 `Box2::WatchCtx`，之后匿名 namespace 里的真定义就"引用二义"。前向声明要写在
+`class Box2` 之前。另一个：Pest 的 error handler 不吃 `@`，所以替身里 `@gzuncompress(坏数据)`
+仍会变成测试告警——改成先判容器头再解。

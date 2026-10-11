@@ -194,3 +194,50 @@ inspector 是整窗拾取高亮）· doctor 6 marker ✓。
 **Wave 2 的设计已换**：原设想"shim render-pass 特例"，实测 `ComponentKind::ChildView`
 （`materialize.cpp:2045`）就是"把任意 entity 当元素挂进树"的现成机制，WebView 与 Inspector
 面板共用它，只差一个 host 侧 `nestedViews` 注册入口（第 7 个补丁 marker）。见 findings.md。
+
+## Wave 2（部分）：ChildView 打通 → WebView + Inspector 面板（2026-10-11）
+
+**Wave2-A ✅** 第 7 个补丁 `cmd/patch-nested-view.sh`：`ShellRuntime::RegisterHostView(EntityId, App*)`。
+已进 `bin/gpui` 的 patchManifest 与 build 序列、`composer patch`、`GPUI.lock` 表；`doctor` 现校验 7 个 marker。
+
+**Wave2-B ✅** WebView：`El::webview($url,$id)` / `El::webviewHtml($html,$id)` → shim 侧
+`WebViewView` 包装 entity（`gpui::WebView` 自己没有 Render）→ `RegisterHostView` 拿 token →
+压 `ComponentKind::ChildView`。同 id 跨帧复用同一控件，换内容走 `WebViewLoadUrl` /
+`wry::WebViewLoadHtml`（不重建，避免再跑一次嵌套消息循环）。`gpui_shim_webview_probe` 读
+`wry::WebViewUrlTemp` + `WebViewBounds`。`gpui_shim_close` 在 `AppClose` **之前** drop，
+满足"OS 控件要在父窗口销毁前放手"。
+
+**Wave2-C ✅** Inspector 面板：`El::inspector($id)` 走同一条 ChildView 路。像素实测画出了
+右侧 320px 面板（拾取按钮 + 标题 + 关闭 + "Pick an element to inspect it."）。前提是先
+`toggleInspector()`——`IntoEl()` 关着返回 null 是 inspector.h:63 的契约。
+
+**Wave2-D ❌ 取消**（不是没做完，是不该做）：`hello --caps` 实测产物里 `hash()`/`random_bytes()`
+都在 ⇒ 桥 sha256/secureRandom 是净负价值；`shell::ZlibDeflate` 写 stored 块（不压缩）⇒ 不桥。
+详见 findings.md。**Wave2-E 范围据此改**：`HttpSendAsync` + `DirWatchStart` + `ZlibInflate`
+三个才是真缺口（curl/socket/inotify/zlib 在产物里全空）。
+
+**顺手**：`bin/gpui shot` 之前只转发 path、吞掉 tree 参数（`shot hello x.png 30` 静默出 tree 0）；
+已转发第三参。
+
+**门禁全绿**：Pest 41/177 · PHPStan 0 · shim_test OK · **selftest 12 链路**（webview 报回
+400×300 的应用盒子）· shotdiff OK **17 树**（tree30/31 新增，已肉眼核过）· doctor **7 marker** ✓。
+
+## Wave 2-E：真缺口服务（http / dirChange / inflate）（2026-10-11）
+
+按 `--caps` 重定范围后做完：`gpui_shim.h/.cpp` +5 个 C ABI（http_get / http_response /
+http_free / watch_dir / unwatch_dir / watch_fake / inflate）、`gpui_bridge.cc` +6 个
+`php_gpui_*`（二进制一律走 `String(ptr,len)`，两趟式取长度再填缓冲）、stub +6、`App` 新增
+`httpGet/httpResponse/watchDir/unwatchDir/inflate`、`FakeBridge` 镜像 + 脚本化应答表。
+
+**验收**：selftest 12 步 → **15 步**（解压读外部真数据 / dirChange 走官方测试接缝不碰
+文件系统 / http 打 loopback 关闭端口，只验失败路径与一次性读取）。`shim_test.cpp` 加
+`testGapServices()`：外部向量两解 + 坏数据不崩 + Deflate→Inflate 回环 + 容器头断言 +
+`HttpUrlIsRemote` 判据表。Pest +6 例。
+
+**门禁全绿**：Pest **46/196** · PHPStan 0 · shim_test OK（6 组）· **selftest 15 链路** ·
+shotdiff OK 17 树 · doctor 7 marker ✓。
+
+**Wave 2 收口**：A（补丁）/B（WebView）/C（Inspector 面板）/E（三个缺口服务）做完；
+D 取消（证据见 findings.md）。剩下的是 剪贴板图片、SysRefresh、FsRun/Process/Storage
+（要先解 Capabilities 授权根）、应用内通知中心、以及 mac 系统集成（托盘/快捷键/通知/Dock，
+自写 .mm）。

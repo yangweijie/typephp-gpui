@@ -17,6 +17,13 @@
 | `$app->promptForPath(bool $dirs, string $title): ?string` | `gpui::PromptForPathTemp` | **manual**（见下方硬约束） |
 | `$app->openUrl(string): bool` | `gpui::OpenUrl` + `gpui::IsOpenableUrl` | wrap + native（20 条 URL 表）+ route 的**拒绝侧** |
 | `$app->toggleInspector()` | `gpui::WindowToggleInspector` | pixel（tree29）——**这是拾取模式，不是面板** |
+| `El::inspector($id)` | `component::Inspector::New(cx)->IntoEl()` 经 `ChildView` 挂载 | pixel（tree31：面板真画出来了）|
+| `El::webview($url, $id)`<br>`El::webviewHtml($html, $id)` | `gpui::WebViewNew` + `WebViewEl` 经 `ChildView` 挂载 | route（selftest #12）+ pixel（tree30，只到"没把布局搞塌"）|
+| `$app->webviewBack($id)` / `webviewForward($id)` | `gpui::WebViewBack/Forward`（页内 eval `history.*`） | route（#12） |
+| `$app->webviewProbe($id)` | `wry::WebViewUrlTemp` + `WebViewBounds` | route（#12，读出 400×300 的应用盒子） |
+| `$app->httpGet($url, $id): bool`<br>`$app->httpResponse($id): ?array` | `gpui::HttpSendAsync`（**不是**阻塞的 `HttpSend`） | route（selftest #15：打 loopback 关闭端口，验整条异步路而不碰外网）+ native（`HttpUrlIsRemote` 判据表） |
+| `$app->watchDir($dir, $id, $create): int`<br>`$app->unwatchDir($watchId)` | `gpui::DirWatchStart`（macOS 走 FSEvents） | route（#14，走 gpui 的 DirWatchAdd/Signal 测试接缝，不碰文件系统） |
+| `App::inflate($bytes, $gzip = false): ?string` | `gpui::shell::ZlibInflate`（真解 Huffman） | 三方锚：同一批向量在 C++ 测试、原生 selftest #13、Pest 里各解一遍 |
 | `$app->showFpsHud(string $anchor): bool`<br>`$app->hideFpsHud()` / `fpsHudVisible()` | `ShellRootShow/HideFpsMonitor` | wrap + route（#10）+ pixel（tree27） |
 | `$app->openSheet(Element, string $anchor): int`<br>`$app->closeSheet()` / `hasSheet()` | `ShellRootOpenSheetView` 等 | wrap + route（#11）+ pixel（tree28） |
 | `$app->toast(...)` / `openDialog(...)` | `ShellRootPushToast` / `ShellRootOpenDialogView` | 已有，见[组件](/guide/components) |
@@ -45,15 +52,36 @@ TextView 的链接处理走的是同一条规则，PHP 不另开一套。
 
 | 能力 | 符号 | 卡在哪 |
 | --- | --- | --- |
-| WebView | `gpui::WebViewNew` / `WebViewEl` / `WebViewLoadUrl` / `Back` / `Forward` | 需要一个"把任意 entity 当元素挂进树"的口子：`ComponentKind::ChildView`（`materialize.cpp:2045`）正是它，但注册侧 `nestedViews` 只对 QuickJS 开放，得补一个 host 侧入口（与已有的 `PushShimCallback` 补丁同族） |
-| Inspector **面板** | `component::Inspector::New(cx)->IntoEl()` | 同上，同一道口子 |
 | 剪贴板图片/文件 | `gpui::ClipboardGetItem`（含 `image`、`externalPaths`） | 只差跨边界的二进制缓冲 |
-| 纯计算 | `shell::Sha256` / `SecureRandom` / `ZlibDeflate` / `ZlibInflate` | 无，纯同步静态函数 |
 | 系统信息 | `SysStateInit` / `SysRefresh`（cpu/mem/disk/battery/processes） | 无 |
-| 目录监听 | `DirWatchStart` / `DirWatchStop` | 需要一个新的 `dirChange` 事件 kind |
-| 异步 HTTP | `HttpSendAsync` | 需要 `http` 事件 kind |
-| 文件 / 进程 / 存储 | `shell::FsRun` / `ProcessRunBounded` / `StoragePersist` | 受 `Capabilities` 读写根授权模型约束（`ResolvePath` 要求先配 root），且进程调用阻塞——要单独设计，不是包装活 |
+| 压缩 | `shell::ZlibDeflate` | **不做**：它写的是 stored 块（`DeflateStored`），只加 zlib/gzip 外壳、不压缩。要压缩请自己实现或在 PHP 侧生成。解压侧已经接了（`App::inflate`），它既读得懂 gpui 自己写的容器，也读得懂真 deflate |
+| 哈希 / 随机 | `shell::Sha256` / `SecureRandom` | **不做**：产物里 `hash()`、`hash_hmac()`、`random_bytes()`、`random_int()` 都在，桥过来是净负价值 |
+| 文件 / 进程 / 存储 | `shell::FsRun` / `ProcessRunBounded` / `StoragePersist` | 受 `Capabilities` 读写根授权模型约束（`ResolvePath` 要求先配 root），且进程调用阻塞——要单独设计，不是包装活。`FsRun` 优先级低：`file_get_contents`/`scandir`/`touch` 在产物里可用 |
 | 应用内通知中心 | `NotificationPush` / `Dismiss` / `Clear`（`ui/notification.h:192`） | 要在元素树里挂 `component::NotificationList::IntoEl()`，比 Toast 大一档；Toast 已可用 |
+
+## 「要不要桥」由产物自己回答
+
+`hello --caps` 打印编译产物里到底有哪些原生函数：
+
+```
+hash     hash, hash_hmac
+random   random_bytes, random_int
+zlib     -
+curl     -
+socket   -
+proc     -
+fs       file_get_contents, scandir, touch
+dirwatch -
+```
+
+计划里"桥 sha256 / secureRandom / zlib"那一条就是被这张表砍掉的：PHP 侧已经有的东西，
+桥过来只会多一条 C ABI 加一个会漂移的替身实现。反过来 `curl`/`socket`/`inotify` 全空，
+说明 `HttpSendAsync` 和 `DirWatchStart` 是真缺口。
+
+探针用 `function_exists`，不能用"把函数名放进变量再 `$fn()`"：nano 里对不存在的函数
+走动态调用会报 `Invalid callback ... not found or invalid function name` 并 **abort
+（SIGABRT）**，不抛可 catch 的 `Error`。nano 的扩展集由 Composer 在编译前决定，不按源码
+用没用裁，所以 `function_exists` 就是忠实探针。
 
 ## 端口里根本没有
 

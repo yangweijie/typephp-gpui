@@ -58,6 +58,37 @@ $app->on('dd-new', 'click', function (): void { /* 菜单项被点 */ });
 `->item($label, $routeId, $type='click')` 内部把回调编码成 `El::cb($type, $routeId)`
 （`['__cb__', type, id]`），bridge 经 `gpui_shim_new_callback` 登记 runtime 合成回调。
 
+## 5. 异步服务事件（`http` / `dirChange`）
+
+系统服务的答案不走"调用即返回"，而是排进同一条事件队列——因为 `HttpSend` 阻塞、
+目录变更来自 OS 线程，两者都不能在渲染期间同步给 PHP。
+
+```php
+$app->on('api', 'http', function () use ($app): void {
+    $r = $app->httpResponse('api');   // ['ok','status','body','contentType']，读一次即销毁
+    if ($r !== null && $r['ok']) { $state['json'] = $r['body']; }
+});
+$app->httpGet('https://example.com/api', 'api');
+
+$app->on('themes', 'dirChange', function () use ($app): void {
+    $app->toast('主题目录变了', '重新载入');   // 只说"变了"，不说哪个文件
+});
+$watch = $app->watchDir('/path/to/themes', 'themes');
+// 不要了：$app->unwatchDir($watch);
+```
+
+两条约定：
+
+- **事件只报"有结果了"，内容另取。** `GpuiEvent` 的字符串槽只有 256 字节，装不下应答体，
+  所以 `http` 事件带的是 status，正文用 `httpResponse($id)` 拿；它是**一次性**的，读完即释放，
+  第二次读返回 `null`。收到事件就该读掉，不读的应答会攒在窗口上。
+- **目录变更是合并过的。** 一串连续变更（编辑器保存就是好几个）只通知一次，且不带文件名——
+  上游唯一的用法（主题热重载）是整目录重扫，所以这里也不假装知道是哪个文件。
+
+`dirChange` 的 `onChange` 由 gpui post 到主线程（`dir_watch.h:16`），`http` 的 `done` 也保证
+在主线程被调（`http.h:100`），所以入队不需要锁；但两者都要**泵一下循环**才落地——
+`httpGet()` 返回 true 只表示"排上了"。
+
 ## 生命周期与幂等
 
 - 回调按 `(elementId, type)` **幂等复用**：每帧重建同结构不增长（live app 友好）。

@@ -8,15 +8,16 @@
 | 1 | Pest | `composer test` | PHP 声明层：Element 序列化、App 路由、FakeBridge | 否 |
 | 2 | PHPStan | `composer analyse` | `src/` 类型/静态（level 5） | 否 |
 | 3 | C++ shim_test | `composer test:cpp` | shim 纯函数：kindFromString / AStr arena 拷贝 / toComponentArg schema / buildComponentArgs | 是（gpui.o） |
-| 4 | selftest | `php bin/gpui selftest hello` | 六链路端到端：输入取值 / 点击 / 定时器 / dialog / catalog 回调 / 错误回传 | 是（二进制） |
-| 5 | shotdiff | `php bin/gpui shotdiff check hello` | 视觉回归：逐树像素比对基线 | 是（二进制） |
-| 6 | doctor | `php bin/gpui doctor` | 工具链 + 5 补丁 marker 校验 | 部分 |
+| 4 | selftest | `php bin/gpui selftest hello` | 15 链路端到端：输入取值 / 点击 / 定时器 / dialog / catalog 回调 / 错误回传 / app 菜单 / 剪贴板 / url 白名单 / HUD / Sheet / WebView / 解压 / dirChange / http | 是（二进制） |
+| 5 | shotdiff | `php bin/gpui shotdiff check hello` | 视觉回归：逐树像素比对基线（17 棵） | 是（二进制） |
+| 6 | doctor | `php bin/gpui doctor` | 工具链 + 7 补丁 marker 校验 | 部分 |
 
 一键：`composer test:all`（Pest + PHPStan + shim_test）。
 
 ## Pest（PHP 无头）
 
-`tests/ElementTest.php` / `tests/AppTest.php`，走 `FakeBridge`（纯 PHP 替身，不碰 gpui）。
+`tests/ElementTest.php` / `tests/AppTest.php` / `tests/SystemTest.php`，走 `FakeBridge`
+（纯 PHP 替身，不碰 gpui）。
 函数式 `test()` / `expect()`。覆盖每个工厂的 kind、children/ops 序列化、registered 标记、
 枚举预校验。
 
@@ -30,7 +31,7 @@ headless、不开窗口，故任意环境可跑。`cmd/test-shim.sh` 两步编�
 
 ## selftest（原生二进制）
 
-`hello --selftest` 跑真实编译产物，验证跨边界事件链。退出码 0 = 通过。十一步：
+`hello --selftest` 跑真实编译产物，验证跨边界事件链。退出码 0 = 通过。十五步：
 1. 输入取值回环（setInput → InputSetValue → InputValue）
 2. 点击事件全链路（合成 fire → gpuiEnqueueClick → boxForView → 队列 → poll → dispatch）
 3. 定时器 tick
@@ -44,6 +45,24 @@ headless、不开窗口，故任意环境可跑。`cmd/test-shim.sh` 两步编�
    `gpui::IsOpenableUrl` 钉住
 10. 帧率 HUD 生命周期（show → visible → 重复 show → hide → 再 hide 为 false）
 11. Sheet 生命周期（openSheet → hasSheet → closeSheet → hasSheet 假）
+12. WebView（`ChildView` + host nested-view 注册真建出 OS 控件）。断言的是
+    `webviewProbe()` 里**控件自己报**的数：`wry::WebViewUrlTemp` + `WebViewBounds` 给出
+    布局实际应用给它的盒子（400×300），再加 back/forward 两次页内 eval 成功。
+    OK 行末把那个盒子打出来，便于看出"存在但零尺寸"这种假通过。
+13. 解压（`App::inflate`）：喂**外部真数据**——两串由开发机上 PHP 的 zlib 生成的
+    "hello gpui" 容器（zlib 与 gzip 各一），不是 gpui 自己写的 stored 壳。坏数据返回 null。
+    同一批向量在 `tests/cpp/shim_test.cpp` 与 `tests/SystemTest.php` 里也各解一遍，三方钉一处。
+14. 目录监听（`dirChange`）：走 gpui 自己的测试接缝（`DirWatchAdd` + `DirWatchSignal`，
+    `dir_watch.h:86` 明说这就是给测试留的），**完全不碰文件系统**，验的是
+    "信号 → 主线程 post → 入队 → poll → dispatch" 整条路。OS 那一半（FSEvents/inotify/
+    ReadDirectoryChangesW）是 gpui 自己的代码，不在本项目的验收面里。
+15. HTTP（`http` 事件）：打 `http://127.0.0.1:1/` ——loopback 上必然没人监听的端口，
+    于是 executor → 主线程 done → 入队 → poll → `httpResponse()` 整条异步路都走通，
+    而**不碰外网**。断言的是"事件到了 + 应答是 ok=false/status=0 + 读第二次为 null"，
+    不是"能上网"；`data:` 这类 scheme 在发送前就被拒。
+
+第 15 步是**故意只验失败路径**的：无人值守的门禁不该有外网副作用，也不该有超时抖动。
+成功路径靠 `HttpUrlIsRemote` 的判据表（C++ 侧）+ 需要时人跑一次。
 
 `promptForPath` **不在自检里**：原生对话框自带嵌套消息循环，一直等用户选完，无人值守会挂死。
 它的手工路径在交互 demo 里（`Open…` 按钮，从点击回调中调用），见
@@ -59,10 +78,12 @@ headless、不开窗口，故任意环境可跑。`cmd/test-shim.sh` 两步编�
 
 同机 `--shot` 逐字节确定。它**首跑就抓到了** dialog double-free（tree13 未关就 close → SIGABRT）。
 跳过 tree 24（MenuBar 现报 root-app 错误节点，不纳入基线以免固化坏态）。
+tree 29（inspector）拍到的是整窗高亮描边——`WindowToggleInspector` 是拾取模式开关，
+不是面板；面板由 `El::inspector()` 摆（tree31：右侧 320px 的 Inspector 面板 + 拾取按钮）。
+tree 30 是 WebView，它那块在离屏截图里**必然是空白**（`cacheDisplayInRect` 合成不了
+跨进程表面），所以这张基线只量"webview 没把布局搞塌"，控件本身归第 12 步。
 tree 27 是**唯一非零残差**的基线（约 0.0002）：帧率 HUD 是活表，数字随帧变化，容差吸收得下；
 换台慢机器若超容差，应改判它的像素验收为"存在 HUD"而非"HUD 内容一致"。
-tree 29（inspector）拍到的是整窗高亮描边——`WindowToggleInspector` 是拾取模式开关，
-不是面板；面板需要 nested-view 挂载，见系统能力页的"未接"表。
 
 ## CI
 
