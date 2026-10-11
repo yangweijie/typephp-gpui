@@ -40,8 +40,16 @@ clang++ -std=c++20 -x objective-c++ -fobjc-arc \
     -c "$ROOT/tests/cpp/shim_test.cpp" \
     -o "$OUT_DIR/shim_test.o"
 
+# gpui_shim.cpp 引用 gpui_mac_*（独立 TU），测试链接也要带上它。
+echo "compiling gpui_mac.mm for the test link..."
+clang++ -std=c++20 -x objective-c++ -fobjc-arc \
+    -Wall -Wno-deprecated-declarations -g \
+    -I "$ROOT/cpp-src" \
+    -c "$ROOT/cpp-src/gpui_mac.mm" \
+    -o "$OUT_DIR/gpui_mac.o"
+
 echo "linking shim_test..."
-clang++ "$OUT_DIR/shim_test.o" "$GPUI_O" "$QUICKJS_O" "$APPLOG_O" \
+clang++ "$OUT_DIR/shim_test.o" "$OUT_DIR/gpui_mac.o" "$GPUI_O" "$QUICKJS_O" "$APPLOG_O" \
     -framework Cocoa -framework CoreServices -framework CoreText \
     -framework CoreGraphics -framework ImageIO -framework IOKit \
     -framework WebKit -framework AudioToolbox -framework AVFoundation \

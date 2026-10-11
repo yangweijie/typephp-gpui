@@ -103,6 +103,37 @@ namespace TypePHP\Gpui {
         /** 下一条通知的 id（0 保留为"没推成"，与真侧一致） */
         public static int $nextNotifyId = 1;
 
+        /** @var list<array{id:int,window:int,elem:string,tooltip:string,labels:list<string>}> 已挂的托盘项 */
+        public static array $trays = [];
+
+        /** 下一条托盘项的 id（0 保留为"没挂上"，与真侧一致） */
+        public static int $nextTrayId = 1;
+
+        /** @var list<array{id:int,window:int,elem:string,keycode:int,mods:int}> 已注册的快捷键 */
+        public static array $hotkeys = [];
+
+        public static int $nextHotkeyId = 1;
+
+        /** Dock 角标最后一次写的文字（空串 = 清除） */
+        public static string $dockBadge = '';
+
+        /** @var list<array{title:string,body:string}> 交给系统的 OS 通知 */
+        public static array $osNotifications = [];
+
+        /** @var list<string> 已授予的只读根（替身按前缀匹配，真侧是逐级 openat） */
+        public static array $readRoots = [];
+
+        /** @var list<string> 已授予的读写根 */
+        public static array $writeRoots = [];
+
+        /** @var array{unrestricted:bool,commands:list<string>} 命令白名单 */
+        public static array $executeGrant = ['unrestricted' => false, 'commands' => []];
+
+        public static bool $storageAllowed = false;
+
+        /** @var array<string,string> 存储键值（替身不落盘，只验形状与授权门） */
+        public static array $storage = [];
+
         public static function reset(): void
         {
             self::$inputValues = [];
@@ -127,6 +158,17 @@ namespace TypePHP\Gpui {
             self::$watches = [];
             self::$sysInfo = [];
             self::$notifications = [];
+            self::$trays = [];
+            self::$nextTrayId = 1;
+            self::$hotkeys = [];
+            self::$nextHotkeyId = 1;
+            self::$dockBadge = '';
+            self::$osNotifications = [];
+            self::$readRoots = [];
+            self::$writeRoots = [];
+            self::$executeGrant = ['unrestricted' => false, 'commands' => []];
+            self::$storageAllowed = false;
+            self::$storage = [];
             self::$nextNotifyId = 1;
             self::$windows = [];
             self::$nextWindowId = 1;
@@ -662,5 +704,305 @@ namespace {
     function gpui_notification_count(mixed $window): int
     {
         return count(FakeBridge::$notifications);
+    }
+
+    function gpui_tray_add(mixed $window, string $id, string $tooltip, array $labels): int
+    {
+        $trayId = FakeBridge::$nextTrayId++;
+        FakeBridge::$trays[] = [
+            'id' => $trayId,
+            'window' => (int) $window,
+            'elem' => $id,
+            'tooltip' => $tooltip,
+            'labels' => array_values($labels),
+        ];
+
+        return $trayId;
+    }
+
+    function gpui_tray_remove(mixed $window, int $trayId): void
+    {
+        FakeBridge::$trays = array_values(array_filter(
+            FakeBridge::$trays,
+            static fn (array $t): bool => $t['id'] !== $trayId
+        ));
+    }
+
+    function gpui_tray_count(): int
+    {
+        return count(FakeBridge::$trays);
+    }
+
+    function gpui_hotkey_register(mixed $window, string $id, int $keycode, int $mods): int
+    {
+        $hkId = FakeBridge::$nextHotkeyId++;
+        FakeBridge::$hotkeys[] = [
+            'id' => $hkId,
+            'window' => (int) $window,
+            'elem' => $id,
+            'keycode' => $keycode,
+            'mods' => $mods,
+        ];
+
+        return $hkId;
+    }
+
+    function gpui_hotkey_unregister(int $id): void
+    {
+        FakeBridge::$hotkeys = array_values(array_filter(
+            FakeBridge::$hotkeys,
+            static fn (array $h): bool => $h['id'] !== $id
+        ));
+    }
+
+    function gpui_hotkey_count(): int
+    {
+        return count(FakeBridge::$hotkeys);
+    }
+
+    /** 替身里的"合成事件"就是直接排一条 hotkey 事件：验的是 PHP 侧的路由，派发链归 selftest。 */
+    function gpui_hotkey_fire(int $index): bool
+    {
+        if (!isset(FakeBridge::$hotkeys[$index])) {
+            return false;
+        }
+        FakeBridge::$eventQueue[] = [
+            'window' => FakeBridge::$hotkeys[$index]['window'],
+            'type' => 'hotkey',
+            'id' => FakeBridge::$hotkeys[$index]['elem'],
+            'value' => null,
+        ];
+
+        return true;
+    }
+
+    function gpui_dock_badge(string $text): void
+    {
+        FakeBridge::$dockBadge = $text;
+    }
+
+    function gpui_os_notify(string $title, string $body): bool
+    {
+        FakeBridge::$osNotifications[] = ['title' => $title, 'body' => $body];
+
+        return true;
+    }
+
+    // ── 授权文件系统 / 进程 / 存储替身 ──
+    //
+    // 授权门是真做的（不在根里就失败、不在白名单就不跑），文件 I/O 走 PHP 自己的
+    // 文件系统调用，所以 Pest 能拿真数据对照——它验的是"门与形状"，不是 gpui 的
+    // openat 遍历（那一半归 selftest 与 shim_test）。
+
+    function gpui_fake_norm(string $p): string
+    {
+        return rtrim(str_replace("\\", '/', $p), '/');
+    }
+
+    /** 找得到就返回 [root, relative]，找不到返回 null（= OutsideRoots）。 */
+    function gpui_fake_resolve(string $path, bool $writable): ?array
+    {
+        $roots = $writable
+            ? array_merge(FakeBridge::$writeRoots, FakeBridge::$readRoots)
+            : array_merge(FakeBridge::$readRoots, FakeBridge::$writeRoots);
+        $p = gpui_fake_norm($path);
+        foreach ($roots as $r) {
+            if (str_starts_with($p, $r . '/')) {
+                return [$r, substr($p, strlen($r) + 1)];
+            }
+            if ($p === $r) {
+                return [$r, ''];
+            }
+        }
+
+        return null;
+    }
+
+    function gpui_grant_root(string $root, bool $writable): int
+    {
+        $r = gpui_fake_norm($root);
+        if ($writable) {
+            FakeBridge::$writeRoots[] = $r;
+
+            return count(FakeBridge::$writeRoots);
+        }
+        FakeBridge::$readRoots[] = $r;
+
+        return count(FakeBridge::$readRoots);
+    }
+
+    function gpui_grant_execute(array $commands, bool $unrestricted): int
+    {
+        FakeBridge::$executeGrant = [
+            'unrestricted' => $unrestricted,
+            'commands' => array_values(array_map('strval', $commands)),
+        ];
+
+        return 1;
+    }
+
+    function gpui_grant_storage(bool $allowed): void
+    {
+        FakeBridge::$storageAllowed = $allowed;
+    }
+
+    function gpui_storage_granted(): bool
+    {
+        return FakeBridge::$storageAllowed;
+    }
+
+    function gpui_storage_path(string $path): array
+    {
+        return ['ok' => FakeBridge::$storageAllowed, 'error' => FakeBridge::$storageAllowed ? '' : 'gpui 授权拒绝（没有存储授权）: ' . $path];
+    }
+
+    function gpui_fs_read(string $path): array
+    {
+        $hit = gpui_fake_resolve($path, false);
+        if ($hit === null) {
+            return ['ok' => false, 'error' => 'gpui 授权拒绝（路径不在授予的根里）: ' . $path];
+        }
+        if (!is_file($path)) {
+            return ['ok' => false, 'error' => 'gpui FsRun 失败'];
+        }
+        $data = @file_get_contents($path);
+        if ($data === false) {
+            return ['ok' => false, 'error' => 'gpui FsRun 失败'];
+        }
+
+        return ['ok' => true, 'data' => $data, 'error' => ''];
+    }
+
+    function gpui_fs_write(string $path, string $data): array
+    {
+        $hit = gpui_fake_resolve($path, true);
+        if ($hit === null) {
+            return ['ok' => false, 'error' => 'gpui 授权拒绝（路径不在授予的根里）: ' . $path];
+        }
+        if (!is_dir(dirname($path))) {
+            return ['ok' => false, 'error' => 'gpui FsRun 失败'];
+        }
+
+        return ['ok' => @file_put_contents($path, $data) !== false, 'error' => ''];
+    }
+
+    function gpui_fs_list(string $path): array
+    {
+        $hit = gpui_fake_resolve($path, false);
+        if ($hit === null) {
+            return ['ok' => false, 'entries' => [], 'truncated' => false,
+                    'error' => 'gpui 授权拒绝（路径不在授予的根里）: ' . $path];
+        }
+        if (!is_dir($path)) {
+            return ['ok' => false, 'entries' => [], 'truncated' => false, 'error' => 'gpui FsRun 失败'];
+        }
+        $entries = [];
+        foreach (scandir($path) ?: [] as $name) {
+            if ($name === '.' || $name === '..') {
+                continue;
+            }
+            $entries[] = ['name' => $name, 'dir' => is_dir($path . '/' . $name)];
+        }
+
+        return ['ok' => true, 'entries' => $entries, 'truncated' => false, 'error' => ''];
+    }
+
+    function gpui_fs_exists(string $path): bool
+    {
+        return gpui_fake_resolve($path, false) !== null && file_exists($path);
+    }
+
+    function gpui_fake_rrmdir(string $dir): bool
+    {
+        foreach (scandir($dir) ?: [] as $n) {
+            if ($n === '.' || $n === '..') {
+                continue;
+            }
+            $p = $dir . '/' . $n;
+            if (is_dir($p)) {
+                gpui_fake_rrmdir($p);
+            } else {
+                @unlink($p);
+            }
+        }
+
+        return @rmdir($dir);
+    }
+
+    function gpui_fs_remove(string $path, bool $dir, bool $recursive): array
+    {
+        $hit = gpui_fake_resolve($path, true);
+        if ($hit === null) {
+            return ['ok' => false, 'error' => 'gpui 授权拒绝（路径不在授予的根里）: ' . $path];
+        }
+        if ($dir) {
+            if (!is_dir($path)) {
+                return ['ok' => false, 'error' => 'gpui FsRun 失败'];
+            }
+
+            return ['ok' => $recursive ? gpui_fake_rrmdir($path) : @rmdir($path), 'error' => ''];
+        }
+
+        return ['ok' => is_file($path) && @unlink($path), 'error' => ''];
+    }
+
+    function gpui_fs_mkdir(string $path, bool $dir): array
+    {
+        $hit = gpui_fake_resolve($path, true);
+        if ($hit === null) {
+            return ['ok' => false, 'error' => 'gpui 授权拒绝（路径不在授予的根里）: ' . $path];
+        }
+
+        return ['ok' => $dir ? @mkdir($path, 0777, true) : @mkdir($path), 'error' => ''];
+    }
+
+    function gpui_process_run(string $command, array $args): array
+    {
+        $grant = FakeBridge::$executeGrant;
+        if (!$grant['unrestricted'] && !in_array($command, $grant['commands'], true)) {
+            return ['ok' => false, 'code' => -1, 'out' => '', 'err' => '',
+                    'error' => 'gpui 授权拒绝（命令不在白名单里）: ' . $command];
+        }
+        $cmd = escapeshellarg($command);
+        foreach ($args as $a) {
+            $cmd .= ' ' . escapeshellarg((string) $a);
+        }
+        $out = @shell_exec($cmd);
+
+        return ['ok' => true, 'code' => 0, 'out' => (string) $out, 'err' => '', 'error' => ''];
+    }
+
+    function gpui_storage_set(string $key, string $value): array
+    {
+        if (!FakeBridge::$storageAllowed) {
+            return ['ok' => false, 'error' => 'gpui 授权拒绝（没有存储授权）: ' . $key];
+        }
+        FakeBridge::$storage[$key] = $value;
+
+        return ['ok' => true, 'error' => ''];
+    }
+
+    function gpui_storage_get(string $key): array
+    {
+        if (!FakeBridge::$storageAllowed || !array_key_exists($key, FakeBridge::$storage)) {
+            return ['ok' => false];
+        }
+
+        return ['ok' => true, 'value' => FakeBridge::$storage[$key]];
+    }
+
+    function gpui_storage_remove(string $key): bool
+    {
+        if (!array_key_exists($key, FakeBridge::$storage)) {
+            return false;
+        }
+        unset(FakeBridge::$storage[$key]);
+
+        return true;
+    }
+
+    function gpui_storage_len(): int
+    {
+        return FakeBridge::$storageAllowed ? count(FakeBridge::$storage) : 0;
     }
 }

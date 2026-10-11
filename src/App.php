@@ -465,6 +465,252 @@ final class App
         return \gpui_sys_info($topProcs);
     }
 
+    // ── 授权文件系统 / 进程 / 存储（Capabilities）──
+    //
+    // gpui 的 FsRun 不吃 ambient 路径：它要 (root, relative) 两半，root 必须是事先授予过的
+    // 目录，遍历时逐级 openat + O_NOFOLLOW。所以先 grantRoot()，之后每个调用内部自己选根。
+    // 失败原因留在 self::$capError 里，用 App::fsError() 看。
+
+    private static string $capError = '';
+
+    /** 授予一个根目录（$writable=true 是读写根）。返回该类根的数量，0 = 失败。 */
+    public static function grantRoot(string $dir, bool $writable = false): int
+    {
+        return (int) \gpui_grant_root($dir, $writable);
+    }
+
+    /** 命令白名单；$unrestricted=true 全部放行（那时 $commands 被忽略）。 */
+    public static function grantExecute(array $commands, bool $unrestricted = false): void
+    {
+        \gpui_grant_execute($commands, $unrestricted);
+    }
+
+    public static function grantStorage(bool $allowed): void
+    {
+        \gpui_grant_storage($allowed);
+    }
+
+    public static function storageGranted(): bool
+    {
+        return (bool) \gpui_storage_granted();
+    }
+
+    /** 存储落盘的位置（不给路径就只能 Set 到内存，重启就没了）。 */
+    public static function storagePath(string $path): bool
+    {
+        $r = \gpui_storage_path($path);
+        self::$capError = (string) ($r['error'] ?? '');
+
+        return (bool) ($r['ok'] ?? false);
+    }
+
+    /** 上一次文件/进程/存储调用的失败原因；成功时是空串。 */
+    public static function fsError(): string
+    {
+        return self::$capError;
+    }
+
+    /** 读一个授予过的路径；失败返回 null（原因看 fsError()）。 */
+    public static function fsRead(string $path): ?string
+    {
+        $r = \gpui_fs_read($path);
+        self::$capError = (string) ($r['error'] ?? '');
+        if (!($r['ok'] ?? false)) {
+            return null;
+        }
+
+        return (string) ($r['data'] ?? '');
+    }
+
+    public static function fsWrite(string $path, string $data): bool
+    {
+        $r = \gpui_fs_write($path, $data);
+        self::$capError = (string) ($r['error'] ?? '');
+
+        return (bool) ($r['ok'] ?? false);
+    }
+
+    /**
+     * 列目录。返回 [['name'=>string,'dir'=>bool], ...]；失败 null。
+     * $truncated 按引用回"是否被上限截断"（一次最多 2048 条）。
+     *
+     * @param-out bool $truncated
+     */
+    public static function fsList(string $path, ?bool &$truncated = null): ?array
+    {
+        $r = \gpui_fs_list($path);
+        self::$capError = (string) ($r['error'] ?? '');
+        $truncated = (bool) ($r['truncated'] ?? false);
+        if (!($r['ok'] ?? false)) {
+            return null;
+        }
+
+        return (array) ($r['entries'] ?? []);
+    }
+
+    public static function fsExists(string $path): bool
+    {
+        return (bool) \gpui_fs_exists($path);
+    }
+
+    /** $dir=true 删目录（$recursive 才生效），否则删文件。 */
+    public static function fsRemove(string $path, bool $dir = false, bool $recursive = false): bool
+    {
+        $r = \gpui_fs_remove($path, $dir, $recursive);
+        self::$capError = (string) ($r['error'] ?? '');
+
+        return (bool) ($r['ok'] ?? false);
+    }
+
+    /** $dir=true 时递归建（多级）。 */
+    public static function fsMkdir(string $path, bool $dir = true): bool
+    {
+        $r = \gpui_fs_mkdir($path, $dir);
+        self::$capError = (string) ($r['error'] ?? '');
+
+        return (bool) ($r['ok'] ?? false);
+    }
+
+    /**
+     * 跑一个被授权的可执行文件，返回 ['code'=>int,'out'=>string,'err'=>string]；
+     * 失败（不在白名单、起不来）返回 null。
+     *
+     * ⚠ **阻塞**：子进程跑完才返回（上限 30s、每路输出 8 MiB、子进程环境是空的），
+     * 所以它和 promptForPath 一样只该在事件回调里调，不要在 App::view() 里调。
+     */
+    public static function processRun(string $command, array $args = []): ?array
+    {
+        $r = \gpui_process_run($command, $args);
+        self::$capError = (string) ($r['error'] ?? '');
+        if (!($r['ok'] ?? false)) {
+            return null;
+        }
+
+        return [
+            'code' => (int) ($r['code'] ?? -1),
+            'out' => (string) ($r['out'] ?? ''),
+            'err' => (string) ($r['err'] ?? ''),
+        ];
+    }
+
+    public static function storageSet(string $key, string $value): bool
+    {
+        $r = \gpui_storage_set($key, $value);
+        self::$capError = (string) ($r['error'] ?? '');
+
+        return (bool) ($r['ok'] ?? false);
+    }
+
+    /** 没有这个键返回 null。 */
+    public static function storageGet(string $key): ?string
+    {
+        $r = \gpui_storage_get($key);
+        if (!($r['ok'] ?? false)) {
+            return null;
+        }
+
+        return (string) ($r['value'] ?? '');
+    }
+
+    public static function storageRemove(string $key): bool
+    {
+        return (bool) \gpui_storage_remove($key);
+    }
+
+    public static function storageLen(): int
+    {
+        return (int) \gpui_storage_len();
+    }
+
+    // ── macOS 系统集成（托盘 / 全局快捷键 / Dock 角标 / OS 通知）──
+    //
+    // 这一组的自动化上限是"注册成功 + 事件打得回来"：托盘图标在不在菜单栏里、快捷键在
+    // 别的 app 有焦点时是否仍触发、通知横幅有没有出现，都在窗口之外，机器看不见。
+
+    /** Carbon 修饰键位（对齐 Events.h 的 cmdKey/shiftKey/optionKey/controlKey）。 */
+    public const HOTKEY_MODS = [
+        'cmd' => 256, 'shift' => 512, 'option' => 2048, 'control' => 4096,
+    ];
+
+    /**
+     * 挂一个托盘项，返回 id（>0）；失败 0。
+     *
+     * $labels 非空时点击弹这个菜单，被点的文字作为 ['type'=>'tray','id'=>$id,'value'=>label]
+     * 回来；$labels 为空时点击本身就是事件（value 为 null）。
+     */
+    public function tray(array $labels, string $id, string $tooltip = ''): int
+    {
+        return (int) \gpui_tray_add($this->handle(), $id, $tooltip, $labels);
+    }
+
+    /** 撤掉一个托盘项。窗口关闭时它名下的托盘项会被自动撤掉。 */
+    public function removeTray(int $trayId): void
+    {
+        \gpui_tray_remove($this->handle(), $trayId);
+    }
+
+    /** 当前托盘项数量（app 级）。existence-green：只证明"没崩、没泄漏"。 */
+    public static function trayCount(): int
+    {
+        return (int) \gpui_tray_count();
+    }
+
+    /**
+     * 注册全局快捷键：$keycode 是 kVK_*（F13=105、F14=107），$mods 写名字数组
+     * （['cmd','shift']），命中时回 ['type'=>'hotkey','id'=>$id]。返回 id（>0），失败 0。
+     */
+    public function onHotkey(string $id, int $keycode, array $mods = []): int
+    {
+        $bits = 0;
+        foreach ($mods as $m) {
+            if (!isset(self::HOTKEY_MODS[$m])) {
+                throw new \InvalidArgumentException(
+                    'onHotkey(): 不认识的修饰键 ' . $m
+                    . '，可选：' . implode('/', array_keys(self::HOTKEY_MODS))
+                );
+            }
+            $bits |= self::HOTKEY_MODS[$m];
+        }
+        return (int) \gpui_hotkey_register($this->handle(), $id, $keycode, $bits);
+    }
+
+    public function removeHotkey(int $hotkeyId): void
+    {
+        \gpui_hotkey_unregister($hotkeyId);
+    }
+
+    public static function hotkeyCount(): int
+    {
+        return (int) \gpui_hotkey_count();
+    }
+
+    /**
+     * 测试接缝：合成第 $index 个已注册快捷键的事件，走完整条
+     * "Carbon 队列 → 派发 → handler → 事件出口 → 窗口队列 → poll"。
+     * 它验的是派发链，**不是**"系统真的全局捕获了这组键"——后者只能人按。
+     */
+    public static function fireHotkeyForTest(int $index): bool
+    {
+        return (bool) \gpui_hotkey_fire($index);
+    }
+
+    /** Dock 角标文字（空串清除）。 */
+    public static function dockBadge(string $text): void
+    {
+        \gpui_dock_badge($text);
+    }
+
+    /**
+     * 发一条 OS 通知。true = 已交给系统。
+     *
+     * ⚠ 不代表屏幕上出现了横幅：裸可执行文件没有 bundle id，macOS 会静默丢弃。
+     * 要可靠出横幅得先打包成 .app（UNUserNotificationCenter + Info.plist + 签名）。
+     */
+    public static function osNotify(string $title, string $body): bool
+    {
+        return (bool) \gpui_os_notify($title, $body);
+    }
+
     // ── 应用内通知中心 ──
 
     /**

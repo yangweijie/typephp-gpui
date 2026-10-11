@@ -9,6 +9,8 @@
 
 #include <cstdio>
 #include <cstring>
+#include <cstdlib>
+#include <unistd.h>
 #include <string>
 
 namespace {
@@ -279,7 +281,151 @@ void testNotifyMapping() {
 }
 
 
-// 6d) copyBounded：二进制通道唯一的截断/长度语义，剪贴板图像与解压输出都靠它。
+// 6e) 图标查表链路：通知/toast/El::icon 能不能画出图标，全看这张编译进去的表答不答得上。
+//     纯查表、headless 可跑，所以把它放在像素之前——像素只能证明"画出来了"，证明不了
+//     "查表这一层是好的"。三条形状要求（前缀 icons/、后缀 .svg、base 命中表）与
+//     "查不到就静默返回空"都要钉住，否则下一个人名对了形状、名错了，只会得到一片白。
+void testAssetIconLookup() {
+    std::puts("asset icon lookup table");
+    int len = -1;
+    // 通知用的四个 type 图标 + demo 用的两个，必须在表里且字节码非空。
+    const char* names[] = {"info", "circle-check", "triangle-alert", "circle-x",
+                           "square-terminal", "settings"};
+    for (const char* n : names) {
+        len = -1;
+        CHECK(gpui::AssetIconFind(gpui::Str(n), &len) != nullptr);
+        CHECK(len > 0);
+    }
+    // 枚举那条路的产物形状：IconNamePath 给的正是 "icons/<base>.svg"。
+    len = -1;
+    CHECK(gpui::AssetIconForPath(gpui::Str("icons/circle-check.svg"), &len) != nullptr);
+    CHECK(len > 0);
+
+    // 三种"看着像但答不上"的写法，全部静默返回空——这就是 El::icon 侧要挡的东西。
+    len = -1;
+    CHECK(gpui::AssetIconForPath(gpui::Str("circle-check"), &len) == nullptr);  // 没形状
+    len = -1;
+    CHECK(gpui::AssetIconForPath(gpui::Str("icons/circle-check"), &len) == nullptr);  // 没后缀
+    len = -1;
+    CHECK(gpui::AssetIconForPath(gpui::Str("icons/home.svg"), &len) == nullptr);
+    // ^ 表里真没有 home（它是 sidebar navIcon 的逻辑名，另一套命名空间）。demo 曾经
+    //   就写这个，结果 tree21 的基线把那里录成了一片白。
+    len = -1;
+    CHECK(gpui::AssetIconForPath(gpui::Str("icons/nope.svg"), &len) == nullptr);
+    CHECK(gpui::AssetIconFind(gpui::Str(""), &len) == nullptr);
+}
+
+
+// 6g) 授权文件系统 / 进程 / 存储：门的两侧都要量。
+//     只量"授予后能用"会漏掉最危险的一半——未授予的路径必须**被拒且说得出原因**，
+//     否则授权模型形同虚设。递归删也要真量：gpui 的 RemoveDirectory 是
+//     unlinkat(AT_REMOVEDIR)，非空目录会失败，recursive 是我们在 shim 里补的。
+void testCapabilityServices() {
+    std::puts("capability fs / process / storage");
+    char tmpl[] = "/tmp/gpui-caps-XXXXXX";
+    const char* root = mkdtemp(tmpl);
+    CHECK(root != nullptr);
+    if (!root) return;
+    char err[256];
+    const std::string dir = std::string(root) + "/tree";
+    CHECK(gpui_shim_grant_root(root, 1) == 1);
+    CHECK(gpui_shim_fs_mkdir(dir.c_str(), 1, err, (int)sizeof(err)) == 1);
+
+    // 写进去的东西必须真在文件系统上（用 POSIX 自己读回来对照），反之亦然。
+    const std::string inner = dir + "/a.txt";
+    const char body[] = "第一段\n第二段";
+    CHECK(gpui_shim_fs_write(inner.c_str(), body, (int)sizeof(body) - 1, err,
+                             (int)sizeof(err)) == 1);
+    {
+        FILE* f = std::fopen(inner.c_str(), "rb");
+        CHECK(f != nullptr);
+        char back[32] = {};
+        const size_t got = f ? std::fread(back, 1, sizeof(back) - 1, f) : 0;
+        if (f) std::fclose(f);
+        CHECK(std::string(back, got) == "第一段\n第二段");
+    }
+    // 二进制安全：含 \0 的内容要原样穿过去。
+    const std::string binPath = dir + "/b.bin";
+    const char bin[] = "\x00\x89PNG\x1a\n";
+    CHECK(gpui_shim_fs_write(binPath.c_str(), bin, 8, err, (int)sizeof(err)) == 1);
+    CHECK(gpui_shim_fs_read(binPath.c_str(), err, (int)sizeof(err)) == 1);
+    {
+        const char* d = nullptr;
+        int len = 0;
+        gpui_shim_out(&d, &len);
+        CHECK(len == 8);
+        CHECK(d != nullptr && std::memcmp(d, bin, 8) == 0);
+    }
+    // 列目录：两条，且都不被标成目录。
+    GpuiFsEntry entries[8];
+    int total = -1;
+    CHECK(gpui_shim_fs_list(dir.c_str(), entries, 8, &total, err, (int)sizeof(err)) == 1);
+    CHECK(total == 2);
+    int dirs = 0;
+    for (int i = 0; i < total; i++) dirs += entries[i].is_dir;
+    CHECK(dirs == 0);
+    CHECK(gpui_shim_fs_exists(inner.c_str()) == 1);
+    CHECK(gpui_shim_fs_exists((dir + "/nope").c_str()) == 0);
+
+    // 递归删：非空目录在 gpui 那一层是删不掉的，shim 补的遍历要真把它带走。
+    CHECK(gpui_shim_fs_remove(dir.c_str(), 1, 0, err, (int)sizeof(err)) == 0);
+    CHECK(gpui_shim_fs_remove(dir.c_str(), 1, 1, err, (int)sizeof(err)) == 1);
+    CHECK(gpui_shim_fs_exists(dir.c_str()) == 0);
+
+    // 反向锚：没授予过的路径必须失败，且原因写得出来（桥那边靠它）。
+    err[0] = '\0';
+    CHECK(gpui_shim_fs_read("/etc/hosts", err, (int)sizeof(err)) == 0);
+    CHECK(std::strlen(err) > 0);
+    CHECK(std::strstr(err, "授权") != nullptr);
+    CHECK(gpui_shim_fs_exists("/etc/hosts") == 0);
+
+    // 进程白名单：名单内跑得通并带回输出，名单外被拒。
+    const char* allowed[] = {"/bin/echo"};
+    CHECK(gpui_shim_grant_execute(allowed, 1, 0) == 1);
+    const char* arg[] = {"caps"};
+    int code = -1;
+    CHECK(gpui_shim_process_run("/bin/echo", arg, 1, &code, err, (int)sizeof(err)) == 1);
+    CHECK(code == 0);
+    {
+        const char* d = nullptr;
+        int len = 0;
+        gpui_shim_out(&d, &len);
+        CHECK(d != nullptr && std::string(d, (size_t)len).find("caps") != std::string::npos);
+    }
+    err[0] = '\0';
+    const char* catArg[] = {"/etc/hosts"};
+    CHECK(gpui_shim_process_run("/bin/cat", catArg, 1, &code, err, (int)sizeof(err)) == 0);
+    CHECK(std::strstr(err, "白名单") != nullptr);
+
+    // 存储：没授权时连 Set 都进不去；授权后 set/get/len 一致，且真落过盘。
+    CHECK(gpui_shim_storage_granted() == 0);
+    CHECK(gpui_shim_storage_set("k", "v", 1, err, (int)sizeof(err)) == 0);
+    gpui_shim_grant_storage(1);
+    CHECK(gpui_shim_storage_granted() == 1);
+    const std::string storePath = std::string(root) + "/store.json";
+    CHECK(gpui_shim_storage_path(storePath.c_str(), err, (int)sizeof(err)) == 1);
+    CHECK(gpui_shim_storage_set("theme", "dark", 4, err, (int)sizeof(err)) == 1);
+    CHECK(gpui_shim_storage_get("theme") == 1);
+    {
+        const char* d = nullptr;
+        int len = 0;
+        gpui_shim_out(&d, &len);
+        CHECK(len == 4 && d != nullptr && std::string(d, 4) == "dark");
+    }
+    CHECK(gpui_shim_storage_get("missing") == 0);
+    CHECK(gpui_shim_storage_len() == 1);
+    CHECK(gpui_shim_storage_remove("theme", err, (int)sizeof(err)) == 1);
+    CHECK(gpui_shim_storage_len() == 0);
+    {
+        FILE* f = std::fopen(storePath.c_str(), "rb");
+        CHECK(f != nullptr);
+        if (f) std::fclose(f);
+    }
+    std::remove(storePath.c_str());
+    ::rmdir(root);
+}
+
+// 6f) copyBounded：二进制通道唯一的截断/长度语义，剪贴板图像与解压输出都靠它。
 //     真实长度必须与 cap 无关地报出来，否则调用方无法区分"就这么长"和"被截了"。
 void testCopyBounded() {
     std::puts("copyBounded");
@@ -391,8 +537,10 @@ int main() {
     testBuildComponentArgs();
     testCapabilityGates();
     testNotifyMapping();
+    testAssetIconLookup();
     testCopyBounded();
     testGapServices();
+    testCapabilityServices();
     if (g_failures) {
         std::fprintf(stderr, "SHIM CPP TESTS FAIL (%d)\n", g_failures);
         return 1;

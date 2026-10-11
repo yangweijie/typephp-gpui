@@ -40,8 +40,17 @@ clang++ -std=c++20 -x objective-c++ -fobjc-arc \
     -c "$ROOT/cpp-src/gpui_shim.cpp" \
     -o "$OUT_DIR/gpui_shim.o"
 
+# macOS 系统集成（托盘/快捷键/Dock/OS 通知）：独立 TU，不 include gpui.h，
+# 所以它既不受 amalgam 的 C++20 约束，也不把 AppKit 类型带过防火墙。
+echo "compiling gpui_mac.mm (c++20, objective-c++)..."
+clang++ -std=c++20 -x objective-c++ -fobjc-arc \
+    -Wall -Wno-deprecated-declarations -O2 -DNDEBUG \
+    -I "$ROOT/cpp-src" \
+    -c "$ROOT/cpp-src/gpui_mac.mm" \
+    -o "$OUT_DIR/gpui_mac.o"
+
 echo "archiving libgpui_shim.a..."
 libtool -static -o "$LIB" \
-    "$OUT_DIR/gpui_shim.o" "$GPUI_O" "$QUICKJS_O" "$APPLOG_O"
+    "$OUT_DIR/gpui_shim.o" "$OUT_DIR/gpui_mac.o" "$GPUI_O" "$QUICKJS_O" "$APPLOG_O"
 
 echo "built: $LIB ($(stat -f %z "$LIB") bytes)"

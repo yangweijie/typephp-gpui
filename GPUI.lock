@@ -29,7 +29,8 @@
 2. `cd $GPUI_DIR && bun cmd/build.ts -rel hello_world` → 生成 `.work/` amalgam + `gpui.o`
    （hello_world 链接因入口 main 改名而失败属预期，只要 `gpui.o` 新）。
 3. `bash cmd/build-shim.sh` → 编 `gpui_shim.cpp`（c++20）并与 gpui.o/quickjs.o/AppLog.o 归档成
-   `cpp-src/build/libgpui_shim.a`。
+   `cpp-src/build/libgpui_shim.a`。`cpp-src/gpui_mac.mm`（macOS 系统集成，只 Cocoa+Carbon、
+   不 include gpui.h）与它一起归档。
 4. `php vendor/bin/tpc.php <yml> --nano` → 编 PHP + c++17 bridge，链 libgpui_shim.a。
    yml 里 `@ROOT@` 由 bin/gpui 替换为仓库绝对根（tpc 不解析相对 ld-flags），写到
    `project.macos.yml.gen`（gitignore）。

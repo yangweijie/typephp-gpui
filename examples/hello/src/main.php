@@ -32,7 +32,8 @@ function main(int $argc, array $argv): void
         return;
     }
 
-    $state = ['count' => 0, 'name' => '', 'vol' => 30, 'path' => '', 'clip' => '', 'note' => '', 'notes' => 0];
+    $state = ['count' => 0, 'name' => '', 'vol' => 30, 'path' => '', 'clip' => '', 'note' => '',
+              'notes' => 0, 'mac' => '', 'trayId' => 0];
 
     $app = new App();
     $app->create();
@@ -52,6 +53,8 @@ function main(int $argc, array $argv): void
                 El::button('Open…')->id('pick')->onClick()->ghost(),
                 El::button('Clipboard')->id('clip')->onClick()->ghost(),
                 El::button('Notify')->id('note')->onClick()->ghost(),
+                El::button('Tray')->id('tray')->onClick()->ghost(),
+                El::button('Dock 3')->id('dock')->onClick()->ghost(),
             ])->gap(8.0)->itemsCenter(),
             El::text($state['path'] !== '' ? "Picked: {$state['path']}" : 'Open… 走原生对话框（无人值守自检里不测，见 runSelfTest 注释）')->font(12.0),
             // 剪贴板图像/文件通道的**人工**验收：截一张图（⌘⇧⌃3）或从 Finder 复制文件，
@@ -59,6 +62,8 @@ function main(int $argc, array $argv): void
             El::text($state['clip'] !== '' ? "Clipboard: {$state['clip']}" : 'Clipboard 按钮读粘贴板的文本/图像/文件三种表示')->font(12.0),
             // 通知的 click/close 只能人点：合成指针打不到浮层，自检里只打得通 close。
             El::text($state['note'] !== '' ? "Notify: {$state['note']}" : 'Notify 按钮推一条应用内通知，点它看 click 事件')->font(12.0),
+            // 窗口外能力的人工验收入口：机器看不见菜单栏与 Dock，只能人看。
+            El::text($state['mac'] !== '' ? "Mac: {$state['mac']}" : 'Tray 挂菜单栏图标（⌃⌥⌘F13 是全局快捷键）、Dock 按钮写角标')->font(12.0),
             // 通知层本体。绝对定位盖住窗口，不参与上面的居中排布；卡片贴的是窗口边角，
             // 不是这颗节点的盒子。ShellRoot 不替我们挂它，所以必须自己摆。
             El::notifications('notes')->sizeFull()->absolute(),
@@ -117,6 +122,31 @@ function main(int $argc, array $argv): void
     });
     $app->on('demo-note', 'close', function () use (&$state): void {
         $state['note'] = '一张卡片退场了（close 事件回来了）';
+    });
+    // 托盘与 Dock 角标：这两条没有机器可见的证据，按下去自己看菜单栏 / Dock。
+    $app->on('tray', 'click', function () use ($app, &$state): void {
+        if ($state['trayId'] > 0) {
+            $app->removeTray($state['trayId']);
+            $state['trayId'] = 0;
+            $state['mac'] = '托盘已撤，count=' . $app->trayCount();
+
+            return;
+        }
+        $state['trayId'] = $app->tray(['来自 demo 的菜单项', '再点一下试试'], 'demo-tray', 'GPUI demo');
+        // ⌃⌥⌘F13：F13 的 kVK 是 105，control|option|cmd = 4096|2048|256。
+        $app->onHotkey('demo-hk', 105, ['cmd', 'option', 'control']);
+        $state['mac'] = '托盘 id=' . $state['trayId'] . '，快捷键数=' . $app->hotkeyCount()
+            . '；去别的 app 里按 ⌃⌥⌘F13';
+    });
+    $app->on('demo-tray', 'tray', function (array $e) use (&$state): void {
+        $state['mac'] = '托盘事件：' . (string) ($e['value'] ?? '(点击本体)');
+    });
+    $app->on('demo-hk', 'hotkey', function () use (&$state): void {
+        $state['mac'] = '全局快捷键响了（在别的 app 里按也算）';
+    });
+    $app->on('dock', 'click', function () use (&$state): void {
+        App::dockBadge($state['mac'] === 'dock:3' ? '' : '3');
+        $state['mac'] = $state['mac'] === 'dock:3' ? 'dock:cleared' : 'dock:3';
     });
 
     $app->loop();
@@ -353,12 +383,78 @@ function runSelfTest(): void
     $ok = $ok && $nid > 0 && $countPush === 1 && $notifDismissed
         && $countAfter === 0 && $notifEvents === ['close'];
 
+    // 19) mac 系统集成：托盘与快捷键的注册/撤销计数，加上一条**合成** hotkey 事件走完整条
+    //     Carbon 派发链（队列 → 派发 → handler → 事件出口 → 窗口队列 → poll）。
+    //     它证明的是派发链通，不证明"系统真的全局捕获了这组键"——那一条只能人按。
+    $tray0 = $app->trayCount();
+    $trayId = $app->tray(['显示窗口', '退出'], 'tray-test', 'selftest');
+    $tray1 = $app->trayCount();
+    $app->removeTray($trayId);
+    $tray2 = $app->trayCount();
+    $hkEvents = [];
+    $app->on('hk', 'hotkey', function () use (&$hkEvents): void {
+        $hkEvents[] = 'hotkey';
+    });
+    $hkId = $app->onHotkey('hk', 105, ['cmd', 'shift']);   // F13 + cmd+shift
+    $hkCount = $app->hotkeyCount();
+    $fired = App::fireHotkeyForTest(0);
+    $app->loop(3);
+    $badFire = App::fireHotkeyForTest(99);
+    App::dockBadge('3');
+    $osn = App::osNotify('selftest', '这条横幅不保证出现（裸可执行文件没有 bundle id）');
+    $macOk = $tray0 === 0 && $trayId > 0 && $tray1 === 1 && $tray2 === 0
+        && $hkId > 0 && $hkCount === 1 && $fired && $hkEvents === ['hotkey']
+        && !$badFire;
+    $ok = $ok && $macOk;
+
+    // 20) 授权文件系统：先 grantRoot，再让 gpui 自己建目录/写/读，并与 PHP 自己的文件系统
+    //     调用**双向**对照——gpui 写的 PHP 要读得到，PHP 写的 gpui 也要读得到。
+    //     反向锚：没授予过的路径必须失败，且原因说得出"根"。
+    App::grantRoot('/tmp', true);
+    $mk = App::fsMkdir('/tmp/gpui-selftest', true);
+    $w1 = App::fsWrite('/tmp/gpui-selftest/a.txt', "gpui 写的\n第二段");
+    $phpRead = @file_get_contents('/tmp/gpui-selftest/a.txt');
+    $phpWrite = @file_put_contents('/tmp/gpui-selftest/b.bin', "\x00\x89PNG中文");
+    $gpuiRead = App::fsRead('/tmp/gpui-selftest/b.bin');
+    $listed = App::fsList('/tmp/gpui-selftest', $truncated);
+    $names = [];
+    foreach ((array) $listed as $e) {
+        $names[] = (string) $e['name'];
+    }
+    sort($names);
+    $denied = App::fsRead('/etc/hosts');
+    $deniedWhy = App::fsError();
+    $rm = App::fsRemove('/tmp/gpui-selftest', true, true);
+    $fsOk = $mk && $w1 && $phpRead === "gpui 写的\n第二段" && $phpWrite !== false
+        && $gpuiRead === "\x00\x89PNG中文" && $names === ['a.txt', 'b.bin']
+        && !$truncated && $denied === null && str_contains($deniedWhy, '根') && $rm;
+    $ok = $ok && $fsOk;
+
+    // 21) 进程白名单与存储授权：白名单外的命令必须被拒（拿 /bin/cat 当反例，它不去联网
+    //     也不写盘）；存储没授权时 Set 直接失败。
+    App::grantExecute(['/bin/echo']);
+    $proc = App::processRun('/bin/echo', ['gpui-selftest']);
+    $procDenied = App::processRun('/bin/cat', ['/etc/hosts']);
+    $procWhy = App::fsError();
+    $storeDenied = App::storageSet('k', 'v');
+    App::grantStorage(true);
+    $storeOkPath = App::storagePath('/tmp/gpui-selftest-store.json');
+    $set = App::storageSet('theme', 'dark');
+    $get = App::storageGet('theme');
+    $len = App::storageLen();
+    App::storageRemove('theme');
+    @unlink('/tmp/gpui-selftest-store.json');
+    $svcOk = $proc !== null && str_contains($proc['out'], 'gpui-selftest')
+        && $proc['code'] === 0 && $procDenied === null && str_contains($procWhy, '白名单')
+        && $storeDenied === false && $storeOkPath && $set && $get === 'dark' && $len === 1;
+    $ok = $ok && $svcOk;
+
     echo $ok
         ? sprintf("SELFTEST OK (input + click + timer hits=%d + dialog + registered-cb + err-channel"
             . " + appmenu + clipboard + urlgate + fps + sheet + webview %.0fx%.0f"
             . " + inflate + dirChange x%d + http ok=%s/%d + clipboard-item"
             . " + sys cpu=%.1f%% mem=%.0f%% procs=%d"
-            . " + notify x%d→%d %s)\n",
+            . " + notify x%d→%d %s + mac=%d fs=%d svc=%d)\n",
             $timerHits,
             $probe['w'],
             $probe['h'],
@@ -370,9 +466,21 @@ function runSelfTest(): void
             count($procs),
             $countPush,
             $countAfter,
-            implode(',', $notifEvents)
+            implode(',', $notifEvents),
+            $macOk ? 1 : 0,
+            $fsOk ? 1 : 0,
+            $svcOk ? 1 : 0
         )
-        : "SELFTEST FAIL (input='{$got}' fired=" . ($fired ? '1' : '0') . " clicks={$clicks} timer={$timerHits} dlg=$before/$opened/$during/$after ddcb=" . ($ddFired ? '1' : '0') . "/{$ddFires} err='$err' menu=$menuN/$menuCount clip='$clip' want='$payload' fps=$fps1/$fpsVis/$fps2/$fpsOff/$fpsAgain sheet=$sheetOpened/" . ($sheetDuring ? '1' : '0') . "/" . ($sheetClosed ? '1' : '0') . " wv=" . json_encode($probe) . " inf=" . var_export([$infZ, $infG, $infBad], true) . " watch=$watchId/$watchHits http=" . ($schemeRejected ? '1' : '0') . "/$queued/$httpHits/" . json_encode($resp) . " item=" . strlen($itemText) . "/" . strlen($itemImage) . "/" . count($item['paths']) . " sys=" . json_encode([$firstCpuZero, $noProcList, $sys1['ncpu'] ?? null, $sys1['memPct'] ?? null, $sys1['diskPct'] ?? null, $sys2['cpu'] ?? null, count($procs)]) . " notify=" . $nid . "/" . $countPush . "/" . $countAfter . "/" . implode(',', $notifEvents) . ")\n";
+        : "SELFTEST FAIL (input='{$got}' fired=" . ($fired ? '1' : '0') . " clicks={$clicks} timer={$timerHits} dlg=$before/$opened/$during/$after ddcb=" . ($ddFired ? '1' : '0') . "/{$ddFires} err='$err' menu=$menuN/$menuCount clip='$clip' want='$payload' fps=$fps1/$fpsVis/$fps2/$fpsOff/$fpsAgain sheet=$sheetOpened/" . ($sheetDuring ? '1' : '0') . "/" . ($sheetClosed ? '1' : '0') . " wv=" . json_encode($probe) . " inf=" . var_export([$infZ, $infG, $infBad], true) . " watch=$watchId/$watchHits http=" . ($schemeRejected ? '1' : '0') . "/$queued/$httpHits/" . json_encode($resp) . " item=" . strlen($itemText) . "/" . strlen($itemImage) . "/" . count($item['paths']) . " sys=" . json_encode([$firstCpuZero, $noProcList, $sys1['ncpu'] ?? null, $sys1['memPct'] ?? null, $sys1['diskPct'] ?? null, $sys2['cpu'] ?? null, count($procs)]) . " notify=" . $nid . "/" . $countPush . "/" . $countAfter . "/" . implode(',', $notifEvents)
+            . " mac=" . var_export($macOk, true)
+            . " fs=" . var_export($fsOk, true)
+            . " svc=" . var_export($svcOk, true) . "/" . $deniedWhy
+            . " fsParts=" . json_encode([$mk, $w1, $phpRead !== false, $phpWrite !== false,
+                $gpuiRead !== null, $names, $truncated, $denied === null, $rm])
+            . " svcParts=" . json_encode([$proc !== null, $proc['code'] ?? null,
+                $proc['out'] ?? null, $procDenied === null, $storeDenied, $storeOkPath,
+                $set, $get, $len])
+            . ")\n";
     $app->close();
     exit($ok ? 0 : 1);
 }
@@ -514,7 +622,9 @@ function runShot(string $path, int $tree = 0): void
                 El::text('Breadcrumb + Icon (catalog)')->font(18.0)->semibold(),
                 El::breadcrumb(['Home', 'Library', 'Data']),
                 El::hFlex([
-                    El::icon('icons/home.svg')->sizeEnum('large')->color('#e07b39'),
+                    // 名字必须在编译进去的 111 个表里：'home' 不在（那是 sidebar 的 navIcon
+                    // 逻辑名，另一套命名空间），画出来是一片空白且没有任何报错。
+                    El::icon('icons/square-terminal.svg')->sizeEnum('large')->color('#e07b39'),
                     El::icon('icons/settings.svg')->rm('rotate', [1.57]),
                 ])->gap(12.0)->itemsCenter(),
             ])->p(16.0)->gap(12.0),

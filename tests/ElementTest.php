@@ -147,7 +147,7 @@ test('catalog factories mark registered + carry export name as kind', function (
     expect($arr['ctorArgs'])->toBe(['a1', 'msg']);
 
     expect(El::alert('a', 'm', 'error')->toArray()['kind'])->toBe('ErrorAlert');
-    expect(El::icon('i.svg')->toArray()['kind'])->toBe('Icon');
+    expect(El::icon('icons/settings.svg')->toArray()['kind'])->toBe('Icon');
     expect(El::sidebar('s')->toArray()['kind'])->toBe('Sidebar');
     expect(El::form(true)->toArray()['kind'])->toBe('HForm');
     expect(El::menuBar('File')->toArray()['kind'])->toBe('MenuBar');
@@ -220,7 +220,7 @@ test('enum sugar accepts valid literals and emits registered_method', function (
     expect($names)->toContain('collapsible');
     // 合法枚举不抛（直接调用，若抛则测试失败）
     expect(El::field([])->align('center'))->toBeInstanceOf(El::class);
-    expect(El::icon('i.svg')->sizeEnum('large'))->toBeInstanceOf(El::class);
+    expect(El::icon('icons/settings.svg')->sizeEnum('large'))->toBeInstanceOf(El::class);
 });
 
 test('enum sugar rejects invalid literals with InvalidArgumentException', function (): void {
@@ -242,3 +242,13 @@ test('alert rejects unknown variant but accepts all known variants', function ()
 
 
 
+
+test('icon() rejects the shapes gpui would silently paint nothing for', function (): void {
+    // 上游查不到图标是**静默什么都不画**（AssetIconForPath 返空、没有错误通道），错了只会
+    // 得到一片白，所以形状这一侧必须拦。base 在不在编译表里拦不住（那是上游 111 个的名字），
+    // 由 tests/cpp/shim_test.cpp 的查表探针钉住。
+    expect(fn () => El::icon('settings'))->toThrow(InvalidArgumentException::class);
+    expect(fn () => El::icon('icons/settings'))->toThrow(InvalidArgumentException::class);
+    expect(fn () => El::icon('icons/settings.png'))->toThrow(InvalidArgumentException::class);
+    expect(El::icon('icons/settings.svg')->toArray()['ctorArgs'])->toBe(['icons/settings.svg']);
+});

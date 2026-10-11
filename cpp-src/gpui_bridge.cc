@@ -586,7 +586,7 @@ Int php_gpui_watch_fake(Variant boxVar, String id) {
 Array php_gpui_inflate(String data, Bool gzip) {
     std::string in(data.data(), data.length());
     Array out;
-    char err[256];
+    char err[256] = {};
     err[0] = '\0';
     int need = gpui_shim_inflate(in.data(), (int)in.size(), gzip ? 1 : 0, nullptr,
                                  0, err, (int)sizeof(err));
@@ -800,6 +800,264 @@ Array php_gpui_webview_probe(Variant boxVar, String id) {
 }
 
 // ── 应用内通知中心 ───────────────────────────────────────────────────────
+// ── 授权文件系统 / 进程 / 存储 ────────────────────────────────────────────────
+//
+// 大块字节走 shim 的进程级 scratch，这里在同一个调用栈里立刻拷成 php::String，
+// 所以 PHP 拿到的是副本。错误文本统一回传成第二个返回值之外的 err 串。
+
+namespace {
+
+// scratch → php::String
+php::String ScratchToString() {
+    const char* d = nullptr;
+    int len = 0;
+    gpui_shim_out(&d, &len);
+    if (!d || len <= 0) return php::String();
+    return php::String(d, (size_t)len);
+}
+
+// 注意顺序：**不能**先清 buf 再读它。早先的版本写的是 buf[0]='\0' 之后
+// return std::string(buf)，等于把 shim 刚写进来的失败原因擦掉再返回空串。
+std::string ErrText(char* buf, int cap) {
+    (void)cap;
+    return std::string(buf);
+}
+
+}  // namespace
+
+// ['ok'=>bool,'data'=>string,'error'=>string]
+Array php_gpui_fs_read(String path) {
+    std::string p(path.data(), path.length());
+    char err[256] = {};
+    Array out;
+    if (gpui_shim_fs_read(p.c_str(), err, (int)sizeof(err))) {
+        out["ok"] = true;
+        out["data"] = ScratchToString();
+    } else {
+        out["ok"] = false;
+    }
+    out["error"] = ErrText(err, (int)sizeof(err));
+    return out;
+}
+
+Array php_gpui_fs_write(String path, String data) {
+    std::string p(path.data(), path.length());
+    std::string d(data.data(), data.length());
+    char err[256] = {};
+    Array out;
+    out["ok"] = gpui_shim_fs_write(p.c_str(), d.data(), (int)d.size(), err,
+                                   (int)sizeof(err))
+                     ? true
+                     : false;
+    out["error"] = ErrText(err, (int)sizeof(err));
+    return out;
+}
+
+Array php_gpui_fs_list(String path) {
+    std::string p(path.data(), path.length());
+    char err[256] = {};
+    Array out;
+    std::vector<GpuiFsEntry> buf(2048);
+    int total = 0;
+    if (!gpui_shim_fs_list(p.c_str(), buf.data(), (int)buf.size(), &total, err,
+                           (int)sizeof(err))) {
+        out["ok"] = false;
+        out["error"] = ErrText(err, (int)sizeof(err));
+        out["entries"] = Array();
+        return out;
+    }
+    Array entries;
+    const int n = std::min<int>(total, (int)buf.size());
+    for (int i = 0; i < n; i++) {
+        Array e;
+        e["name"] = php::String(buf[(size_t)i].name ? buf[(size_t)i].name : "");
+        e["dir"] = buf[(size_t)i].is_dir ? true : false;
+        entries.append(e);
+    }
+    out["ok"] = true;
+    out["entries"] = entries;
+    out["truncated"] = total > n ? true : false;
+    out["error"] = ErrText(err, (int)sizeof(err));
+    return out;
+}
+
+Bool php_gpui_fs_exists(String path) {
+    std::string p(path.data(), path.length());
+    return gpui_shim_fs_exists(p.c_str()) ? true : false;
+}
+
+Array php_gpui_fs_remove(String path, Bool dir, Bool recursive) {
+    std::string p(path.data(), path.length());
+    char err[256] = {};
+    Array out;
+    out["ok"] = gpui_shim_fs_remove(p.c_str(), dir ? 1 : 0, recursive ? 1 : 0, err,
+                                    (int)sizeof(err))
+                     ? true
+                     : false;
+    out["error"] = ErrText(err, (int)sizeof(err));
+    return out;
+}
+
+Array php_gpui_fs_mkdir(String path, Bool dir) {
+    std::string p(path.data(), path.length());
+    char err[256] = {};
+    Array out;
+    out["ok"] = gpui_shim_fs_mkdir(p.c_str(), dir ? 1 : 0, err, (int)sizeof(err))
+                     ? true
+                     : false;
+    out["error"] = ErrText(err, (int)sizeof(err));
+    return out;
+}
+
+Int php_gpui_grant_root(String root, Bool writable) {
+    std::string r(root.data(), root.length());
+    return gpui_shim_grant_root(r.c_str(), writable ? 1 : 0);
+}
+
+Int php_gpui_grant_execute(Array commands, Bool unrestricted) {
+    std::vector<std::string> store;
+    store.reserve((size_t)commands.count());
+    for (size_t i = 0; i < (size_t)commands.count(); i++) {
+        store.push_back(strOf(commands.get((int)i)));
+    }
+    std::vector<const char*> ptrs;
+    ptrs.reserve(store.size());
+    for (const std::string& v : store) ptrs.push_back(v.c_str());
+    return gpui_shim_grant_execute(ptrs.empty() ? nullptr : ptrs.data(),
+                                   (int)ptrs.size(), unrestricted ? 1 : 0);
+}
+
+void php_gpui_grant_storage(Bool allowed) { gpui_shim_grant_storage(allowed ? 1 : 0); }
+
+Array php_gpui_process_run(String command, Array args) {
+    std::string c(command.data(), command.length());
+    std::vector<std::string> store;
+    store.reserve((size_t)args.count());
+    for (size_t i = 0; i < (size_t)args.count(); i++) {
+        store.push_back(strOf(args.get((int)i)));
+    }
+    std::vector<const char*> ptrs;
+    ptrs.reserve(store.size());
+    for (const std::string& v : store) ptrs.push_back(v.c_str());
+    char err[256] = {};
+    int code = -1;
+    Array out;
+    if (gpui_shim_process_run(c.c_str(), ptrs.empty() ? nullptr : ptrs.data(),
+                              (int)ptrs.size(), &code, err, (int)sizeof(err))) {
+        out["ok"] = true;
+        out["code"] = code;
+        out["out"] = ScratchToString();
+        const char* d = nullptr;
+        int len = 0;
+        gpui_shim_process_err(&d, &len);
+        out["err"] = (d && len > 0) ? php::String(d, (size_t)len) : php::String();
+    } else {
+        out["ok"] = false;
+        out["code"] = -1;
+    }
+    out["error"] = ErrText(err, (int)sizeof(err));
+    return out;
+}
+
+Array php_gpui_storage_path(String path) {
+    std::string p(path.data(), path.length());
+    char err[256] = {};
+    Array out;
+    out["ok"] = gpui_shim_storage_path(p.c_str(), err, (int)sizeof(err)) ? true : false;
+    out["error"] = ErrText(err, (int)sizeof(err));
+    return out;
+}
+
+Array php_gpui_storage_set(String key, String value) {
+    std::string k(key.data(), key.length());
+    std::string v(value.data(), value.length());
+    char err[256] = {};
+    Array out;
+    out["ok"] = gpui_shim_storage_set(k.c_str(), v.data(), (int)v.size(), err,
+                                      (int)sizeof(err))
+                     ? true
+                     : false;
+    out["error"] = ErrText(err, (int)sizeof(err));
+    return out;
+}
+
+Array php_gpui_storage_get(String key) {
+    std::string k(key.data(), key.length());
+    Array out;
+    if (gpui_shim_storage_get(k.c_str())) {
+        out["ok"] = true;
+        out["value"] = ScratchToString();
+    } else {
+        out["ok"] = false;
+    }
+    return out;
+}
+
+Bool php_gpui_storage_remove(String key) {
+    std::string k(key.data(), key.length());
+    char err[128] = {};
+    return gpui_shim_storage_remove(k.c_str(), err, (int)sizeof(err)) ? true : false;
+}
+
+Int php_gpui_storage_len() { return gpui_shim_storage_len(); }
+
+Bool php_gpui_storage_granted() { return gpui_shim_storage_granted() ? true : false; }
+
+// ── macOS 系统集成（托盘 / 全局快捷键 / Dock 角标 / OS 通知）─────────────────
+//
+// labels 的 C 数组只在本次调用内被读（.mm 立刻拷成 NSString），所以栈上的
+// std::string 缓冲活到返回是够的。
+
+Int php_gpui_tray_add(Variant boxVar, String elemId, String tooltip, Array labels) {
+    void* win = winOf(boxVar);
+    if (!win) return 0;
+    std::string e(elemId.data(), elemId.length());
+    std::string t(tooltip.data(), tooltip.length());
+    std::vector<std::string> store;
+    store.reserve((size_t)labels.count());
+    for (size_t i = 0; i < (size_t)labels.count(); i++) {
+        store.push_back(strOf(labels.get((int)i)));
+    }
+    std::vector<const char*> ptrs;
+    ptrs.reserve(store.size());
+    for (const std::string& v : store) ptrs.push_back(v.c_str());
+    return gpui_shim_tray_add(win, e.c_str(), t.c_str(),
+                              ptrs.empty() ? nullptr : ptrs.data(),
+                              static_cast<int>(ptrs.size()));
+}
+
+void php_gpui_tray_remove(Variant boxVar, Int trayId) {
+    void* win = winOf(boxVar);
+    if (win) gpui_shim_tray_remove(win, (int)trayId);
+}
+
+Int php_gpui_tray_count() { return gpui_shim_tray_count(); }
+
+Int php_gpui_hotkey_register(Variant boxVar, String elemId, Int keycode, Int mods) {
+    void* win = winOf(boxVar);
+    if (!win) return 0;
+    std::string e(elemId.data(), elemId.length());
+    return gpui_shim_hotkey_register(win, e.c_str(), (unsigned)keycode, (unsigned)mods);
+}
+
+void php_gpui_hotkey_unregister(Int id) { gpui_shim_hotkey_unregister((int)id); }
+
+Int php_gpui_hotkey_count() { return gpui_shim_hotkey_count(); }
+
+// 测试接缝：合成一条 hotkey 事件，验整条派发链（不验系统级全局捕获）。
+Bool php_gpui_hotkey_fire(Int index) { return gpui_shim_hotkey_fire((int)index) ? true : false; }
+
+void php_gpui_dock_badge(String text) {
+    std::string t(text.data(), text.length());
+    gpui_shim_dock_badge(t.c_str());
+}
+
+Bool php_gpui_os_notify(String title, String body) {
+    std::string t(title.data(), title.length());
+    std::string b(body.data(), body.length());
+    return gpui_shim_os_notify(t.c_str(), b.c_str()) ? true : false;
+}
+
 Int php_gpui_notify(Variant boxVar, String id, String title, String message,
                     String type, String placement, Int timeoutMs) {
     void* win = winOf(boxVar);

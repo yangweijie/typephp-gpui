@@ -348,6 +348,91 @@ uint64_t gpui_shim_new_callback(void* win, const char* elem_id,
 /* 指定根 spec id 并请求下一帧重绘。 */
 void gpui_shim_render_end(void* win, uint32_t root_id);
 
+/* ── macOS 系统集成（托盘 / 全局快捷键 / Dock 角标 / OS 通知）──────────────────
+ *
+ * 实现在独立 TU gpui_mac.mm（只用 Cocoa + Carbon，不 include gpui.h），这一层负责
+ * 把事件送回正确的窗口队列：注册时把窗口对象作为 owner 交出去，回调时原样带回来。
+ *
+ * 验收边界（诚实）：自动化只到 existence-green（注册了几个）与一条 route-green
+ * （合成 hotkey 事件走完整条派发链）。菜单栏里有没有图标、快捷键在别的 app 有焦点时
+ * 是否仍触发、横幅有没有出现——机器看不见，只能人看。 */
+
+/* 托盘。labels 是菜单项文字（0 个则点击本身作为事件回来）。返回 >0 的 id，失败 0。 */
+int gpui_shim_tray_add(void* win, const char* elem_id, const char* tooltip,
+                       const char* const* labels, int label_count);
+void gpui_shim_tray_remove(void* win, int tray_id);
+int gpui_shim_tray_count(void);
+
+/* 全局快捷键。keycode 是 kVK_*（如 F13=105），mods 是 Carbon 位（cmdKey=256
+ * shiftKey=512 optionKey=2048 controlKey=4096）。返回 >0 的 id，失败 0。 */
+int gpui_shim_hotkey_register(void* win, const char* elem_id, unsigned keycode,
+                              unsigned mods);
+void gpui_shim_hotkey_unregister(int hotkey_id);
+int gpui_shim_hotkey_count(void);
+/* 测试接缝：合成一条 hotkey 事件发给 application target，验"Carbon 队列 → 派发 →
+ * handler → sink → 窗口队列 → poll"整条路。它不验系统级的全局捕获。 */
+int gpui_shim_hotkey_fire(int index);
+
+/* Dock 角标文字（空串清除）。 */
+void gpui_shim_dock_badge(const char* text);
+/* OS 通知。返回 1 = 已交给系统；不代表屏幕上出现了横幅（裸可执行文件没有 bundle id
+ * 时会被静默丢弃）。 */
+int gpui_shim_os_notify(const char* title, const char* body);
+
+/* ── 授权文件系统 / 进程 / 存储（Capabilities）───────────────────────────────
+ *
+ * gpui 的这一层不吃"ambient 路径"：FsRun 要的是 (root, relative) 两半，root 必须是
+ * 事先授予过的目录，遍历时逐级 openat + O_NOFOLLOW（filesystem_posix.cpp:49-66）。
+ * 所以这里持有一份**进程级** gpui::Capabilities，PHP 启动时声明允许的根，之后每个
+ * 调用先 ResolvePath 选根、再 FsRun。没有 grant_root 过的路径一律失败并给出原因。
+ *
+ * 出参约定：错误文本写进 err（截断到 err_cap-1，必带终止符），返回 1 表示成功。
+ * 大块字节（文件内容、进程输出、存储值）落在**进程级 scratch** 里，只活到下一次调用，
+ * 所以桥必须立刻拷走——gpui_shim_out() 就是取它的那一道。 */
+
+typedef struct GpuiFsEntry {
+    const char* name; /* 只活到下一次调用 */
+    int is_dir;
+} GpuiFsEntry;
+
+/* 授予一个根。writable=1 是读写根、0 是只读根。返回该类根的数量，失败 0。 */
+int gpui_shim_grant_root(const char* root, int writable);
+/* 命令白名单。unrestricted=1 时全部放行（count/commands 忽略）。返回 1。 */
+int gpui_shim_grant_execute(const char* const* commands, int count,
+                            int unrestricted);
+/* 允许使用存储。 */
+void gpui_shim_grant_storage(int allowed);
+int gpui_shim_storage_granted(void);
+/* 存储落盘位置（Storage::SetPath）。返回 1。 */
+int gpui_shim_storage_path(const char* path, char* err, int err_cap);
+
+int gpui_shim_fs_read(const char* path, char* err, int err_cap);
+int gpui_shim_fs_write(const char* path, const char* data, int len, char* err,
+                       int err_cap);
+/* 目录列举：entries 由调用方给缓冲，cap 是上限，out_count 回实际条数。 */
+int gpui_shim_fs_list(const char* path, GpuiFsEntry* entries, int cap,
+                      int* out_count, char* err, int err_cap);
+int gpui_shim_fs_exists(const char* path);
+/* dir=1 删目录（recursive 生效），否则删文件。 */
+int gpui_shim_fs_remove(const char* path, int dir, int recursive, char* err,
+                        int err_cap);
+int gpui_shim_fs_mkdir(const char* path, int dir, char* err, int err_cap);
+/* 取上一次成功调用的字节（scratch）。没有则 data=NULL、len=0。 */
+void gpui_shim_out(const char** data, int* len);
+
+/* 阻塞跑一个被授权的可执行文件（子进程环境是空的、30s 超时、每路输出上限 8 MiB）。
+ * out_code 回退出码；stdout 落在 scratch，stderr 用 gpui_shim_process_err 取。 */
+int gpui_shim_process_run(const char* command, const char* const* args,
+                          int count, int* out_code, char* err, int err_cap);
+void gpui_shim_process_err(const char** data, int* len);
+
+int gpui_shim_storage_set(const char* key, const char* data, int len, char* err,
+                          int err_cap);
+/* 1 = 有这个键，值在 scratch。 */
+int gpui_shim_storage_get(const char* key);
+int gpui_shim_storage_remove(const char* key, char* err, int err_cap);
+int gpui_shim_storage_len(void);
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif

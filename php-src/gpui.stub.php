@@ -186,3 +186,79 @@ function gpui_clear_notifications(mixed $window): void {}
 
 /** 当前在列表里的通知条数（含正在退场的）。 */
 function gpui_notification_count(mixed $window): int {}
+
+/* ── macOS 系统集成（托盘 / 全局快捷键 / Dock 角标 / OS 通知）──────────────────
+ * 自动化只到"注册成功 + 合成事件打得回来"；菜单栏图标、别的 app 有焦点时的快捷键、
+ * 横幅是否真的出现，机器看不见，只能人看。 */
+
+/** 挂一个托盘项，返回 id>0（失败 0）。$labels 是菜单项文字，空数组则点击本身作为事件回来。 */
+function gpui_tray_add(mixed $window, string $id, string $tooltip, array $labels): int {}
+
+/** 撤掉一个托盘项。未知 id 忽略。 */
+function gpui_tray_remove(mixed $window, int $trayId): void {}
+
+/** 当前托盘项数量（app 级，与窗口无关）。 */
+function gpui_tray_count(): int {}
+
+/** 注册全局快捷键：$keycode 是 kVK_*（F13=105），$mods 是 Carbon 位或运算。返回 id>0。 */
+function gpui_hotkey_register(mixed $window, string $id, int $keycode, int $mods): int {}
+
+function gpui_hotkey_unregister(int $id): void {}
+
+function gpui_hotkey_count(): int {}
+
+/** 测试接缝：合成第 $index 个快捷键的事件，走完整条派发链。 */
+function gpui_hotkey_fire(int $index): bool {}
+
+/** Dock 角标文字；空串清除。 */
+function gpui_dock_badge(string $text): void {}
+
+/** OS 通知。true = 已交给系统（不代表屏幕上出现了横幅）。 */
+function gpui_os_notify(string $title, string $body): bool {}
+
+/* ── 授权文件系统 / 进程 / 存储（Capabilities）────────────────────────────────
+ * 全部是进程级静态：gpui 的 FsRun 要 (root, relative) 两半，root 必须是事先授予过的
+ * 目录，所以授权天然属于 app 而不是窗口。未授予的路径一律失败，原因看 gpui_fs_error()。 */
+
+/** 授予一个根目录。$writable=true 是读写根。返回该类根的数量（0 = 失败）。 */
+function gpui_grant_root(string $root, bool $writable): int {}
+
+/** 命令白名单；$unrestricted=true 时全部放行。 */
+function gpui_grant_execute(array $commands, bool $unrestricted): int {}
+
+function gpui_grant_storage(bool $allowed): void {}
+
+function gpui_storage_granted(): bool {}
+
+/** 存储落盘位置。['ok','error'] */
+function gpui_storage_path(string $path): array {}
+
+/** ['ok','data','error'] —— ok=false 时 data 不存在。 */
+function gpui_fs_read(string $path): array {}
+
+/** ['ok','error'] */
+function gpui_fs_write(string $path, string $data): array {}
+
+/** ['ok','entries'=>[['name'=>..,'dir'=>bool]],'truncated'=>bool,'error'] */
+function gpui_fs_list(string $path): array {}
+
+function gpui_fs_exists(string $path): bool {}
+
+/** ['ok','error'] */
+function gpui_fs_remove(string $path, bool $dir, bool $recursive): array {}
+
+/** ['ok','error'] */
+function gpui_fs_mkdir(string $path, bool $dir): array {}
+
+/** 阻塞跑一个被授权的可执行文件。['ok','code','out','err','error'] */
+function gpui_process_run(string $command, array $args): array {}
+
+/** ['ok','error'] */
+function gpui_storage_set(string $key, string $value): array {}
+
+/** ['ok','value'] */
+function gpui_storage_get(string $key): array {}
+
+function gpui_storage_remove(string $key): bool {}
+
+function gpui_storage_len(): int {}

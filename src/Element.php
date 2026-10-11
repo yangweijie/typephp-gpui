@@ -529,9 +529,22 @@ class Element
         return self::reg('Breadcrumb', [$labels]);
     }
 
-    /** Icon：从资源根下的相对路径加载 SVG。拒 children。size/color/rotate 走 rm/糖。 */
+    /**
+     * Icon：画一个 gpui 编译进去的图标（或资源根下自己的 .svg）。拒 children。
+     *
+     * 路径必须长成 `icons/<base>.svg`——`AssetIconForPath`（gpui svg.cpp:1377）逐条要求
+     * 前缀 `icons/`、后缀 `.svg`，再把 base 去 111 个编译表里找。三条任意一条不满足就返回
+     * 空，而渲染侧对空是**静默什么都不画**（没有错误通道），所以形状写错或 base 不在表里
+     * 只会得到一片空白。注意 base 与 `sidebarMenuItem()->navIcon('home')` 那五个名字不是一套
+     * 命名空间：后者是上游的逻辑名，映射到 SquareTerminal/LayoutDashboard/Settings2/BookOpen/User。
+     */
     public static function icon(string $path): self
     {
+        if (\strncmp($path, 'icons/', 6) !== 0 || \substr($path, -4) !== '.svg') {
+            throw new \InvalidArgumentException(
+                "icon(): 路径要长成 icons/<name>.svg，收到 '{$path}'（写错不会报错，只会静默不画）"
+            );
+        }
         return self::reg('Icon', [$path]);
     }
 

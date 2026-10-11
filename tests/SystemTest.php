@@ -381,3 +381,150 @@ test('the notification layer is an explicit node in the tree', function (): void
     // 是"看得见"的前提，必须能在树里出现。
     expect($n['kind'])->toBe('notifications')->and($n['id'])->toBe('notes');
 });
+
+// ── macOS 系统集成（Phase 10）──
+
+test('tray items register with labels and can be removed', function (): void {
+    $app = sysApp();
+    expect($app->trayCount())->toBe(0);
+
+    $id = $app->tray(['显示窗口', '退出'], 'tray-main', '示例应用');
+    expect($id)->toBeGreaterThan(0)
+        ->and($app->trayCount())->toBe(1)
+        ->and(FakeBridge::$trays[0]['elem'])->toBe('tray-main')
+        ->and(FakeBridge::$trays[0]['tooltip'])->toBe('示例应用')
+        ->and(FakeBridge::$trays[0]['labels'])->toBe(['显示窗口', '退出']);
+
+    $app->removeTray($id);
+    expect($app->trayCount())->toBe(0);
+
+    // 没挂菜单的托盘项：点击本身就是事件，labels 为空数组。
+    $bare = $app->tray([], 'tray-bare');
+    expect(FakeBridge::$trays[0]['labels'])->toBe([]);
+    $app->removeTray($bare);
+});
+
+test('hotkey modifiers are named, and unknown names are refused', function (): void {
+    $app = sysApp();
+    // cmdKey|shiftKey = 256|512：调用方写名字，位或在这里算。
+    $id = $app->onHotkey('focus', 105, ['cmd', 'shift']);
+    expect($id)->toBeGreaterThan(0)
+        ->and(FakeBridge::$hotkeys[0]['mods'])->toBe(768)
+        ->and(FakeBridge::$hotkeys[0]['keycode'])->toBe(105)
+        ->and($app->hotkeyCount())->toBe(1);
+
+    expect(fn () => $app->onHotkey('x', 105, ['hyper']))
+        ->toThrow(InvalidArgumentException::class, 'hyper');
+
+    $app->removeHotkey($id);
+    expect($app->hotkeyCount())->toBe(0);
+});
+
+test('a fired hotkey routes to its handler', function (): void {
+    $app = sysApp();
+    $seen = [];
+    $app->on('focus', 'hotkey', function () use (&$seen): void {
+        $seen[] = 'hotkey';
+    });
+    $app->onHotkey('focus', 105, ['cmd']);
+
+    expect(App::fireHotkeyForTest(0))->toBeTrue();
+    $app->loop(1);
+    expect($seen)->toBe(['hotkey']);
+
+    // 越界索引不动事件队列：合成接缝也不能凭空造事件。
+    expect(App::fireHotkeyForTest(9))->toBeFalse();
+    expect(FakeBridge::$eventQueue)->toBe([]);
+});
+
+test('dock badge and OS notification reach the system layer', function (): void {
+    App::dockBadge('7');
+    expect(FakeBridge::$dockBadge)->toBe('7');
+    App::dockBadge('');
+    expect(FakeBridge::$dockBadge)->toBe('');
+
+    expect(App::osNotify('构建完成', '产物在 build/'))->toBeTrue();
+    expect(FakeBridge::$osNotifications)->toBe([
+        ['title' => '构建完成', 'body' => '产物在 build/'],
+    ]);
+});
+
+// ── 授权文件系统 / 进程 / 存储（Phase 11）──
+
+test('fs reads and writes only inside granted roots', function (): void {
+    $dir = sys_get_temp_dir() . '/gpui-fs-' . uniqid('', true);
+    mkdir($dir . '/sub', 0777, true);
+    App::grantRoot($dir, true);
+
+    expect(App::fsWrite($dir . '/sub/a.txt', "第一段\n第二段"))->toBeTrue()
+        ->and(App::fsRead($dir . '/sub/a.txt'))->toBe("第一段\n第二段")
+        ->and(App::fsError())->toBe('');
+
+    // 反向锚：没授予过的兄弟目录必须被拒，且给出原因。
+    $outside = sys_get_temp_dir() . '/gpui-outside-' . uniqid('', true);
+    mkdir($outside, 0777, true);
+    expect(App::fsRead($outside . '/secret'))->toBeNull()
+        ->and(App::fsError())->toContain('不在授予的根里');
+
+    // 二进制安全：\0 与高位字节要原样穿过去。
+    $bin = "\x00\x89PNG\r\n\x1a\n中文";
+    expect(App::fsWrite($dir . '/b.bin', $bin))->toBeTrue()
+        ->and(App::fsRead($dir . '/b.bin'))->toBe($bin);
+
+    // 收尾自己来：glob() 也会给出目录，直接 unlink 它会告警。
+    @unlink($dir . '/sub/a.txt');
+    @unlink($dir . '/b.bin');
+    @rmdir($dir . '/sub');
+    @rmdir($dir);
+    @rmdir($outside);
+});
+
+test('fs list / exists / mkdir / remove share the same gate', function (): void {
+    $dir = sys_get_temp_dir() . '/gpui-fs2-' . uniqid('', true);
+    App::grantRoot($dir, true);
+
+    expect(App::fsMkdir($dir . '/deep/nest', true))->toBeTrue()
+        ->and(App::fsExists($dir . '/deep/nest'))->toBeTrue()
+        ->and(App::fsExists($dir . '/nope'))->toBeFalse();
+
+    file_put_contents($dir . '/deep/nest/x.txt', 'x');
+    $listing = App::fsList($dir . '/deep', $truncated);
+    expect($listing)->toBe([['name' => 'nest', 'dir' => true]])
+        ->and($truncated)->toBeFalse();
+
+    expect(App::fsRemove($dir . '/deep/nest/x.txt'))->toBeTrue()
+        ->and(App::fsRemove($dir . '/deep', true, true))->toBeTrue()
+        ->and(App::fsExists($dir . '/deep'))->toBeFalse();
+
+    // 未授予的根里什么都不能删。
+    expect(App::fsRemove('/etc/hosts'))->toBeFalse()
+        ->and(App::fsError())->toContain('不在授予的根里');
+
+    @rmdir($dir);
+});
+
+test('processRun obeys the command whitelist', function (): void {
+    App::grantExecute(['/bin/echo']);
+    $r = App::processRun('/bin/echo', ['hi', '两个 参数']);
+    expect($r)->not->toBeNull()
+        ->and($r['out'])->toContain('hi 两个 参数');
+
+    expect(App::processRun('/bin/cat', ['/etc/passwd']))->toBeNull()
+        ->and(App::fsError())->toContain('白名单');
+});
+
+test('storage needs an explicit grant and round-trips values', function (): void {
+    expect(App::storageGranted())->toBeFalse()
+        ->and(App::storageSet('k', 'v'))->toBeFalse()
+        ->and(App::fsError())->toContain('存储授权');
+
+    App::grantStorage(true);
+    expect(App::storageGranted())->toBeTrue()
+        ->and(App::storagePath(sys_get_temp_dir() . '/gpui-store.json'))->toBeTrue()
+        ->and(App::storageSet('theme', 'dark'))->toBeTrue()
+        ->and(App::storageGet('theme'))->toBe('dark')
+        ->and(App::storageGet('missing'))->toBeNull()
+        ->and(App::storageLen())->toBe(1)
+        ->and(App::storageRemove('theme'))->toBeTrue()
+        ->and(App::storageLen())->toBe(0);
+});
