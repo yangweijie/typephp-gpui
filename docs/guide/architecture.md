@@ -66,6 +66,11 @@ gpui.h 用了 C++20 的 `concept` / `requires`，而 TypePHP **nano 模式强制
   `delete`，再删就是 double-free（dialog 那次 SIGABRT 的同一课）。
 - **`gpui::WebView` 自己不是 view**：`webview.cpp:95` 用 `EntityNewState` 建它，没有 Render。
   要挂进树必须有一层自己的 wrapper view 去返回 `WebViewEl(...)`。
+- **通知状态归窗口，不归 `WindowNotifications`**：`WindowNotifications(cx)` 读的是基座 `Root`
+  的 `WindowLayers`，在 ShellRoot 下直接 SIGABRT。所以 `EnsureNotifyState` 按窗口持有一份
+  `NotificationListState` entity，并且**必须**填 `self`（否则 `NotificationStartAdvancing`
+  不启动计时器：通知永远停在 `Starting` 的全透明态、也永不退场）与 `useThemeSettings`。
+  层本身要 PHP 显式摆 `El::notifications($id)`——ShellRoot 不替我们挂。
 
 ## 下一步
 

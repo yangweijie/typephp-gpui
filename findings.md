@@ -443,3 +443,49 @@ PNG 25110B → `text=-1 image=25110 paths=0`；两个 file-url → `paths=2`；
 
 **踩到**：Pest 5.3 没有 `toBeAround()`（PHPUnit 的 `assertEqualsWithDelta` 系），要写
 `expect(abs(a - b))->toBeLessThan(eps)`。
+
+## 应用内通知中心：一面能绕的墙 + 一个"绿得没内容"的像素闸（2026-10-11）
+
+### 墙：通知层挂在基座 `Root` 上，我们的根是 `ShellRoot`
+
+gpui 的 `ui/root.cpp:62` 由基座 `Root` 自己挂 `WindowNotifications(cx)`，而
+`WindowNotifications` → `LayersOf` → `WindowLayersOf(win)` → `Root::Read(win)`：它读的是
+**基座根**。我们的窗口根是 Stage 5 为 Dialog/Toast/Sheet 换上的 `ShellRoot`（`shell/root.cpp`），
+两者互斥 ⇒ 直接调 `WindowNotifications` 就 `SIGABRT`，报
+`component window state is missing; call component::Init before KitOpenWindow`。
+
+**为什么这次绕得过去、MenuBar 绕不过去**：`ui/notification.cpp` 全篇不出现 `Root`/`Layers`
+（只有 `WindowNotifications` 这个便利函数用），状态与渲染都挂在 `NotificationListState`
+entity 上。所以做法是：每窗口自己养一份状态 entity（`EnsureNotifyState`），层由 PHP 显式
+摆一颗 `El::notifications($id)`。MenuBar 那条路依赖的是 `AppEffects`（root-application 级），
+没有这种"换个 owner"的余地。
+
+**两个必须手工补齐的字段**，缺一个就静默不工作：
+- `s->self = st.id` —— `NotificationStartAdvancing` 开头就 `!s->self.IsValid()` 直接 return，
+  计时器根本不启动，通知永远停在 `Starting`（全透明）且永不退场。
+- `s->useThemeSettings = true` —— 与 `window_ext.cpp:144` 一致；否则 `placement/margins/width`
+  取的是 state 的裸默认值。
+
+### 像素闸会"绿得没有内容"：`SHOT OK` 不等于拍到东西
+
+`hello --shot … 32` 一路报 `notify_count=2` → `SHOT OK`，图里却只有宿主标题。原因全在 gpui
+侧的动画：`notification.cpp:944-951`，`Starting` 段的不透明度 = `elapsedMs / 400`，而推
+`elapsedMs` 的是 50ms 的**墙钟**计时器（`kNotificationTickMs`）。只泵 3 帧 ≈ 几十毫秒，
+于是拍到的是 opacity 0 的一帧——**退出码、计数、debug tree 全都对**。
+
+结论入规：凡是"浮层/动画"类像素验收，必须跑到动画走完，并且**用两个不同帧数出图对拍**
+证明落在静止段（本次 80 帧与 600 帧产物 md5 相同）。计数与 `SHOT OK` 不能当像素证据。
+
+### 顺带量到的两件事
+
+- **同一角会叠成 collapsed stack**：`kToastCollapsedVisible=3`、旧的只露
+  `kToastCollapsedPeek=14px` 一条边。所以"两条通知"的基线要分放两个角才拍得全，
+  这本身也是 `placement` 锚点映射的像素证据（边距 16/50、宽 382 = `NotificationSettings`
+  默认值 ⇒ 反证 `useThemeSettings` 那条读主题的路是通的）。
+- **图标在本端口没画出来**：通知卡片没有类型图标，tree13 的 toast 基线同样把图标渲染成了
+  被裁掉的 "succe" 文本。既有现象、与本次改动无关，未深究（要查的是图标字形/图标名解析）。
+- **与基座差一档：Sheet 内缩**。基座那层把通知包在一个按打开的 Sheet 让位的绝对层里
+  （`ui/root.cpp:64` `RootNotificationInsets`：Sheet 占哪条边，那边就让出它的尺寸）。
+  我们挂的是裸的 `NotificationList::IntoEl()`，卡片定位读 `WindowSize(cx->win)` ⇒
+  Sheet 开着时通知会压在 Sheet 上。要么 PHP 自己把 `El::notifications()` 摆进让过位的容器里，
+  要么以后在 shim 侧补这层 inset（`ShellRoot` 的 sheet 状态读得到）。已知即可，本轮不做。

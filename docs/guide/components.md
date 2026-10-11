@@ -93,10 +93,14 @@ $el::cb('click', 'routeId')           // 回调实参标记（DropdownMenu.item 
   互斥 → 暂不能成盒。`Menu/MenuItem/MenuSeparator` 作为数据节点可 materialize。见
   [架构](/guide/architecture#渲染根模型-为什么是-shellroot)。
 - **VirtualList / Dock**：依赖"回调进脚本渲染"，属同一 root-app/ScriptView 类，暂缓。
-- **WebView / Inspector 面板**：已可用作元素——`El::webview($url, $id)` /
-  `El::webviewHtml($html, $id)` / `El::inspector($id)`，走 `ComponentKind::ChildView` +
-  host 侧 nested-view 注册（第 7 个补丁）。webview 是盖在窗口上的 OS 控件：它挡住元素树里
-  排在它后面的东西、不随容器滚动、没有圆角，所以要给它自己的一块盒子。
+- **WebView / Inspector 面板 / 通知层**：已可用作元素——`El::webview($url, $id)` /
+  `El::webviewHtml($html, $id)` / `El::inspector($id)` / `El::notifications($id)`，走
+  `ComponentKind::ChildView` + host 侧 nested-view 注册（第 7 个补丁）。webview 是盖在窗口上
+  的 OS 控件：它挡住元素树里排在它后面的东西、不随容器滚动、没有圆角，所以要给它自己的一块
+  盒子。通知层反过来：它自己就是绝对定位的浮层，给它的那颗 `El::notifications()` 摆在哪、
+  多大都不影响卡片位置（卡片按 `placement` 贴窗口边角），但**必须摆一颗**才画得出来——
+  ShellRoot 不挂它，见[系统能力](/guide/system-capabilities#四条硬约束)。推荐摆法
+  `El::notifications('notes')->sizeFull()->absolute()`（tree32 基线与交互 demo 用的就是这一形状）。
 - **Alert / Icon / SidebarMenuItem**：拒 children / 无样式——工厂里别 `->child()`。
 
 ## 下一步

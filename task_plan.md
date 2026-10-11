@@ -4,8 +4,14 @@
 用 TypePHP (AOT) 参考 gpui-kit-cpp（本地源码 `/Volumes/data/git/c/gpui-kit-cpp`）重新实现一套 PHP 原生桌面 GUI 框架，让 PHP 开发者能用声明式 API 构建跨平台 GPU 加速桌面应用。
 
 ## Current Phase
-Phase 4/5/6 主体完成（渲染 bug 修复、定时器、Slot+组件、Markdown/Select/DatePicker、--shot/--selftest、gpui CLI+文档）。
-剩余高风险/大工作量项：Stage 5 Dialog（窗口根换 ShellRoot）、Stage 6 List 虚拟化（scroll→elementId 映射）、Stage 7 Dock。
+Phase 1–5、7 完成（含 P0 加固、P1 门禁、P2 文档/基石）；Phase 6 只剩"独立示例应用集"一项。
+Phase 8「系统能力桥接 Wave 1–2」于
+2026-10-11 完成：剪贴板三通道、原生对话框、OpenUrl 白名单、Inspector、帧率 HUD、Sheet、
+WebView、Inspector 面板、http/dirChange/inflate、`App::sysInfo()`、应用内通知中心。
+剩余：**Phase 9 mac 系统集成**（托盘/全局快捷键/OS 通知/Dock 角标，自写 `.mm`，不引外部库）、
+`FsRun/ProcessRunBounded/Storage`（受 `Capabilities` 读写根授权模型约束，要单独一轮设计）、
+以及 root-app epic 那面墙（catalog MenuBar / VirtualList / Dock 的同步取值，防火墙不可达）。
+"缺失"清单已收敛到真缺失：Linux/Windows 的托盘与 OS 通知（端口里是桩或空实现）。
 
 ## Phases
 
@@ -63,8 +69,8 @@ Phase 4/5/6 主体完成（渲染 bug 修复、定时器、Slot+组件、Markdow
 - [x] **--selftest 事件覆盖验收**：真实二进制 rc=0，验证输入取值回环 + 点击事件全链路 + 定时器 tick。
 - [x] macOS 编译运行 hello world（nano 二进制带窗口存活 + lsappinfo 确认）。
 - [x] **--shot 像素级截图验收**：抓真实在屏 NSView（cacheDisplayInRect）出 PNG，Read 人工核对；正是它抓出并驱动修复了渲染 bug #18。
-- [ ] --shot 视觉回归基线比对（imgdiff 自动 diff）。
-- **Status:** in_progress（核心验收完成，自动 diff 基线待办）
+- [x] --shot 视觉回归基线比对（`cmd/shotdiff.php`，imagick RMSE / gd 回落，容差 0.001）：见 Phase 7 P1。
+- **Status:** complete（六道门禁成型：Pest / PHPStan / shim_test / selftest / shotdiff / doctor）
 
 ### Phase 6: 交付
 - [x] README 文档：架构图、构建/测试/自检、组件覆盖、CLI 用法。
@@ -99,6 +105,26 @@ Phase 4/5/6 主体完成（渲染 bug 修复、定时器、Slot+组件、Markdow
   - **定论（2026-10-11，见 findings）**：gpui 原生 list 虚拟化靠 `spec->renderItems` **渲染委托**（`RenderVirtualItems` 同步回调 JS），与 build-delegate 同属"gpui→脚本同步取值"类 → **纯 C ABI 防火墙不可达**。epic 边界：防火墙支持 gpui→PHP **异步**（事件），不支持 **同步取值**。VirtualList/Dock/catalog-MenuBar 全在此墙外。唯一可行是 PHP 侧近似窗口化（`on_scroll_wheel` deltaY 累加估偏移，非真惰性）。
 - [x] **文档**（2026-10-11）：**VitePress** 文档站 `docs/`（用户定）——index + guide{getting-started, architecture, components, events, testing, cli} + contributing。`npm install`+`docs:build` 验证 rc=0（8 页渲染）。node_modules/dist 由 docs/.gitignore 排除，package-lock 入库。
 
+### Phase 8: 系统能力桥接 Wave 1–2（2026-10-11 完成）
+> 起点是"探测补全可能"：上一轮三层地图继承了一个错前提（把 Rust-only API 当成端口里的缺口）。
+> 订正后按"符号是否真在 `gpui.o` 里"重排，见 findings.md「能力盘点订正」。
+
+- [x] **Wave1 A–E**：`gpui_shim.h` 11 个新 ABI + `php_gpui_*` + `App::clipboardText/setClipboardText/promptForPath/openUrl/toggleInspector/showFpsHud/hideFpsHud/fpsHudVisible/openSheet/closeSheet/hasSheet`。`openUrl` 复用 gpui 自己的白名单（`capability.cpp:5`，20 条 URL 表在 C++/PHP 两侧各验一遍）。
+- [x] **Wave2-A 上游补丁**：`cmd/patch-nested-view.sh`（第 7 个补丁）给 `ShellRuntime` 加 host 侧 `RegisterHostView(EntityId, App*)`，entry 的 `owner/policy/application` 留空（`policy.cpp:56` 对 null 直接 return，两条 sweep 都按不到）→ 打开 `ComponentKind::ChildView` 这道口子。
+- [x] **Wave2-B WebView**：`El::webview/webviewHtml` + `webviewBack/Forward/webviewProbe`。`WebViewNew` 会重入消息循环 ⇒ `started` 标志必须在调用**之前**落。
+- [x] **Wave2-C Inspector 面板**：`El::inspector($id)`（关着时 `IntoEl()` 返 null，所以 tree31 要先 `toggleInspector()`）。
+- [x] **Wave2-E 真缺口服务**：`httpGet/httpResponse`（只接 `HttpSendAsync`，`HttpSend` 阻塞）、`watchDir/unwatchDir` + `dirChange`、`App::inflate`（解压侧真解 Huffman；压缩侧 `ZlibDeflate` 只写 stored 块 ⇒ 不桥）。
+- [x] **剪贴板完整一项**：`App::clipboardItem(): {text,image,paths}`；mac 的文件路径**我们自己读** `NSPasteboardTypeFileURL`（gpui 只有 Windows 填）。图像是二进制流 ⇒ 新增 `copyBounded` 二进制通道。三通道用 `hello --clip` + AppKit `writeObjects:` 真数据实测四种组合。
+- [x] **`App::sysInfo()`**：`SysStateInit/SysRefresh/SysSortProcesses`；差值量（cpu）与直接读数（mem/disk/ncpu）分开断言，采样状态进程内一份。
+- [x] **应用内通知中心**：`App::notify/dismissNotification/clearNotifications/notificationCount` + `El::notifications($id)` + `click`/`close` 事件。撞到的墙与绕法见 findings「应用内通知中心」；`WindowNotifications()` 在 ShellRoot 下 SIGABRT ⇒ 状态 entity 按窗口自持、层由 PHP 显式摆。
+- [x] **Wave2-D 被砍**：`sha256/secureRandom/deflate` 不桥——`hello --caps` 让编译产物自己回答有哪些原生函数，产物里 `hash()/hash_hmac()/random_bytes()/random_int()` 都在，桥过来是净负价值。
+- **Status:** complete（门禁：Pest 56/237 · PHPStan 0 · shim_test 8 组 · selftest 18 链路 · shotdiff 18 树 · doctor 7 marker）
+
+### Phase 9: Wave 3 — 自写 mac 系统集成（未开工）
+- [ ] `cpp-src/gpui_mac.mm`（同一条 `clang++ -x objective-c++ -fobjc-arc` 编、进 `libgpui_shim.a` 归档，全文件 `#ifdef __APPLE__`）：托盘 `NSStatusItem`（菜单数组直接复用 `GpuiMenu/GpuiMenuItem`）、全局快捷键 Carbon `RegisterEventHotKey`（不选 `CGEventTap`：要 Input Monitoring 授权弹窗）、OS 通知 `NSUserNotification`、Dock 角标 `NSDockTile`。Cocoa/Carbon 已在链接表里 ⇒ **不需要外部库**。
+- [ ] 手工清单（窗口外能力机器看不见）：`*_count()` 只到 existence-green，不能证明屏幕上真有图标。
+- [ ] `FsRun/ProcessRunBounded/Storage`：受 `Capabilities` 读写根授权模型约束（`ResolvePath` 要先配 root）+ 进程调用阻塞 ⇒ 单独一轮设计。
+
 ## Key Questions
 1. gpui-kit-cpp 的 Arena 内存模型如何在 TypePHP 中表达？TypePHP 支持 `std::any()` 和 Box 类型，但 Arena 分配需要 C++ 侧管理——桥接层负责 arena 生命周期，PHP 侧只持有 EntityId/handle。
 2. El 树的链式 builder 在 PHP 中如何实现？gpui 的 `Div(cx->a)->FlexCol()->SizeFull()->Child(...)` 返回 `El*` 指针；PHP 侧用 Element 对象持有 id，每个方法返回 `$this`，最终序列化为数组传给 C++。
@@ -115,6 +141,10 @@ Phase 4/5/6 主体完成（渲染 bug 修复、定时器、Slot+组件、Markdow
 | 复用 gpui-kit-cpp 全量源码（git submodule 或 vendor） | 703 个文件涵盖 gpui 运行时+taffy 布局+组件库+主题，重写代价极大 |
 | **构建走 nano 模式（c++17），不走 embed** | embed 需 libphp.dylib/a（Homebrew PHP 无，php-builder 需从源码编 PHP）；nano 源码 compose、免 libphp、产出自包含二进制，且已在纯 PHP 探针上验证 6s 构建成功。nano 强制 c++17。 |
 | **amalgam + 所有 include gpui.h 的代码 = 独立 c++20 静态库；bridge 经纯 C ABI 与之通信（防火墙）** | gpui.h 用了 C++20 `concept`/`requires`（line 6960+），c++17 下硬错误 → nano 里 bridge 不能 include gpui.h。C++17↔C++20 冲突只能用 C-ABI 防火墙解：shim（c++20，碰 gpui）与 bridge（c++17，碰 phpx）分离，树用扁平 push/style/method/callback/attach C 调用序列化、事件用定长 C struct 回传。bridge 侧仍用 php::Box 包裹 shim 的 void* 句柄。 |
+| **能力盘点以 `nm gpui.o` 为准，不以 Rust 侧 API 为准** | 上一轮的三层地图把 Rust 才有的 API 记成"端口里有、还没接"，据此排出来的波次会去做不存在的活。订正后 Wave 3 也证明不需要外部库（Cocoa/WebKit/Carbon 已链）。 |
+| **"要不要桥"交给编译产物自己回答（`hello --caps`）** | 本机 `php` 有的函数 ≠ nano 产物编进去的函数；产物里动态调用未编进的函数是 `SIGABRT`（catch 不住）。所以 `sha256/secureRandom/deflate` 被 `--caps` 报"都在/不需要"后直接砍掉。 |
+| **浮层状态按窗口自持（通知中心）** | `WindowNotifications()` 要基座 `Root`；全局共享一份状态会让多窗口的堆叠与计时互相串。每 Box2 一份 entity，代价是 `close` 时要自己 `NotificationStopAdvancing` + `EntityDrop`（已进 teardown 顺序表）。 |
+| **像素验收要"跑到静止 + 两个帧数对拍"** | `SHOT OK`/`notify_count`/`debug_tree` 三样都对也能拍到全透明的一帧。80 帧与 600 帧产物 md5 相同，才敢说拍到的是动画走完的静止帧。 |
 
 ## Errors Encountered
 | Error | Attempt | Resolution |
@@ -124,6 +154,15 @@ Phase 4/5/6 主体完成（渲染 bug 修复、定时器、Slot+组件、Markdow
 | `-x objective-c++` 把 `.o` 当源码编（"not valid UTF-8"） | test-shim.sh 单条命令编链 | 拆两步：`-c` 只编 test.cpp（带 -x），链接阶段不带 -x，clang 自动识别 .o。 |
 | `Cannot redeclare App::lastError()` | 新增错误回传方法 | 既有 `lastError()` 是 PHP handler 异常属性，新 C 侧通道改名 `registeredError()`。 |
 | selftest `exit=139`（SIGSEGV）——phpstan 驱动把 stub `gpui_app_create` 改 `: void` | 提交前漏跑 selftest（只跑了 phpstan/pest） | stub 返回类型须匹配 bridge `php_gpui_app_create()` 的 `Variant`；声明 void 令 AOT 生成的返回值写回错位。stub 回退 `: mixed`（附注释）；phpstan 的 resultUnused 靠 FakeBridge（src，phpstan 扫这个）的 `: void` 消除，两者解耦。**教训：改 stub/C++ 后必须跑原生 selftest，不能只跑 PHP 层门禁。** |
+| `Invalid callback ... not found or invalid function name` + SIGABRT（Pest 全局钩子看起来在跑） | 首版 `tests/Pest.php` 用裸 `beforeEach()` / `uses()->beforeEach()` | Pest 5.3 里 `beforeEach()` 按**声明它的文件**名注册，`TestCall` 按**测试文件**名查 → 静默不跑。改 `uses(TestCase::class)->in(__DIR__)->beforeEach(...)`，并用"两个测试互相断言对方写过的全局态"当探针验证钩子真的跑。**这类"绿得没有内容"必须用探针证。** |
+| 通知中心 `exit=134`：`component window state is missing; call component::Init before KitOpenWindow` | 直接调 `WindowNotifications(cx)` 拿状态 | 它 → `LayersOf` → `Root::Read(win)`，要的是**基座 Root**，与 ShellRoot 互斥。核对 `ui/notification.cpp` 不读 `Root`/`Layers` 后改为按窗口自持状态 entity（`EnsureNotifyState`）。 |
+| `--shot … 32` 报 `notify_count=2` + `SHOT OK`，PNG 里只有宿主标题 | 以为是 `useThemeSettings` 读到零值主题 | 真因是**入场动画**：`Starting` 段 opacity = `elapsedMs/400`，推它的是 50ms 墙钟计时器，只泵 3 帧等于拍在 0。改跑 80 帧，并与 600 帧产物比 md5（相同 ⇒ 落在静止段）。**计数 + 退出码 + debug tree 全对也不构成像素证据。** |
+| AppleScript `set the clipboard to {POSIX file ...}` 后 `--clip` 恒报 `paths=0` | 以为是 `NSPasteboardTypeFileURL` 读错了 | AppleScript 写的是 alias list，不是 `public.file-url`。改 `[pb writeObjects:@[NSURL ...]]` → `paths=2`。**夹具本身要双向锚定，否则"绿/红"都在说夹具。** |
+| `bin/gpui shot hello x.png 30` 出的是 tree 0 | 直接怀疑 `--shot` 的 tree 解析 | `bin/gpui` 只转发了 path，tree 参数丢了。改成 `$args[2]` 一并转发。 |
+| `WatchCtx` "reference is ambiguous"（在 `Box2` 里写 `std::unordered_map<int, struct WatchCtx*>`） | 加目录监听的 watch 上下文表 | `struct` 声明落在 `Box2::WatchCtx` 作用域。在命名空间作用域前向声明后再用。 |
+| `gpui::NotificationPush` 等找不到符号 | 按头文件的 `namespace component` 之外的直觉写 | 全套在 `gpui::component::`（4 处）。`Array::exists("key")` 也不存在（只按下标找）→ bridge 里改局部变量、键只 set 一次。 |
+| webview 建失败的回滚里 `delete view` | 照抄"drop 完再 delete" | `EntityNewRaw` 的 deleter 已经 `delete` 了 payload ⇒ double-free（dialog 那次 SIGABRT 的同一课）。drop holder 之后**不再** delete payload。 |
+| Pest 报 `Call to undefined function toBe()` | 断言里写成 `).toBe(`（少了 `>`，变成字符串拼接） | 与上一轮 `.font(` 同一类 typo；`php -l` 不报（语法合法）。改回 `)->toBe(`。另：Pest 5.3 无 `toBeAround()`（写 `abs(a-b) < eps`），且不吃 `@` 抑制（要先校验输入再调会告警的函数）。 |
 
 ## Notes
 - gpui-kit-cpp 的 component_shell 层已经实现了 QuickJS 脚本绑定（ScriptView/ShellRuntime/RenderSnapshot/SpecNode），这是最接近"用脚本语言描述 UI"的先例。TypePHP 桥接可以参考 SpecNode/ComponentKind 的设计，把 PHP 数组翻译成 SpecNode 再 ShellMaterialize 成 El 树。

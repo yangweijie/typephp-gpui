@@ -7,7 +7,7 @@
 - **native-green**：`tests/cpp/shim_test.cpp` 直接量 gpui 的真实判据函数
 - **route-green**：`hello --selftest` 在真原生二进制里跑一次真实往返
 - **pixel-green**：`hello --shot` 出图，`shotdiff` 比对
-- **manual**：窗口外的东西（系统对话框、菜单栏、通知中心）机器看不见，只能人看
+- **manual**：窗口外的东西（系统对话框、菜单栏、系统通知中心）机器看不见，只能人看
 
 ## 已接
 
@@ -29,6 +29,8 @@
 | `$app->showFpsHud(string $anchor): bool`<br>`$app->hideFpsHud()` / `fpsHudVisible()` | `ShellRootShow/HideFpsMonitor` | wrap + route（#10）+ pixel（tree27） |
 | `$app->openSheet(Element, string $anchor): int`<br>`$app->closeSheet()` / `hasSheet()` | `ShellRootOpenSheetView` 等 | wrap + route（#11）+ pixel（tree28） |
 | `$app->toast(...)` / `openDialog(...)` | `ShellRootPushToast` / `ShellRootOpenDialogView` | 已有，见[组件](/guide/components) |
+| `$app->notify(string $title, string $message, string $type, string $placement, int $timeoutMs, string $id): int`<br>`$app->dismissNotification($id)` / `clearNotifications()` / `notificationCount()` | `component::NotificationPush/Dismiss/Clear`（`ui/notification.cpp:507/557/618`） | wrap + route（selftest #18 打的是 `close` 那条；`click` 只静态核对过 listener 接线，合成指针点不到浮层）+ pixel（tree32：两张卡各自落在 `top_right`/`bottom_left`，边距与宽度即主题默认值）|
+| `El::notifications($id)` | `component::NotificationList::IntoEl()` 经 `ChildView` 挂载 | pixel（tree32）——**这一颗必须显式摆**，见下方硬约束 |
 | `$app->setAppMenus(array)` / `appMenuCount()` | `BaseSetAppMenus` | route（#7）；macOS 系统菜单栏在窗口外，无像素验收 |
 
 `openUrl` 用的是 gpui 自己那条白名单（`capability.cpp:5`）：只放行 `http`/`https`，authority
@@ -88,7 +90,7 @@ $b = App::sysInfo(10);          // 这一次的 cpu 才是 200ms 窗口里的真
   前值（`FindPrevCpu`），而 `prevProcs` 是另一份完整数组。
 - 电池在没有电池的设备上 `batteryPresent=false`，此时 `batteryPct` 无意义。
 
-## 三条硬约束
+## 四条硬约束
 
 1. **`promptForPath` 只能在事件回调里调。** 原生对话框自带嵌套消息循环，一直跑到用户选完
    （头注释原文："they run their own loop until the user is done"）。在 `App::view()` 里调它，
@@ -100,6 +102,18 @@ $b = App::sysInfo(10);          // 这一次的 cpu 才是 200ms 窗口里的真
    `HttpSendAsync`，结果走 `poll_event`。
 3. **`WebViewNew` 会重入窗口消息循环。** `webview/webview.h:118-123` 警告：它靠跑窗口消息
    循环来创建，那一帧可能被重建第二次，所以"已经建过了"的标志必须在调用**之前**落。
+4. **通知层要自己挂、状态要自己养。** gpui 的通知层由**基座 `Root`** 挂在窗口 overlay 上
+   （`ui/root.cpp:62` 的 `WindowNotifications(cx)`），而我们的窗口根是 `ShellRoot`——为了
+   Dialog/Toast/Sheet 才换过去的，两者互斥。直接调 `WindowNotifications` 会撞上
+   `component window state is missing; call component::Init before KitOpenWindow`（SIGABRT）。
+   所以：状态 entity 按窗口自己持有一份（`EnsureNotifyState`，`notification.cpp` 全篇不读
+   `Root`/`Layers`，实测成立），层由 PHP 显式摆一颗 `El::notifications($id)`。摆法用
+   `->sizeFull()->absolute()`：它自己就是绝对定位的浮层，盖在窗口上而不参与外层排布
+   （tree32 与 demo 用的都是这一形状）。
+   另外**入场是动画**：`Starting` 段不透明度 = `elapsedMs/400`，推它的是 50ms 墙钟计时器，
+   所以截图要跑到动画走完（tree32 跑 80 帧），不然拍到的是全透明。
+   与基座差一档的地方：基座那层会按打开的 Sheet 内缩（`ui/root.cpp:64` `RootNotificationInsets`），
+   我们这颗不会 ⇒ Sheet 开着时通知卡会压在它上面（卡片定位读的是整窗尺寸）。
 
 ## 端口里有、还没接
 
@@ -110,7 +124,6 @@ $b = App::sysInfo(10);          // 这一次的 cpu 才是 200ms 窗口里的真
 | 压缩 | `shell::ZlibDeflate` | **不做**：它写的是 stored 块（`DeflateStored`），只加 zlib/gzip 外壳、不压缩。要压缩请自己实现或在 PHP 侧生成。解压侧已经接了（`App::inflate`），它既读得懂 gpui 自己写的容器，也读得懂真 deflate |
 | 哈希 / 随机 | `shell::Sha256` / `SecureRandom` | **不做**：产物里 `hash()`、`hash_hmac()`、`random_bytes()`、`random_int()` 都在，桥过来是净负价值 |
 | 文件 / 进程 / 存储 | `shell::FsRun` / `ProcessRunBounded` / `StoragePersist` | 受 `Capabilities` 读写根授权模型约束（`ResolvePath` 要求先配 root），且进程调用阻塞——要单独设计，不是包装活。`FsRun` 优先级低：`file_get_contents`/`scandir`/`touch` 在产物里可用 |
-| 应用内通知中心 | `NotificationPush` / `Dismiss` / `Clear`（`ui/notification.h:192`） | 要在元素树里挂 `component::NotificationList::IntoEl()`，比 Toast 大一档；Toast 已可用 |
 
 ## 「要不要桥」由产物自己回答
 
@@ -170,7 +183,7 @@ Linux/Windows 的对等实现（AppIndicator、XGrabKey、Toast XML）另说。�
 
 - 托盘图标在菜单栏里**看得见**；点一下 PHP 收到 `tray` 事件
 - 全局快捷键在**别的 app 有焦点时**仍能触发（否则等于没做"全局"）
-- 通知中心出现条目；点击后 PHP 收到响应
+- 系统通知中心（OS 那个，不是 `El::notifications` 画在窗口里的卡片）出现条目；点击后 PHP 收到响应
 - Dock 角标显示数字 / 进度
 
 自动化的 `*_count()` 类断言读的是我们自己记的数，只能证明"没崩、没泄漏"，不能证明屏幕上

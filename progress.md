@@ -270,3 +270,61 @@ App docblock 与文档三处。
 
 **门禁全绿**：Pest **51/217** · PHPStan 0 · shim_test OK · **selftest 17 链路** ·
 shotdiff OK 17 树 · doctor 7 marker。
+
+## 应用内通知中心（2026-10-11）
+
+`App::notify()/dismissNotification()/clearNotifications()/notificationCount()` +
+`El::notifications($id)`，底下是 `component::NotificationPush/Dismiss/Clear` 与
+`NotificationList::IntoEl()`。带 `$id` 的推送会接上 `click`/`close` 两条 listener，
+`close` 时把这一对键一起摘掉（注册表只跟活通知成正比）。
+
+**撞到的墙**：`WindowNotifications(cx)` → `WindowLayersOf` → `Root::Read(win)`，要的是
+**基座 `Root`**，而我们的窗口根是为 Dialog/Toast/Sheet 换上的 `ShellRoot`——两者互斥，
+直接调就 SIGABRT（"component window state is missing"）。核对 `notification.cpp` 全篇不读
+`Root`/`Layers` 之后改成：状态 entity 由每个窗口自己持有一份（`EnsureNotifyState`，
+`self`/`useThemeSettings` 手工补齐，否则 `NotificationStartAdvancing` 会因为 `!self.IsValid()`
+直接不启动计时器），层由 PHP 显式摆一颗 `El::notifications()`。这与 MenuBar 那面墙同源，
+但通知层这边**没有** root-app 依赖，所以绕得过去。
+
+**像素这一关差点被骗过去**：`--shot` 报 `notify_count=2` + `SHOT OK`，图里却只有宿主标题。
+原因是入场动画——`Starting` 段不透明度 = `elapsedMs/400`（`notification.cpp:948`），推它的是
+50ms 墙钟计时器，只泵 3 帧等于拍在 0 上。改成 80 帧后出图，且与 600 帧的产物**逐字节相同**，
+说明拍到的是动画走完的静止帧。两条通知故意分放 `top_right`/`bottom_left`：同一角会叠成
+collapsed stack（新的在前、旧的只露 14px 一条边），分开才两张都拍全，顺带把 `placement`
+的锚点映射钉在像素上（边距 16/50、宽 382 即主题默认值，反证 `useThemeSettings` 那条路通）。
+
+**已知外观差**：卡片上没有类型图标。同一现象在 tree13 的 toast 基线里也有（那里显示成被裁掉的
+"succe"）。属本端口图标字形未落地，与本次改动无关，未深究。
+
+**验收**：selftest 17 → **18 步**（推→计数 1→dismiss→泵帧后计数 0 且 `close` 事件打回 PHP）；
+`click` 那一侧不进自检（合成指针打不到浮层），改为静态核对 `OnItemClick → items[at].onClick`
+接线 + 交互 demo 新增 `Notify` 按钮做人工路径。Pest +5 例（枚举校验、id 才接线、close 摘一对、
+无 id 不产事件、层是树里的显式节点）；shotdiff 17 → **18 树**（新增 tree32 基线，摆法用
+推荐的 `El::notifications('notes')->sizeFull()->absolute()`——绝对定位不参与外层排布，
+demo 与基线同一形状，像素验的是同一个写法）。
+
+**门禁全绿**：Pest **56/237** · PHPStan 0 · shim_test OK · **selftest 18 链路** ·
+shotdiff OK 18 树（tree32 gdfrac=0，tree27 0.00018 为 HUD 活表）· doctor 7 marker。
+交互 demo 另跑了一次启动冒烟（后台 3s 存活、无崩溃输出）。
+
+## 会话收尾（2026-10-11，通知中心之后）
+
+**工作树**：19 个文件改动 + 1 张新基线（`tests/baseline/hello/tree32.png`），**未提交**（等指示）。
+`git diff --stat` = +822 / −25（含本轮的文档与计划文件；代码面 11 个文件）。
+
+**本轮改到的面**：`cpp-src/gpui_shim.{h,cpp}`、`cpp-src/gpui_bridge.cc`、`php-src/gpui.stub.php`、
+`src/{App,Element,FakeBridge}.php`、`tests/SystemTest.php`、`tests/cpp/shim_test.cpp`、
+`examples/hello/src/main.php`（selftest 第 18 步 + tree32 + demo 的 `Notify` 按钮）、
+`cmd/shotdiff.php`（基线树集 +32）、文档 5 篇、`findings.md`、`progress.md`、`task_plan.md`。
+
+**门禁数字（同一份产物上跑的）**：Pest 56/237 · PHPStan 0 error · shim_test OK（8 组，含
+`notify type/anchor mapping`）· selftest 18 链路 · shotdiff 18 树（tree32 gdfrac=0，
+tree27 0.00018 = HUD 活表）· doctor 7 marker ✓ · demo 启动冒烟 3s 存活。
+
+**下一步候选**（按 ROI）：
+1. **Phase 9 mac 系统集成**（`cpp-src/gpui_mac.mm`：托盘 / Carbon 全局快捷键 /
+   `NSUserNotification` / Dock 角标）——不需要外部库，但验收只能手工 + existence-green。
+2. `FsRun` / `ProcessRunBounded` / `Storage`——先设计 `Capabilities` 读写根，不是包装活。
+3. 图标字形不画这件事（通知卡与 toast 基线都受影响）——是端口的既有缺口，范围不明。
+4. root-app epic 三面墙（catalog MenuBar / VirtualList / Dock 同步取值）维持"防火墙不可达"
+   结论，除非改防火墙契约。

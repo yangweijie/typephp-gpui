@@ -8,8 +8,8 @@
 | 1 | Pest | `composer test` | PHP 声明层：Element 序列化、App 路由、FakeBridge | 否 |
 | 2 | PHPStan | `composer analyse` | `src/` 类型/静态（level 5） | 否 |
 | 3 | C++ shim_test | `composer test:cpp` | shim 纯函数：kindFromString / AStr arena 拷贝 / toComponentArg schema / buildComponentArgs | 是（gpui.o） |
-| 4 | selftest | `php bin/gpui selftest hello` | 17 链路端到端：输入取值 / 点击 / 定时器 / dialog / catalog 回调 / 错误回传 / app 菜单 / 剪贴板 / url 白名单 / HUD / Sheet / WebView / 解压 / dirChange / http / 剪贴板完整一项 / 系统状态 | 是（二进制） |
-| 5 | shotdiff | `php bin/gpui shotdiff check hello` | 视觉回归：逐树像素比对基线（17 棵） | 是（二进制） |
+| 4 | selftest | `php bin/gpui selftest hello` | 18 链路端到端：输入取值 / 点击 / 定时器 / dialog / catalog 回调 / 错误回传 / app 菜单 / 剪贴板 / url 白名单 / HUD / Sheet / WebView / 解压 / dirChange / http / 剪贴板完整一项 / 系统状态 / 通知中心 | 是（二进制） |
+| 5 | shotdiff | `php bin/gpui shotdiff check hello` | 视觉回归：逐树像素比对基线（18 棵） | 是（二进制） |
 | 6 | doctor | `php bin/gpui doctor` | 工具链 + 7 补丁 marker 校验 | 部分 |
 
 一键：`composer test:all`（Pest + PHPStan + shim_test）。
@@ -31,7 +31,7 @@ headless、不开窗口，故任意环境可跑。`cmd/test-shim.sh` 两步编�
 
 ## selftest（原生二进制）
 
-`hello --selftest` 跑真实编译产物，验证跨边界事件链。退出码 0 = 通过。十七步：
+`hello --selftest` 跑真实编译产物，验证跨边界事件链。退出码 0 = 通过。十八步：
 1. 输入取值回环（setInput → InputSetValue → InputValue）
 2. 点击事件全链路（合成 fire → gpuiEnqueueClick → boxForView → 队列 → poll → dispatch）
 3. 定时器 tick
@@ -70,6 +70,12 @@ headless、不开窗口，故任意环境可跑。`cmd/test-shim.sh` 两步编�
     读数，第一次采样就能断言非零；`cpu` 是差值量，所以先断言"第一次报 0"（这是文档承诺的
     行为，不是巧合），再烧 150ms 单核、泵两帧，第二次采样必须 > 0。烧单核在 8 核机器上约
     12%，离 0 有足够余量——不是靠机器噪声过关。`procs` 验前 5 条非空且首条有 pid 与名字。
+18. 通知中心（`App::notify`）：推一条带 id 的通知 → `notificationCount` 1 → `dismiss` →
+    泵帧后计数归 0，并且 PHP 侧收到一条 `close` 事件。验的是"推得进、退得出、回调打得回来"
+    这条路由；卡片画不画得出来归 tree 32 的像素。
+    **`click` 不在自检里**：合成指针打不到浮层里那张卡，所以它只有两条路——静态核对
+    listener 接线（`OnItemClick` → `items[at].onClick`）与交互 demo 的 `Notify` 按钮
+    （点卡片正文，状态行会报"卡片被点了"）。
 
 ## `--clip`：把"能改粘贴板的东西"变成测试装置
 
@@ -108,6 +114,12 @@ tree 30 是 WebView，它那块在离屏截图里**必然是空白**（`cacheDis
 跨进程表面），所以这张基线只量"webview 没把布局搞塌"，控件本身归第 12 步。
 tree 27 是**唯一非零残差**的基线（约 0.0002）：帧率 HUD 是活表，数字随帧变化，容差吸收得下；
 换台慢机器若超容差，应改判它的像素验收为"存在 HUD"而非"HUD 内容一致"。
+tree 32（通知层）**必须跑够墙钟才拍得到**：通知入场是动画，`Starting` 段的不透明度
+= `elapsedMs / 400`（`ui/notification.cpp:948`），而推它的是 50ms 的墙钟计时器——只泵
+3 帧等于拍在 0 上，图上只有宿主标题、两张卡一片透明，`SHOT OK` 却照样成立。现在跑
+80 帧（约 1.6s），并且与 600 帧的产物逐字节相同，说明拍到的是动画走完的静止帧。
+两条通知故意分放 `top_right` / `bottom_left`：同一角会叠成 collapsed stack（新的在前、
+旧的只露一条边），分开才两张都拍全，顺带把 `placement` 的锚点映射钉在像素上。
 
 ## CI
 

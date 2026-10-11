@@ -89,6 +89,33 @@ $watch = $app->watchDir('/path/to/themes', 'themes');
 在主线程被调（`http.h:100`），所以入队不需要锁；但两者都要**泵一下循环**才落地——
 `httpGet()` 返回 true 只表示"排上了"。
 
+## 6. 通知的 `click` / `close`
+
+`App::notify()` 传了 `$id` 才会接线：卡片被点 → `type='click'`，卡片被关闭按钮或退场动画
+收掉 → `type='close'`，都带同一个 `id`。
+
+```php
+$app->on('saved', 'click', function () use ($app): void {
+    $app->openSheet($detailSheet, 'right');   // 点卡片跳到详情
+});
+$app->on('saved', 'close', function () use ($app): void {
+    unset($state['pending']['saved']);       // 自己记下"这条已经没了"
+});
+$app->notify('已保存', '3 个文件写好了', 'success', 'top_right', 5000, 'saved');
+```
+
+三条约定：
+
+- **不传 `$id` 就没有事件。** 只想在窗口里闪一句话，用 `App::toast()`；要能点、能追状态，
+  才用通知。
+- **`close` 是"这张卡已经不在了"，不是"用户点了关闭"。** 超时自动退场、`dismissNotification()`、
+  `clearNotifications()` 三条路都走同一个退场动画，动画走完才把条目从列表里摘掉并回调，
+  所以它比 `timeoutMs` 晚约 200ms（`kToastExitMs`）。别拿它当"用户看到了"的度量。
+  同理，一条通知的在场时间是 `400ms 入场 + timeoutMs + 200ms 退场`，不是 `timeoutMs`。
+- **一次 `push` 注册两个路由键。** `click` 与 `close` 各是一条 listener。点卡片不会让卡片
+  消失，所以 `click` 之后两个键都留着；只有 `close` 会把这一对一起摘掉——注册表的大小
+  只跟活通知成正比。
+
 ## 生命周期与幂等
 
 - 回调按 `(elementId, type)` **幂等复用**：每帧重建同结构不增长（live app 友好）。
