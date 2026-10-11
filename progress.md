@@ -108,3 +108,27 @@
 ---
 *Update after completing each phase or encountering errors*
 
+## Session 2026-10-11（工程加固 P0→P1）
+
+用户选定序列：P0 可复现构建 → P0 内存/错误回传 → P1 C++ 测试+CI。文档站定用 VitePress（留 P2）。
+
+**P0 可复现构建**（commit 4c7af65 + 基线 d3eeac1）
+- git init（此前非仓库）+ 基线提交 29 源/配置文件。
+- gpui-kit-cpp 无 git 历史 → 无法 submodule/SHA，改 `GPUI.lock` 契约 + `bin/gpui verifyPatches()` 逐 marker 校验（doctor 展示、build 缺则中止）。
+- `project.macos.yml` shim .a 绝对路径 → `@ROOT@` 占位，编译期解析为 `project.macos.gen.yml`（tpc 只认 .yml 扩展名，初版误用 `.gen` 后缀被拒，已改）。
+- `bin/gpui build` 补丁列表补 `patch-registered-cb.sh`（原漏 Stage D）；`composer patch` 同步、加 `bootstrap`。`bin/gpui build hello` rc=0 端到端。
+
+**P0 内存/错误回传**（commit 6dd3718）
+- 回调按 `(elemId,type)` 幂等复用（`cbByKey` + `shimCallbacks` 缓存跳过重复 PushShimCallback）→ 消每帧无界增长。
+- `gpui_shim_close` 释放 dialog Box2（无 PHP 句柄引用，安全）+ 清 timer 映射；主 Box2 保守不删（防 UAF）。
+- registered 失败原因落 `Box2.lastError`（render_begin 每帧清）+ `gpui_shim_last_error`/`php_gpui_last_error`/`App::registeredError()`（避开既有 `lastError()` handler 异常属性——命名冲突已修）。
+- selftest 加 step6（空 id Alert → 非空错误）；六链路 `SELFTEST OK`。
+
+**P1 C++ 测试 + CI**（commit 45e2886）
+- `tests/cpp/shim_test.cpp`（#include shim TU）headless 测 kindFromString/AStr(bug#18)/toComponentArg/buildComponentArgs；`cmd/test-shim.sh` 两步编链（-x 只作用 .cpp）。`SHIM CPP TESTS OK`。
+- `.github/workflows/ci.yml`：php -l 全源 + Pest（自足层，本地模拟 lint_fail=0 / 22 passed）。原生链依赖拉不到的 gpui-kit-cpp → 暂不进 CI，注明。
+
+**验证汇总**：Pest 22/84；C++ shim_test OK；selftest 六链路 OK；demo/catalog 树出图；bin/gpui build 一键 rc=0；doctor 五补丁全绿。
+
+**遗留（P1/P2）**：--shot 基线 diff、静态分析(phpstan/clang-tidy)、MenuBar root-app、A 类 VirtualList/Dock、kind 覆盖、rm()/cb() 抽象泄漏、VitePress 文档站。
+
