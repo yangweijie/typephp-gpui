@@ -57,8 +57,12 @@ class Box2 {
 
     // callbackId → (elementId, eventType)
     std::unordered_map<uint64_t, std::pair<std::string, std::string>> callbacks;
+    // "elemId\x1ftype" → callbackId：newCallback 幂等复用（每帧重建同结构不增长）
+    std::unordered_map<std::string, uint64_t> cbByKey;
     // "elemId\x1ftype" → runtime CallbackId（catalog 组件回调旁路，自检直接触发用）
     std::unordered_map<std::string, uint64_t> shimCallbacks;
+    // 最近一次 registered 构造/方法失败的原因（每帧 render_begin 清空，供 gpui_last_error 回传）
+    std::string lastError;
     // elementId → retained EntityHandle（Input/Slider 常驻状态，跨帧稳定）
     std::unordered_map<std::string, uint64_t> inputHandles;
     // RetainedEntry 本地 id → elementId（OnInputEvent/OnSliderEvent 反查）
@@ -72,9 +76,15 @@ class Box2 {
     // 打开的 dialog 内容 Box2（保活到窗口析构；demo 规模够用）。
     std::vector<Box2*> dialogs;
 
+    // 幂等：同 (elementId,type) 复用同一 callbackId，避免每帧无限增长。
+    // (id,type) 是 App->on 的路由键，本就一对一映射到一个 handler，复用安全。
     uint64_t newCallback(const std::string& elementId, const std::string& type) {
+        std::string key = elementId + "\x1f" + type;
+        auto it = cbByKey.find(key);
+        if (it != cbByKey.end()) return it->second;
         uint64_t id = nextCallback++;
         callbacks[id] = {elementId, type};
+        cbByKey[key] = id;
         return id;
     }
 
@@ -375,7 +385,9 @@ int buildComponentArgs(gpui::Arena* a,
 }
 
 // registered 失败时的可见占位：一个 Text 节点承载错误文本（on-screen + debug_tree 都可见）。
+// 同时把原因记进 box->lastError，供 gpui_last_error 回传 PHP 断言。
 uint32_t pushErrorNode(Box2* box, gpui::Arena* a, const std::string& msg) {
+    box->lastError = msg;
     gpui::shell::Component c;
     c.kind = gpui::shell::ComponentKind::Text;
     c.text = AStr(a, msg.c_str());
@@ -476,10 +488,27 @@ int gpui_shim_poll(void* win, GpuiEvent* out) {
 
 void gpui_shim_close(void* win) {
     auto* box = static_cast<Box2*>(win);
-    if (box && box->window) {
+    if (!box) return;
+    if (box->window) {
         gpui::AppClose(box->window);
-        box->closed = true;
+        box->window = nullptr;  // AppClose 已撤窗口及其定时器；置空防后续误用
     }
+    box->closed = true;
+    box->timerIds.clear();
+    box->timerKeys.clear();
+    // dialog 内容 Box2 无 PHP 句柄引用（open_dialog 只回计数），可安全释放：
+    // 摘 g_views、丢其 PhpView 实体、删 viewPtr 与 Box2 自身。
+    for (Box2* dlg : box->dialogs) {
+        if (dlg->viewPtr) {
+            g_views.erase(dlg->viewPtr);
+            gpui::EntityDrop(g_app, dlg->viewEntity);
+            delete static_cast<PhpView*>(dlg->viewPtr);
+        }
+        delete dlg;
+    }
+    box->dialogs.clear();
+    // 主 Box2 保守不 delete：PHP WindowBox->handle 仍指向它，删则 UAF。单窗口应用
+    // 退出由 OS 回收；多窗口每窗口一份，量级远小于每帧/每 dialog 泄漏。
 }
 
 void gpui_shim_set_theme(void* win, const char* mode) {
@@ -493,7 +522,20 @@ void gpui_shim_set_theme(void* win, const char* mode) {
 
 void gpui_shim_render_begin(void* win) {
     auto* box = static_cast<Box2*>(win);
-    if (box) box->specs.Reset();
+    if (box) {
+        box->specs.Reset();
+        box->lastError.clear();  // 每帧只报本帧的 registered 失败
+    }
+}
+
+int gpui_shim_last_error(void* win, char* out, int outlen) {
+    auto* box = static_cast<Box2*>(win);
+    if (!box || outlen <= 0) return 0;
+    int n = (int)box->lastError.size();
+    if (n > outlen - 1) n = outlen - 1;
+    if (n > 0) std::memcpy(out, box->lastError.data(), (size_t)n);
+    out[n] = '\0';
+    return n;
 }
 
 uint32_t gpui_shim_push(void* win, const char* kind, const char* text,
@@ -842,15 +884,25 @@ void gpui_shim_registered_method(void* win, uint32_t spec, const char* name,
         g_runtime ? g_runtime->Components() : nullptr;
     const gpui::shell::MethodDescriptor* m =
         comps ? comps->Method(node->component.index, gpui::Str(name)) : nullptr;
-    if (!m || !m->recorder) return;
+    if (!m || !m->recorder) {
+        box->lastError = std::string("no such registered method '") +
+                         (name ? name : "") + "'";
+        return;
+    }
     std::string err;
     gpui::shell::ComponentArgument* arguments = nullptr;
     int schemaN = buildComponentArgs(a, m->arguments, args, argc, &arguments,
                                      &err);
-    if (schemaN < 0) return;
+    if (schemaN < 0) {
+        box->lastError = std::string(name ? name : "") + ": " + err;
+        return;
+    }
     gpui::shell::PayloadBuild build;
     build.a = a;
-    if (!m->recorder(&build, arguments, schemaN)) return;
+    if (!m->recorder(&build, arguments, schemaN)) {
+        box->lastError = std::string(name ? name : "") + ": recorder failed";
+        return;
+    }
     gpui::shell::SpecOp so;
     so.kind = gpui::shell::SpecOpKind::RegisteredMethod;
     so.name = AStr(a, name);
@@ -865,19 +917,23 @@ uint64_t gpui_shim_new_callback(void* win, const char* elem_id,
                                 const char* type) {
     auto* box = static_cast<Box2*>(win);
     if (!box) return 0;
+    std::string key = std::string(elem_id ? elem_id : "") + "\x1f" +
+                      (type ? type : "");
+    // 每帧重建同结构：命中缓存直接复用 runtime id，不再 PushShimCallback 追加条目。
+    auto cached = box->shimCallbacks.find(key);
+    if (cached != box->shimCallbacks.end()) return cached->second;
     // box 侧记 (elemId,type)→boxCbId（事件回传时反查）；runtime 侧登记一个带
     // shimId=boxCbId 的合成回调条目，返回其 runtime CallbackId 塞进
     // ComponentArgument.callback。点击时 InvokeWith 命中 shimId → gpuiEnqueueShimCallback
     // → box->enqueue(boxCbId) → 复用同一 (elemId,type)。
     uint64_t boxCb = box->newCallback(elem_id ? elem_id : "", type ? type : "");
-    if (!g_runtime || !box->viewEntity.IsValid()) return boxCb;
-    uint64_t rt = g_runtime->PushShimCallback(box->viewEntity, boxCb);
-    if (rt) {
-        box->shimCallbacks[std::string(elem_id ? elem_id : "") + "\x1f" +
-                          (type ? type : "")] = rt;
-        return rt;
+    uint64_t res = boxCb;
+    if (g_runtime && box->viewEntity.IsValid()) {
+        uint64_t rt = g_runtime->PushShimCallback(box->viewEntity, boxCb);
+        if (rt) res = rt;
     }
-    return boxCb;
+    box->shimCallbacks[key] = res;
+    return res;
 }
 
 int gpui_shim_selftest_fire_registered(void* win, const char* elem_id,

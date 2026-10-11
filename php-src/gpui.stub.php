@@ -64,6 +64,9 @@ function gpui_snapshot(mixed $window, string $path, int $w, int $h): bool {}
 /** 诊断：dump 当前 spec arena 树为文本。 */
 function gpui_debug_tree(mixed $window): string {}
 
+/** 取本帧最近一次 catalog 组件（registered）构造/方法失败的原因；无错误返回空串。 */
+function gpui_last_error(mixed $window): string {}
+
 /** 弹一条 toast：$level=info|success|warning|error，$timeoutMs<=0 用默认 5s。 */
 function gpui_toast(mixed $window, string $title, string $desc, string $level, int $timeoutMs): void {}
 

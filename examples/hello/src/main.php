@@ -140,9 +140,15 @@ function runSelfTest(): void
     }
     $ok = $ok && $ddFired && $ddFires === 1;
 
+    // 6) registered 错误回传：空 id 的 Alert 构造被 factory 拒（NonEmptyId）→
+    //    shim 记 lastError，PHP 经 gpui_last_error 取回（不再只藏在 debug_tree）。
+    $app->render(El::alert('', 'no id'));  // render_begin 清空 → emitTree 落错
+    $err = $app->registeredError();
+    $ok = $ok && $err !== '';
+
     echo $ok
-        ? "SELFTEST OK (input + click + timer hits={$timerHits} + dialog + registered-cb)\n"
-        : "SELFTEST FAIL (input='{$got}' fired=" . ($fired ? '1' : '0') . " clicks={$clicks} timer={$timerHits} dlg=$before/$opened/$during/$after ddcb=" . ($ddFired ? '1' : '0') . "/{$ddFires})\n";
+        ? "SELFTEST OK (input + click + timer hits={$timerHits} + dialog + registered-cb + err-channel)\n"
+        : "SELFTEST FAIL (input='{$got}' fired=" . ($fired ? '1' : '0') . " clicks={$clicks} timer={$timerHits} dlg=$before/$opened/$during/$after ddcb=" . ($ddFired ? '1' : '0') . "/{$ddFires} err='$err')\n";
     $app->close();
     exit($ok ? 0 : 1);
 }

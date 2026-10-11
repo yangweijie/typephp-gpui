@@ -88,6 +88,12 @@ final class App
         return (bool) \gpui_snapshot($this->handle(), $path, $w, $h);
     }
 
+    /** 本帧最近一次 catalog（registered）组件构造/方法失败的原因；无错误返回空串。 */
+    public function registeredError(): string
+    {
+        return (string) \gpui_last_error($this->handle());
+    }
+
     // ── 事件 ──
 
     /**

@@ -75,16 +75,16 @@ Phase 4/5/6 主体完成（渲染 bug 修复、定时器、Slot+组件、Markdow
 ### Phase 7: 工程加固（hardening backlog，2026-10-11 审计）
 > 功能面（A/B/C/D + 前序阶段）已交付；本阶段是"从工程上还能完善什么"的排序清单。按 P0>P1>P2。
 
-**P0 — 正确性/内存（真 bug，超出 3 帧 demo 就会暴露）**
-- [ ] **每帧回调累积泄漏**：`render_begin` 只 `specs.Reset()`，`Box2.callbacks`/`shimCallbacks` 不清 → 每帧 onClick/`cb()` 重新 `newCallback`，`gpui_shim_new_callback` 每帧又 `PushShimCallback` 往 runtime store 追加 committed 条目。live app（60fps）无界增长。方案：按 (elementId,type) 幂等复用 callbackId（cache），或每帧 rollback runtime shim 条目。
-- [ ] **窗口/dialog 析构泄漏**：`gpui_shim_close` 只 `AppClose`+置 flag，不 `delete box`、不摘 `g_views`、不释放 `box->dialogs`（每个含 Box2+PhpView+entity）。`g_app`/`g_runtime` 无 `AppFree`。多窗口/长驻应用会漏。
-- [ ] **错误只进 debug_tree**：`gpui_shim_registered`/`registered_method` 失败只 Push 一个错误 Text 节点，PHP 侧无返回/异常通道 → 静默失败。加 `gpui_last_error(win,out,outlen)` 或让 render 抛 PHP 异常。
+**P0 — 正确性/内存 — ✅ 2026-10-11 完成**
+- [x] **每帧回调累积泄漏**：`newCallback` 改按 `(elemId,type)` 幂等复用（加 `cbByKey` 反查）；`gpui_shim_new_callback` 命中 `shimCallbacks` 缓存则跳过再 `PushShimCallback`。两 map 按 distinct (id,type) 有界。selftest 多帧（timer hits=18）+ demo 出图验证不崩、事件路由正常。
+- [x] **窗口/dialog 析构泄漏**：`gpui_shim_close` 现释放 `box->dialogs`（Box2+PhpView+entity，无 PHP 句柄引用故安全）+ 清 timerIds/Keys。主 Box2 保守不删（PHP `WindowBox->handle` 仍指，删则 UAF；注释说明）。selftest step4 的 dialog Box2 在 close 时被释放，未崩。
+- [x] **错误只进 debug_tree**：`Box2.lastError` 记 registered 失败原因（`pushErrorNode`/`registered_method` 各失败点写、`render_begin` 每帧清）；新增 `gpui_shim_last_error`+`php_gpui_last_error`+stub+`App::registeredError()`（避开既有 `lastError()` handler 异常属性）。selftest step6 断言空 id Alert → 非空错误。
 
-**P0 — 可复现构建**
-- [ ] **纳入 git**：当前目录**不是 git 仓库**。`git init` + 合理 `.gitignore`（build/、.work、vendor 产物）。
-- [ ] **钉住 gpui-kit-cpp**：`vendor/gpui-kit-cpp` 是指向兄弟目录的**未固定 symlink**，clone 后无法构建。改 git submodule（锁 commit）或 vendored 归档 + 版本记录；补丁链（patch-view/nano/retained/focus/registered-cb）配 `check-attest` 式完整性校验。
-- [ ] **去绝对路径**：`examples/hello/project.macos.yml:33` 的 ld-flags 硬编码 `/Volumes/data/git/...`。改相对路径或构建期由 `bin/gpui` 注入 `$ROOT`。
-- [ ] **一键构建链**：`composer patch` **漏了 `patch-registered-cb.sh`**，且不含 `bun build.ts`+`build-shim`。补一条 `composer bootstrap`：patch* → build.ts → build-shim → tpc，每步校验 rc。
+**P0 — 可复现构建 — ✅ 2026-10-11 完成**
+- [x] **纳入 git**：`git init` + 基线提交 d3eeac1（.gitignore 已完善，纳管 29 源/配置文件，无产物/密钥）。
+- [x] **钉住 gpui-kit-cpp**：上游**无 git 历史**，submodule/SHA 不可行 → `GPUI.lock` 契约（源码位置/GPUI_DIR·NANO_DIR 覆盖/补丁 marker 表/构建链）+ `bin/gpui verifyPatches()` 逐 marker 校验（doctor 展示、build 缺则中止）。
+- [x] **去绝对路径**：`project.macos.yml` shim .a 改 `@ROOT@` 占位，`bin/gpui build` 编译期解析为 `project.macos.gen.yml`（同目录、gitignore；tpc 只认 .yml 扩展名）。
+- [x] **一键构建链**：`bin/gpui build` 补丁列表补 `patch-registered-cb.sh`（原漏）+ build 后 verifyPatches；`composer patch` 补 registered-cb，新增 `composer bootstrap`。`bin/gpui build hello` rc=0 端到端验证。
 
 **P1 — 质量门禁**
 - [ ] **C++ 侧测试**：shim/bridge（arena 字符串生命周期、`kindFromString`、`lookupCtor`、`toComponentArg` schema、回调路由）**零自动化测试**——bug #18 类回归无守卫。加独立 c++ 测试目标（或直接测 libgpui_shim.a 的纯函数）。

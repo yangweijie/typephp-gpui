@@ -150,6 +150,11 @@ namespace {
         return '';
     }
 
+    function gpui_last_error(mixed $window): string
+    {
+        return '';
+    }
+
     function gpui_toast(mixed $window, string $title, string $desc, string $level, int $timeoutMs): void
     {
         FakeBridge::$toasts[] = ['title' => $title, 'level' => $level];

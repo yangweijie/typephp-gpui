@@ -84,6 +84,9 @@ int gpui_shim_selftest_fire_registered(void* win, const char* elem_id,
 int gpui_shim_snapshot(void* win, const char* path, int dip_w, int dip_h);
 /* 诊断：把当前 spec arena 树 dump 成文本写入 out（至多 outlen-1 字节），返回长度。 */
 int gpui_shim_debug_tree(void* win, char* out, int outlen);
+/* 取本帧最近一次 registered 构造/方法失败的原因，写入 out（至多 outlen-1 字节 +
+ * '\0'），返回长度；无错误返回 0。render_begin 每帧清空。 */
+int gpui_shim_last_error(void* win, char* out, int outlen);
 
 /* 注册/取消周期定时器：intervalMs>0 用 WindowSetInterval 挂一个 tick 监听，到点入队
  * {type:"timer", id:phpId}；intervalMs<=0 取消同名定时器。 */

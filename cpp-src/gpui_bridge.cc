@@ -406,6 +406,14 @@ String php_gpui_debug_tree(Variant boxVar) {
     return String(buf);
 }
 
+String php_gpui_last_error(Variant boxVar) {
+    void* win = winOf(boxVar);
+    char buf[1024];
+    buf[0] = '\0';
+    if (win) gpui_shim_last_error(win, buf, (int)sizeof(buf));
+    return String(buf);
+}
+
 void php_gpui_toast(Variant boxVar, String title, String desc, String level,
                     Int timeoutMs) {
     void* win = winOf(boxVar);
