@@ -2,7 +2,8 @@ name: CI
 
 # 现状：gpui-kit-cpp 无 git remote（本地源码树，见 GPUI.lock），托管 runner 无法拉取，
 # 故 bootstrap 构建 / --selftest / --shot / cmd/test-shim.sh 都依赖 GPUI_DIR，跑不了。
-# 本工作流只覆盖自足的 PHP 声明层（php -l + Pest/FakeBridge，不碰 gpui）。
+# 本工作流覆盖两件自足的事：PHP 声明层（php -l + Pest/PHPStan，不碰 gpui）与
+# VitePress 文档站构建（docs/，npm ci + vitepress build）。
 # 原生链在本地或有 GPUI_DIR 的 self-hosted runner 上跑：
 #   composer bootstrap && composer test:cpp && ./examples/hello/build/hello --selftest
 
@@ -14,7 +15,7 @@ on:
 
 jobs:
   php:
-    name: PHP lint + Pest
+    name: PHP lint + Pest + PHPStan
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -22,7 +23,11 @@ jobs:
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.3'
+          # 8.5 不是随手选的：composer.lock 里 swoole/typephp 与 swoole/phpx 要
+          # "php >=8.4 <8.6"，php-nano 与 phpunit 13 要 ">=8.4"，而开发机就是 8.5.7。
+          # 早先钉 8.3 时 composer install 直接失败（phpunit/phpunit 13.4.1 requires
+          # php >=8.4.1 -> your php version (8.3.35)），整条 CI 一步都没跑到。
+          php-version: '8.5'
           coverage: none
 
       - name: Composer install
@@ -43,3 +48,34 @@ jobs:
 
       - name: PHPStan (level 5, src)
         run: vendor/bin/phpstan analyse --no-progress
+
+  docs:
+    name: VitePress build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # 与开发机同大版本（本地 v24.x）；换大版本就可能撞 VitePress 的构建期差异。
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: docs/package-lock.json
+
+      - name: Install docs dependencies
+        working-directory: docs
+        run: npm ci
+
+      - name: Build site
+        working-directory: docs
+        run: npm run docs:build
+
+      # 构建产物是 docs/.vitepress/dist（gitignore 掉的那份）。把死链检查也跑起来：
+      # vitepress build 默认 --ignoreDeadLinks: false，所以这一步本身就足以抓到坏链接；
+      # 留一行计数只为日志可读，不改变退出码。
+      - name: Report built pages
+        working-directory: docs
+        run: |
+          pages=$(find .vitepress/dist -name '*.html' | wc -l)
+          echo "built html pages: ${pages}"
+          test "${pages}" -gt 0
