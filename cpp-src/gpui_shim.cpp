@@ -181,6 +181,43 @@ int copyOut(char* out, int outlen, gpui::Str s) {
     return n;
 }
 
+// 有界二进制拷贝：写 min(need, cap) 字节，**返回 need**，也就是"要装下它需要多少"。
+// dst 为 NULL 或 cap<=0 时只回长度，即 dry run。不加终止符、不按字符串看：图像流是
+// 二进制的，里面出现 0x00 是正常数据。
+int copyBounded(char* dst, int cap, const char* src, int need) {
+    if (need < 0) need = 0;
+    if (dst && cap > 0 && src) {
+        int m = need < cap ? need : cap;
+        if (m > 0) std::memcpy(dst, src, (size_t)m);
+    }
+    return need;
+}
+
+#ifdef __APPLE__
+// gpui 在 mac 上不读粘贴板里的文件 URL：只有 Windows 填 externalPaths
+// （window_win.cpp:1636 的 CF_HDROP），mac 的 ClipboardGetItem 只给 text+image。
+// "从 Finder 复制文件再粘进应用"是桌面常规动作，所以这一半由我们自己补，返回换行分隔
+// 的绝对路径，形状与 gpui 在 Windows 上给的一致，好让 PHP 侧不必分平台。
+gpui::Str MacClipboardFilePaths(gpui::Arena* a) {
+    NSPasteboard* pb = [NSPasteboard generalPasteboard];
+    NSArray<NSURL*>* urls =
+        [pb readObjectsForClasses:@[ [NSURL class] ]
+                          options:@{NSPasteboardURLReadingFileURLsOnlyKey : @YES}];
+    if (!urls || [urls count] == 0) return gpui::Str{};
+    std::string joined;
+    for (NSURL* url in urls) {
+        NSString* path = [url path];
+        if (!path) continue;
+        const char* utf8 = [path UTF8String];
+        if (!utf8) continue;
+        if (!joined.empty()) joined += "\n";
+        joined += utf8;
+    }
+    if (joined.empty()) return gpui::Str{};
+    return gpui::StrDup(a, gpui::Str(joined.data(), (int)joined.size()));
+}
+#endif
+
 // 进 arena 的字符串必须拷进 arena 自身：bridge 传来的 const char* 是 emitTree 返回即
 // 销毁的临时 std::string，只存视图会悬垂（曾致 size("100%") 变乱码、布局塌缩）。
 gpui::Str AStr(gpui::Arena* a, const char* s) {
@@ -997,6 +1034,44 @@ void gpui_shim_clipboard_set_text(void* win, const char* text) {
     if (!box || !box->window) return;
     // mac 侧 ClipboardSetText 当场把文本转成 NSString 交给粘贴板，借用缓冲安全。
     gpui::ClipboardSetText(box->window, cstr(text));
+}
+
+int gpui_shim_clipboard_item(void* win, char* outText, int textCap, int* outTextLen,
+                             char* outImg, int imgCap, int* outImgLen,
+                             char* outPaths, int pathsCap, int* outPathsLen) {
+    if (outTextLen) *outTextLen = 0;
+    if (outImgLen) *outImgLen = 0;
+    if (outPathsLen) *outPathsLen = 0;
+    auto* box = static_cast<Box2*>(win);
+    if (!box || !box->window) return 0;
+    // 一次快照读全部表示；返回的视图属于传进去的 arena，所以当场拷走。
+    gpui::ClipboardItem item =
+        gpui::ClipboardGetItem(box->specs.Storage(), box->window);
+    int flags = 0;
+    if (item.text.len > 0) {
+        if (outTextLen)
+            *outTextLen = copyBounded(outText, textCap, item.text.s, item.text.len);
+        flags |= 1;
+    }
+    if (item.HasImage()) {
+        if (outImgLen)
+            *outImgLen = copyBounded(outImg, imgCap,
+                                     reinterpret_cast<const char*>(
+                                         item.imageBytes),
+                                     item.imageBytesLen);
+        flags |= 2;
+    }
+    gpui::Str paths = item.externalPaths;
+#ifdef __APPLE__
+    if (paths.len <= 0)
+        paths = MacClipboardFilePaths(box->specs.Storage());
+#endif
+    if (paths.len > 0) {
+        if (outPathsLen)
+            *outPathsLen = copyBounded(outPaths, pathsCap, paths.s, paths.len);
+        flags |= 4;
+    }
+    return flags;
 }
 
 int gpui_shim_prompt_for_path(void* win, int directories, const char* title,

@@ -254,6 +254,36 @@ final class App
     }
 
     /**
+     * 读剪贴板的完整一项：['text'=>?string,'image'=>?string,'paths'=>string[]]。
+     * 一次快照读全所有表示，所以三者可能同时有。
+     *
+     * - image 是**已编码的图像流**（mac 上先取 PNG，没有再取 TIFF，所以一张截图拿到的
+     *   是 TIFF 字节），不是 RGBA。要位图请交给 GD/Imagick 解。
+     * - paths 是复制的文件绝对路径。gpui 只在 Windows 上读这个（CF_HDROP）；mac 上由
+     *   我们的 shim 直接读 NSPasteboard 的文件 URL 补齐，形状与 Windows 一致。
+     *
+     * @return array{text:?string,image:?string,paths:array<int,string>}
+     */
+    public function clipboardItem(): array
+    {
+        /** @var array{flags?:int,text?:string,image?:string,paths?:array<int,mixed>} $raw */
+        $raw = \gpui_clipboard_item($this->handle());
+        $flags = (int) ($raw['flags'] ?? 0);
+
+        $paths = [];
+        if (($flags & 4) !== 0) {
+            foreach ($raw['paths'] ?? [] as $p) {
+                $paths[] = (string) $p;
+            }
+        }
+        return [
+            'text' => ($flags & 1) !== 0 ? (string) ($raw['text'] ?? '') : null,
+            'image' => ($flags & 2) !== 0 ? (string) ($raw['image'] ?? '') : null,
+            'paths' => $paths,
+        ];
+    }
+
+    /**
      * 原生文件/目录选择对话框，返回选中的单个路径；取消返回 null。
      *
      * ⚠ 只能在事件回调里调：对话框自带嵌套消息循环，一直跑到用户选完。

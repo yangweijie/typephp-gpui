@@ -238,6 +238,33 @@ void testCapabilityGates() {
     CHECK(copyOut(nullptr, 8, gpui::Str("x")) == 0);
 }
 
+// 6b) copyBounded：二进制通道唯一的截断/长度语义，剪贴板图像与解压输出都靠它。
+//     真实长度必须与 cap 无关地报出来，否则调用方无法区分"就这么长"和"被截了"。
+void testCopyBounded() {
+    std::puts("copyBounded");
+    const char src[] = "abc\0def";  // 中间有 NUL：图像流里这是正常数据
+    char buf[8];
+
+    // dry run：dst 为空 / cap<=0 都只回长度，不写不崩。
+    CHECK(copyBounded(nullptr, 0, src, 7) == 7);
+    CHECK(copyBounded(buf, 0, src, 7) == 7);
+    CHECK(copyBounded(buf, -1, src, 7) == 7);
+
+    // 装得下：原样拷，含 NUL。
+    std::memset(buf, '#', sizeof(buf));
+    CHECK(copyBounded(buf, 8, src, 7) == 7);
+    CHECK(std::memcmp(buf, src, 7) == 0);
+
+    // 装不下：写满 cap 字节，但**返回的仍是需要的长度**。
+    std::memset(buf, '#', sizeof(buf));
+    CHECK(copyBounded(buf, 3, src, 7) == 7);
+    CHECK(buf[0] == 'a' && buf[1] == 'b' && buf[2] == 'c');
+
+    // need<0 归零；src 为空时不写但仍报 need。
+    CHECK(copyBounded(buf, 8, src, -5) == 0);
+    CHECK(copyBounded(nullptr, 8, nullptr, 4) == 4);
+}
+
 // 6) 缺口服务：解压要读得懂**外部真数据**，HTTP 判据要只认 http(s)。
 //    那两串向量是开发机上 PHP 的 zlib 生成的 "hello gpui" 容器，与
 //    examples/hello 的 selftest 第 13 步、tests/SystemTest.php 的 inflate 那条用的是
@@ -322,6 +349,7 @@ int main() {
     testToComponentArg();
     testBuildComponentArgs();
     testCapabilityGates();
+    testCopyBounded();
     testGapServices();
     if (g_failures) {
         std::fprintf(stderr, "SHIM CPP TESTS FAIL (%d)\n", g_failures);

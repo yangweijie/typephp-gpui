@@ -20,6 +20,10 @@ function main(int $argc, array $argv): void
         runCaps();
         return;
     }
+    if (in_array('--clip', $argv, true)) {
+        runClip();
+        return;
+    }
     $shotIdx = array_search('--shot', $argv, true);
     if ($shotIdx !== false) {
         $path = isset($argv[$shotIdx + 1]) ? (string) $argv[$shotIdx + 1] : '/tmp/hello.png';
@@ -28,7 +32,7 @@ function main(int $argc, array $argv): void
         return;
     }
 
-    $state = ['count' => 0, 'name' => '', 'vol' => 30, 'path' => ''];
+    $state = ['count' => 0, 'name' => '', 'vol' => 30, 'path' => '', 'clip' => ''];
 
     $app = new App();
     $app->create();
@@ -46,8 +50,12 @@ function main(int $argc, array $argv): void
                 El::button('+1')->id('inc')->onClick()->primary(),
                 El::button('Reset')->id('reset')->onClick()->ghost(),
                 El::button('Open…')->id('pick')->onClick()->ghost(),
+                El::button('Clipboard')->id('clip')->onClick()->ghost(),
             ])->gap(8.0)->itemsCenter(),
             El::text($state['path'] !== '' ? "Picked: {$state['path']}" : 'Open… 走原生对话框（无人值守自检里不测，见 runSelfTest 注释）')->font(12.0),
+            // 剪贴板图像/文件通道的**人工**验收：截一张图（⌘⇧⌃3）或从 Finder 复制文件，
+            // 再点 Clipboard——这里会报三种表示各有多少。自检只验到文本通道。
+            El::text($state['clip'] !== '' ? "Clipboard: {$state['clip']}" : 'Clipboard 按钮读粘贴板的文本/图像/文件三种表示')->font(12.0),
         ])
             ->sizeFull()
             ->gap(8.0)
@@ -75,6 +83,14 @@ function main(int $argc, array $argv): void
         if ($picked !== null) {
             $state['path'] = $picked;
         }
+    });
+    $app->on('clip', 'click', function () use ($app, &$state): void {
+        $item = $app->clipboardItem();
+        $parts = [];
+        $parts[] = $item['text'] !== null ? 'text=' . strlen($item['text']) : 'text=-';
+        $parts[] = $item['image'] !== null ? 'image=' . strlen($item['image']) . 'B' : 'image=-';
+        $parts[] = 'paths=' . count($item['paths']);
+        $state['clip'] = implode(' ', $parts);
     });
 
     $app->loop();
@@ -256,11 +272,22 @@ function runSelfTest(): void
         && $resp !== null && $resp['ok'] === false && $resp['status'] === 0
         && $again === null;
 
+    // 16) 剪贴板完整一项：刚写过文本，所以同一快照里应当只有文本——图像与文件必须报
+    //     "没有"，这验的是 flags 的判别而不是粘贴板内容（写文本会替换掉整个粘贴板）。
+    //     图像/文件两条通道的真实读取属人工项：截一张图或从 Finder 复制文件，
+    //     再看 demo 的 Clipboard 按钮报的字节数。
+    $app->setClipboardText("ITEM-{$timerHits}");
+    $item = $app->clipboardItem();
+    $itemText = $item['text'] ?? '';
+    $itemImage = $item['image'] ?? '';
+    $ok = $ok && $itemText === "ITEM-{$timerHits}"
+        && $item['image'] === null && $item['paths'] === [];
+
     echo $ok
         ? sprintf(
             "SELFTEST OK (input + click + timer hits=%d + dialog + registered-cb + err-channel"
             . " + appmenu + clipboard + urlgate + fps + sheet + webview %.0fx%.0f"
-            . " + inflate + dirChange x%d + http ok=%s/%d)\n",
+            . " + inflate + dirChange x%d + http ok=%s/%d + clipboard-item)\n",
             $timerHits,
             $probe['w'],
             $probe['h'],
@@ -268,7 +295,7 @@ function runSelfTest(): void
             $resp === null ? 'null' : var_export($resp['ok'], true),
             $resp === null ? -1 : $resp['status']
         )
-        : "SELFTEST FAIL (input='{$got}' fired=" . ($fired ? '1' : '0') . " clicks={$clicks} timer={$timerHits} dlg=$before/$opened/$during/$after ddcb=" . ($ddFired ? '1' : '0') . "/{$ddFires} err='$err' menu=$menuN/$menuCount clip='$clip' want='$payload' fps=$fps1/$fpsVis/$fps2/$fpsOff/$fpsAgain sheet=$sheetOpened/" . ($sheetDuring ? '1' : '0') . "/" . ($sheetClosed ? '1' : '0') . " wv=" . json_encode($probe) . " inf=" . var_export([$infZ, $infG, $infBad], true) . " watch=$watchId/$watchHits http=" . ($schemeRejected ? '1' : '0') . "/$queued/$httpHits/" . json_encode($resp) . ")\n";
+        : "SELFTEST FAIL (input='{$got}' fired=" . ($fired ? '1' : '0') . " clicks={$clicks} timer={$timerHits} dlg=$before/$opened/$during/$after ddcb=" . ($ddFired ? '1' : '0') . "/{$ddFires} err='$err' menu=$menuN/$menuCount clip='$clip' want='$payload' fps=$fps1/$fpsVis/$fps2/$fpsOff/$fpsAgain sheet=$sheetOpened/" . ($sheetDuring ? '1' : '0') . "/" . ($sheetClosed ? '1' : '0') . " wv=" . json_encode($probe) . " inf=" . var_export([$infZ, $infG, $infBad], true) . " watch=$watchId/$watchHits http=" . ($schemeRejected ? '1' : '0') . "/$queued/$httpHits/" . json_encode($resp) . " item=" . strlen($itemText) . "/" . strlen($itemImage) . "/" . count($item['paths']) . ")\n";
     $app->close();
     exit($ok ? 0 : 1);
 }
@@ -307,6 +334,32 @@ function runCaps(): void
         }
         printf("%-8s %s\n", $name, $have === [] ? '-' : implode(', ', $have));
     }
+    exit(0);
+}
+
+/**
+ * --clip：把剪贴板一项的三种表示打成一行（text=/image=/paths=，-1 表示没有）。
+ *
+ * 存在的理由：自检里"写文本再读回"只能证明文本通道通 + flags 判别对，图像与文件两条
+ * 通道要有**真数据**才验得到。开发机上用 osascript 把一张 PNG 放上粘贴板、再跑这条，
+ * 就看到 image=<字节数> ——不联网、不用人眼看窗口。见 docs/guide/system-capabilities.md
+ * 的验收清单。
+ */
+function runClip(): void
+{
+    $app = new App();
+    $app->create();
+    $app->createWindow('Clip', 200, 120);
+    $app->render(El::text('clip'));
+    $app->loop(1);
+    $item = $app->clipboardItem();
+    printf(
+        "text=%d image=%d paths=%d\n",
+        $item['text'] === null ? -1 : strlen($item['text']),
+        $item['image'] === null ? -1 : strlen($item['image']),
+        count($item['paths'])
+    );
+    $app->close();
     exit(0);
 }
 

@@ -49,6 +49,12 @@ namespace TypePHP\Gpui {
         /** @var string|null 模拟系统粘贴板（null = 空剪贴板） */
         public static ?string $clipboard = null;
 
+        /** @var string|null 模拟粘贴板上的图像流字节（编码后的 PNG/TIFF） */
+        public static ?string $clipboardImage = null;
+
+        /** @var array<int,string> 模拟粘贴板上的文件绝对路径 */
+        public static array $clipboardPaths = [];
+
         /** @var string|null 下一次 prompt_for_path 的答案（null = 用户取消） */
         public static ?string $nextPromptPath = null;
 
@@ -93,6 +99,8 @@ namespace TypePHP\Gpui {
             self::$dialogCount = 0;
             self::$appMenuCount = 0;
             self::$clipboard = null;
+            self::$clipboardImage = null;
+            self::$clipboardPaths = [];
             self::$nextPromptPath = null;
             self::$promptRequests = [];
             self::$openedUrls = [];
@@ -368,6 +376,17 @@ namespace {
     function gpui_set_clipboard_text(mixed $window, string $text): void
     {
         FakeBridge::$clipboard = $text;
+    }
+
+    function gpui_clipboard_item(mixed $window): array
+    {
+        // 文本与 clipboardText() 共用同一份状态：真实现里它们本来就是同一个快照。
+        $text = FakeBridge::$clipboard ?? '';
+        $image = FakeBridge::$clipboardImage ?? '';
+        $paths = FakeBridge::$clipboardPaths;
+        $flags = ($text !== '' ? 1 : 0) | ($image !== '' ? 2 : 0) | ($paths !== [] ? 4 : 0);
+
+        return ['flags' => $flags, 'text' => $text, 'image' => $image, 'paths' => $paths];
     }
 
     function gpui_prompt_for_path(mixed $window, bool $directories, string $title): string

@@ -135,6 +135,20 @@ int  gpui_shim_app_menu_count(void* win);
 int  gpui_shim_clipboard_get_text(void* win, char* out, int outlen);
 void gpui_shim_clipboard_set_text(void* win, const char* text);
 
+/* 剪贴板完整一项（gpui 一次快照给全它能读到的所有表示）。返回位标志：
+ *   1 = 有文本，2 = 有图片，4 = 有文件路径；0 = 空剪贴板/读不到。
+ * outTextLen / outImgLen / outPathsLen 总是写**真实**字节数（与 cap 无关），所以调用方
+ * 一次读取就知道有没有被截断、要重试多大——不必为了探长度反复读粘贴板（那之间内容可能
+ * 已经变了）。缓冲允许传 NULL；cap 给 0 即只报长度。
+ * 图片是**已编码的图像流**（mac 上先取 PNG、没有再取 TIFF，所以一张截图拿到的是 TIFF
+ * 字节），不是 RGBA——要位图请在 PHP 侧交给 GD/Imagick。路径是换行分隔的绝对路径。
+ *
+ * 文件路径那一半在 mac 上是我们自己读的：gpui 只有 Windows 填 externalPaths
+ * （window_win.cpp:1636），mac/linux 的 ClipboardGetItem 只给 text+image。 */
+int gpui_shim_clipboard_item(void* win, char* outText, int textCap, int* outTextLen,
+                             char* outImg, int imgCap, int* outImgLen,
+                             char* outPaths, int pathsCap, int* outPathsLen);
+
 /* 原生文件/目录选择对话框。directories!=0 选目录，title 可为空串。
  * ⚠ PromptForPathTemp 自带嵌套消息循环、跑到用户选完为止，所以只能在事件回调
  * 里调，绝不能在 render 期间调：那时 PHP 正阻塞在本次调用内、gpui_shim_pump 没有

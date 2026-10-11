@@ -106,6 +106,10 @@ function gpui_clipboard_text(mixed $window): string {}
 /** 写系统粘贴板文本。 */
 function gpui_set_clipboard_text(mixed $window, string $text): void {}
 
+/** 读剪贴板完整一项：['flags'=>int,'text'=>string,'image'=>string,'paths'=>array]。
+ *  flags 1=文本 2=图片 4=文件路径；image 是编码后的图像流（PNG/TIFF），不是 RGBA。 */
+function gpui_clipboard_item(mixed $window): array {}
+
 /**
  * 原生文件/目录选择对话框，返回选中路径；取消或平台无对话框返回空串。
  * ⚠ 只能在事件回调里调：对话框自带嵌套消息循环，跑到用户选完为止。

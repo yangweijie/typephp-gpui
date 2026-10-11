@@ -24,6 +24,31 @@ function sysApp(): App
     return $app;
 }
 
+test('clipboardItem reads all representations from one snapshot', function (): void {
+    $app = sysApp();
+    expect($app->clipboardItem())->toBe(['text' => null, 'image' => null, 'paths' => []]);
+
+    $app->setClipboardText('一段文本');
+    expect($app->clipboardItem())->toBe(['text' => '一段文本', 'image' => null, 'paths' => []]);
+
+    // 图像流是二进制的：开头就有 \0，必须原样穿过边界。
+    $png = "\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR";
+    FakeBridge::$clipboardImage = $png;
+    FakeBridge::$clipboardPaths = ['/tmp/a.png', '/tmp/中文.txt'];
+    $all = $app->clipboardItem();
+    expect($all['text'])->toBe('一段文本')
+        ->and($all['image'])->toBe($png)
+        ->and($all['paths'])->toBe(['/tmp/a.png', '/tmp/中文.txt']);
+});
+
+test('an image-only clipboard yields no text and no paths', function (): void {
+    FakeBridge::$clipboardImage = "\x00\x01\x02";
+    $item = sysApp()->clipboardItem();
+
+    expect($item['text'])->toBeNull()->and($item['paths'])->toBe([])
+        ->and($item['image'])->toBe("\x00\x01\x02");
+});
+
 test('clipboard round-trips text', function (): void {
     $app = sysApp();
     $app->setClipboardText('复制我');

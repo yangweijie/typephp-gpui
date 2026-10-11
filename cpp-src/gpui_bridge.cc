@@ -627,6 +627,48 @@ void php_gpui_set_clipboard_text(Variant boxVar, String text) {
     if (win) gpui_shim_clipboard_set_text(win, t.c_str());
 }
 
+// ['flags'=>int,'text'=>string,'image'=>string,'paths'=>array]
+// flags：1=有文本 2=有图片 4=有文件路径。
+//
+// 读取次数：没有图片时一次搞定（文本/路径给 64 KiB 的宽松缓冲，只探图片长度）。
+// 有图片或被截断时必须再来一趟——而那一趟是**整笔重取**（文本/路径一起按真实长度重读），
+// 不是只补图片：混用两个快照会给出"上一份的文本 + 这一份的图"。
+Array php_gpui_clipboard_item(Variant boxVar) {
+    void* win = winOf(boxVar);
+    Array out;
+    if (!win) return out;
+    constexpr int kWide = 65536;
+    std::vector<char> text(kWide), paths(kWide), image(1, '\0');
+    int tLen = 0, iLen = 0, pLen = 0;
+    int flags = gpui_shim_clipboard_item(win, text.data(), kWide, &tLen, nullptr, 0,
+                                         &iLen, paths.data(), kWide, &pLen);
+    if (iLen > 0 || tLen >= kWide || pLen >= kWide) {
+        int capT = tLen > 0 ? tLen : 1;
+        int capP = pLen > 0 ? pLen : 1;
+        text.resize(capT);
+        paths.resize(capP);
+        image.resize(iLen > 0 ? iLen : 1);
+        flags = gpui_shim_clipboard_item(win, text.data(), capT, &tLen,
+                                         image.data(), iLen, &iLen, paths.data(),
+                                         capP, &pLen);
+    }
+    out.set("flags", Variant(flags));
+    out.set("text", Variant(String(text.data(), (size_t)(tLen > 0 ? tLen : 0))));
+    out.set("image", Variant(String(image.data(), (size_t)(iLen > 0 ? iLen : 0))));
+    // 换行分隔 → 数组；空段不算一条路径。
+    Array list;
+    std::string joined(paths.data(), pLen > 0 ? (size_t)pLen : 0);
+    size_t at = 0;
+    while (at < joined.size()) {
+        size_t nl = joined.find('\n', at);
+        if (nl == std::string::npos) nl = joined.size();
+        if (nl > at) list.append(Variant(String(joined.data() + at, nl - at)));
+        at = nl + 1;
+    }
+    out.set("paths", Variant(list));
+    return out;
+}
+
 // ⚠ 自带嵌套消息循环：只能在事件回调里调，render 期间调用会重入平台模态循环。
 String php_gpui_prompt_for_path(Variant boxVar, Bool directories, String title) {
     void* win = winOf(boxVar);
