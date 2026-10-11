@@ -241,3 +241,18 @@ shotdiff OK 17 树 · doctor 7 marker ✓。
 D 取消（证据见 findings.md）。剩下的是 剪贴板图片、SysRefresh、FsRun/Process/Storage
 （要先解 Capabilities 授权根）、应用内通知中心、以及 mac 系统集成（托盘/快捷键/通知/Dock，
 自写 .mm）。
+
+## 剪贴板完整一项（三通道）（2026-10-11）
+
+`gpui_shim_clipboard_item` 一次快照读 text/image/paths，flags 位标志 + 三个显式长度出参；
+mac 的**文件路径由我们自己读** `NSPasteboardTypeFileURL`（gpui 只有 Windows 填这个）。
+图像是编码流（PNG→TIFF），所以新加 `copyBounded` 走二进制安全通道，bridge 采"无图一趟、
+有图整笔重取"以避免混用两个快照。PHP：`App::clipboardItem(): {text,image,paths}`。
+
+**验收**：selftest 15 → **16 步**（第 16 步验文本通道 + flags 判别）；shim_test 加
+`testCopyBounded()`（dry run / 截断仍报真实长度 / 含 NUL / 负数与空指针）；Pest +2 例
+（三表示并存、纯图像粘贴板）。**另加 `hello --clip`** 把"能改粘贴板的东西"变成测试装置，
+并用 AppKit `writeObjects:` 真数据实测四种组合，结果记进文档表格。
+
+**门禁全绿**：Pest 48/204 · PHPStan 0 · shim_test OK（7 组）· selftest 16 链路 ·
+shotdiff OK 17 树 · doctor 7 marker。

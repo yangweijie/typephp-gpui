@@ -8,7 +8,7 @@
 | 1 | Pest | `composer test` | PHP 声明层：Element 序列化、App 路由、FakeBridge | 否 |
 | 2 | PHPStan | `composer analyse` | `src/` 类型/静态（level 5） | 否 |
 | 3 | C++ shim_test | `composer test:cpp` | shim 纯函数：kindFromString / AStr arena 拷贝 / toComponentArg schema / buildComponentArgs | 是（gpui.o） |
-| 4 | selftest | `php bin/gpui selftest hello` | 15 链路端到端：输入取值 / 点击 / 定时器 / dialog / catalog 回调 / 错误回传 / app 菜单 / 剪贴板 / url 白名单 / HUD / Sheet / WebView / 解压 / dirChange / http | 是（二进制） |
+| 4 | selftest | `php bin/gpui selftest hello` | 16 链路端到端：输入取值 / 点击 / 定时器 / dialog / catalog 回调 / 错误回传 / app 菜单 / 剪贴板 / url 白名单 / HUD / Sheet / WebView / 解压 / dirChange / http / 剪贴板完整一项 | 是（二进制） |
 | 5 | shotdiff | `php bin/gpui shotdiff check hello` | 视觉回归：逐树像素比对基线（17 棵） | 是（二进制） |
 | 6 | doctor | `php bin/gpui doctor` | 工具链 + 7 补丁 marker 校验 | 部分 |
 
@@ -31,7 +31,7 @@ headless、不开窗口，故任意环境可跑。`cmd/test-shim.sh` 两步编�
 
 ## selftest（原生二进制）
 
-`hello --selftest` 跑真实编译产物，验证跨边界事件链。退出码 0 = 通过。十五步：
+`hello --selftest` 跑真实编译产物，验证跨边界事件链。退出码 0 = 通过。十六步：
 1. 输入取值回环（setInput → InputSetValue → InputValue）
 2. 点击事件全链路（合成 fire → gpuiEnqueueClick → boxForView → 队列 → poll → dispatch）
 3. 定时器 tick
@@ -63,6 +63,26 @@ headless、不开窗口，故任意环境可跑。`cmd/test-shim.sh` 两步编�
 
 第 15 步是**故意只验失败路径**的：无人值守的门禁不该有外网副作用，也不该有超时抖动。
 成功路径靠 `HttpUrlIsRemote` 的判据表（C++ 侧）+ 需要时人跑一次。
+
+16. 剪贴板完整一项（`clipboardItem`）：写过文本之后同一快照里应当只有文本——图像与文件
+    必须报"没有"。这验的是 flags 判别，不依赖粘贴板里恰好有什么。
+
+## `--clip`：把"能改粘贴板的东西"变成测试装置
+
+图像与文件两条通道要有**真数据**才验得到，而自检不能依赖粘贴板里恰好有什么。
+`hello --clip` 因此存在：开一个窗口、读一次粘贴板、打成一行 `text=/image=/paths=`
+（`-1` = 该表示没有）。于是：
+
+```
+printf 'hello clip text\n' | pbcopy && hello --clip   →  text=16 image=-1 paths=0
+（⌘⇧⌃3 截一张图）           && hello --clip   →  text=-1 image=<字节数> paths=0
+（Finder 里复制文件）        && hello --clip   →  text=-1 image=-1 paths=1
+```
+
+本轮用 AppKit `writeObjects:` 脚本化写入验过全部四种组合（含文本+PNG 同时存在的一例），
+结果记在[系统能力](/guide/system-capabilities#剪贴板三通道是这么验的)那张表里。
+**别用 AppleScript 的 `set the clipboard to {POSIX file ...}` 验文件通道**——它写的是
+alias list，不是 `public.file-url`，读回来永远是 `paths=0`，看着像代码坏了。
 
 `promptForPath` **不在自检里**：原生对话框自带嵌套消息循环，一直等用户选完，无人值守会挂死。
 它的手工路径在交互 demo 里（`Open…` 按钮，从点击回调中调用），见

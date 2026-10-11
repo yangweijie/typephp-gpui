@@ -14,6 +14,7 @@
 | PHP API | 原生实现 | 验收 |
 | --- | --- | --- |
 | `$app->clipboardText(): ?string`<br>`$app->setClipboardText(string)` | `gpui::ClipboardGetText/SetText`（`window_mac.cpp:2005/2044`） | wrap + route（selftest #8，写系统粘贴板再读回） |
+| `$app->clipboardItem(): array`<br>`['text'=>?string,'image'=>?string,'paths'=>string[]]` | `gpui::ClipboardGetItem` + mac 侧自读的 `NSPasteboardTypeFileURL` | route（#16 文本通道 + flags 判别）+ **真数据实测**（见下） |
 | `$app->promptForPath(bool $dirs, string $title): ?string` | `gpui::PromptForPathTemp` | **manual**（见下方硬约束） |
 | `$app->openUrl(string): bool` | `gpui::OpenUrl` + `gpui::IsOpenableUrl` | wrap + native（20 条 URL 表）+ route 的**拒绝侧** |
 | `$app->toggleInspector()` | `gpui::WindowToggleInspector` | pixel（tree29）——**这是拾取模式，不是面板** |
@@ -32,6 +33,39 @@
 `openUrl` 用的是 gpui 自己那条白名单（`capability.cpp:5`）：只放行 `http`/`https`，authority
 里不许有控制字符、DEL、反斜杠，host 非空，端口必须是 ≤65535 的十进制。`Link.href` 和
 TextView 的链接处理走的是同一条规则，PHP 不另开一套。
+
+## 剪贴板三通道是这么验的
+
+自检里"写文本再读回"只能证明文本通道通、以及 flags 判别对——图像与文件要有**真数据**
+才验得到。`hello --clip` 打开一个窗口、读一次粘贴板、打成一行 `text=/image=/paths=`
+（`-1` 表示该表示没有），于是任何能改粘贴板的手段都成了测试装置：
+
+```
+printf 'hello clip text\n' | pbcopy && hello --clip   →  text=16 image=-1 paths=0
+（⌘⇧⌃3 截一张图）           && hello --clip   →  text=-1 image=<TIFF 字节数> paths=0
+（Finder 里复制一个文件）    && hello --clip   →  text=-1 image=-1 paths=1
+```
+
+本轮实测记录（2026-10-11，用 AppKit `writeObjects:` 脚本化写入，比手工截屏更可重复）：
+
+| 粘贴板内容 | `--clip` 输出 |
+|---|---|
+| 16 字节文本 | `text=16 image=-1 paths=0` |
+| 一张 25110 字节 PNG | `text=-1 image=25110 paths=0` |
+| 两个 `public.file-url` | `text=-1 image=-1 paths=2` |
+| 文本 + PNG 同时 | `text=10 image=25110 paths=0` |
+
+两点值得注意，都是实测出来的：
+
+- **图像是编码流，不是 RGBA。** mac 上 `ClipboardGetItem` 先取 `NSPasteboardTypePNG`、
+  没有再退 `NSPasteboardTypeTIFF`（`window_mac.cpp:2074`），所以从截图软件粘过来的常常是
+  TIFF 字节。要位图自己交给 GD/Imagick 解。
+- **文件路径那一半是我们自己读的。** gpui 只在 Windows 上填 `externalPaths`
+  （`window_win.cpp:1636` 的 `CF_HDROP`），mac/linux 的实现只给 text+image。所以 mac 上
+  shim 直接读 `NSPasteboardTypeFileURL`，输出成与 Windows 同形状的"换行分隔绝对路径"。
+  顺带一个坑：用 AppleScript `set the clipboard to {POSIX file ...}` **验不出这条**——它写的是
+  alias list（`dyn.ah62...` / `'list'` flavor），不是 `public.file-url`；要用
+  `writeObjects:` 或直接从 Finder 复制才是真场景。
 
 ## 三条硬约束
 
@@ -52,7 +86,6 @@ TextView 的链接处理走的是同一条规则，PHP 不另开一套。
 
 | 能力 | 符号 | 卡在哪 |
 | --- | --- | --- |
-| 剪贴板图片/文件 | `gpui::ClipboardGetItem`（含 `image`、`externalPaths`） | 只差跨边界的二进制缓冲 |
 | 系统信息 | `SysStateInit` / `SysRefresh`（cpu/mem/disk/battery/processes） | 无 |
 | 压缩 | `shell::ZlibDeflate` | **不做**：它写的是 stored 块（`DeflateStored`），只加 zlib/gzip 外壳、不压缩。要压缩请自己实现或在 PHP 侧生成。解压侧已经接了（`App::inflate`），它既读得懂 gpui 自己写的容器，也读得懂真 deflate |
 | 哈希 / 随机 | `shell::Sha256` / `SecureRandom` | **不做**：产物里 `hash()`、`hash_hmac()`、`random_bytes()`、`random_int()` 都在，桥过来是净负价值 |

@@ -386,3 +386,33 @@ fs(file_get_contents/scandir/touch) ✓ · inotify ✗。
 声明一个 `Box2::WatchCtx`，之后匿名 namespace 里的真定义就"引用二义"。前向声明要写在
 `class Box2` 之前。另一个：Pest 的 error handler 不吃 `@`，所以替身里 `@gzuncompress(坏数据)`
 仍会变成测试告警——改成先判容器头再解。
+
+## 剪贴板三通道：一处被继承的错前提 + 一处测试装置的坑（2026-10-11）
+
+**gpui 的 `ClipboardItem` 只有 text/image/paths 三个扁平字段**（`.work/gpui.h:3850`），
+一次快照给全它能读到的所有表示。但**文件路径只有 Windows 填**：`window_win.cpp:1636` 读
+`CF_HDROP`，而 `window_mac.cpp:2066` 的 `ClipboardGetItem` 只取 text + `NSPasteboardTypePNG`
+→退 `NSPasteboardTypeTIFF`，Linux 同理。⇒ 上一轮把"剪贴板含 externalPaths"当成 gpui
+跨平台能力是错的，mac 上桥过去会永远拿到空。
+
+**做法**：shim 里 `#ifdef __APPLE__` 自己读 `NSPasteboardTypeFileURL`
+（`readObjectsForClasses:@[[NSURL class]] options:FileURLsOnly`），输出成与 Windows 同形状的
+"换行分隔绝对路径"，PHP 侧不必分平台。这不是上游补丁，是我们自己的 shim 代码——shim 本来就
+以 `-x objective-c++ -fobjc-arc` 编译且已链 Cocoa，所以零新依赖。
+
+**图像是编码流不是 RGBA**（PNG 或 TIFF，取决于来源），所以跨边界要二进制安全：
+新加 `copyBounded`（写 min(need,cap)，**总是返回 need**，不加终止符），ABI 用
+`outTextLen/outImgLen/outPathsLen` 三个显式长度出参，让 bridge **一次读取**就知道有没有
+被截断——否则要么反复读粘贴板（两次读之间内容可能已变），要么混用两个快照的字段
+（"上一份的文本 + 这一份的图"）。bridge 的策略因此是：无图时一趟搞定；有图时**整笔**重取。
+
+**测试装置的坑**：用 AppleScript `set the clipboard to {POSIX file "/a", POSIX file "/b"}`
+验文件通道会得到 `paths=0`，看着像代码坏了。实测 `clipboard info` 显示那是
+`dyn.ah62d4rv4gk8024pxsu` / `'list'` flavor，**不是** `public.file-url`。改用
+`[pb writeObjects:@[NSURL...]]` 才写出 Finder 复制文件时的真实类型（`public.file-url` +
+`NSFilenamesPboardType`），此时 `--clip` 报 `paths=2`。⇒ 验粘贴板要以"目标 App 实际写入的
+UTI"为准，不能以"看起来像的脚本"为准。
+
+**四种组合的真数据实测记录**（`hello --clip`）：文本 16B → `text=16 image=-1 paths=0`；
+PNG 25110B → `text=-1 image=25110 paths=0`；两个 file-url → `paths=2`；
+文本+PNG 同时 → `text=10 image=25110`。
