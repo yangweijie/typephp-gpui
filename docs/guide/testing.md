@@ -10,7 +10,8 @@
 | 3 | C++ shim_test | `composer test:cpp` | shim 纯函数：kindFromString / AStr arena 拷贝 / toComponentArg schema / buildComponentArgs | 是（gpui.o） |
 | 4 | selftest | `php bin/gpui selftest hello` | 21 链路端到端：输入取值 / 点击 / 定时器 / dialog / catalog 回调 / 错误回传 / app 菜单 / 剪贴板 / url 白名单 / HUD / Sheet / WebView / 解压 / dirChange / http / 剪贴板完整一项 / 系统状态 / 通知中心 / mac 集成 / 授权文件系统 / 进程与存储 | 是（二进制） |
 | 5 | shotdiff | `php bin/gpui shotdiff check hello` | 视觉回归：逐树像素比对基线（18 棵） | 是（二进制） |
-| 6 | doctor | `php bin/gpui doctor` | 工具链 + 7 补丁 marker 校验 | 部分 |
+| 6 | doctor | `php bin/gpui doctor` | 工具链 + 全部补丁 marker 校验（清单见 `GPUI.lock`） | 部分 |
+| 7 | C++17 可解析性 | `bash cmd/check-cxx17.sh` | 第 8 个补丁的门禁：`gpui.h` 在 `-std=c++17` 与 `-std=c++20` 下都要能解析，且 `EmitsEvent` 降级后判据**双向**正确（有特化为真、无特化为假） | 是（头文件） |
 
 一键：`composer test:all`（Pest + PHPStan + shim_test）。
 
@@ -141,7 +142,7 @@ tree 32（通知层）**必须跑够墙钟才拍得到**：通知入场是动画
 | --- | --- | --- | --- |
 | `php` | `php -l` 全源 + Pest + PHPStan | ubuntu-24.04 / PHP 8.5 | ~14s |
 | `docs` | `npm ci` + `vitepress build`（顺带是死链门禁）+ 产物页数与 `base` 断言 | ubuntu-24.04 / Node 24 | ~12s |
-| `native` | `bin/gpui build hello`（同步沙箱→7 补丁→amalgam→shim 库→tpc nano）+ `cmd/test-shim.sh` + `hello --selftest` | **macos-15** | ~3m27s |
+| `native` | `bin/gpui build hello`（同步沙箱→全部补丁→amalgam→shim 库→tpc nano）+ `cmd/check-cxx17.sh` + `cmd/test-shim.sh` + `hello --selftest` | **macos-15** | ~3m27s |
 | `deploy` | 把 `docs` 的产物发到 GitHub Pages（只在 main 的 push） | ubuntu-24.04 | ~45s |
 
 **门禁 3/4 现在真的进 CI 了**——前提是 gpui-kit-cpp 已 vendored 进本仓库

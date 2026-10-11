@@ -38,7 +38,7 @@
             "@php vendor/bin/phpstan analyse --no-progress",
             "@bash cmd/test-shim.sh"
         ],
-        "patch": "@bash cmd/patch-nano.sh && @bash cmd/patch-view.sh && @bash cmd/patch-retained.sh && @bash cmd/patch-focus.sh && @bash cmd/patch-registered-cb.sh && @bash cmd/patch-dispatch-cb.sh && @bash cmd/patch-nested-view.sh",
+        "patch": "@bash cmd/patch-nano.sh && @bash cmd/patch-view.sh && @bash cmd/patch-retained.sh && @bash cmd/patch-focus.sh && @bash cmd/patch-registered-cb.sh && @bash cmd/patch-dispatch-cb.sh && @bash cmd/patch-nested-view.sh && bash cmd/patch-concepts.sh",
         "bootstrap": "@php bin/gpui build",
         "build": "@php bin/gpui build",
         "run": "@php bin/gpui run",

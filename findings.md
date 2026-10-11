@@ -732,3 +732,48 @@ CI 的 ubuntu runner 会用 lock 里那个绝对 URL 下载。三个包在真 pa
 gpui.h 里 ObjC/AppKit 只出现在**注释**（`NSWindow` 1 处命中在 46115 行是文字说明），
 所以"bridge 需要 `-x objective-c++`"并不是防火墙存在的理由；真正的理由就是上面那三条
 语言约束。别把这条当成反对 B 的论据。
+
+## 第 8 个补丁实测：gpui.h 降到 C++17 可解析（20 error → 0），但防火墙的理由要改写
+
+### 做了什么
+
+`cmd/patch-concepts.sh` 打在 `src/gpui/gpui.h` 上，7 处：
+1. `concept EmitsEvent = requires { sizeof(EventEmitter<T,E>); }` → 偏序特化 trait
+   `EmitsEventImpl<T,E, decltype(sizeof(EventEmitter<T,E>), void())>` + `inline constexpr bool EmitsEventV`。
+   判据不变：主模板只有声明 ⇒ 不完整类型 ⇒ `sizeof` 硬错误 ⇒ 替换失败退回 `false_type`。
+2. 5 个 `requires EmitsEvent<T,E> <Ret> fn(...)` → `typename std::enable_if<EmitsEventV<T,E>, Ret>::type fn(...)`。
+   用**正则**匹配而不是整串：上游这 5 处换行/缩进各不相同，整串匹配一改排版就静默失配。
+3. `Window::paint` 的 `PaintCtx paint = {};` → `PaintCtx paint;`。真凶在下一层：
+   `PaintCtx` 的成员 `Vec<HitRect> hits;`，而 `Vec` 的默认构造是 `explicit`（`base.h:576`）。
+   C++20 允许省略初始器时走 explicit 默认构造，C++17 判 "chosen constructor is explicit in
+   copy-initialization"。写成 default-init 后成员走**直接**初始化，同一条构造、同样的初值。
+
+### 实测数字
+
+| 阶段 | 一个只 `#include "gpui.h"` 的 TU，`-std=c++17` |
+| --- | --- |
+| 补丁前 | **20 error** |
+| 只降 concept+requires（6 处） | **1 error**（`gpui.h:6480` 的 explicit copy-init） |
+| 再降 PaintCtx（7 处） | **0 error** |
+
+门禁 `cmd/check-cxx17.sh`：同一份探针在 **c++17 与 c++20 下都要过**（`-Werror`），
+且 `EmitsEventV` 断言**正反两个方向**（有特化为真、无特化为假）+ 5 个 `enable_if` 站点
+取地址能实例化。只验"有特化为真"的话，把判据写成恒真也照样绿——这就是那种能骗过自己的测试。
+
+### 两个必须说清的保留意见
+
+1. **0 error 不等于严格符合 C++17**。头里有 **87 处**位域默认成员初始化
+   （`uint32_t hasBg : 1 = false;`），clang 报 `-Wc++20-extensions` 后放行。所以"bridge
+   可以直接 include gpui.h"这句话只对 clang 成立，换编译器不成立。
+2. **防火墙不该拆，但理由变了**。它以前买的是"唯一可行的解法"；现在买的是：bridge TU
+   不必吞 54K 行头文件（否则改一行 PHP 就重编 amalgam 级的大单元）、我们自己的
+   ObjC/ARC 代码必须有独立 TU、C 契约让上游改动不至于直接打断桥接层。
+   顺带纠正我自己之前的一条错论据：gpui.h 里 `NSWindow` 只出现在注释，所以
+   "需要 `-x objective-c++`"**从来不是**防火墙存在的理由。
+
+### 副作用：补丁会随上游漂移，所以配了门禁
+
+补丁打在 vendored 头文件上，上游一刷新站点排版就可能变，perl/python 静默不匹配 →
+"打了补丁但其实什么都没做"。因此：脚本里任何一处没匹配到就**整体失败并回滚**，
+外加 `cmd/check-cxx17.sh` 进 CI 的 native job。marker `EmitsEventV` 也进了
+`GPUI.lock` 与 `patchManifest()`，doctor 现在校验 8 个补丁。

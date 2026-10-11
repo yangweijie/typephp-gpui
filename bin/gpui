@@ -63,6 +63,7 @@ function patchManifest(): array {
         ['patch-registered-cb.sh', "$gpui/src/shell/runtime.cpp",    'PushShimCallback'],
         ['patch-dispatch-cb.sh',   "$gpui/src/shell/runtime.cpp",    'typephp-gpui: shim route (DispatchArgs)'],
         ['patch-nested-view.sh',   "$gpui/src/shell/runtime.cpp",    'RegisterHostView'],
+        ['patch-concepts.sh',      "$gpui/src/gpui/gpui.h",          'EmitsEventV'],
     ];
 }
 
@@ -107,7 +108,7 @@ switch ($cmd) {
         if ($rc !== 0) { err('同步 upstream 失败'); exit($rc); }
 
         // 1) 补丁（幂等）——含 Stage D 的 registered-cb。
-        foreach (['patch-nano.sh', 'patch-view.sh', 'patch-retained.sh', 'patch-focus.sh', 'patch-registered-cb.sh', 'patch-dispatch-cb.sh', 'patch-nested-view.sh'] as $p) {
+        foreach (['patch-nano.sh', 'patch-view.sh', 'patch-retained.sh', 'patch-focus.sh', 'patch-registered-cb.sh', 'patch-dispatch-cb.sh', 'patch-nested-view.sh', 'patch-concepts.sh'] as $p) {
             $rc = run("bash $root/cmd/$p");
             if ($rc !== 0) { err("补丁失败：$p"); exit($rc); }
         }

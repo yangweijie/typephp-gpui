@@ -32,7 +32,7 @@ composer install
 export GPUI_DIR=/path/to/gpui-kit-cpp   # 可选；默认 build/gpui-kit-cpp（upstream/ 的沙箱）
 ```
 
-`bin/gpui doctor` 会检查源码是否就位、5 个补丁是否已落。
+`bin/gpui doctor` 会检查源码是否就位、每个补丁的 marker 是否已落（清单见 `GPUI.lock`）。
 
 ## 3. 一键构建
 
@@ -42,7 +42,7 @@ composer bootstrap        # 等价 bin/gpui build hello
 php bin/gpui build hello
 ```
 
-内部按序：打 5 个补丁 → `verifyPatches()` 校验 → `bun cmd/build.ts` 生成 amalgam →
+内部按序：同步沙箱 → 打全部补丁 → `verifyPatches()` 校验 → `bun cmd/build.ts` 生成 amalgam →
 `cmd/build-shim.sh` 编 C++20 静态库 → `tpc --nano` 编 PHP+C++17 bridge 并链接。
 产物：`examples/hello/build/hello`。
 

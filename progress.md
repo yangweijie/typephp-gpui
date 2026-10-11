@@ -505,3 +505,29 @@ sed 找不到文件。
 testing.md 里"原生链托管 runner 拉不到"那句已订正成四 job 的实测表。
 
 提交：`72a021c`（vendored + 沙箱）、`43695be`（native job）。
+
+## 第 8 个补丁：concept → SFINAE，gpui.h 在 C++17 下 20 error → 0（2026-10-11）
+
+用户选了"打第 8 个补丁"。`cmd/patch-concepts.sh` 打在 `src/gpui/gpui.h` 上共 7 处：
+1 个 `concept` → 偏序特化 trait（`EmitsEventV`）、5 个 `requires` → `enable_if`、
+1 个 `PaintCtx paint = {}` → default-init（真凶在下一层：成员 `Vec<HitRect> hits;` 而
+`Vec` 的默认构造是 `explicit`，`base.h:576`）。
+
+**分阶段实测**：补丁前 20 error → 只降 concept/requires 后还剩 1 → 全降完 **0 error**。
+新加门禁 `cmd/check-cxx17.sh`：同一份探针在 **c++17 与 c++20 下都要过**（`-Werror`），
+`EmitsEventV` **正反两向**断言 + 5 个 `enable_if` 站点取地址实例化。只验正向的话，
+判据被写成恒真也照样绿——这正是这轮反复踩的那类"绿得没有内容"。
+
+**两个诚实的保留意见**：① 0 error 里有 **87 处 clang 扩展**兜着（位域默认成员初始化，
+C++17 标准不收），所以"bridge 能直接 include gpui.h"只对 clang 成立；② 防火墙**不拆**，
+但它买的东西从"唯一可行"变成"编译增量 + ObjC/ARC 独立 TU + C 契约隔离"。architecture.md
+里那段理由已按实测改写，并明确标注我此前那条"需要 -x objective-c++"是错论据
+（gpui.h 里 NSWindow 只出现在注释）。
+
+**接线**：`patchManifest()` + 补丁列表 + `composer patch` + `GPUI.lock` marker 表 +
+doctor（现在 8 个 marker）+ CI native job 加 `check-cxx17.sh`。文档里写死的"5 个补丁 /
+7 个补丁"全部改成"清单以 GPUI.lock 为准"，数字不再漂。
+
+**全链复验**（清沙箱走正规流水线，不是手工打补丁）：8 补丁 → verifyPatches → amalgam →
+shim → tpc 出二进制；cxx17 OK · Pest 65/296 · PHPStan 0 · shim_test OK · selftest 21 链路
+（`mac=1 fs=1 svc=1`）· shotdiff 18 树 · doctor 8 marker。

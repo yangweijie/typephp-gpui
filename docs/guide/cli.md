@@ -10,7 +10,7 @@ composer <script>
 
 ## doctor
 
-检查工具链（bun / clang++ / tpc / php-nano / gpui-kit-cpp 源码）并逐 marker 校验 5 个补丁是否已落。
+检查工具链（bun / clang++ / tpc / php-nano / gpui-kit-cpp 源码）并**逐 marker 校验全部补丁**是否已落（清单以 `GPUI.lock` 为准，`bin/gpui` 里的 `patchManifest()` 与它一一对应）。
 
 ```bash
 php bin/gpui doctor        # 或 composer doctor
@@ -70,7 +70,7 @@ php bin/gpui new myapp
 | `composer test:cpp` | C++ shim_test |
 | `composer test:all` | Pest + PHPStan + shim_test |
 | `composer bootstrap` | `bin/gpui build`（全链） |
-| `composer patch` | 仅跑 5 个补丁（不打 amalgam） |
+| `composer patch` | 仅跑全部补丁（不打 amalgam） |
 | `composer shot:check` / `shot:record` | shotdiff |
 | `composer doctor` | `bin/gpui doctor` |
 

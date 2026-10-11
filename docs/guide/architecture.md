@@ -21,13 +21,28 @@ gpui.h 用了 C++20 的 `concept` / `requires`，而 TypePHP **nano 模式强制
 两者无法在同一编译单元共存。解法是按语言标准切三层，只经**纯 C ABI** 通信：
 
 | 单元 | 标准 | 能 include | 职责 |
-|------|------|-----------|------|
+| --- | --- | --- | --- |
 | `gpui_bridge.cc` | C++17 | phpx + `gpui_shim.h` | PHP 数组 ↔ C 调用翻译、事件 struct ↔ PHP 数组 |
 | `gpui_shim.cpp` | C++20 | `gpui.h` | App/Window/SpecArena/PhpView 生命周期、事件入队 |
 | `gpui_shim.h` | 纯 C | `<stdint.h>` | 跨边界契约：`GpuiArg` / `GpuiEvent` / `extern "C"` 函数 |
 
 `gpui::` / `php::` 类型**绝不出现在边界上**。窗口句柄以 opaque `void*` 往返，bridge 用
 `php::Box` 子类 `WindowBox` 包成 PHP mixed 资源。
+
+> **第 8 个补丁之后，这道墙的理由从"必须"变成"划算"。** `cmd/patch-concepts.sh` 把
+> gpui.h 里 7 处 C++20 构造降级成 C++17 等价写法（1 个 `concept` → 偏序特化 trait、
+> 5 个 `requires` → `enable_if`、1 个 `PaintCtx paint = {}` → default-init），实测
+> 一个只 `#include "gpui.h"` 的 TU 在 `-std=c++17` 下从 **20 个 error 变成 0**，
+> `bash cmd/check-cxx17.sh` 是这条的门禁（C++17 与 C++20 双向都要过，且 `EmitsEvent`
+> 判据正反都验，防止"降级"悄悄放宽了约束）。
+>
+> 两个保留意见，别把它读成"防火墙可以拆了"：
+> ① 那 0 error 里有 **87 处 clang 扩展**在兜着——头里是位域默认成员初始化
+> （`uint32_t wrap : 1 = false;`），C++17 标准并不接受，clang 只是警告后放行。
+> ② 墙现在买的是别的东西：bridge TU 不必吞 54K 行头文件（改一行 PHP 就重编一次的代价）、
+> 我们自己的 ObjC/ARC 代码（`gpui_mac.mm`、mac 粘贴板读文件路径）必须有独立 TU、
+> 以及那份 C 契约让上游改动不至于直接打断桥接层。拆墙省下的只是样板，赔进的是编译增量
+> 与隔离性。**所以墙留着，但它的存在从此是可测的，不是信条。**
 
 ## 构建产物链
 
