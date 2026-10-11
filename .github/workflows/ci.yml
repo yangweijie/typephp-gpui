@@ -148,6 +148,10 @@ jobs:
       - name: Build
         run: php bin/gpui build hello
 
+      # 第 8 个补丁的门禁：上游一刷新就可能静默失配（站点排版变了 → 补丁什么也没做）。
+      - name: C++17 parseability of gpui.h
+        run: bash cmd/check-cxx17.sh
+
       - name: C++ shim tests (headless)
         run: bash cmd/test-shim.sh
 
