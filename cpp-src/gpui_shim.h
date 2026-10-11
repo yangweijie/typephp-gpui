@@ -241,6 +241,44 @@ int gpui_shim_watch_fake(void* win, const char* php_id);
 int gpui_shim_inflate(const char* in, int inlen, int gzip, char* out, int outcap,
                       char* err, int errcap);
 
+/* 系统状态。一次采样的概览：cpu / memPct / diskPct 都是 0..100 的百分比
+ * （cpu 是全机跨核归一后的占用，不是"单核 0..100×n"）；字节数走 *Bytes 字段。
+ * disk 是**启动卷**（gpui 在 mac 上 statfs("/")）。
+ *
+ * ⚠ cpu 与每个进程的 cpu 都是**两次采样之间**的差值：第一次调用报 0，要真数字就
+ * 采两次（中间泵一下循环）或者用定时器周期采。
+ * 状态是**进程内一份**，不是每窗口一份：mac 的墙钟差本身就是文件静态量
+ * （sysinfo_mac.cpp:207 sPrevWall），多份交替采样只会互相污染读数。
+ *
+ * procs 给 NULL 就只填概览；给了缓冲则按 procsCap 填，*outProcCount 回实际写入条数
+ * （gpui 一次采样列出全机进程，几百条，所以要 top N 时靠 topProcs 让 gpui 自己排）。
+ * topProcs>0 时先按 CPU 降序排再截到前 N 条——截断不会污染下一次读数：下一次采样按
+ * pid 找前值（FindPrevCpu），而 prevProcs 是另一份完整数组。
+ * GpuiProcess.name 指向 gpui 自己的数组，**只活到下一次采样**，bridge 要当场拷走。 */
+typedef struct {
+    double cpu;
+    double memPct;
+    long long memTotalBytes;
+    long long memUsedBytes;
+    double diskPct;
+    long long diskTotalBytes;
+    long long diskUsedBytes;
+    int ncpu;
+    int batteryPresent;
+    int batteryCharging;
+    double batteryPct;
+} GpuiSysInfo;
+
+typedef struct {
+    int pid;
+    const char* name;
+    double cpu;
+    long long memoryBytes;
+} GpuiProcess;
+
+int gpui_shim_sys_refresh(GpuiSysInfo* out, GpuiProcess* procs, int procsCap,
+                          int topProcs, int* outProcCount);
+
 /* 渲染一帧 = 重放一遍扁平 spec 指令序列。begin 清空 arena。 */
 void gpui_shim_render_begin(void* win);
 /* 压入一个组件节点，返回其 spec id；kind 是字符串（div/text/button/...）。

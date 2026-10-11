@@ -165,3 +165,8 @@ function gpui_watch_fake(mixed $window, string $id): int {}
 
 /** 解 zlib/gzip：['ok'=>bool,'data'=>string,'error'=>string]。nano 里没有 gz* 函数。 */
 function gpui_inflate(string $data, bool $gzip): array {}
+
+/** 系统状态快照：['cpu','memPct','memTotal','memUsed','diskPct','diskTotal',
+ *  'diskUsed','ncpu','batteryPresent','batteryCharging','batteryPct','procs']。
+ *  cpu 是两次采样之间的差值，第一次报 0。$topProcs>0 才带进程列表。 */
+function gpui_sys_info(int $topProcs): array {}

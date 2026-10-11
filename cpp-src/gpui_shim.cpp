@@ -45,6 +45,11 @@ gpui::App* g_app = nullptr;
 gpui::ShellRuntime* g_runtime = nullptr;
 bool g_runtimeReady = false;
 
+// 系统状态：进程内一份。cpu 与每进程 cpu 都是两次采样的差值，而 mac 的墙钟差本身就是
+// 文件静态量（sysinfo_mac.cpp 的 sPrevWall），所以每窗口一份只会互相污染读数。
+// 随进程走：SysState 只含两个 Vec，且每次 SysRefresh 都先 VecReset，不增长。
+gpui::SysState* g_sys = nullptr;
+
 // 一个窗口的全部状态。对 bridge 是 opaque void*。
 struct WebViewView;  // 定义在 PhpView 之后；Box2 只存它的指针。
 struct WatchCtx;     // 同上：目录监听的一条 watch 上下文。
@@ -1344,6 +1349,45 @@ int gpui_shim_inflate(const char* in, int inlen, int gzip, char* out, int outcap
     if (output.s) gpui::StrFree(output);
     if (message.s) gpui::StrFree(message);
     return n;
+}
+
+int gpui_shim_sys_refresh(GpuiSysInfo* out, GpuiProcess* procs, int procsCap,
+                          int topProcs, int* outProcCount) {
+    if (outProcCount) *outProcCount = 0;
+    if (!out) return 0;
+    if (!g_sys) {
+        g_sys = new gpui::SysState();
+        gpui::SysStateInit(g_sys);
+    }
+    gpui::SysRefresh(g_sys);
+    if (topProcs > 0 && procs && procsCap > 0) {
+        // 排序截断在 gpui 侧做：它一次采样就列出全机几百个进程，让 PHP 挑前 N 条
+        // 意味着先把几百条搬过边界。
+        gpui::SysSortProcesses(g_sys, gpui::ProcessSort::Cpu, true, topProcs);
+    }
+    out->cpu = g_sys->cpu;
+    out->memPct = g_sys->mem;
+    out->memTotalBytes = static_cast<long long>(g_sys->memTotal);
+    out->memUsedBytes = static_cast<long long>(g_sys->memUsed);
+    out->diskPct = g_sys->disk.usedPct;
+    out->diskTotalBytes = static_cast<long long>(g_sys->disk.total);
+    out->diskUsedBytes = static_cast<long long>(g_sys->disk.used);
+    out->ncpu = g_sys->ncpu;
+    out->batteryPresent = g_sys->battery.present ? 1 : 0;
+    out->batteryCharging = g_sys->battery.charging ? 1 : 0;
+    out->batteryPct = g_sys->battery.pct;
+    if (procs && procsCap > 0) {
+        int n = g_sys->procs.len < procsCap ? g_sys->procs.len : procsCap;
+        for (int i = 0; i < n; i++) {
+            const gpui::ProcessInfo& p = g_sys->procs.els[i];
+            procs[i].pid = static_cast<int>(p.pid);
+            procs[i].name = p.name;  // StrCopyZ 过，NUL 结尾；只活到下一次采样
+            procs[i].cpu = p.cpu;
+            procs[i].memoryBytes = static_cast<long long>(p.memory);
+        }
+        if (outProcCount) *outProcCount = n;
+    }
+    return 1;
 }
 
 int gpui_shim_webview_nav(void* win, const char* id, int dir) {

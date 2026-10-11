@@ -49,6 +49,51 @@ test('an image-only clipboard yields no text and no paths', function (): void {
         ->and($item['image'])->toBe("\x00\x01\x02");
 });
 
+test('sysInfo returns the whole overview and no processes by default', function (): void {
+    $info = App::sysInfo();
+
+    expect(array_keys($info))->toBe([
+        'cpu', 'memPct', 'memTotal', 'memUsed', 'diskPct', 'diskTotal', 'diskUsed',
+        'ncpu', 'batteryPresent', 'batteryCharging', 'batteryPct', 'procs',
+    ])->and($info['procs'])->toBe([]);
+});
+
+test('sysInfo disk numbers are self-consistent and anchored on the real volume', function (): void {
+    $info = App::sysInfo();
+
+    // 替身的 disk 走 PHP 的 disk_total_space/disk_free_space，与 gpui 的 statfs("/")
+    // 同一个算法，所以这条在两侧都成立：used = total - free，pct = used/total。
+    expect($info['diskTotal'])->toBeGreaterThan(0)
+        ->and($info['diskUsed'])->toBeGreaterThan(0)
+        ->and($info['diskUsed'])->toBeLessThan($info['diskTotal'])
+        ->and(abs($info['diskPct'] - $info['diskUsed'] * 100 / $info['diskTotal']))
+        ->toBeLessThan(0.001);
+});
+
+test('sysInfo honours scripted values and the topProcs cap', function (): void {
+    FakeBridge::$sysInfo = [
+        'cpu' => 42.5,
+        'ncpu' => 10,
+        'batteryPresent' => true,
+        'batteryCharging' => true,
+        'batteryPct' => 87.0,
+        'procs' => [
+            ['pid' => 1, 'name' => 'launchd', 'cpu' => 1.0, 'memory' => 4096],
+            ['pid' => 2, 'name' => 'kernel', 'cpu' => 2.0, 'memory' => 0],
+            ['pid' => 3, 'name' => 'x', 'cpu' => 3.0, 'memory' => 0],
+        ],
+    ];
+
+    $info = App::sysInfo(2);
+    expect($info['cpu'])->toBe(42.5)
+        ->and($info['ncpu'])->toBe(10)
+        ->and($info['batteryPresent'])->toBeTrue()
+        ->and($info['batteryCharging'])->toBeTrue()
+        ->and($info['batteryPct'])->toBe(87.0)
+        ->and($info['procs'])->toHaveCount(2)
+        ->and($info['procs'][0]['name'])->toBe('launchd');
+});
+
 test('clipboard round-trips text', function (): void {
     $app = sysApp();
     $app->setClipboardText('复制我');

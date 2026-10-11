@@ -603,6 +603,47 @@ Array php_gpui_inflate(String data, Bool gzip) {
     return out;
 }
 
+// 系统状态快照。topProcs>0 时才带进程列表（gpui 一次采样列出全机几百个进程，
+// 全搬过边界没有意义，所以 top N 交给 gpui 自己排）。上限 256 条。
+// 无窗口参数：这是机器级的读数，而且采样状态在 shim 里是进程内一份。
+Array php_gpui_sys_info(Int topProcs) {
+    Array out;
+    int top = (int)topProcs;
+    if (top < 0) top = 0;
+    if (top > 256) top = 256;
+    GpuiSysInfo si{};
+    std::vector<GpuiProcess> procs;
+    if (top > 0) procs.assign(static_cast<size_t>(top), GpuiProcess{});
+    int n = 0;
+    if (!gpui_shim_sys_refresh(&si, procs.empty() ? nullptr : procs.data(),
+                               (int)procs.size(), top, &n)) {
+        return out;
+    }
+    out.set("cpu", Variant(si.cpu));
+    out.set("memPct", Variant(si.memPct));
+    out.set("memTotal", Variant((long long)si.memTotalBytes));
+    out.set("memUsed", Variant((long long)si.memUsedBytes));
+    out.set("diskPct", Variant(si.diskPct));
+    out.set("diskTotal", Variant((long long)si.diskTotalBytes));
+    out.set("diskUsed", Variant((long long)si.diskUsedBytes));
+    out.set("ncpu", Variant(si.ncpu));
+    out.set("batteryPresent", Variant(si.batteryPresent != 0));
+    out.set("batteryCharging", Variant(si.batteryCharging != 0));
+    out.set("batteryPct", Variant(si.batteryPct));
+    Array list;
+    for (int i = 0; i < n; i++) {
+        Array p;
+        p.set("pid", Variant(procs[i].pid));
+        // name 指向 gpui 自己的数组，只活到下一次采样：这里立刻拷成 PHP 字符串。
+        p.set("name", Variant(String(procs[i].name ? procs[i].name : "")));
+        p.set("cpu", Variant(procs[i].cpu));
+        p.set("memory", Variant((long long)procs[i].memoryBytes));
+        list.append(Variant(p));
+    }
+    out.set("procs", Variant(list));
+    return out;
+}
+
 void php_gpui_set_theme(Variant boxVar, String mode) {
     void* win = winOf(boxVar);
     std::string m(mode.data(), mode.length());

@@ -438,6 +438,27 @@ final class App
         return (string) ($raw['data'] ?? '');
     }
 
+    /**
+     * 机器状态快照：
+     * `['cpu','memPct','memTotal','memUsed','diskPct','diskTotal','diskUsed',
+     *   'ncpu','batteryPresent','batteryCharging','batteryPct','procs']`
+     * 百分比都是 0..100（cpu 是全机跨核归一后的占用），字节是 B，disk 指**启动卷**。
+     * procs 每条是 `['pid','name','cpu','memory']`。
+     *
+     * ⚠ `cpu` 与 `procs[].cpu` 是**两次采样之间**的差值：第一次调用报 0。要真数字就
+     * 采两次（中间泵一下循环），或者用 setTimer 周期采——状态在原生侧是进程内一份，
+     * 所以任何一处调用都在推进那个"上一次"。
+     *
+     * $topProcs>0 才带进程列表（gpui 一次采样列出全机几百个进程，前 N 条由原生侧按
+     * CPU 降序截，最多 256）。这是静态方法：机器级的读数不属于某个窗口。
+     *
+     * @return array<string,mixed>
+     */
+    public static function sysInfo(int $topProcs = 0): array
+    {
+        return \gpui_sys_info($topProcs);
+    }
+
     // ── 事件循环 ──
 
     /**

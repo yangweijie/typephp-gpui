@@ -283,19 +283,48 @@ function runSelfTest(): void
     $ok = $ok && $itemText === "ITEM-{$timerHits}"
         && $item['image'] === null && $item['paths'] === [];
 
+    // 17) 系统状态。mem/disk/ncpu 不是差值量，第一次采样就能断言非零；cpu 是两次采样
+    //     之间的差值，所以先断言"第一次报 0"（这是文档承诺的行为），再烧 ~150ms 单核
+    //     把全机占用推起来，第二次采样必须 > 0。烧单核在 8 核机器上约 12%，离 0 有
+    //     足够余量——不是靠噪声过关。
+    $sys1 = App::sysInfo();
+    $firstCpuZero = ($sys1['cpu'] ?? -1.0) === 0.0;
+    $noProcList = ($sys1['procs'] ?? null) === [];
+    $sink = 0;
+    $burnUntil = microtime(true) + 0.15;
+    while (microtime(true) < $burnUntil) {
+        $sink++;
+    }
+    $app->loop(2);
+    $sys2 = App::sysInfo(5);
+    $procs = is_array($sys2['procs'] ?? null) ? $sys2['procs'] : [];
+    $topNamed = $procs !== [] && (string) ($procs[0]['name'] ?? '') !== ''
+        && (int) ($procs[0]['pid'] ?? 0) > 0;
+    $ok = $ok && (int) $sys1['ncpu'] > 0
+        && (int) $sys1['memTotal'] > 0 && (int) $sys1['memUsed'] > 0
+        && (float) $sys1['memPct'] > 0.0
+        && (int) $sys1['diskTotal'] > 0 && (float) $sys1['diskPct'] > 0.0
+        && $firstCpuZero && $noProcList
+        && (float) $sys2['cpu'] > 0.0
+        && count($procs) > 0 && count($procs) <= 5 && $topNamed;
+
     echo $ok
         ? sprintf(
             "SELFTEST OK (input + click + timer hits=%d + dialog + registered-cb + err-channel"
             . " + appmenu + clipboard + urlgate + fps + sheet + webview %.0fx%.0f"
-            . " + inflate + dirChange x%d + http ok=%s/%d + clipboard-item)\n",
+            . " + inflate + dirChange x%d + http ok=%s/%d + clipboard-item"
+            . " + sys cpu=%.1f%% mem=%.0f%% procs=%d)\n",
             $timerHits,
             $probe['w'],
             $probe['h'],
             $watchHits,
             $resp === null ? 'null' : var_export($resp['ok'], true),
-            $resp === null ? -1 : $resp['status']
+            $resp === null ? -1 : $resp['status'],
+            (float) $sys2['cpu'],
+            (float) $sys2['memPct'],
+            count($procs)
         )
-        : "SELFTEST FAIL (input='{$got}' fired=" . ($fired ? '1' : '0') . " clicks={$clicks} timer={$timerHits} dlg=$before/$opened/$during/$after ddcb=" . ($ddFired ? '1' : '0') . "/{$ddFires} err='$err' menu=$menuN/$menuCount clip='$clip' want='$payload' fps=$fps1/$fpsVis/$fps2/$fpsOff/$fpsAgain sheet=$sheetOpened/" . ($sheetDuring ? '1' : '0') . "/" . ($sheetClosed ? '1' : '0') . " wv=" . json_encode($probe) . " inf=" . var_export([$infZ, $infG, $infBad], true) . " watch=$watchId/$watchHits http=" . ($schemeRejected ? '1' : '0') . "/$queued/$httpHits/" . json_encode($resp) . " item=" . strlen($itemText) . "/" . strlen($itemImage) . "/" . count($item['paths']) . ")\n";
+        : "SELFTEST FAIL (input='{$got}' fired=" . ($fired ? '1' : '0') . " clicks={$clicks} timer={$timerHits} dlg=$before/$opened/$during/$after ddcb=" . ($ddFired ? '1' : '0') . "/{$ddFires} err='$err' menu=$menuN/$menuCount clip='$clip' want='$payload' fps=$fps1/$fpsVis/$fps2/$fpsOff/$fpsAgain sheet=$sheetOpened/" . ($sheetDuring ? '1' : '0') . "/" . ($sheetClosed ? '1' : '0') . " wv=" . json_encode($probe) . " inf=" . var_export([$infZ, $infG, $infBad], true) . " watch=$watchId/$watchHits http=" . ($schemeRejected ? '1' : '0') . "/$queued/$httpHits/" . json_encode($resp) . " item=" . strlen($itemText) . "/" . strlen($itemImage) . "/" . count($item['paths']) . " sys=" . json_encode([$firstCpuZero, $noProcList, $sys1['ncpu'] ?? null, $sys1['memPct'] ?? null, $sys1['diskPct'] ?? null, $sys2['cpu'] ?? null, count($procs)]) . ")\n";
     $app->close();
     exit($ok ? 0 : 1);
 }

@@ -91,6 +91,12 @@ namespace TypePHP\Gpui {
         /** @var array<int,string> 活着的目录监听：watch id → phpId */
         public static array $watches = [];
 
+        /**
+         * @var array<string,mixed> 脚本化的系统状态覆盖项（App::sysInfo 的返回字段）。
+         * 替身没有"两次采样"这回事，cpu 这类只能由测试自己给定。
+         */
+        public static array $sysInfo = [];
+
         public static function reset(): void
         {
             self::$inputValues = [];
@@ -113,6 +119,7 @@ namespace TypePHP\Gpui {
             self::$httpRequests = [];
             self::$nextWatchId = 1;
             self::$watches = [];
+            self::$sysInfo = [];
             self::$windows = [];
             self::$nextWindowId = 1;
             self::$eventQueue = [];
@@ -551,5 +558,41 @@ namespace {
         }
 
         return ['ok' => true, 'data' => $out, 'error' => ''];
+    }
+
+    function gpui_sys_info(int $topProcs): array
+    {
+        // disk 两侧可比：gpui 在 mac 上 statfs("/")，used = total - f_bavail；
+        // PHP 的 disk_total_space/disk_free_space 是同一个算法。所以这条不是编数，
+        // 是拿本机文件系统当对照。
+        $total = function_exists('disk_total_space') ? (disk_total_space('/') ?: 0) : 0;
+        $free = function_exists('disk_free_space') ? (disk_free_space('/') ?: 0) : 0;
+        $used = $total > $free ? $total - $free : 0;
+        $info = [
+            // cpu 在真侧是两次采样的差值，替身没有这回事 → 默认 0，由测试脚本化。
+            'cpu' => 0.0,
+            'memPct' => 0.0,
+            'memTotal' => 0,
+            'memUsed' => 0,
+            'diskPct' => $total > 0 ? $used * 100.0 / $total : 0.0,
+            'diskTotal' => (int) $total,
+            'diskUsed' => (int) $used,
+            'ncpu' => 1,
+            'batteryPresent' => false,
+            'batteryCharging' => false,
+            'batteryPct' => 0.0,
+            // 替身不枚举真进程；要测 procs 就把它脚本化塞进来。
+            'procs' => [],
+        ];
+        foreach (FakeBridge::$sysInfo as $key => $value) {
+            $info[(string) $key] = $value;
+        }
+        if ($topProcs <= 0) {
+            $info['procs'] = [];
+        } elseif (count($info['procs']) > $topProcs) {
+            $info['procs'] = array_slice($info['procs'], 0, $topProcs);
+        }
+
+        return $info;
     }
 }
