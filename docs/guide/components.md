@@ -93,6 +93,9 @@ $el::cb('click', 'routeId')           // 回调实参标记（DropdownMenu.item 
   互斥 → 暂不能成盒。`Menu/MenuItem/MenuSeparator` 作为数据节点可 materialize。见
   [架构](/guide/architecture#渲染根模型-为什么是-shellroot)。
 - **VirtualList / Dock**：依赖"回调进脚本渲染"，属同一 root-app/ScriptView 类，暂缓。
+- **WebView / Inspector 面板**：gpui 侧实现齐备（`gpui::WebViewNew`、`component::Inspector`），
+  缺的是"把任意 entity 当元素挂进树"的口子——`ComponentKind::ChildView` 就是它，但注册侧只对
+  QuickJS 开放。见[系统能力](/guide/system-capabilities#端口里有-还没接)。
 - **Alert / Icon / SidebarMenuItem**：拒 children / 无样式——工厂里别 `->child()`。
 
 ## 下一步

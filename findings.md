@@ -266,3 +266,59 @@ MenuBar 侧：catalog MenuBar 仍被 root-app 挡；已用 `BaseSetAppMenus` 走
 **epic 边界（定论）**：本防火墙支持 **gpui→PHP 异步**（事件入队→主循环 pull→dispatch，含 Stage D/基石的 shimId 旁路），但**不支持 gpui→PHP 同步取值**（渲染委托、虚拟列表行生产者、Dock chrome 委托）。凡"gpui 主动拉脚本要返回值"的组件（VirtualList/Dock/依赖 AppEffects 的 catalog MenuBar）都在此墙外，非增量能及——要么放弃异步防火墙模型改同步重入（与 AOT/nano 冲突），要么在 PHP 侧另实现。
 
 **PHP 侧替代（唯一可行方向）**：PHP 自算窗口——只把可见行渲进普通滚动容器。但绝对 scrollTop 反馈到 PHP 也不干净（gpui 把滚动位存 `ShellScrollPosition` keyed state 供 Scrollbar 读，非回调），只能用 `on_scroll_wheel` 的 deltaY 累加**近似**偏移 → 窗口化。可用但不精确、且非真惰性。属"近似功能"而非"复刻 gpui 虚拟化"。
+
+## 能力盘点订正 + ChildView 口子（2026-10-11，Wave 1）
+
+### 1. 上一轮三层地图继承了一个错前提
+用户给的 gpui 清单是 **Rust gpui** 的 API 名。逐条查 C++ 移植版：`nm -C out/mac/rel/obj/gpui/gpui.o`
+（21324 符号）对 `RecentDocument|JumpList|UrlScheme|ScreenCapture|IdleSleep|Credentials|
+ObserveDisplays|ActivationPolicy|WebSocket|TCPSocket|Tray|StatusItem|EventTap|
+UserNotificationCenter` **全 0 命中**；源码里只有 `window_mac.cpp:2134` 一处内部
+`[NSApp setActivationPolicy:]`（不是对外 API），`typings_data.cpp:22144` 的 `net`/`websocket`
+是 TS 声明无实现。⇒ 这些是"端口没有"，不是"有没接"。已写进 `docs/guide/system-capabilities.md`。
+
+### 2. Tier 3 的成本被高估：不需要外部库，也不需要 ui3 的码
+`cmd/build-shim.sh` 已用 `-std=c++20 -x objective-c++ -fobjc-arc` 编译；链接表（
+`examples/hello/project.macos.yml`）已含 `Cocoa / WebKit / Carbon / CoreServices / IOKit /
+AVFoundation / Speech / Metal / QuartzCore`。所以托盘（NSStatusItem）、全局快捷键（Carbon
+`RegisterEventHotKey`，免输入监控授权）、Dock 角标（NSDockTile）= 自写一个 `.mm` TU 的事。
+ui3 只留配方参考价值，其同步泵自有循环的写法（`gtk4.c:18-19`、`x11.c:675-677`）与
+`gpui_shim_pump` 主循环互等死，不可照搬。
+
+### 3. `SysNotifyShow` 三平台不对称（实测源码）
+Windows 真实现（`notify_win.cpp:155`，`Shell_NotifyIcon`）；mac（`notify_mac.cpp:17`）与
+Linux（`notify_linux.cpp:19`）是 `return false` 桩。⇒ 桥它 = Windows 有 OS 通知、mac 静默无。
+另外 `ui/notification.cpp` 的**应用内**通知中心（`NotificationPush/Dismiss/Clear` + 角落堆叠 +
+autohide + click/close）是完整实现，只有"系统那一半"缺——它是比 Toast 高一档的可用能力。
+
+### 4. 【关键】`ComponentKind::ChildView` 就是 Wave 2 缺的那道口子
+`materialize.cpp:2045`：
+```cpp
+case shell::ComponentKind::ChildView: {
+    EntityId child = runtime ? runtime->NestedView(component.handle, cx->app) : EntityId{};
+    El* rendered = child.IsValid() ? EntityRender(cx->app, cx->win, cx->a, child) : nullptr;
+    return rendered ? rendered : Div(cx->a);
+}
+```
+⇒ **任意 entity**（只要其 RenderFn 注册过，正是我们 `PhpView` 用的 `EntityNewRaw` 路径）都能
+被当元素挂进树。WebView（`WebViewEl(Entity<WebView>, Ctx*)`）和 Inspector 面板
+（`component::Inspector::New(cx)->IntoEl()`）都只需要一个"产 `El*` 的 entity"，不需要 catalog
+descriptor。
+**唯一缺口**：`nestedViews` 的**注册侧**在 `runtime.cpp` 里只由 QuickJS 的 `__view_new`
+（`NativeViewNew`）走，`NestedView(handle, app)` 是只读查询。⇒ 需要一个小补丁给 host 开一个
+`ShellRuntime::NewNestedView(EntityId)` 入口，与已有的 `PushShimCallback` 补丁同族（第 7 个 marker）。
+这比原计划设想的"shim render-pass 特例"干净：不碰渲染路径，只补注册。
+
+### 5. `WindowToggleInspector` 是拾取模式，不是面板（像素实测）
+tree29 出图 = 整窗淡蓝底 + 描边（选中高亮），没有 inspector 面板。gpui 侧没有"面板是否打开"
+的查询符号（只有 `WindowToggleInspector` / `WindowInspectorPick`），所以它的验收只能是像素。
+面板归第 4 条那道口子。
+
+### 6. Pest 全局钩子静默失效（既存 bug，本轮才暴露）
+`tests/Pest.php` 原写 `uses()->beforeEach(...)`：`Configuration::__call` → `uses()->beforeEach()`
+→ `UsesCall` 的 **targets 为空** → 钩子挂在一个没有任何文件的组上 ⇒ `FakeBridge::reset()`
+从来没跑过，静态状态跨测试泄漏。读源确认（Pest 5.3.1）：`BeforeEachCall::__destruct` 以
+**声明处文件名**为键注册，而 `TestCall::__construct` 以**测试自身文件名**查键
+（`TestSuite::beforeEach->get($this->filename)`）⇒ 写在 Pest.php 里的裸 `beforeEach()` 也打不中。
+可用形式：`uses(TestCase::class)->in(__DIR__)->beforeEach(...)`（实测钩子生效）。
+原有 25 个测试恰好不依赖 reset，所以一直没暴露。

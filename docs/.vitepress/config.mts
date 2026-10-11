@@ -19,6 +19,7 @@ export default defineConfig({
       { text: '指南', link: '/guide/getting-started' },
       { text: '架构', link: '/guide/architecture' },
       { text: '组件', link: '/guide/components' },
+      { text: '系统能力', link: '/guide/system-capabilities' },
       { text: '贡献', link: '/contributing' }
     ],
     sidebar: {
@@ -30,6 +31,7 @@ export default defineConfig({
             { text: '架构与 C-ABI 防火墙', link: '/guide/architecture' },
             { text: '组件 API', link: '/guide/components' },
             { text: '事件与回调', link: '/guide/events' },
+            { text: '系统能力', link: '/guide/system-capabilities' },
             { text: '测试与门禁', link: '/guide/testing' },
             { text: 'gpui CLI', link: '/guide/cli' }
           ]

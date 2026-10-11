@@ -148,3 +148,49 @@
 
 **剩余（唯一）**：root-application 集成 epic（MenuBar + VirtualList + Dock）——需先定窗口根模型方案（重做 root / 给 AppEffects 加 shim 旁路 / 换渲染路径），风险面大，留待专门排期。
 
+
+## Wave 1：系统能力桥接（2026-10-11，计划 hollow-pool-lark）
+
+**做了什么**：把 `gpui.o` 里已验证存在、但没接出的 6 项桌面能力包成 PHP API，零上游补丁、零新依赖。
+
+- `cpp-src/gpui_shim.h/.cpp`：+11 个 C ABI 函数（剪贴板读写、`PromptForPathTemp`、`OpenUrl`+
+  `IsOpenableUrl`、`WindowToggleInspector`、FPS HUD 三件套、Sheet 三件套）。新增 `cstr()` /
+  `copyOut()` 两个小工具（Str↔char* 的第三条路，之前每处手抄 memcpy）。Sheet 复用
+  `gpui_shim_dialog_begin` 建的内容 Box2，不新建盒子。
+- `cpp-src/gpui_bridge.cc`：+11 个 `php_gpui_*`。剪贴板缓冲开在堆上 64 KiB（粘贴板无长度上限）。
+- `php-src/gpui.stub.php` +11 声明（返回类型与 bridge 实际返回严格对齐：`String`↔`string`、
+  `Bool`↔`bool`、`Int`↔`int`——上一轮 `gpui_app_create` 的段错误就是这条错位换来的）；
+  `src/App.php` 新增「系统能力」段 + `SHEET_ANCHORS`/`FPS_ANCHORS` 常量 + `oneOf()` 校验；
+  `src/FakeBridge.php` 镜像全部 11 个函数 + `isOpenableUrl()`（按 `capability.cpp:5` 逐条重写，
+  含端口与 IPv6 字面量）。
+- **`openSheet`/`showFpsHud` 走"越界即抛"**，与 P2-4 的 `rm()/cb()` 收口同一条风格。
+
+**测试**：
+- 新 `tests/SystemTest.php` 12 例（wrap-green）。C++ 侧 `testCapabilityGates()`：20 条 URL
+  表 + 8 个 FPS 锚点名 + `copyOut` 截断/空串/null 缓冲（native-green）。**URL 表两侧同内容**：
+  C++ 量真实 `gpui::IsOpenableUrl`，PHP 量替身，把"替身像不像"这件事钉成可证的。
+- `examples/hello/src/main.php`：selftest 6 步 → **11 步**（+剪贴板回环、`openUrl` 拒绝侧、
+  FPS 生命周期、Sheet 生命周期）；`--shot` 新增 tree 27/28/29；交互 demo 加 `Open…` 按钮，
+  作为原生对话框的**手工**验收路径（它要等人，进不了无人值守自检）。
+- **`promptForPath` 的嵌套消息循环已确认安全**：PHP 阻塞在桥接调用内时 `gpui_shim_pump` 不被
+  驱动，gpui 的模态循环只入队不重入 VM。约束写进 shim 头、bridge 注释、App docblock、文档四处。
+
+**顺手修的两个真 bug**：
+1. `tests/Pest.php` 的 `uses()->beforeEach()` **从来没跑过**（`UsesCall` targets 为空）⇒
+   `FakeBridge::reset()` 失效、静态状态跨测试泄漏。改 `uses(TestCase::class)->in(__DIR__)
+   ->beforeEach(...)`，并读 Pest 5.3.1 源码确认裸 `beforeEach()` 在 Pest.php 里同样打不中
+   （注册键是声明处文件名，查询键是测试自身文件名）。原有 25 例恰好不依赖 reset 才一直没暴露。
+2. `FakeBridge::reset()` 漏了 `$appMenuCount`（上一轮加的状态没进 reset）。
+
+**门禁全绿**：Pest 37/155 · PHPStan 0 · shim_test OK · **selftest 11 链路 OK** ·
+shotdiff OK（**15 树**，新增 3 张已逐张肉眼确认非空帧：HUD 有数、Sheet 有侧栏+遮罩、
+inspector 是整窗拾取高亮）· doctor 6 marker ✓。
+
+**已知非确定项**：tree 27 是唯一非零残差（0.00018~0.00019，HUD 是活表），在容差内。
+
+**文档**：新 `docs/guide/system-capabilities.md`（已接 / 端口里有但没接 / 端口里根本没有 三张表 +
+三条硬约束 + 手工验收清单），订正被继承的 Rust-only 前提；`components.md` 与 `testing.md` 同步。
+
+**Wave 2 的设计已换**：原设想"shim render-pass 特例"，实测 `ComponentKind::ChildView`
+（`materialize.cpp:2045`）就是"把任意 entity 当元素挂进树"的现成机制，WebView 与 Inspector
+面板共用它，只差一个 host 侧 `nestedViews` 注册入口（第 7 个补丁 marker）。见 findings.md。
