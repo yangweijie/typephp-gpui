@@ -29,8 +29,11 @@ include-paths:
   - ../../cpp-src
   - ../../php-src
 
+# 静态库绝对路径：tpc 不解析相对 ld-flags，故用 @ROOT@ 占位，由 `bin/gpui build`
+# 在编译期替换为仓库绝对根并写到 project.macos.gen.yml（同目录，相对 sources 不受影响）。
+# 直接手跑 tpc 需自行替换 @ROOT@。
 ld-flags:
-  - /Volumes/data/git/php/typephp-gpui/cpp-src/build/libgpui_shim.a
+  - "@ROOT@/cpp-src/build/libgpui_shim.a"
   - -framework Cocoa
   - -framework CoreServices
   - -framework CoreText

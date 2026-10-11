@@ -6,6 +6,7 @@ composer.phar
 /build/
 examples/*/build/
 examples/*/cache/
+examples/*/project.macos.gen.yml
 .phpunit.cache/
 .phpunit.result.cache
 

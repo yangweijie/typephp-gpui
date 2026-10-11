@@ -39,6 +39,43 @@ function run(string $cmd, ?string $cwd = null): int {
     return $code;
 }
 
+// gpui-kit-cpp 源码目录：GPUI_DIR 环境变量优先，否则 vendor/gpui-kit-cpp。
+// 上游无 git 历史，无法用 submodule/SHA 钉版，故以「补丁 marker 校验 + 契约文档」
+// 保证可复现：doctor 与 build 都会确认所有补丁已落。
+function gpuiDir(): string {
+    global $root;
+    $d = getenv('GPUI_DIR');
+    return ($d !== false && $d !== '') ? rtrim($d, '/') : "$root/vendor/gpui-kit-cpp";
+}
+
+// 每个补丁 → 目标文件 → 幂等 marker（与 cmd/patch-*.sh 的 MARK 保持一致）。
+// 缺任一 marker 说明源码半补丁状态，build.ts 会编出行为不对的 amalgam。
+function patchManifest(): array {
+    global $root;
+    $gpui = gpuiDir();
+    $nano = getenv('NANO_DIR');
+    $nano = ($nano !== false && $nano !== '') ? rtrim($nano, '/') : "$root/vendor/swoole/php-nano";
+    return [
+        ['patch-nano.sh',          "$nano/src/extension.cpp",        'Engine-provided modules'],
+        ['patch-view.sh',          "$gpui/src/shell/view.cpp",       '/* typephp-gpui: patched */'],
+        ['patch-retained.sh',      "$gpui/src/shell/runtime.cpp",    'CreateRetainedInput'],
+        ['patch-focus.sh',         "$gpui/src/shell/runtime.cpp",    'CreateRetainedFocus'],
+        ['patch-registered-cb.sh', "$gpui/src/shell/runtime.cpp",    'PushShimCallback'],
+    ];
+}
+
+// 校验所有补丁 marker 就位；全在返回 true，否则逐条报缺。
+function verifyPatches(): bool {
+    $all = true;
+    foreach (patchManifest() as [$script, $file, $marker]) {
+        if (!is_file($file)) { bad("$script：目标文件缺失 $file"); $all = false; continue; }
+        $hit = trim((string) @shell_exec('grep -qF ' . escapeshellarg($marker) . ' ' . escapeshellarg($file) . ' && echo Y'));
+        if ($hit === 'Y') { ok("$script 已落（" . basename($file) . "）"); }
+        else { bad("$script 未落：$file 缺 marker「$marker」"); $all = false; }
+    }
+    return $all;
+}
+
 switch ($cmd) {
     case 'doctor': {
         out('TypePHP-GPUI 工具链检查');
@@ -47,8 +84,10 @@ switch ($cmd) {
         $tpc = is_file("$root/vendor/bin/tpc.php") ? "$root/vendor/bin/tpc.php" : null;
         $tpc ? ok('tpc: ' . $tpc) : bad('tpc 未找到（composer install）');
         is_dir("$root/vendor/swoole/php-nano") ? ok('php-nano 已装') : bad('php-nano 未装（composer require swoole/php-nano）');
-        is_link("$root/vendor/gpui-kit-cpp") || is_dir("$root/vendor/gpui-kit-cpp")
-            ? ok('gpui-kit-cpp 源码就位') : bad('gpui-kit-cpp 未就位（vendor/gpui-kit-cpp）');
+        $gpui = gpuiDir();
+        is_dir($gpui) ? ok("gpui-kit-cpp 源码就位：$gpui") : bad("gpui-kit-cpp 未就位（$gpui；或设 GPUI_DIR）");
+        out('补丁落位校验：');
+        verifyPatches();
         break;
     }
 
@@ -60,13 +99,15 @@ switch ($cmd) {
         $yml = "$root/examples/$example/project.macos.yml";
         if (!is_file($yml)) { err("找不到示例配置：$yml"); exit(1); }
 
-        // 1) 补丁（幂等）
-        foreach (['patch-nano.sh', 'patch-view.sh', 'patch-retained.sh', 'patch-focus.sh'] as $p) {
+        // 1) 补丁（幂等）——含 Stage D 的 registered-cb。
+        foreach (['patch-nano.sh', 'patch-view.sh', 'patch-retained.sh', 'patch-focus.sh', 'patch-registered-cb.sh'] as $p) {
             $rc = run("bash $root/cmd/$p");
             if ($rc !== 0) { err("补丁失败：$p"); exit($rc); }
         }
+        // 1b) 校验全部补丁落位，缺则中止（防半补丁 amalgam）。
+        if (!verifyPatches()) { err('补丁未全部落位，中止'); exit(1); }
         // 2) 生成 amalgam + 编译对象（gpui-kit-cpp 自带构建）
-        $gpui = "$root/vendor/gpui-kit-cpp";
+        $gpui = gpuiDir();
         $rc = run("cd " . escapeshellarg($gpui) . " && bun cmd/build.ts -rel hello_world");
         // hello_world 的链接会因入口 main 被改名而失败（预期），只要 gpui.o 新即可。
         $gpuiO = "$gpui/out/mac/rel/obj/gpui/gpui.o";
@@ -74,8 +115,12 @@ switch ($cmd) {
         // 3) 建 shim 静态库
         $rc = run("bash $root/cmd/build-shim.sh");
         if ($rc !== 0) { err('build-shim 失败'); exit($rc); }
-        // 4) tpc nano 编译示例
-        $rc = run("php $root/vendor/bin/tpc.php " . escapeshellarg($yml) . " --nano");
+        // 4) tpc nano 编译示例。yml 里 @ROOT@ → 绝对仓库根（shim .a 需绝对路径，
+        //    tpc 不解析相对 ld-flags）；解析后的副本落在同目录，相对 sources 路径不受影响。
+        $resolved = str_replace('@ROOT@', $root, (string) file_get_contents($yml));
+        $genYml = dirname($yml) . '/project.macos.gen.yml';
+        file_put_contents($genYml, $resolved);
+        $rc = run("php $root/vendor/bin/tpc.php " . escapeshellarg($genYml) . " --nano");
         if ($rc !== 0) { err('tpc 编译失败'); exit($rc); }
         $bin = "$root/examples/$example/build/$example";
         ok("构建完成：$bin");

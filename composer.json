@@ -30,7 +30,8 @@
     },
     "scripts": {
         "test": "@php vendor/bin/pest",
-        "patch": "@bash cmd/patch-view.sh && @bash cmd/patch-nano.sh && @bash cmd/patch-retained.sh && @bash cmd/patch-focus.sh",
+        "patch": "@bash cmd/patch-nano.sh && @bash cmd/patch-view.sh && @bash cmd/patch-retained.sh && @bash cmd/patch-focus.sh && @bash cmd/patch-registered-cb.sh",
+        "bootstrap": "@php bin/gpui build",
         "build": "@php bin/gpui build",
         "run": "@php bin/gpui run",
         "doctor": "@php bin/gpui doctor",

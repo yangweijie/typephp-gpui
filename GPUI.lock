@@ -1,0 +1,43 @@
+# GPUI.lock — gpui-kit-cpp 依赖契约
+
+上游 `gpui-kit-cpp` **无 git 历史/remote**（本地源码树），无法用 submodule/commit-SHA 钉版。
+本文件是「可复现构建」的契约与自检依据；真正的自动守卫是 `bin/gpui` 的补丁 marker 校验
+（`gpui doctor` / `gpui build` 都会跑 `verifyPatches()`）。
+
+## 源码位置
+- 默认：`vendor/gpui-kit-cpp`（当前是指向本地源码树的符号链接，本身不入库）。
+- 覆盖：设环境变量 `GPUI_DIR=/abs/path/to/gpui-kit-cpp`（`bin/gpui` 与所有 `cmd/patch-*.sh`、
+  `cmd/build-shim.sh` 都遵循它）。
+- php-nano 同理：默认 `vendor/swoole/php-nano`，可用 `NANO_DIR` 覆盖。
+- clone 后 `vendor/` 被 gitignore，需 `composer install` 再自行放置 gpui-kit-cpp 源码或设 `GPUI_DIR`。
+
+## 补丁清单（幂等；marker 缺失 = 半补丁，amalgam 行为不对）
+| 脚本 | 目标文件 | marker |
+|------|----------|--------|
+| cmd/patch-nano.sh          | `$NANO_DIR/src/extension.cpp`   | `Engine-provided modules` |
+| cmd/patch-view.sh          | `$GPUI_DIR/src/shell/view.cpp`  | `/* typephp-gpui: patched */` |
+| cmd/patch-retained.sh      | `$GPUI_DIR/src/shell/runtime.cpp` | `CreateRetainedInput` |
+| cmd/patch-focus.sh         | `$GPUI_DIR/src/shell/runtime.cpp` | `CreateRetainedFocus` |
+| cmd/patch-registered-cb.sh | `$GPUI_DIR/src/shell/runtime.cpp` | `PushShimCallback` |
+
+（patch-view 还改 `window_mac.cpp` 的入口改名 + GpuiAppRunStep；以 view.cpp 的 marker 为准判整体。）
+
+## 构建链（`bin/gpui build` / `composer bootstrap` 一键按序跑）
+1. 依次跑上表 5 个补丁（幂等）→ `verifyPatches()` 确认全落，缺则中止。
+2. `cd $GPUI_DIR && bun cmd/build.ts -rel hello_world` → 生成 `.work/` amalgam + `gpui.o`
+   （hello_world 链接因入口 main 改名而失败属预期，只要 `gpui.o` 新）。
+3. `bash cmd/build-shim.sh` → 编 `gpui_shim.cpp`（c++20）并与 gpui.o/quickjs.o/AppLog.o 归档成
+   `cpp-src/build/libgpui_shim.a`。
+4. `php vendor/bin/tpc.php <yml> --nano` → 编 PHP + c++17 bridge，链 libgpui_shim.a。
+   yml 里 `@ROOT@` 由 bin/gpui 替换为仓库绝对根（tpc 不解析相对 ld-flags），写到
+   `project.macos.yml.gen`（gitignore）。
+
+## 已知良好态
+- Stage A–D + 前序阶段全部交付；`--selftest` 含 input/click/timer/dialog/registered-cb 五链路。
+- 组件覆盖：base `ComponentKind` 原语 + catalog（Alert/Breadcrumb/Icon/Sidebar/Form/Menu/DropdownMenu）。
+- 缺口（见 task_plan.md Phase 7 P2）：MenuBar 需 catalog window-opener 的 root-app；A 类 VirtualList/Dock。
+
+## 漂移指纹（advisory，非硬门）
+`gpui_shim.cpp` 与上游 amalgam 的 ABI 假设（ComponentKind 枚举顺序、SpecArena/Component 结构、
+ComponentPayload/arguments 生命周期）耦合。升级 gpui-kit-cpp 后须重跑整链并逐一核对
+`--selftest` + `--shot tree=20..26`，因为补丁 anchor 可能随上游重构而失效。
