@@ -24,6 +24,7 @@
 | `$app->webviewProbe($id)` | `wry::WebViewUrlTemp` + `WebViewBounds` | route（#12，读出 400×300 的应用盒子） |
 | `$app->httpGet($url, $id): bool`<br>`$app->httpResponse($id): ?array` | `gpui::HttpSendAsync`（**不是**阻塞的 `HttpSend`） | route（selftest #15：打 loopback 关闭端口，验整条异步路而不碰外网）+ native（`HttpUrlIsRemote` 判据表） |
 | `$app->watchDir($dir, $id, $create): int`<br>`$app->unwatchDir($watchId)` | `gpui::DirWatchStart`（macOS 走 FSEvents） | route（#14，走 gpui 的 DirWatchAdd/Signal 测试接缝，不碰文件系统） |
+| `App::sysInfo($topProcs = 0): array` | `gpui::SysStateInit/SysRefresh/SysSortProcesses` | route（selftest #17：烧 150ms 单核后 cpu 必须报 >0，实测 46.2%）+ 本机文件系统对照（Pest） |
 | `App::inflate($bytes, $gzip = false): ?string` | `gpui::shell::ZlibInflate`（真解 Huffman） | 三方锚：同一批向量在 C++ 测试、原生 selftest #13、Pest 里各解一遍 |
 | `$app->showFpsHud(string $anchor): bool`<br>`$app->hideFpsHud()` / `fpsHudVisible()` | `ShellRootShow/HideFpsMonitor` | wrap + route（#10）+ pixel（tree27） |
 | `$app->openSheet(Element, string $anchor): int`<br>`$app->closeSheet()` / `hasSheet()` | `ShellRootOpenSheetView` 等 | wrap + route（#11）+ pixel（tree28） |
@@ -67,6 +68,26 @@ printf 'hello clip text\n' | pbcopy && hello --clip   →  text=16 image=-1 path
   alias list（`dyn.ah62...` / `'list'` flavor），不是 `public.file-url`；要用
   `writeObjects:` 或直接从 Finder 复制才是真场景。
 
+## `App::sysInfo()` 的采样语义
+
+```php
+$a = App::sysInfo();            // cpu 一定是 0：这是第一次采样，没有"上一次"
+usleep(200000);                 // 或者用 setTimer 周期采
+$b = App::sysInfo(10);          // 这一次的 cpu 才是 200ms 窗口里的真实占用
+```
+
+- **`cpu` 与 `procs[].cpu` 是两次采样之间的差值**，第一次必然报 0。`memPct`、`diskPct`、
+  `memTotal/Used`、`diskTotal/Used`、`ncpu`、电池都是直接读数，第一次就有效。
+- 百分比都是 0..100，且 cpu 是**全机跨核归一**的（不是"单核 0..100×n"）。
+- 字节单位是 B；`disk` 指**启动卷**（gpui 在 mac 上 `statfs("/")`），不含其它挂载点。
+- 采样状态在原生侧是**进程内一份**，不是每窗口一份——mac 的墙钟差本身就是文件静态量
+  （`sysinfo_mac.cpp` 的 `sPrevWall`），多份交替采样只会互相污染读数。所以
+  `App::sysInfo()` 是静态方法，任何一处调用都在推进那个"上一次"。
+- `$topProcs > 0` 才带进程列表：gpui 一次采样列出全机几百个进程，前 N 条由原生侧按 CPU
+  降序截（上限 256），免得把几百条搬过边界再挑。截断不会污染下一次读数——下一次按 pid 找
+  前值（`FindPrevCpu`），而 `prevProcs` 是另一份完整数组。
+- 电池在没有电池的设备上 `batteryPresent=false`，此时 `batteryPct` 无意义。
+
 ## 三条硬约束
 
 1. **`promptForPath` 只能在事件回调里调。** 原生对话框自带嵌套消息循环，一直跑到用户选完
@@ -86,7 +107,6 @@ printf 'hello clip text\n' | pbcopy && hello --clip   →  text=16 image=-1 path
 
 | 能力 | 符号 | 卡在哪 |
 | --- | --- | --- |
-| 系统信息 | `SysStateInit` / `SysRefresh`（cpu/mem/disk/battery/processes） | 无 |
 | 压缩 | `shell::ZlibDeflate` | **不做**：它写的是 stored 块（`DeflateStored`），只加 zlib/gzip 外壳、不压缩。要压缩请自己实现或在 PHP 侧生成。解压侧已经接了（`App::inflate`），它既读得懂 gpui 自己写的容器，也读得懂真 deflate |
 | 哈希 / 随机 | `shell::Sha256` / `SecureRandom` | **不做**：产物里 `hash()`、`hash_hmac()`、`random_bytes()`、`random_int()` 都在，桥过来是净负价值 |
 | 文件 / 进程 / 存储 | `shell::FsRun` / `ProcessRunBounded` / `StoragePersist` | 受 `Capabilities` 读写根授权模型约束（`ResolvePath` 要求先配 root），且进程调用阻塞——要单独设计，不是包装活。`FsRun` 优先级低：`file_get_contents`/`scandir`/`touch` 在产物里可用 |

@@ -8,7 +8,7 @@
 | 1 | Pest | `composer test` | PHP 声明层：Element 序列化、App 路由、FakeBridge | 否 |
 | 2 | PHPStan | `composer analyse` | `src/` 类型/静态（level 5） | 否 |
 | 3 | C++ shim_test | `composer test:cpp` | shim 纯函数：kindFromString / AStr arena 拷贝 / toComponentArg schema / buildComponentArgs | 是（gpui.o） |
-| 4 | selftest | `php bin/gpui selftest hello` | 16 链路端到端：输入取值 / 点击 / 定时器 / dialog / catalog 回调 / 错误回传 / app 菜单 / 剪贴板 / url 白名单 / HUD / Sheet / WebView / 解压 / dirChange / http / 剪贴板完整一项 | 是（二进制） |
+| 4 | selftest | `php bin/gpui selftest hello` | 17 链路端到端：输入取值 / 点击 / 定时器 / dialog / catalog 回调 / 错误回传 / app 菜单 / 剪贴板 / url 白名单 / HUD / Sheet / WebView / 解压 / dirChange / http / 剪贴板完整一项 / 系统状态 | 是（二进制） |
 | 5 | shotdiff | `php bin/gpui shotdiff check hello` | 视觉回归：逐树像素比对基线（17 棵） | 是（二进制） |
 | 6 | doctor | `php bin/gpui doctor` | 工具链 + 7 补丁 marker 校验 | 部分 |
 
@@ -31,7 +31,7 @@ headless、不开窗口，故任意环境可跑。`cmd/test-shim.sh` 两步编�
 
 ## selftest（原生二进制）
 
-`hello --selftest` 跑真实编译产物，验证跨边界事件链。退出码 0 = 通过。十六步：
+`hello --selftest` 跑真实编译产物，验证跨边界事件链。退出码 0 = 通过。十七步：
 1. 输入取值回环（setInput → InputSetValue → InputValue）
 2. 点击事件全链路（合成 fire → gpuiEnqueueClick → boxForView → 队列 → poll → dispatch）
 3. 定时器 tick
@@ -66,6 +66,10 @@ headless、不开窗口，故任意环境可跑。`cmd/test-shim.sh` 两步编�
 
 16. 剪贴板完整一项（`clipboardItem`）：写过文本之后同一快照里应当只有文本——图像与文件
     必须报"没有"。这验的是 flags 判别，不依赖粘贴板里恰好有什么。
+17. 系统状态（`App::sysInfo`）：`memPct`/`diskPct`/`memTotal`/`diskTotal`/`ncpu` 是直接
+    读数，第一次采样就能断言非零；`cpu` 是差值量，所以先断言"第一次报 0"（这是文档承诺的
+    行为，不是巧合），再烧 150ms 单核、泵两帧，第二次采样必须 > 0。烧单核在 8 核机器上约
+    12%，离 0 有足够余量——不是靠机器噪声过关。`procs` 验前 5 条非空且首条有 pid 与名字。
 
 ## `--clip`：把"能改粘贴板的东西"变成测试装置
 

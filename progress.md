@@ -256,3 +256,17 @@ mac 的**文件路径由我们自己读** `NSPasteboardTypeFileURL`（gpui 只�
 
 **门禁全绿**：Pest 48/204 · PHPStan 0 · shim_test OK（7 组）· selftest 16 链路 ·
 shotdiff OK 17 树 · doctor 7 marker。
+
+## 系统状态 `App::sysInfo()`（2026-10-11）
+
+`gpui_shim_sys_refresh` 包 `SysStateInit/SysRefresh/SysSortProcesses`：概览 + 可选前 N 进程
+（原生侧按 CPU 降序截，上限 256）。采样状态进程内一份（墙钟差本身是文件静态量），所以
+`App::sysInfo()` 是静态方法、无窗口参数。差值量与直接读数分开断言，语义写进 ABI 头、
+App docblock 与文档三处。
+
+**验收**：selftest 16 → **17 步**（第一次 cpu 必须 0 → 烧 150ms 单核 → 第二次必须 >0，
+实测 cpu=46.2% mem=80% procs=5）；Pest +3 例（字段全形、disk 拿本机文件系统对照、
+脚本化覆盖 + topProcs 截断）。
+
+**门禁全绿**：Pest **51/217** · PHPStan 0 · shim_test OK · **selftest 17 链路** ·
+shotdiff OK 17 树 · doctor 7 marker。

@@ -416,3 +416,30 @@ UTI"为准，不能以"看起来像的脚本"为准。
 **四种组合的真数据实测记录**（`hello --clip`）：文本 16B → `text=16 image=-1 paths=0`；
 PNG 25110B → `text=-1 image=25110 paths=0`；两个 file-url → `paths=2`；
 文本+PNG 同时 → `text=10 image=25110`。
+
+## SysRefresh：差值量与直接量必须分开断言（2026-10-11）
+
+`SysState`（`sys/sysinfo.h:43`）里两类量混在一起，验收时必须区别对待：
+
+- **直接读数**：`mem/memTotal/memUsed`、`disk.usedPct/total/used`、`ncpu`、电池
+  → 第一次采样就非零，可以直接断言。
+- **差值量**：`cpu` 要 `prevCpu.valid` 才算得出来（`sysinfo_mac.cpp:58`），每进程 cpu 要
+  `FindPrevCpu` + `wallDelta` ⇒ **第一次调用恒 0**。这不是 bug 是语义，所以自检里
+  先断言"第一次报 0"，再烧 150ms 单核、泵两帧，第二次必须 > 0（实测 46.2%）。
+  烧单核在 8 核机上约 12%，离 0 有量级余量，不靠机器噪声过关。
+
+**采样状态放进程内一份，不放每窗口一份**：`RefreshProcesses` 里的墙钟差
+`static uint64_t sPrevWall`（`sysinfo_mac.cpp:207`）本来就是文件静态量——多份 `SysState`
+交替采样只会互相污染彼此的 cpu 读数。因此 `App::sysInfo()` 是静态方法，无窗口参数。
+
+**截断进程列表是安全的**：`SysSortProcesses(s, Cpu, true, keepTop)` 截 `s->procs`，而
+下一次 `RefreshProcesses` 用 `FindPrevCpu(s->prevProcs, pid)` **按 pid** 找前值，
+`prevProcs` 是每次重建的完整平行数组 ⇒ 截断不会让下一次读数错位。（若它是按下标找，
+这个 API 就得改成"排序但不截断、由 bridge 只搬前 N 条"。）
+
+**disk 是启动卷**：mac 侧 `statfs("/")`，`used = total - f_bavail`。这与 PHP 的
+`disk_total_space/disk_free_space` 同算法 ⇒ 替身拿本机文件系统当对照，Pest 那条
+`diskPct ≈ used*100/total` 两侧都成立，不是编出来的数。
+
+**踩到**：Pest 5.3 没有 `toBeAround()`（PHPUnit 的 `assertEqualsWithDelta` 系），要写
+`expect(abs(a - b))->toBeLessThan(eps)`。
