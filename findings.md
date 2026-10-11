@@ -695,3 +695,40 @@ CI 的 ubuntu runner 会用 lock 里那个绝对 URL 下载。三个包在真 pa
 （`repo.packagist.org/p2/swoole/{php-nano,typephp,phpx}.json` 全 HTTP 200），所以真出问题时的
 修法是**只重写 dist URL**（换掉全局 mirror 后重装 lock），不需要动任何版本号——记在这儿，
 免得下次把它当成"包不存在"去改依赖。
+
+## "本地托管后能不能不要防火墙、降成 C++17？"——实测：不能，而且这两件事不同轴
+
+### 先把两件事分开
+
+托管位置管的是**源码从哪来**（CI 能不能拉到、版本怎么钉）；防火墙管的是**同一个编译单元
+里两种语言要求共存不下**。把上游搬进自己的 git 服务，不会改变任何一条语言约束。
+
+### 实测数据
+
+1. **tpc 硬编码 C++17**：`vendor/swoole/typephp/src/Build/NativeSourceProjectBuilder.php:104`
+   写的是 `-std=c++17`（C 源码才用 `-std=c11`）。这不是我们的 yml 选项，是编译器自己的常量。
+2. **gpui.h 在 C++17 下编不过**。做了决定性实验：一个只 `#include "gpui.h"` 的 TU，
+   `clang++ -std=c++17 -fsyntax-only` → **20 个 error**，真实成因只有几处：
+   - `gpui.h:6960` `concept`（关键字都不认）与紧随的 `requires`
+   - `gpui.h:7017` `requires` 子句 + 由此 cascading 的"模板偏序参数不可推导"
+   - `gpui.h:6480` `chosen constructor is explicit in copy-initialization`（C++20 放宽的
+     拷贝初始化规则，C++17 不认）
+   - amalgam 里另有 `concept EmitsEvent = requires {...}`（`.work/gpui.h:10773`）
+   合计约 6–8 个真实站点，其余是解析器连锁报错。
+
+### 所以三条路各自的代价
+
+- **A. 只托管、防火墙照旧**（推荐）：CI 从此能跑 shim_test / selftest / shotdiff 三道原生门禁。
+  零语言层风险。
+- **B. 打第 8 个补丁把 concept/requires 降级成 C++17 SFINAE，让 bridge 直接 include gpui.h**：
+  技术上可行（就那几处），但换来的是：① 每次上游动一次模板就要重打一次补丁；
+  ② bridge TU 要吞 54K 行头文件，改一行 PHP 就重编一次；③ 还要顺手改
+  `NativeSourceProjectBuilder.php:104` 那个常量（多 patch 一个编译工具链）。
+  **省掉的只是 C ABI 样板，赔进去的是隔离性与构建时间**——不划算。
+- **C. 整体升 C++20**：nano 生成的 phpx 胶水是 C++17 形状，动它等于改 TypePHP 本身。
+
+### 一个顺带澄清
+
+gpui.h 里 ObjC/AppKit 只出现在**注释**（`NSWindow` 1 处命中在 46115 行是文字说明），
+所以"bridge 需要 `-x objective-c++`"并不是防火墙存在的理由；真正的理由就是上面那三条
+语言约束。别把这条当成反对 B 的论据。

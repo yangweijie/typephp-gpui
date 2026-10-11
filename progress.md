@@ -459,3 +459,26 @@ runner 两行也收了：五个 action 升 `@v5`（v4 还在 Node 20 上）、`r
 
 **线上验证**（不看 CI 颜色，直接打 HTTP）：根 `200`、`/guide/testing` `200`（cleanUrls 生效）、
 `/typephp-gpui/assets/app.*.js` `200`。提交 `ebbc3cc`。Phase 12 全部打勾。
+
+## Phase 13：文档站搜索 + 多语言骨架；答"托管后能否去掉防火墙"（2026-10-11）
+
+**搜索**用 VitePress 自带的 `search.provider: 'local'`（MiniSearch，构建期建索引、纯前端查），
+不引 Algolia（要 DocSearch 授权）。产物里逐个核过：`@localSearchIndexroot.*.js`、
+`@localSearchIndexen.*.js`（每 locale 一份）、`VPLocalSearchBox` chunk。
+
+**多语言**：中文留在根路径——站点已经上线且外链都指向 `/guide/…`，把中文挪到 `/zh/` 等于
+打断所有既有链接；英文挂 `/en/`。翻了 `en/index.md` 与 `en/guide/getting-started.md`，
+**en 的 nav/sidebar 只列真存在的页**，因为 CI 里 `vitepress build` 本身就是死链门禁
+（config 没设 `ignoreDeadLinks`）。本地 build rc=0、12 个 HTML。
+
+**用户的技术问题：本地托管后是否就不需要防火墙、可降 C++17？——不能，且两件事不同轴。**
+实测三条：① tpc 硬编码 `-std=c++17`（`NativeSourceProjectBuilder.php:104`，不是我们的选项）；
+② 只 `#include "gpui.h"` 的 TU 在 C++17 下 **20 个 error**，真实站点约 6–8 处
+（`gpui.h:6960` 的 `concept`、`:7017` 的 `requires`、amalgam `:10773`、`:6480` 的
+explicit copy-init）；③ 托管位置只改变源码从哪来。理论上能打第 8 个补丁把 concept 降级成
+SFINAE，但代价是每次上游动模板都要重打 + bridge 吞 54K 行头文件 + 还得改编译器的常量 ⇒ 不划算。
+顺带纠正一条我自己差点用错的论据：gpui.h 里 `NSWindow` 只出现在注释，所以"需要 -x objective-c++"
+**不是**防火墙存在的理由。
+
+**留给用户定的两件事**：其余 7 页英文要不要翻（约 5.6 万字符）；gpui-kit-cpp 用哪种托管形态
+（私有仓库 / 本地 bare / vendored）——后者的唯一收益是让 CI 能跑原生链三道门禁。

@@ -214,6 +214,26 @@ Phase 9（三个真 bug）/ Phase 10（mac 集成）/ Phase 11（Capabilities �
   `/guide/testing` 200（cleanUrls 生效）、`/typephp-gpui/assets/app.*.js` 200。
 - [ ] 若 CI 绿了，再考虑加 self-hosted runner 跑原生链（六道门禁里 3/4/5 目前只在本地这台机器上验过）。
 
+### Phase 13: 文档站增强 + 上游托管（进行中）
+- [x] **站内搜索**：VitePress 自带 `search.provider: 'local'`（MiniSearch，构建期建索引、
+  纯前端查询）。不选 Algolia：要 DocSearch 授权与爬取。产物实测：
+  `@localSearchIndexroot.*.js` + `@localSearchIndexen.*.js`（每个 locale 一份索引）
+  + `VPLocalSearchBox` chunk。
+- [x] **多语言骨架**：`locales` 里 **中文留在根路径**（站点已上线、外链都指向 `/guide/…`，
+  挪 locale 等于打断已有链接），英文挂 `/en/`。已翻 `en/index.md` 与
+  `en/guide/getting-started.md`；**en 的 nav/sidebar 只列真存在的页**，因为 CI 的
+  vitepress build 就是死链门禁（config 没设 ignoreDeadLinks）。
+- [ ] 英文正文其余 7 页（约 5.6 万字符）——范围待用户定（全翻 / 只翻指南核心 / 保持现状）。
+- [ ] **gpui-kit-cpp 本地托管**：上游无 `.git`（71M 含构建产物），托管形态待定
+  （私有 GitHub 仓库 / 本地 bare 仓库 / vendored 进本仓库）。做这件事的**唯一收益**是
+  CI 能跑原生链三道门禁；与防火墙无关。
+- [x] 结论并实测：**托管后防火墙仍然需要，也降不到 C++17**。tpc 硬编码 `-std=c++17`
+  （NativeSourceProjectBuilder.php:104）；`#include "gpui.h"` 的 TU 在 C++17 下
+  **20 个 error**（`concept`/`requires` 在 gpui.h:6960、7017、amalgam:10773，外加
+  6480 的 explicit copy-init），真实站点约 6–8 处。理论上可打第 8 个补丁降级，
+  代价是每次上游动模板都要重打 + bridge 吞 54K 行头文件 + 还要改编译器的常量 ⇒ 不划算。
+  详见 findings「本地托管后能不能不要防火墙」。
+
 ## Key Questions
 1. gpui-kit-cpp 的 Arena 内存模型如何在 TypePHP 中表达？TypePHP 支持 `std::any()` 和 Box 类型，但 Arena 分配需要 C++ 侧管理——桥接层负责 arena 生命周期，PHP 侧只持有 EntityId/handle。
 2. El 树的链式 builder 在 PHP 中如何实现？gpui 的 `Div(cx->a)->FlexCol()->SizeFull()->Child(...)` 返回 `El*` 指针；PHP 侧用 Element 对象持有 id，每个方法返回 `$this`，最终序列化为数组传给 C++。
