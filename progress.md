@@ -309,8 +309,8 @@ shotdiff OK 18 树（tree32 gdfrac=0，tree27 0.00018 为 HUD 活表）· doctor
 
 ## 会话收尾（2026-10-11，通知中心之后）
 
-**工作树**：19 个文件改动 + 1 张新基线（`tests/baseline/hello/tree32.png`），**未提交**（等指示）。
-`git diff --stat` = +822 / −25（含本轮的文档与计划文件；代码面 11 个文件）。
+**工作树**（当时）：19 个文件改动 + 1 张新基线（`tests/baseline/hello/tree32.png`）。
+**后来已提交**：`5b4e6bd` feat（12 文件 / +604）+ `d2cf825` docs（8 文件 / +219）。
 
 **本轮改到的面**：`cpp-src/gpui_shim.{h,cpp}`、`cpp-src/gpui_bridge.cc`、`php-src/gpui.stub.php`、
 `src/{App,Element,FakeBridge}.php`、`tests/SystemTest.php`、`tests/cpp/shim_test.cpp`、
@@ -392,5 +392,38 @@ Pest 57 → **65 例 / 296 断言**；shotdiff 18 树全绿（只有预期的 3 
 `php::Array` 不能用 `for (auto& kv : a)`（迭代器给 `ArrayKeyValue`）；测试收尾 `glob()+unlink`
 打到目录出警告。全部进 task_plan 的 Errors 表。
 
-**未提交**（等指示）。mac 那四条人工清单**必须人看**：菜单栏图标、别的 app 有焦点时的快捷键、
-OS 横幅（要先打包）、Dock 数字。
+**已提交**：`f00614a` feat（19 文件 / +2261，含新 TU 与 3 张重录基线）、`159e885` docs
+（8 文件 / +384）。工作树干净。mac 那四条人工清单**必须人看**：菜单栏图标、别的 app 有焦点时的
+快捷键、OS 横幅（要先打包）、Dock 数字。
+
+## 查 CI 顺带订正一条记录（2026-10-11）
+
+被问"最近 CI 结果"，查出来**根本没有 CI 运行记录**：本仓库无 git remote、GitHub 侧
+`yangweijie/typephp-gpui` 不存在（GraphQL 解析失败 + `/actions/runs` 404），触发条件
+`push`/`pull_request`/`workflow_dispatch` 三者都没发生过。
+
+于是把 Phase 7 P1 里那行 `[x] CI` 改成 `[~]`：文件写进仓库 ≠ 流水线执行过。CI 跑的三步
+（`php -l` 12 个文件含 `bin/gpui`、Pest、PHPStan）在本地逐个复现且全绿，但这只是推断——
+唯一没验过的环节是 ubuntu runner 上 `composer install` 能否装齐 `swoole/typephp` +
+`php-nano`（本机 macOS、`vendor/` 已就位，正好掩盖它）。
+
+新增 **Phase 12：建远端并首跑 CI**，需要用户确认可见性与目标账号后才动（不擅自改远端状态）。
+
+
+## Phase 12 开工：CI 首跑失败 → 修 php-version + 补 VitePress job（2026-10-11）
+
+远端由用户建好（`origin = github.com:yangweijie/typephp-gpui`，PUBLIC，main 已同步）。
+首跑 run `38139715827` **12 秒失败**在 `composer install`：workflow 钉 `php-version: 8.3`，
+而 lock 里的 dev 依赖要 `>=8.4`（phpunit 13.4.1 甚至要 `>=8.4.1`）。改成 **8.5**——依据是实测
+`composer.lock`：`swoole/typephp`/`swoole/phpx` 写 `>=8.4 <8.6`，开发机 8.5.7。
+
+按用户要求把 **VitePress 也放进 workflow**：新增 `docs` job（node 24 + `npm ci` +
+`docs:build` + 产物 HTML 页数断言）。**先在本地跑过再提交**：`npm ci` 成功、build rc=0、
+10 个 HTML；`config.mts` 没设 `ignoreDeadLinks` ⇒ 这个 job 顺带就是死链门禁。
+
+顺手量到一个还没咬人的风险：lock 里三个 `swoole/*` 的 `dist.url` 是**腾讯镜像**域名
+（开发机全局 composer 配置换过 packagist），且 lock 没有 source 记录 ⇒ `--prefer-source`
+不通。三包在真 packagist 上都在（HTTP 200），所以真失败时只需重写 dist URL，不必动版本。
+
+**本轮改动**：`.github/workflows/ci.yml`（php 8.5 + docs job + 头注释与理由）、
+`task_plan.md`（Phase 12 三项、P1 的 CI 行改口）、`findings.md`（两条实测结论）。

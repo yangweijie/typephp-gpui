@@ -650,3 +650,48 @@ application target，PHP 收到 `hotkey` 事件即证明"队列→派发→handl
 `AssetIconForPath` 要字面形状（前缀 + `.svg` 后缀 + base 命中表），任一条不满足返回空，
 渲染侧对空**静默什么都不画**。上游 `port-status.md:269-270` 说的 `DrawIcon` 笔画稿兜底
 在 `src/` 里不存在——坏名字没人接。
+
+## CI 从未跑过：一条"写了就等于有"的记录错误（2026-10-11 实测）
+
+被问"最近一次 CI 结果"时查出来的。三条独立证据：
+
+1. `git remote -v` **为空**，`git branch -vv` 显示 `main` 无 upstream，31 个提交全在本地。
+2. GitHub 侧没有这个仓库：`gh repo view yangweijie/typephp-gpui` 报
+   `Could not resolve to a Repository`，`gh run list` 走 API 得到
+   `HTTP 404 ... /actions/runs`。账号下只有 `typephp`、`typephp-qt`、`typephp-tinygui` 等姊妹仓库。
+3. `.github/workflows/ci.yml` 的触发是 `push` / `pull_request` / `workflow_dispatch` —— 三者
+   都没发生过。**所以没有任何运行记录可看**，不是失败，是未触发。
+
+顺带量清了这个 job 的覆盖面与缺口：它只跑自足的 PHP 层（`php -l` 全源含无扩展名的 `bin/gpui`
++ Pest + PHPStan level 5），原生链（`cmd/test-shim.sh` / `--selftest` / `--shot`）依赖
+`GPUI_DIR`，而 gpui-kit-cpp 无 git remote ⇒ 托管 runner 拉不到，这是**设计上的**排除，不是漏配。
+
+本地把 CI 会跑的三步逐个复现：`php -l` 12 个文件全过、Pest 65/296、PHPStan 0 error。
+**但这不等于 CI 会绿**——唯一没在本地验的环节是 ubuntu runner 上 `composer install` 能否装齐
+`swoole/typephp` 与 `swoole/php-nano`（本机是 macOS，`vendor/` 早就就位，恰好把这个问题掩盖了）。
+
+**记进这里的原因**：Phase 7 的 P1 表里那行 CI 之前是 `[x]`，读起来像"CI 在跑且绿"。文件写进仓库
+≠ 流水线执行过。已改成 `[~]` 并补了这段订正。
+
+
+## CI 首跑失败的两条实测结论（2026-10-11，Phase 12）
+
+### 1. `php-version: 8.3` 与 lock 冲突，CI 一步都没跑到
+
+run `38139715827` 12 秒失败在 `Composer install`：
+`phpunit/phpunit 13.4.1 requires php >=8.4.1 -> your php version (8.3.35)`（另有
+`phpunit/php-*`、`sebastian/*` 十几条同源）。锁里的 dev 依赖整体要 `>=8.4`。
+选 **8.5** 而不是 8.4 的理由是实测出来的：`swoole/typephp v0.9.4` 与 `swoole/phpx v2.9.3`
+都写 `"php": ">=8.4 <8.6"`，开发机是 8.5.7 ⇒ 8.5 是唯一同时满足"跑得过 lock"与"和生产端一致"的。
+
+### 2. `composer.lock` 的 dist URL 被烤成了国内镜像（潜在风险，不是已发生的失败）
+
+三个 `swoole/*` 的 `dist.url` 全指向
+`https://mirrors.cloud.tencent.com/repository/composer/...`，因为它们是在开发机的全局配置
+`repositories.packagist.org.url = https://mirrors.cloud.tencent.com/composer` 下解析的。
+lock 里**没有 source 记录**（`source_url = -`），所以 `--prefer-source` 这条路是断的。
+
+CI 的 ubuntu runner 会用 lock 里那个绝对 URL 下载。三个包在真 packagist 上都有
+（`repo.packagist.org/p2/swoole/{php-nano,typephp,phpx}.json` 全 HTTP 200），所以真出问题时的
+修法是**只重写 dist URL**（换掉全局 mirror 后重装 lock），不需要动任何版本号——记在这儿，
+免得下次把它当成"包不存在"去改依赖。

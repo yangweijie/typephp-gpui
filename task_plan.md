@@ -12,8 +12,9 @@ WebView、Inspector 面板、http/dirChange/inflate、`App::sysInfo()`、应用�
 `FsRun/ProcessRunBounded/Storage`（受 `Capabilities` 读写根授权模型约束，要单独一轮设计）、
 以及 root-app epic 那面墙（catalog MenuBar / VirtualList / Dock 的同步取值，防火墙不可达）。
 Phase 9（三个真 bug）/ Phase 10（mac 集成）/ Phase 11（Capabilities 三服务）于
-2026-10-11 全部完成，六道门禁全绿（Pest 65/296 · PHPStan 0 · shim_test 10 组 ·
-selftest 21 链路 · shotdiff 18 树 · doctor 7 marker）。
+2026-10-11 全部完成并**已提交**（`f00614a` feat / `159e885` docs），六道门禁全绿
+（Pest 65/296 · PHPStan 0 · shim_test 10 组 · selftest 21 链路 · shotdiff 18 树 · doctor 7 marker）。
+下一段是 Phase 12：远端与 CI 首跑（CI 从未执行过，见 P1 的订正）。
 "缺失"清单已收敛到真缺失：Linux/Windows 的托盘与 OS 通知（端口里是桩或空实现）。
 
 ## Phases
@@ -97,7 +98,12 @@ selftest 21 链路 · shotdiff 18 树 · doctor 7 marker）。
 
 **P1 — 质量门禁**
 - [x] **C++ 侧测试**（2026-10-11）：`tests/cpp/shim_test.cpp` `#include` 整个 gpui_shim.cpp，headless 测匿名命名空间纯函数——`kindFromString` 映射、`AStr` arena 拷贝（bug #18 守卫）、`toComponentArg` 各 SchemaKind + Enum 白名单 + Array/Optional/Callback、`buildComponentArgs` 元数补齐/缺必填返 -1。`cmd/test-shim.sh` 两步编链（-x 只作用 .cpp），`SHIM CPP TESTS OK`。composer `test:cpp` / `test:all`。
-- [x] **CI**（2026-10-11，部分）：`.github/workflows/ci.yml` 跑 `php -l` 全源 + Pest（自足，ubuntu runner）。**原生链（build/selftest/shot/test:cpp）依赖 gpui-kit-cpp 源码，托管 runner 拉不到 → 暂不进 CI**，本地/self-hosted 跑（workflow 顶部注明）。
+- [~] **CI**（2026-10-11，**跑过一次且失败，已修**）：`.github/workflows/ci.yml` 定义 `php -l` 全源 + Pest + PHPStan（自足，ubuntu runner）。**原生链（build/selftest/shot/test:cpp）依赖 gpui-kit-cpp 源码，托管 runner 拉不到 → 暂不进 CI**，本地/self-hosted 跑（workflow 顶部注明）。
+  ⚠ 订正（2026-10-11 查 CI 时实测）：本仓库**没有 git remote**，GitHub 侧 `yangweijie/typephp-gpui` 不存在
+  （GraphQL 解析失败、`/actions/runs` 404），所以这个 job **一次都没执行过**。它跑的那三步在本地
+  逐个复现过且全绿（`php -l` 12 个文件含 `bin/gpui`、Pest 65/296、PHPStan 0），但"CI 绿"目前
+  只是推断，不是观测。唯一没在本地验的环节是 ubuntu 上 `composer install` 能否装齐
+  `swoole/typephp` + `php-nano`。
 - [x] **--shot 基线 diff**（2026-10-11）：`cmd/shotdiff.php`（PHP imagick/gd，无新系统依赖）record/check 两模式，逐树出图与 `tests/baseline/<ex>/tree<N>.png` 像素比对（RMSE/gdfrac，容差 0.001）。`bin/gpui shotdiff` + composer `shot:check`/`shot:record`。**首跑即抓到 P0-mem 引入的 dialog double-free**（tree13 未关 dialog 直接 close → SIGABRT，见 Errors 表）。
 - [x] **静态分析/风格**（2026-10-11，PHP 侧）：phpstan 2.3（composer dev）level 5 扫 `src`，`phpstan.neon` 固化；修 3 处真问题（`$ops`/`$children`/`$eventQueue` 的 `@var` 与实际形状不符 + `gpui_app_create` stub 与 FakeBridge 改 `: void`），**0 error**。composer `analyse` / 并入 `test:all`；CI 加 phpstan 步。C++ 侧：加 `.clang-format` 约定（LLVM/4空格/80列），但环境无 clang-format（装 LLVM ~GB 且启动盘紧）→ 暂不强制、不入门禁。
 
@@ -182,6 +188,21 @@ selftest 21 链路 · shotdiff 18 树 · doctor 7 marker）。
 - **验收**：selftest #20/#21（gpui 写的 PHP 读得到、反之亦然、含 `\0` 二进制；未授予路径被拒
   且原因含"根"；`/bin/echo` 通、`/bin/cat` 被拒且原因含"白名单"；存储授权门前后的形状）
   + `shim_test.cpp::testCapabilityServices()` 在 headless 里真跑同一套。
+
+### Phase 12: 交付面收口（进行中）
+- [x] **建远端并首跑 CI**（2026-10-11，用户建好 `origin = github.com:yangweijie/typephp-gpui`，PUBLIC）。
+  首跑 run 38139715827 **失败**：`composer install` 在 "Setup PHP 8.3" 上撞 lock——
+  `phpunit/phpunit 13.4.1 requires php >=8.4.1 -> your php version (8.3.35)`。
+  改成 **8.5**（`swoole/typephp` 与 `phpx` 要 `>=8.4 <8.6`、开发机是 8.5.7，8.5 是唯一同时满足
+  两端的选择）。
+- [x] **VitePress 进 workflow**：新增 `docs` job（`setup-node 24` + `npm ci` + `npm run docs:build`
+  + 产物页数断言）。本地先跑过：`npm ci` 成功、build rc=0、10 个 HTML。config 里没设
+  `ignoreDeadLinks` ⇒ 死链会让 build 失败，这一 job 顺带就是死链门禁。
+- [ ] **盯第二跑**：`composer install` 能不能成。风险已查明但不是失败——三个 `swoole/*` 的
+  `dist.url` 被烤进了**腾讯镜像**（`mirrors.cloud.tencent.com/...`，来自开发机的全局
+  `repositories.packagist.org.url`），runner 在境外要能拉到它。三个包在真 packagist 上都有
+  （`repo.packagist.org/p2/...` 全 200），所以兜底办法是重写 lock 的 dist URL，不必换版本。
+- [ ] 若 CI 绿了，再考虑加 self-hosted runner 跑原生链（六道门禁里 3/4/5 目前只在本地这台机器上验过）。
 
 ## Key Questions
 1. gpui-kit-cpp 的 Arena 内存模型如何在 TypePHP 中表达？TypePHP 支持 `std::any()` 和 Box 类型，但 Arena 分配需要 C++ 侧管理——桥接层负责 arena 生命周期，PHP 侧只持有 EntityId/handle。
