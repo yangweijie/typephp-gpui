@@ -90,7 +90,7 @@ Phase 4/5/6 主体完成（渲染 bug 修复、定时器、Slot+组件、Markdow
 - [x] **C++ 侧测试**（2026-10-11）：`tests/cpp/shim_test.cpp` `#include` 整个 gpui_shim.cpp，headless 测匿名命名空间纯函数——`kindFromString` 映射、`AStr` arena 拷贝（bug #18 守卫）、`toComponentArg` 各 SchemaKind + Enum 白名单 + Array/Optional/Callback、`buildComponentArgs` 元数补齐/缺必填返 -1。`cmd/test-shim.sh` 两步编链（-x 只作用 .cpp），`SHIM CPP TESTS OK`。composer `test:cpp` / `test:all`。
 - [x] **CI**（2026-10-11，部分）：`.github/workflows/ci.yml` 跑 `php -l` 全源 + Pest（自足，ubuntu runner）。**原生链（build/selftest/shot/test:cpp）依赖 gpui-kit-cpp 源码，托管 runner 拉不到 → 暂不进 CI**，本地/self-hosted 跑（workflow 顶部注明）。
 - [x] **--shot 基线 diff**（2026-10-11）：`cmd/shotdiff.php`（PHP imagick/gd，无新系统依赖）record/check 两模式，逐树出图与 `tests/baseline/<ex>/tree<N>.png` 像素比对（RMSE/gdfrac，容差 0.001）。`bin/gpui shotdiff` + composer `shot:check`/`shot:record`。**首跑即抓到 P0-mem 引入的 dialog double-free**（tree13 未关 dialog 直接 close → SIGABRT，见 Errors 表）。
-- [ ] **静态分析/风格**：PHP 无 phpstan/psalm/php-cs-fixer；C++ 无 clang-format/clang-tidy。
+- [x] **静态分析/风格**（2026-10-11，PHP 侧）：phpstan 2.3（composer dev）level 5 扫 `src`，`phpstan.neon` 固化；修 3 处真问题（`$ops`/`$children`/`$eventQueue` 的 `@var` 与实际形状不符 + `gpui_app_create` stub 与 FakeBridge 改 `: void`），**0 error**。composer `analyse` / 并入 `test:all`；CI 加 phpstan 步。C++ 侧：加 `.clang-format` 约定（LLVM/4空格/80列），但环境无 clang-format（装 LLVM ~GB 且启动盘紧）→ 暂不强制、不入门禁。
 
 **P2 — 覆盖面/DX/文档**
 - [ ] **MenuBar**：需 catalog window-opener 装的 root application 才能 `AppEffects`（现直开 ShellRoot 窗口不满足）。接 `ComponentWindowOpener`。

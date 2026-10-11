@@ -1,0 +1,9 @@
+# C++ 风格基线（shim/bridge）。当前环境未装 clang-format，故仅作约定 + 供装有
+# 工具者/未来 CI 用：clang-format -i --style=file cpp-src/*.cpp cpp-src/*.cc
+BasedOnStyle: LLVM
+IndentWidth: 4
+ColumnLimit: 80
+PointerAlignment: Left
+BreakBeforeBraces: Attach
+AllowShortFunctionsOnASingleLine: Empty
+SortIncludes: false

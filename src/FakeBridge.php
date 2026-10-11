@@ -22,7 +22,7 @@ namespace TypePHP\Gpui {
         /** @var int 下一个窗口 id */
         public static int $nextWindowId = 1;
 
-        /** @var array<int, array{type:string, id:string, value:mixed}> 待取事件队列 */
+        /** @var array<int, array{window:int, type:string, id:string, value:mixed}> 待取事件队列 */
         public static array $eventQueue = [];
 
         /** @var array<int, array<string, mixed>[]> 每窗口的渲染历史（用于断言） */
@@ -69,9 +69,8 @@ namespace {
 
     // ── 应用生命周期 ──
 
-    function gpui_app_create(): mixed
+    function gpui_app_create(): void
     {
-        return null;
     }
 
     function gpui_window_open(string $title, int $width, int $height): mixed

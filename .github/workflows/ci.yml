@@ -40,3 +40,6 @@ jobs:
 
       - name: Pest (FakeBridge, headless)
         run: vendor/bin/pest
+
+      - name: PHPStan (level 5, src)
+        run: vendor/bin/phpstan analyse --no-progress

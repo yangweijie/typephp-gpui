@@ -17,8 +17,8 @@
 
 /* ─────────────────────── 应用与窗口生命周期 ─────────────────────── */
 
-/** 初始化 gpui App + component::Init + ShellRuntime + 事件泵基础设施。幂等。 */
-function gpui_app_create(): mixed {}
+/** 初始化 gpui App + component::Init + ShellRuntime + 事件泵基础设施。幂等，无返回值。 */
+function gpui_app_create(): void {}
 
 /**
  * 打开一个窗口并挂载 ScriptView（其 Render 从 bridge 拉当前 Element 树 materialize）。

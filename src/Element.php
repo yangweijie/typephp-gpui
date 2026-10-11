@@ -31,10 +31,10 @@ class Element
     /** @var string 值（TextView 的 markdown/html 内容） */
     public string $value = '';
 
-    /** @var array<int, array{kind:string, name:string, args:array}> 操作列表 */
+    /** @var array<int, array<string, mixed>> 操作列表：nullary_style/param_style/method/callback/slot/registered_method，各 op 携带的键不同（args 或 child） */
     public array $ops = [];
 
-    /** @var int[] 子元素的 specId（由 bridge 分配后回填），或嵌套 Element 对象 */
+    /** @var array<int, int|self> 子元素：通常是嵌套 Element，也可能是 bridge 回填的 specId */
     public array $children = [];
 
     /** @var mixed 不透明句柄（Input/Slider 等保留状态） */
