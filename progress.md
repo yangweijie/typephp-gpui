@@ -441,3 +441,21 @@ P1 的 CI 行因此从 `[~]` 转正为 `[x]`。剩两行 runner 侧待办（各�
 
 **原生链仍然只在本地这台 mac 上验过**——六道门禁里的 3/4/5（shim_test / selftest / shotdiff）
 依赖 `GPUI_DIR`，托管 runner 拉不到 gpui-kit-cpp，这是设计上的排除，不是漏配。
+
+### 文档站 404 → 上线（run `38140955210`，2026-10-11 12:52Z）
+
+用户报"CI build 成功但 https://yangweijie.github.io/typephp-gpui 404"。两条根因都是**实测**出来的：
+
+1. Pages 配置已是 `build_type=workflow`，但 `status: null` —— **没有 job 上传过产物**，
+   CI 只 build 不 deploy。build 成功与 404 不矛盾。
+2. `config.mts` 没设 `base`。项目页挂在 `/typephp-gpui/` 下，base 留默认 `/` 会得到
+   "页面在、资源 404" 的站；本地 dev/build 在 localhost 根路径，**看不出这个错**。
+
+补：`upload-pages-artifact` + `deploy` job（`environment: github-pages`、`pages:write` +
+`id-token:write`、只在 main 的 push 上跑）；`base: '/typephp-gpui/'`；再加一步断言
+"产物 index.html 里必须出现 `/typephp-gpui/`"，让 base 忘设这种静默错配在 CI 里直接红。
+runner 两行也收了：五个 action 升 `@v5`（v4 还在 Node 20 上）、`runs-on` 钉 `ubuntu-24.04`
+（latest 十天后迁 26，那该是一次独立决策）；加 `concurrency` 让 Pages 一次只跑一个部署。
+
+**线上验证**（不看 CI 颜色，直接打 HTTP）：根 `200`、`/guide/testing` `200`（cleanUrls 生效）、
+`/typephp-gpui/assets/app.*.js` `200`。提交 `ebbc3cc`。Phase 12 全部打勾。

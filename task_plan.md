@@ -189,7 +189,7 @@ Phase 9（三个真 bug）/ Phase 10（mac 集成）/ Phase 11（Capabilities �
   且原因含"根"；`/bin/echo` 通、`/bin/cat` 被拒且原因含"白名单"；存储授权门前后的形状）
   + `shim_test.cpp::testCapabilityServices()` 在 headless 里真跑同一套。
 
-### Phase 12: 交付面收口 — ✅ CI 两 job 全绿（2026-10-11），剩两行 runner 待办
+### Phase 12: 交付面收口 — ✅ 完成（2026-10-11）：CI 三 job 全绿 + 文档站上线
 - [x] **建远端并首跑 CI**（2026-10-11，用户建好 `origin = github.com:yangweijie/typephp-gpui`，PUBLIC）。
   首跑 run 38139715827 **失败**：`composer install` 在 "Setup PHP 8.3" 上撞 lock——
   `phpunit/phpunit 13.4.1 requires php >=8.4.1 -> your php version (8.3.35)`。
@@ -201,9 +201,17 @@ Phase 9（三个真 bug）/ Phase 10（mac 集成）/ Phase 11（Capabilities �
 - [x] **第二跑盯过了**：`composer install` 从 lock 装齐 —— 那个"腾讯镜像 dist URL"的风险
   **没咬人**（runner 在 southcentralus，照样拉得动）。兜底办法仍记在 findings：真要坏时
   只重写 dist URL，不动版本号。
-- [ ] 两个 runner 侧的待办（各一行，未动，等用户点头）：`actions/checkout@v4` 与
-  `setup-node@v4` 还在 Node 20 上跑（已出 deprecation 警告，升 `@v5` 即消）；
-  `ubuntu-latest` 将于 **2026-10-19** 迁到 Ubuntu 26，要么钉 `ubuntu-24.04`、要么跟着迁。
+- [x] runner 侧两行都收了：`checkout`/`setup-node`/`configure-pages`/`upload-pages-artifact`/
+  `deploy-pages` 全升 **@v5**（v4 还跑在已弃用的 Node 20 上）；`runs-on` 从 `ubuntu-latest`
+  钉到 **`ubuntu-24.04`**（latest 2026-10-19 迁 Ubuntu 26，那该是一次独立决策）。
+- [x] **文档站上 GitHub Pages**（用户报 404，实测根因两条）：
+  ① Pages 已是 `build_type=workflow` 但**没有任何 job 上传过产物**（`status: null`）——CI 只
+  build 不 deploy；② `config.mts` **没设 `base`**，项目页挂在 `/typephp-gpui/` 下，base 留
+  默认 `/` 会得到"页面在、资源 404"的站，而本地在 localhost 根路径完全看不出来。
+  补 `upload-pages-artifact` + `deploy` job（`environment: github-pages`、只在 main push 上跑）
+  与 `base: '/typephp-gpui/'`，并加一步"产物里必须出现 `/typephp-gpui/`"的断言，让 base 忘设
+  这种静默错配在 CI 里就红。run `38140955210` 三 job 全绿，线上实测：根 200、
+  `/guide/testing` 200（cleanUrls 生效）、`/typephp-gpui/assets/app.*.js` 200。
 - [ ] 若 CI 绿了，再考虑加 self-hosted runner 跑原生链（六道门禁里 3/4/5 目前只在本地这台机器上验过）。
 
 ## Key Questions
