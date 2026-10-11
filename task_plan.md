@@ -92,12 +92,10 @@ Phase 4/5/6 主体完成（渲染 bug 修复、定时器、Slot+组件、Markdow
 - [x] **--shot 基线 diff**（2026-10-11）：`cmd/shotdiff.php`（PHP imagick/gd，无新系统依赖）record/check 两模式，逐树出图与 `tests/baseline/<ex>/tree<N>.png` 像素比对（RMSE/gdfrac，容差 0.001）。`bin/gpui shotdiff` + composer `shot:check`/`shot:record`。**首跑即抓到 P0-mem 引入的 dialog double-free**（tree13 未关 dialog 直接 close → SIGABRT，见 Errors 表）。
 - [x] **静态分析/风格**（2026-10-11，PHP 侧）：phpstan 2.3（composer dev）level 5 扫 `src`，`phpstan.neon` 固化；修 3 处真问题（`$ops`/`$children`/`$eventQueue` 的 `@var` 与实际形状不符 + `gpui_app_create` stub 与 FakeBridge 改 `: void`），**0 error**。composer `analyse` / 并入 `test:all`；CI 加 phpstan 步。C++ 侧：加 `.clang-format` 约定（LLVM/4空格/80列），但环境无 clang-format（装 LLVM ~GB 且启动盘紧）→ 暂不强制、不入门禁。
 
-**P2 — 覆盖面/DX/文档**
-- [ ] **MenuBar**：需 catalog window-opener 装的 root application 才能 `AppEffects`（现直开 ShellRoot 窗口不满足）。接 `ComponentWindowOpener`。
-- [ ] **A 类 VirtualList/Dock**：仍缺（依赖"回调进脚本渲染"，与 List A2 同源）。
-- [ ] **kind 覆盖**：`kindFromString` 认 ~59 个，仍有 ComponentKind 未映射/未出工厂；富 catalog 组件（Chart/Carousel/Tabs/Tooltip…）按需接入。
-- [ ] **rm()/cb() 抽象泄漏**：导出名、枚举字面量、实参顺序全靠用户照抄 descriptor，PHP 侧无校验。考虑薄类型层（枚举常量、参数校验）。
-- [ ] **文档**：用 **VitePress** 搭文档站（用户 2026-10-11 定）——架构图、构建/测试/自检、组件 API 参考、示例、CONTRIBUTING、防火墙架构 ADR。
+**P2 — 覆盖面/DX/文档**（用户 2026-10-11 定序：先 4+1，2+3 归 root-app epic）
+- [~] **MenuBar + A 类 VirtualList/Dock → 「root-application 集成」epic（暂缓）**：调查证实三者同属"需 gpui ScriptView root-application 机制"类（`AppEffects`→`ScriptViewApplication(cx->self)` 要真 ScriptView 根；`ScheduleComponentAppEffect` 把延迟效果 post 到 `ScriptView::OnComponentAppEffect`；catalog `OpenWindowWithRoot` 用基座 `Root` 才给得出 root-app，而基座 Root 会破 `ShellRootOf`→Dialog/Toast 挂）。与我们为 Dialog/Toast 选的 ShellRoot 根模型互斥。强做 blast radius 大、威胁 6 项绿门禁 → 需专门设计，见 findings.md。
+- [ ] **rm()/cb() 抽象泄漏**（进行中）：导出名/枚举字面量/实参顺序全靠照抄 descriptor，错值只在 debug_tree/lastError 现形。加 PHP 侧薄类型层：枚举常量 + sugar 方法预校验（render 前抛 InvalidArgumentException）。
+- [ ] **文档**：用 **VitePress** 搭文档站（用户 2026-10-11 定）——架构图、可复现构建、测试与门禁、组件 API 参考、示例、CONTRIBUTING、防火墙 ADR。
 
 ## Key Questions
 1. gpui-kit-cpp 的 Arena 内存模型如何在 TypePHP 中表达？TypePHP 支持 `std::any()` 和 Box 类型，但 Arena 分配需要 C++ 侧管理——桥接层负责 arena 生命周期，PHP 侧只持有 EntityId/handle。

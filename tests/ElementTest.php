@@ -210,5 +210,35 @@ test('dropdownMenu item carries a callback marker as its second arg', function (
     expect($item['args'][1])->toBe(['__cb__', 'click', 'dd-new']);
 });
 
+// ── P2-4：枚举预校验（render 前抛异常，而非只在 debug_tree 现形）──
+
+test('enum sugar accepts valid literals and emits registered_method', function (): void {
+    $el = El::sidebar('sb')->side('left')->collapsibleMode('icon');
+    $ops = $el->toArray()['ops'];
+    $names = array_map(fn ($o) => $o['name'], $ops);
+    expect($names)->toContain('side');
+    expect($names)->toContain('collapsible');
+    // 合法枚举不抛（直接调用，若抛则测试失败）
+    expect(El::field([])->align('center'))->toBeInstanceOf(El::class);
+    expect(El::icon('i.svg')->sizeEnum('large'))->toBeInstanceOf(El::class);
+});
+
+test('enum sugar rejects invalid literals with InvalidArgumentException', function (): void {
+    expect(fn () => El::sidebar('s')->side('middle'))->toThrow(\InvalidArgumentException::class);
+    expect(fn () => El::sidebar('s')->collapsibleMode('magic'))->toThrow(\InvalidArgumentException::class);
+    expect(fn () => El::sidebarMenuItem('x')->navIcon('spaceship'))->toThrow(\InvalidArgumentException::class);
+    expect(fn () => El::field([])->align('justify'))->toThrow(\InvalidArgumentException::class);
+    expect(fn () => El::alert('a', 'm')->sizeEnum('gigantic'))->toThrow(\InvalidArgumentException::class);
+});
+
+test('alert rejects unknown variant but accepts all known variants', function (): void {
+    expect(fn () => El::alert('a', 'm', 'nope'))->toThrow(\InvalidArgumentException::class);
+    foreach (array_keys(El::ALERT_VARIANTS) as $v) {
+        expect(El::alert('a', 'm', $v))->toBeInstanceOf(El::class);
+    }
+    expect(El::alert('a', 'm', 'success')->toArray()['kind'])->toBe('SuccessAlert');
+});
+
+
 
 

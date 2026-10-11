@@ -49,6 +49,38 @@ class Element
     /** @var array<int, mixed> 构造器实参，按 descriptor 声明顺序（字符串/布尔/数字/数组/回调标记） */
     public array $ctorArgs = [];
 
+    // ── catalog 枚举白名单（严格对齐 component_shell descriptor 的字面量表）──
+    // 用途：sugar 方法在 render 前预校验，拼错的枚举立刻抛异常，而非等到 debug_tree。
+
+    /** support.h kSizeLiterals（Alert/Icon/Form 的 size）。 */
+    public const SIZES = ['xsmall', 'small', 'medium', 'large'];
+    /** sidebar kSideLiterals。 */
+    public const SIDES = ['left', 'right'];
+    /** sidebar kModeLiterals（collapsible）。 */
+    public const COLLAPSE_MODES = ['icon', 'offcanvas', 'none'];
+    /** form kAlignLiterals（Field.align）。 */
+    public const FIELD_ALIGN = ['start', 'center', 'end'];
+    /** sidebar kIconLiterals（SidebarMenuItem.icon）。 */
+    public const NAV_ICONS = ['home', 'components', 'settings', 'archive', 'account'];
+    /** alert 变体 → 导出名映射。 */
+    public const ALERT_VARIANTS = [
+        'default' => 'Alert',
+        'info' => 'InfoAlert',
+        'success' => 'SuccessAlert',
+        'warning' => 'WarningAlert',
+        'error' => 'ErrorAlert',
+    ];
+
+    /** 枚举预校验：不在白名单即抛 InvalidArgumentException（含允许集）。 */
+    private static function enumCheck(string $method, string $value, array $allowed): void
+    {
+        if (!in_array($value, $allowed, true)) {
+            throw new \InvalidArgumentException(
+                "Element::$method(): '$value' 非法，允许 [" . implode(', ', $allowed) . ']'
+            );
+        }
+    }
+
     // ── 构造工厂 ──
 
     public static function div(): self
@@ -424,15 +456,13 @@ class Element
     /** Alert 家族：id+message 必填（id 非空），variant 选导出变体。Alert 拒 children。 */
     public static function alert(string $id, string $message, string $variant = 'default'): self
     {
-        $exports = [
-            'default' => 'Alert',
-            'info' => 'InfoAlert',
-            'success' => 'SuccessAlert',
-            'warning' => 'WarningAlert',
-            'error' => 'ErrorAlert',
-        ];
-        $export = $exports[$variant] ?? 'Alert';
-        return self::reg($export, [$id, $message]);
+        if (!isset(self::ALERT_VARIANTS[$variant])) {
+            throw new \InvalidArgumentException(
+                'Element::alert(): variant \'' . $variant . '\' 非法，允许 ['
+                . implode(', ', array_keys(self::ALERT_VARIANTS)) . ']'
+            );
+        }
+        return self::reg(self::ALERT_VARIANTS[$variant], [$id, $message]);
     }
 
     /** Breadcrumb：一条有序标签数组（Array<String> 构造实参）。 */
@@ -530,13 +560,15 @@ class Element
     public function description(string $s): self { return $this->rm('description', [$s]); }
     public function columns(float $n): self { return $this->rm('columns', [$n]); }
     public function labelWidth(float $w): self { return $this->rm('label_width', [$w]); }
-    public function side(string $s): self { return $this->rm('side', [$s]); }
-    public function collapsibleMode(string $mode): self { return $this->rm('collapsible', [$mode]); }
+    public function side(string $s): self { self::enumCheck('side', $s, self::SIDES); return $this->rm('side', [$s]); }
+    public function collapsibleMode(string $mode): self { self::enumCheck('collapsibleMode', $mode, self::COLLAPSE_MODES); return $this->rm('collapsible', [$mode]); }
     public function collapsed(bool $v): self { return $this->rm('collapsed', [$v]); }
-    public function navIcon(string $name): self { return $this->rm('icon', [$name]); }
+    public function navIcon(string $name): self { self::enumCheck('navIcon', $name, self::NAV_ICONS); return $this->rm('icon', [$name]); }
     public function rotate(float $rad): self { return $this->rm('rotate', [$rad]); }
     public function color(string $c): self { return $this->rm('color', [$c]); }
-    public function align(string $a): self { return $this->rm('align', [$a]); }
+    public function align(string $a): self { self::enumCheck('align', $a, self::FIELD_ALIGN); return $this->rm('align', [$a]); }
+    /** catalog 组件的语义尺寸（走 registered_method 'size'，枚举预校验）。 */
+    public function sizeEnum(string $s): self { self::enumCheck('sizeEnum', $s, self::SIZES); return $this->rm('size', [$s]); }
 
     // ── 样式方法（nullary style，无参关键字）──
 

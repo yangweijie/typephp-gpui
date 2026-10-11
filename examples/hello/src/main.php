@@ -220,14 +220,14 @@ function runShot(string $path, int $tree = 0): void
                 El::alert('a1', 'This is a default alert.'),
                 El::alert('a2', 'Something worth knowing.', 'info')->title('Heads up'),
                 El::alert('a3', 'Operation completed.', 'success'),
-                El::alert('a4', 'Check your inputs.', 'warning')->rm('size', ['large']),
+                El::alert('a4', 'Check your inputs.', 'warning')->sizeEnum('large'),
                 El::alert('a5', 'Something broke.', 'error')->banner(),
             ])->p(16.0)->gap(8.0)->wFull(),
             21 => El::vFlex([
                 El::text('Breadcrumb + Icon (catalog)')->font(18.0)->semibold(),
                 El::breadcrumb(['Home', 'Library', 'Data']),
                 El::hFlex([
-                    El::icon('icons/home.svg')->rm('size', ['large'])->color('#e07b39'),
+                    El::icon('icons/home.svg')->sizeEnum('large')->color('#e07b39'),
                     El::icon('icons/settings.svg')->rm('rotate', [1.57]),
                 ])->gap(12.0)->itemsCenter(),
             ])->p(16.0)->gap(12.0),
