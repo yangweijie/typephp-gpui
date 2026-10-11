@@ -40,6 +40,8 @@
         "build": "@php bin/gpui build",
         "run": "@php bin/gpui run",
         "doctor": "@php bin/gpui doctor",
+        "shot:check": "@php bin/gpui shotdiff check",
+        "shot:record": "@php bin/gpui shotdiff record",
         "demo:build": "@php bin/gpui build hello"
     },
     "bin": [

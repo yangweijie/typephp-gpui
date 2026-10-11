@@ -138,6 +138,14 @@ switch ($cmd) {
         break;
     }
 
+    case 'shotdiff': {
+        // gpui shotdiff [check|record] [example]  —— --shot 视觉回归基线比对（需已构建）
+        $mode = $args[0] ?? 'check';
+        $ex = $args[1] ?? 'hello';
+        exit(run('php ' . escapeshellarg("$root/cmd/shotdiff.php") . ' '
+            . escapeshellarg($mode) . ' ' . escapeshellarg($ex)));
+    }
+
     case 'new': {
         $app = $args[0] ?? '';
         if ($app === '') { err('用法：gpui new <app>'); exit(1); }
@@ -177,6 +185,7 @@ gpui — TypePHP-GPUI 打包 CLI
   gpui run [example]       编译并运行（默认 hello）
   gpui shot [example]      编译并截图出 PNG
   gpui selftest [example]  编译并跑 --selftest
+  gpui shotdiff [check|record] [example]  --shot 视觉回归基线比对（需已构建）
   gpui new <app>           脚手架新应用
 H);
 }

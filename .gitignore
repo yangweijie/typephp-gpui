@@ -19,6 +19,7 @@ examples/*/project.macos.gen.yml
 # 截图 / 临时
 *.png
 !docs/**/*.png
+!tests/baseline/**/*.png
 /tmp/
 .probe/
 

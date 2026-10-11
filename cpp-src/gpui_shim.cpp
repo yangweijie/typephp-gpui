@@ -496,14 +496,11 @@ void gpui_shim_close(void* win) {
     box->closed = true;
     box->timerIds.clear();
     box->timerKeys.clear();
-    // dialog 内容 Box2 无 PHP 句柄引用（open_dialog 只回计数），可安全释放：
-    // 摘 g_views、丢其 PhpView 实体、删 viewPtr 与 Box2 自身。
+    // dialog 内容 Box2 无 PHP 句柄引用（open_dialog 只回计数），删其 wrapper。
+    // 但**不**手动 EntityDrop / delete PhpView：AppClose→ShellRoot 拆除已经过
+    // EntityNewRaw 的 deleter 释放各 PhpView（含 dialog 内容视图），我们再删就是
+    // double-free/UAF（tree13 未关 dialog 直接 close 曾触发 SIGABRT）。
     for (Box2* dlg : box->dialogs) {
-        if (dlg->viewPtr) {
-            g_views.erase(dlg->viewPtr);
-            gpui::EntityDrop(g_app, dlg->viewEntity);
-            delete static_cast<PhpView*>(dlg->viewPtr);
-        }
         delete dlg;
     }
     box->dialogs.clear();

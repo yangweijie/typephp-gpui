@@ -89,7 +89,7 @@ Phase 4/5/6 主体完成（渲染 bug 修复、定时器、Slot+组件、Markdow
 **P1 — 质量门禁**
 - [x] **C++ 侧测试**（2026-10-11）：`tests/cpp/shim_test.cpp` `#include` 整个 gpui_shim.cpp，headless 测匿名命名空间纯函数——`kindFromString` 映射、`AStr` arena 拷贝（bug #18 守卫）、`toComponentArg` 各 SchemaKind + Enum 白名单 + Array/Optional/Callback、`buildComponentArgs` 元数补齐/缺必填返 -1。`cmd/test-shim.sh` 两步编链（-x 只作用 .cpp），`SHIM CPP TESTS OK`。composer `test:cpp` / `test:all`。
 - [x] **CI**（2026-10-11，部分）：`.github/workflows/ci.yml` 跑 `php -l` 全源 + Pest（自足，ubuntu runner）。**原生链（build/selftest/shot/test:cpp）依赖 gpui-kit-cpp 源码，托管 runner 拉不到 → 暂不进 CI**，本地/self-hosted 跑（workflow 顶部注明）。
-- [ ] **--shot 基线 diff**：现在靠人眼 Read PNG。加参考图 + 像素/结构 diff 自动判定。
+- [x] **--shot 基线 diff**（2026-10-11）：`cmd/shotdiff.php`（PHP imagick/gd，无新系统依赖）record/check 两模式，逐树出图与 `tests/baseline/<ex>/tree<N>.png` 像素比对（RMSE/gdfrac，容差 0.001）。`bin/gpui shotdiff` + composer `shot:check`/`shot:record`。**首跑即抓到 P0-mem 引入的 dialog double-free**（tree13 未关 dialog 直接 close → SIGABRT，见 Errors 表）。
 - [ ] **静态分析/风格**：PHP 无 phpstan/psalm/php-cs-fixer；C++ 无 clang-format/clang-tidy。
 
 **P2 — 覆盖面/DX/文档**
@@ -119,7 +119,10 @@ Phase 4/5/6 主体完成（渲染 bug 修复、定时器、Slot+组件、Markdow
 ## Errors Encountered
 | Error | Attempt | Resolution |
 |-------|---------|------------|
-|       |         |            |
+| `Abort trap: 6`（SIGABRT）跑 `--shot tree=13`（dialog 未关直接 close） | shotdiff 首跑抓到（P0-mem 引入） | `gpui_shim_close` 曾手动 `EntityDrop`+`delete PhpView` 释放 dialog，但 `AppClose`→ShellRoot 拆除已经过 EntityNewRaw deleter 释放 PhpView → double-free/UAF。改为只 `delete dlg`（Box2 wrapper），实体生命周期归 ShellRoot。 |
+| `Unsupported file type: project.macos.yml.gen`（tpc 拒） | @ROOT@ 解析后生成 yml 喂 tpc | tpc 只认 `.yml`/`.yaml` 扩展名，生成文件改名 `project.macos.gen.yml`。 |
+| `-x objective-c++` 把 `.o` 当源码编（"not valid UTF-8"） | test-shim.sh 单条命令编链 | 拆两步：`-c` 只编 test.cpp（带 -x），链接阶段不带 -x，clang 自动识别 .o。 |
+| `Cannot redeclare App::lastError()` | 新增错误回传方法 | 既有 `lastError()` 是 PHP handler 异常属性，新 C 侧通道改名 `registeredError()`。 |
 
 ## Notes
 - gpui-kit-cpp 的 component_shell 层已经实现了 QuickJS 脚本绑定（ScriptView/ShellRuntime/RenderSnapshot/SpecNode），这是最接近"用脚本语言描述 UI"的先例。TypePHP 桥接可以参考 SpecNode/ComponentKind 的设计，把 PHP 数组翻译成 SpecNode 再 ShellMaterialize 成 El 树。
