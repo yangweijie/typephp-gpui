@@ -52,11 +52,20 @@ bool g_runtimeReady = false;
 // 随进程走：SysState 只含两个 Vec，且每次 SysRefresh 都先 VecReset，不增长。
 gpui::SysState* g_sys = nullptr;
 
+// 活着的 Box2 个数（进程级）。overlay 回收类修复必须能被量到：`dialogs` 那条读的是
+// vector 长度，而 pop 在调用方做，回收与否它都是 0——只有"包装还活着几个"
+// 才分得开"回收了"与"漏了"。
+static int g_boxAlive = 0;
+
 // 一个窗口的全部状态。对 bridge 是 opaque void*。
 struct WebViewView;  // 定义在 PhpView 之后；Box2 只存它的指针。
 struct WatchCtx;     // 同上：目录监听的一条 watch 上下文。
 
 class Box2 {
+  public:
+    Box2() { g_boxAlive++; }
+    ~Box2() { g_boxAlive--; }
+
   public:
     gpui::Window* window = nullptr;
     void* viewPtr = nullptr;        // PhpView*，g_views 的键
@@ -97,6 +106,8 @@ class Box2 {
     bool closed = false;
     // 打开的 dialog 内容 Box2（保活到窗口析构；demo 规模够用）。
     std::vector<Box2*> dialogs;
+    // 当前 sheet 的内容 Box2（上游只允许一个：OpenSheet 是替换不是叠放）。
+    Box2* sheet = nullptr;
     // elementId → WebView 包装 view。holder entity 由本 Box 建、也必须由本 Box 在
     // AppClose **之前**显式 drop：ChildView 每帧只是 EntityRender，不接管生命周期，
     // 而 webview.h:50-51 要求 OS 控件在父窗口销毁前放手。
@@ -212,6 +223,22 @@ class Box2 {
 
 // self(view void*) → box，供 patched view.cpp 的事件 handler 反查。
 std::unordered_map<void*, Box2*> g_views;
+
+// 回收一个"视图已经没了"的 overlay 包装（dialog / sheet 的内容 Box2）。
+// 依据是上游三条路径都同步 drop：CloseTopDialog 与 OpenSheet 换面时
+// `EntityDrop(app, layer)`（root.cpp:330 / 494），而 ~ShellDialogLayer /
+// ~ShellSheetLayer 里 `EntityDrop(app, content)`（root.cpp:209 / 398），
+// content 的 deleter 就是我们 EntityNewRaw 注册的那个 `delete PhpView`。
+// 所以调用方在 close/open 返回之后回收是安全的；不回收才是问题——
+// g_views 里那条键指向已释放的 PhpView，地址被新视图复用后 boxForView 会反查到
+// 这个没人引用的 Box2。
+static void retireOverlay(Box2* dlg);
+
+static void retireOverlay(Box2* dlg) {
+    if (!dlg) return;
+    if (dlg->viewPtr) g_views.erase(dlg->viewPtr);
+    delete dlg;
+}
 
 // App 级动作处理器要用的一张反查表：`ActionFn` 只给 Window* 与 ActionEvent*，
 // 没有 view 可以走 boxForView，所以窗口指针得自己记下对应的 Box2。
@@ -899,6 +926,12 @@ void ensureApp() {
 
 extern "C" {
 
+// 这两个 helper 定义在本块后面（overlayCtx 造一个 overlay 调用用的 Ctx；syncOverlays
+// 把我们的包装与上游真实状态对齐）。声明必须留在 extern "C" 里面：放在外面的 C++
+// 作用域会得到另一个同名不同链接性的实体，Clang 报 "call is ambiguous"。
+static gpui::Ctx overlayCtx(Box2* box);
+static void syncOverlays(Box2* box);
+
 void* gpui_shim_app_init(void) {
     ensureApp();
     return nullptr;
@@ -1039,13 +1072,12 @@ void gpui_shim_close(void* win) {
     // 但**不**手动 EntityDrop / delete PhpView：AppClose→ShellRoot 拆除已经过
     // EntityNewRaw 的 deleter 释放各 PhpView（含 dialog 内容视图），我们再删就是
     // double-free/UAF（tree13 未关 dialog 直接 close 曾触发 SIGABRT）。
-    for (Box2* dlg : box->dialogs) {
-        // 悬垂键：PhpView 已由上面的实体拆除释放，g_views 里若还留着它的地址，
-        // 日后该地址被新视图复用时会反查到这个已删除的 Box2。
-        if (dlg->viewPtr) g_views.erase(dlg->viewPtr);
-        delete dlg;
-    }
+    // 走到这里 AppClose 已经拆完 ShellRoot：所有还开着的 dialog/sheet 层与其内容
+    // PhpView 都释放了，只剩我们的包装与 g_views 里的键。
+    for (Box2* dlg : box->dialogs) retireOverlay(dlg);
     box->dialogs.clear();
+    retireOverlay(box->sheet);
+    box->sheet = nullptr;
     // 主 Box2 保守不 delete：PHP WindowBox->handle 仍指向它，删则 UAF。单窗口应用
     // 退出由 OS 回收；多窗口每窗口一份，量级远小于每帧/每 dialog 泄漏。
 }
@@ -1084,6 +1116,8 @@ int gpui_shim_last_error(void* win, char* out, int outlen) {
 int gpui_shim_state_counts(void* win, long long* out, int cap) {
     auto* box = static_cast<Box2*>(win);
     if (!box || !out || cap < 1) return 0;
+    // 先对齐再报数：不然仪表会报一个"下一步就被轮询纠正"的假状态，读它的人只会困惑。
+    syncOverlays(box);
     const size_t all[] = {
         box->timerKeys.size(),      // 0
         box->timerIds.size(),       // 1
@@ -1098,6 +1132,8 @@ int gpui_shim_state_counts(void* win, long long* out, int cap) {
         box->dialogs.size(),        // 10
         box->watchCtx.size(),       // 11
         box->httpResponses.size(),  // 12
+        (size_t)(g_boxAlive < 0 ? 0 : g_boxAlive),  // 13 进程级：活着的 Box2
+        g_views.size(),                             // 14 进程级：g_views 键数
     };
     int n = (int)(sizeof(all) / sizeof(all[0]));
     if (n > cap) n = cap;
@@ -1326,6 +1362,27 @@ static gpui::Ctx overlayCtx(Box2* box) {
     return cx;
 }
 
+// 把我们的 overlay 包装与上游的真实状态对齐。
+// 关键：dialog/sheet 可以被**原生**关掉——DialogOptions 的 escapeDismissable /
+// backdropDismissable 走的是 ShellDialogLayer::Close，sheet 的关闭按钮同理，
+// 那些路都不经过本 shim。只在 show/close 里弹栈就会脱钩，而多出来的那份包装对应的
+// PhpView 已经被上游层析构释放（root.cpp:209/398），留着就是悬垂键，下次同地址复用
+// 时 boxForView 会把已死的 Box2 交给回调。
+static void syncOverlays(Box2* box) {
+    if (!box || !box->window) return;
+    gpui::Ctx cx = overlayCtx(box);
+    int live = (int)gpui::ShellRootDialogCount(&cx);
+    if (live < 0) live = 0;
+    while ((int)box->dialogs.size() > live) {
+        retireOverlay(box->dialogs.back());
+        box->dialogs.pop_back();
+    }
+    if (box->sheet && !gpui::ShellRootHasSheet(&cx)) {
+        retireOverlay(box->sheet);
+        box->sheet = nullptr;
+    }
+}
+
 void gpui_shim_toast(void* win, const char* title, const char* desc,
                      const char* level, int timeout_ms) {
     auto* box = static_cast<Box2*>(win);
@@ -1366,12 +1423,15 @@ int gpui_shim_dialog_show(void* win, void* dlgv, int escape_dismissable,
     opts.backdropDismissable = backdrop_dismissable != 0;
     int n = gpui::ShellRootOpenDialogView(&cx, dlg->viewEntity, opts);
     if (n > 0) box->dialogs.push_back(dlg);
+    syncOverlays(box);
     return n;
 }
 
 int gpui_shim_dialog_count(void* win) {
     auto* box = static_cast<Box2*>(win);
     if (!box || !box->window) return 0;
+    // PHP 轮询这个口子，顺手对齐：原生关掉的那些 dialog 在这里被回收掉。
+    syncOverlays(box);
     gpui::Ctx cx = overlayCtx(box);
     return gpui::ShellRootDialogCount(&cx);
 }
@@ -1380,7 +1440,9 @@ int gpui_shim_dialog_close(void* win) {
     auto* box = static_cast<Box2*>(win);
     if (!box || !box->window) return 0;
     gpui::Ctx cx = overlayCtx(box);
-    return gpui::ShellRootCloseDialog(&cx) ? 1 : 0;
+    if (!gpui::ShellRootCloseDialog(&cx)) return 0;
+    syncOverlays(box);   // 按上游真实条数弹栈（原生 Escape/背板可能已经关过别的）
+    return 1;
 }
 
 void gpui_shim_set_app_menus(void* win, const GpuiMenu* menus, int count) {
@@ -1563,8 +1625,10 @@ int gpui_shim_sheet_show(void* win, void* dlgv, const char* anchor) {
     else if (a == "left") p = gpui::Placement::Left;
     gpui::Ctx cx = overlayCtx(box);
     if (!gpui::ShellRootOpenSheetView(&cx, dlg->viewEntity, p)) return 0;
-    // 内容 Box2 与 dialog 同一套：保活到窗口析构时统一 delete。
-    box->dialogs.push_back(dlg);
+    // OpenSheet 是**替换**：旧 sheet 的层在这一步就被上游同步 drop 了（root.cpp:490-494），
+    // 所以先把上一个包装回收掉，再记新的。sheet 不进 dialogs 栈——它只有一个槽。
+    retireOverlay(box->sheet);
+    box->sheet = dlg;
     return 1;
 }
 
@@ -1572,13 +1636,16 @@ int gpui_shim_close_sheet(void* win) {
     auto* box = static_cast<Box2*>(win);
     if (!box || !box->window) return 0;
     gpui::Ctx cx = overlayCtx(box);
-    return gpui::ShellRootCloseSheet(&cx) ? 1 : 0;
+    if (!gpui::ShellRootCloseSheet(&cx)) return 0;
+    syncOverlays(box);
+    return 1;
 }
 
 int gpui_shim_has_sheet(void* win) {
     auto* box = static_cast<Box2*>(win);
     if (!box || !box->window) return 0;
     gpui::Ctx cx = overlayCtx(box);
+    syncOverlays(box);
     return gpui::ShellRootHasSheet(&cx) ? 1 : 0;
 }
 

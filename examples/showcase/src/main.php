@@ -966,6 +966,47 @@ function runSelfTest(bool $expectBundle, bool $startFront = false): void
     $sheetN = $app->openSheet(El::text('st sheet')->p(10.0), 'right');
     $hasSheet = $app->hasSheet();
     $app->closeSheet();
+    // overlay 回收门（审核第 5 步③的回归位）：反复开/关 dialog、反复换 sheet，
+    // 包装条数必须回到 0。修之前每次开关都净增一条 Box2 包装与一条 g_views 键，
+    // 而那条键指向的 PhpView 早已被上游的层析构释放——长会话里就是只增不减的悬垂表。
+    $baseCounts = $app->stateCounts();
+    $boxesBase = (int) ($baseCounts['boxesAlive'] ?? 0);
+    $viewsBase = (int) ($baseCounts['viewsAlive'] ?? 0);
+    $churnOpened = 0;
+    for ($i = 0; $i < 30; $i++) {
+        if ($app->openDialog(El::text('churn ' . $i)->p(10.0)) <= 0) {
+            break;
+        }
+        $churnOpened++;
+        $app->closeDialog();
+    }
+    for ($i = 0; $i < 10; $i++) {
+        $app->openSheet(El::text('churn sheet ' . $i)->p(10.0), 'right');
+    }
+    $app->closeSheet();
+    // 量"回收"必须看进程级的存活数，不能看 dialogs 那条 vector 长度——pop 在调用方做，
+    // 回收与否它都是 0（第一版门就是这么假绿的，反向对照才暴露）。
+    $after = $app->stateCounts();
+    $overlayLeft = (int) ($after['dialogs'] ?? -1);
+    $boxesAlive = (int) ($after['boxesAlive'] ?? -1);
+    $viewsAlive = (int) ($after['viewsAlive'] ?? -1);
+    $overlayReclaimed = $churnOpened >= 25 && $overlayLeft === 0
+        && $boxesAlive === $boxesBase && $viewsAlive === $viewsBase;
+    // 原生关掉的那一条路（点背板 → ShellDialogLayer::OnBackdrop → Close）不经过本 shim
+    // 的 closeDialog，所以包装栈会与上游脱钩：多出来的那份包装对应的 PhpView 已被上游
+    // 层析构释放（root.cpp:209），留着就是"下次同地址复用时 boxForView 交出已死 Box2"。
+    // 这条门量的是：下一次轮询 dialogCount() 时必须把它对齐收掉。
+    // （不用 Escape 试：DialogBindKeys 把按键绑在 focus trap 上，焦点没进 trap 就不响，
+    //   那是另一件事，见任务 #62。）
+    $app->openDialog(El::text('bd-dismiss me')->p(10.0), false, true);
+    $app->loop(2);
+    $app->realClick(600, 150);         // 内容区内、居上：surface 在正中，这里只能是背板
+    // （别拿边角当背板：窗口 resize 边上 AppKit 的 _mouseHysteresisCheck: 会等下一个事件而不返回）
+    $app->loop(2);
+    $bdNativeClosed = $app->dialogCount() === 0;   // 这一次轮询顺带把包装对齐
+    $bdCounts = $app->stateCounts();
+    $bdReclaimed = (int) ($bdCounts['boxesAlive'] ?? -1) === $boxesBase
+        && (int) ($bdCounts['viewsAlive'] ?? -1) === $viewsBase;
     $dialogN = $app->openDialog(El::text('st dialog')->p(10.0));
     $dialogCount = $app->dialogCount();
     $app->closeDialog();
@@ -1292,6 +1333,7 @@ function runSelfTest(bool $expectBundle, bool $startFront = false): void
     $ok = $badSections === []
         && $clipBack === 'SHOWCASE-Ω' && $item['text'] === 'SHOWCASE-Ω'
         && $urlRejected === false && $hudOn && $hudVisible
+        && $overlayReclaimed && $bdNativeClosed && $bdReclaimed
         && $sheetN > 0 && $hasSheet && $dialogN >= 0 && $dialogCount >= 1
         && $nid > 0 && $notifyCount === 1 && $notifyAfter === 0
         && $menuCount > 0 && $trayId > 0 && $trayCount === 1 && $hk > 0 && $hkFired
@@ -1322,6 +1364,12 @@ function runSelfTest(bool $expectBundle, bool $startFront = false): void
         'clip=' . var_export($clipBack, true),
         'notify=' . $nid . '/' . $notifyCount . '/' . $notifyAfter,
         'sheet=' . $sheetN . '/' . var_export($hasSheet, true),
+        'overlay churn=' . $churnOpened . ' left=' . $overlayLeft
+            . ' boxes=' . $boxesBase . '->' . $boxesAlive
+            . ' views=' . $viewsBase . '->' . $viewsAlive
+            . ' reclaimed=' . var_export($overlayReclaimed, true),
+        'overlay backdrop nativeClosed=' . var_export($bdNativeClosed, true)
+            . ' reclaimed=' . var_export($bdReclaimed, true),
         'dialog=' . $dialogN . '/' . $dialogCount,
         'tray=' . $trayId . '/' . $trayCount,
         'hk=' . $hk . '/' . var_export($hkFired, true),

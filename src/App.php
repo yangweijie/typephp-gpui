@@ -357,6 +357,14 @@ final class App
     /**
      * 内部各容器的条数（诊断/回归用）：内存增长类修复的仪表。
      * 例：同一个 id 反复 setTimer 之后 timerKeys 必须还是 1，而不是每挂一次加一条。
+     *
+     * 末两项是**进程级**的：`boxesAlive`（活着的窗口/overlay 包装数）与 `viewsAlive`
+     * （view→包装 反查表的键数）。overlay 的回收只能靠这两个数证明——`dialogs` 读的是
+     * vector 长度，而 pop 在调用方做，回收与否它都是 0。
+     *
+     * 注意它有副作用：读之前会先把 overlay 包装与上游真实状态对齐（dialog/sheet 可以被
+     * Escape/点背板**原生**关掉，那条路不经过本 shim），否则仪表会报一个马上就被纠正的
+     * 假状态。
      */
     public function stateCounts(): array
     {

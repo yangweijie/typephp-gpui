@@ -146,7 +146,8 @@ int gpui_shim_last_error(void* win, char* out, int outlen);
  * 按 kind 只填对应出参：NUM→*out_num，BOOL→*out_bool，STR→out_str（NUL 结尾）。 */
 /* 各容器条数（内存增长仪表）。顺序与 gpui_shim.cpp 里一致：
  * timerKeys/timerIds/callbacks/cbByKey/shimCallbacks/inputHandles/lastValues/
- * webviews/inspectors/notifyLists/dialogs/watchCtx/httpResponses。返回写入条数。 */
+ * webviews/inspectors/notifyLists/dialogs/watchCtx/httpResponses，末两项是**进程级**：
+ * boxesAlive（活着的 Box2 数）与 viewsAlive（g_views 键数）。返回写入条数。 */
 int gpui_shim_state_counts(void* win, long long* out, int cap);
 
 int gpui_shim_element_value(void* win, const char* id, double* out_num,

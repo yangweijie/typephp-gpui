@@ -514,6 +514,7 @@ namespace {
             'shimCallbacks' => 0, 'inputHandles' => 0, 'lastValues' => count(FakeBridge::$lastValues),
             'webviews' => 0, 'inspectors' => 0, 'notifyLists' => 0, 'dialogs' => 0,
             'watchCtx' => 0, 'httpResponses' => 0,
+            'boxesAlive' => 0, 'viewsAlive' => 0,
         ];
     }
 

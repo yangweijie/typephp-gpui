@@ -623,7 +623,7 @@ Array php_gpui_state_counts(Variant boxVar) {
     static const char* kNames[] = {
         "timerKeys", "timerIds", "callbacks", "cbByKey", "shimCallbacks",
         "inputHandles", "lastValues", "webviews", "inspectors", "notifyLists",
-        "dialogs", "watchCtx", "httpResponses",
+        "dialogs", "watchCtx", "httpResponses", "boxesAlive", "viewsAlive",
     };
     Array out;
     long long c[32] = {0};

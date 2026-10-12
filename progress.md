@@ -1331,3 +1331,27 @@ variant 没挂上一定会花）、selftest OK、`--liveclick 13/13`。
 证据：`--liveclick 13/13 到达 13 节`、`--livetyping 9/9`、selftest OK、shotdiff `gdfrac=0`、
 shim_test OK、hello OK（事件汇是点击/按键/定时的必经之路，错了这些一定塌）。
 主文件 1716 行 + 三块 .inc（caps 361 / services 567 / events 119）。
+
+**第 5 步③（overlay 回收，之前缓做的那条现在有条件做了）**：先取到"可靠的关闭期读数"再动手——
+上游三条路都是**同步** drop：`CloseTopDialog`（root.cpp:330）与 `OpenSheet` 换面（root.cpp:490-494）
+都 `EntityDrop(app, layer)`，而 `~ShellDialogLayer` / `~ShellSheetLayer` 里
+`EntityDrop(app, content)`（root.cpp:209 / 398），content 的 deleter 就是我们注册的
+`delete PhpView`。所以 close/replace 返回之后回收包装是安全的，不回收才是 bug。
+做法：`retireOverlay()`（erase g_views 键 + delete 包装）+ `syncOverlays()`（按
+`ShellRootDialogCount` / `ShellRootHasSheet` 这两个**权威**读数对齐包装栈），
+show/close/count/has_sheet/state_counts 五个口子都过一遍。
+为什么必须有 sync：dialog 能被 **Escape 或点背板原生关掉**（`DialogOptions.escapeDismissable` /
+`OnBackdrop` → `ShellDialogLayer::Close`），那条路不经过我们的 shim，只在 show/close 里弹栈
+一定会脱钩。
+门禁：`overlay churn=30 left=0 boxes=1->1 views=1->1`（30 次开关 + 10 次换 sheet 之后
+进程级存活数回到基线）；`overlay backdrop nativeClosed=true reclaimed=true`
+（点背板原生关掉，下一次轮询把它收掉）。
+**第一版门是套套逻辑**：它读的是 `dialogs` 这条 vector 的长度，而 pop 在调用方做，
+回收与否都是 0——反向对照（把 retireOverlay 摘成空操作）照样"绿"才发现。
+补上 `boxesAlive` / `viewsAlive` 两个进程级计数后，同一个反向对照直接 **SIGSEGV rc=139**：
+不回收不是"漏点内存"，是会踩到已释放的视图。
+顺带两次踩坑记在这里：① `state_counts` 里调 `syncOverlays` 时把前置声明放在了 C++ 作用域，
+而定义在 `extern "C" {}` 块内 ⇒ Clang 报 "call is ambiguous"（两个同名不同链接性的实体）；
+② 背板点击最初用 (30,700) 落在窗口 resize 边上，AppKit 的 `_mouseHysteresisCheck:` 等下一个
+事件而不返回，selftest 卡到看门狗 rc=142 —— 换内容区内的点即好（这条坑记忆里有过，
+还是先踩了一次才想起来）。
