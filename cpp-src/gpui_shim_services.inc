@@ -257,7 +257,7 @@ void gpui_shim_nullary_style(void* win, uint32_t spec, const char* name) {
     auto* box = static_cast<Box2*>(win);
     gpui::shell::SpecOp so;
     so.kind = gpui::shell::SpecOpKind::NullaryStyle;
-    so.name = AStr(box->specs.Storage(), name);
+    so.name = cppStr(name);
     box->specs.PushOp(spec, so);
 }
 
@@ -270,7 +270,7 @@ void gpui_shim_param_style(void* win, uint32_t spec, const char* name,
     for (int i = 0; i < argc; ++i) tmp.push_back(toBridged(args[i], a));
     gpui::shell::SpecOp so;
     so.kind = gpui::shell::SpecOpKind::ParamStyle;
-    so.name = AStr(a, name);
+    so.name = cppStr(name);
     so.args = tmp.data();
     so.argCount = argc;
     box->specs.PushOp(spec, so);
@@ -285,7 +285,7 @@ void gpui_shim_method(void* win, uint32_t spec, const char* name,
     for (int i = 0; i < argc; ++i) tmp.push_back(toBridged(args[i], a));
     gpui::shell::SpecOp so;
     so.kind = gpui::shell::SpecOpKind::Method;
-    so.name = AStr(a, name);
+    so.name = cppStr(name);
     so.args = tmp.data();
     so.argCount = argc;
     box->specs.PushOp(spec, so);
@@ -412,7 +412,7 @@ uint64_t gpui_shim_callback(void* win, uint32_t spec, const char* elem_id,
     std::string& opName = box->scratchOpName;
     opName.assign(type ? type : "");
     if (opName.rfind("on_", 0) != 0) opName.insert(0, "on_");
-    so.name = AStr(box->specs.Storage(), opName.c_str());
+    so.name = cppStr(opName.c_str());
     so.callback = cb;
     box->specs.PushOp(spec, so);
     return cb;
@@ -430,7 +430,7 @@ void gpui_shim_slot(void* win, uint32_t parent, uint32_t child,
     box->specs.Claim(child);
     gpui::shell::SpecOp so;
     so.kind = gpui::shell::SpecOpKind::Slot;
-    so.name = AStr(box->specs.Storage(), slot_name);
+    so.name = cppStr(slot_name);
     so.node = child;
     box->specs.PushOp(parent, so);
 }
@@ -513,7 +513,7 @@ void gpui_shim_registered_method(void* win, uint32_t spec, const char* name,
     }
     gpui::shell::SpecOp so;
     so.kind = gpui::shell::SpecOpKind::RegisteredMethod;
-    so.name = AStr(a, name);
+    so.name = cppStr(name);
     so.payload = build.out;
     so.payload.factory = m->recorder;
     so.payload.arguments = arguments;

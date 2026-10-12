@@ -1313,3 +1313,14 @@ services 的子块）——发现后挪回主文件，并复跑全套门禁（se
 且选中行先建一颗 ghost 按钮再整个丢掉重建 primary。改成表建一次、按钮建一次、
 variant 按选中态决定。等价证据：13 棵 shotdiff 全 `gdfrac=0`（选中行的样式就在画面里，
 variant 没挂上一定会花）、selftest OK、`--liveclick 13/13`。
+
+**第 5 步②（F2：同一段文本在 arena 里存两遍）**：`gpui_shim_push` 的 text/value、
+`toBridged` 的字符串实参、6 处 `so.name` 全部从 `AStr(arena, …)` 改成借用 `cppStr(…)`。
+依据是上游自己的深拷：`SpecArena::Push → CopyComponent` 对 text/value 各做
+`StrDup(arena, …)`（spec.cpp:296-297），`PushOp → CopyOp` 对 op.name 与每个字符串实参
+同样 `StrDup`（spec.cpp:324-333）——先 AStr 就是把同一段文本存两遍。
+安全性来自"这次调用是同步的"：bridge 的 std::string 活到 Push 返回。
+这是本项目有前科的一类改动（tree13 的 toast 把 "Saved" 画成 "succe" 就是借用超生命周期），
+所以证据取最强的三样：两示例 shotdiff 全 `gdfrac=0`（文本像素）、selftest 的
+`clip='SHOWCASE-Ω'` 多字节回环、`--livetyping 9/9` + `--liveclick 13/13`。
+`toComponentArg`（registered 构造实参）**没**改：它的落点不是 Push/CopyOp，深拷不成立。

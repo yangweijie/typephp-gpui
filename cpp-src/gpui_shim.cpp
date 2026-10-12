@@ -377,7 +377,9 @@ gpui::shell::Bridged toBridged(const GpuiArg& a, gpui::Arena* arena) {
     switch (a.kind) {
         case GPUI_ARG_BOOL: return B::Bool(a.b != 0);
         case GPUI_ARG_NUM: return B::Number(a.num);
-        case GPUI_ARG_STR: return B::String(AStr(arena, a.str));
+        // 借用：唯一两个调用点都是往 PushOp 里塞，而 CopyOp 会 StrDup 字符串实参
+        // （spec.cpp:324-333）。arena 形参留着是为了签名不变，别以为这里还在拷。
+        case GPUI_ARG_STR: return B::String(cppStr(a.str));
         default: return B::Nil();
     }
 }
@@ -1124,7 +1126,6 @@ int gpui_shim_element_value(void* win, const char* id, double* out_num,
 uint32_t gpui_shim_push(void* win, const char* kind, const char* text,
                         const char* value, const char* id) {
     auto* box = static_cast<Box2*>(win);
-    gpui::Arena* a = box->specs.Storage();
     gpui::shell::Component c;
     bool knownKind = true;
     c.kind = kindFromString(kind, &knownKind);
@@ -1133,8 +1134,11 @@ uint32_t gpui_shim_push(void* win, const char* kind, const char* text,
                          "'（节点未建：静默降级成 Div 会让整棵子树看不见）";
         return 0;
     }
-    if (text && *text) c.text = AStr(a, text);
-    if (value && *value) c.value = AStr(a, value);
+    // 借用而不是 AStr：specs.Push → CopyComponent 会对 text/value 各做一次
+    // StrDup(arena, …)（spec.cpp:296-297），先 AStr 就是把同一段文本在 arena 里存两遍。
+    // 安全性来自"这次调用是同步的"：bridge 的 std::string 活到 Push 返回。
+    if (text && *text) c.text = cppStr(text);
+    if (value && *value) c.value = cppStr(value);
     if (id && *id) {
         auto it = box->inputHandles.find(id);
         if (it != box->inputHandles.end()) c.handle = it->second;
