@@ -1257,3 +1257,11 @@ record——空白帧一旦被 record 洗成基线，之后每轮都拿它当标
 - 顺带又中了一次自己刚修的雷：报告串写成单引号（`'timerKeys=$tk0...'` 不插值）；
   以及门的第一版把基线写成 1——取数点在第一次 setTimer 之前，实际是 0，
   是**我的断言错**不是产品错，这条区分清楚才没去"修"一个没坏的东西。
+
+**第 5 步（第二批：每帧字符串开销之一）**：`kindFromString` 从"`std::string s(k)` + 至多
+46 次 `operator==`"改成 46 项静态表 + `strcmp`，零堆分配。它跑在**每个元素每帧**上
+（showcase 每帧重建整棵树），所以省的是"元素数 × 帧数"。
+行为等价的证据：`shotdiff check showcase` 13 棵全 `gdfrac=0.00000`、selftest OK、
+`shim_test` 的 kindFromString 双向断言仍过。
+连带：`ContractTest` 的 kind 门解析器同时支持老写法 `if (s == "x")` 与新表项 `{"x", K::Y},`
+——不放宽的话它会在表一换形状时立刻报"读不到任何 kind 名"，这正是要的行为。

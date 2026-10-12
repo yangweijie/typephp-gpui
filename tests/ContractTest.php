@@ -141,8 +141,14 @@ test('every kind Element.php can emit is registered in the shim kindFromString t
     $start = strpos($shim, 'kindFromString(const char* k');
     expect($start)->not->toBeFalse('找不到 kindFromString，对比无从做起');
     $body = substr($shim, (int) $start, 12000);
+    // 两种写法都认：老的 `if (s == "x") return K::Y;` 与现在的表项 `{"x", K::Y},`。
+    // 解析不放宽的话，改了表形状这条门会直接报"读不到任何 kind 名"——那正是它该做的。
     preg_match_all('/if \(s == "([a-z0-9_]+)"\)/', $body, $m);
     $known = $m[1];
+    if ($known === []) {
+        preg_match_all('/\{\s*"([a-z0-9_]+)"\s*,\s*K::/', $body, $m2);
+        $known = $m2[1];
+    }
     expect($known)->not->toBe([], '没从 shim 里读到任何 kind 名：解析器退化了');
 
     $php = (string) file_get_contents(__DIR__ . '/../src/Element.php');

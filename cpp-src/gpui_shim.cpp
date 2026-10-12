@@ -375,65 +375,66 @@ gpui::shell::Bridged toBridged(const GpuiArg& a, gpui::Arena* arena) {
 }
 
 gpui::shell::ComponentKind kindFromString(const char* k, bool* known = nullptr) {
-    if (known) *known = true;   // 下面每条命中都不必再置位，只有两条兜底会改它
+    if (known) *known = true;
     using K = gpui::shell::ComponentKind;
     if (!k) {
         if (known) *known = false;  // 空 kind 也不算「合法的一种」，别让它静默变 Div
         return K::Div;
     }
-    std::string s(k);
-    // div 必须显式在册：它曾是兜底分支的"顺带结果"，于是"最常见的 kind"和
-    // "拼错的名字"长得一模一样，兜底一改成拒收就整片树消失（实测 tree1 像素差 5.6%、
-    // selftest 卡死）。写进表里之后，认不出就是真认不出。
-    if (s == "div") return K::Div;
-    if (s == "h_flex") return K::HFlex;
-    if (s == "v_flex") return K::VFlex;
-    if (s == "text") return K::Text;
-    if (s == "text_view") return K::TextView;
-    if (s == "button") return K::Button;
-    if (s == "link") return K::Link;
-    if (s == "checkbox") return K::Checkbox;
-    if (s == "switch") return K::Switch;
-    if (s == "input") return K::Input;
-    if (s == "textarea") return K::Textarea;
-    if (s == "number_input") return K::NumberInput;
-    if (s == "otp_input") return K::OtpInput;
-    if (s == "slider") return K::Slider;
-    if (s == "progress") return K::Progress;
-    if (s == "image") return K::Image;
-    if (s == "table") return K::Table;
-    if (s == "table_row") return K::TableRow;
-    if (s == "table_cell") return K::TableCell;
-    if (s == "list") return K::List;
-    if (s == "tabs") return K::Tabs;
-    if (s == "tab") return K::Tab;
-    if (s == "scrollbar") return K::Scrollbar;
-    if (s == "svg") return K::Svg;
-    if (s == "radio") return K::Radio;
-    if (s == "toggle") return K::Toggle;
-    if (s == "radio_group") return K::RadioGroup;
-    if (s == "toggle_group") return K::ToggleGroup;
-    if (s == "collapsible") return K::Collapsible;
-    if (s == "popover") return K::Popover;
-    if (s == "hover_card") return K::HoverCard;
-    if (s == "popup") return K::Popup;
-    if (s == "avatar") return K::Avatar;
-    if (s == "accordion_item") return K::AccordionItem;
-    if (s == "table_header") return K::TableHeader;
-    if (s == "table_body") return K::TableBody;
-    if (s == "table_head") return K::TableHead;
-    if (s == "table_caption") return K::TableCaption;
-    if (s == "progress_track") return K::ProgressTrack;
-    if (s == "progress_indicator") return K::ProgressIndicator;
-    if (s == "h_resizable") return K::HResizable;
-    if (s == "v_resizable") return K::VResizable;
-    if (s == "resizable_panel") return K::ResizablePanel;
-    if (s == "select") return K::Select;
-    if (s == "combobox") return K::Combobox;
-    if (s == "date_picker") return K::DatePicker;
-    // 认不出的 kind 过去静默兜成 Div：整棵子树照样"渲染"，只是变成看不见的空盒子，
-    // 而 registeredError() 照不到这条路（它只管 registered 组件）。上游新增或拼错的
-    // kind 因此完全没有现场——现在标成"不知道"，由 gpui_shim_push 拒绝建节点并写 lastError。
+    // 表查而不是 `std::string s(k)` + 46 次 operator==：这条在**每个元素每帧**都跑一次
+    // （showcase 每帧重建整棵树），原先每次要多一次堆分配与至多 46 次串比较。
+    // 顺序保持原样——div 必须在册（它过去只靠兜底存在）。
+    static const struct { const char* name; K kind; } kTable[] = {
+    {"div", K::Div},
+    {"h_flex", K::HFlex},
+    {"v_flex", K::VFlex},
+    {"text", K::Text},
+    {"text_view", K::TextView},
+    {"button", K::Button},
+    {"link", K::Link},
+    {"checkbox", K::Checkbox},
+    {"switch", K::Switch},
+    {"input", K::Input},
+    {"textarea", K::Textarea},
+    {"number_input", K::NumberInput},
+    {"otp_input", K::OtpInput},
+    {"slider", K::Slider},
+    {"progress", K::Progress},
+    {"image", K::Image},
+    {"table", K::Table},
+    {"table_row", K::TableRow},
+    {"table_cell", K::TableCell},
+    {"list", K::List},
+    {"tabs", K::Tabs},
+    {"tab", K::Tab},
+    {"scrollbar", K::Scrollbar},
+    {"svg", K::Svg},
+    {"radio", K::Radio},
+    {"toggle", K::Toggle},
+    {"radio_group", K::RadioGroup},
+    {"toggle_group", K::ToggleGroup},
+    {"collapsible", K::Collapsible},
+    {"popover", K::Popover},
+    {"hover_card", K::HoverCard},
+    {"popup", K::Popup},
+    {"avatar", K::Avatar},
+    {"accordion_item", K::AccordionItem},
+    {"table_header", K::TableHeader},
+    {"table_body", K::TableBody},
+    {"table_head", K::TableHead},
+    {"table_caption", K::TableCaption},
+    {"progress_track", K::ProgressTrack},
+    {"progress_indicator", K::ProgressIndicator},
+    {"h_resizable", K::HResizable},
+    {"v_resizable", K::VResizable},
+    {"resizable_panel", K::ResizablePanel},
+    {"select", K::Select},
+    {"combobox", K::Combobox},
+    {"date_picker", K::DatePicker},
+    };
+    for (const auto& e : kTable) {
+        if (std::strcmp(e.name, k) == 0) return e.kind;
+    }
     if (known) *known = false;
     return K::Div;
 }
