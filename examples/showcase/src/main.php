@@ -295,18 +295,23 @@ function runLiveType(): void
 /** 节导航条 + 当前节内容（当前节号从 ShowcaseState::$v 读）。 */
 function showcaseShell(): El
 {
+    // 节表每帧只建一次：原来下面 `$sections = showcaseSections()` 又建一遍，
+    // 而 view 回调是每帧跑的。
+    $sections = showcaseSections();
     $nav = [];
-    foreach (showcaseSections() as $tree => [$title, $fn]) {
+    foreach ($sections as $tree => [$title, $fn]) {
         // w(194) 不是装饰：侧栏是 itemsStart()，按钮默认只占文字宽度，实测命中带只有
         // x=12..132，而侧栏宽 210——点在行右半截（用户以为是"同一行"）什么都不会发生。
         // 给满宽之后整行可点，selftest 的 navBand 断言盯着这件事。
-        $btn = El::button($title)->id('nav-' . $tree)->onClick()->ghost()->w(194.0);
+        // 选中态决定 variant，别先把 ghost 那颗建出来再丢掉。
+        $btn = El::button($title)->id('nav-' . $tree)->onClick()->w(194.0);
         if (ShowcaseState::$v['section'] === $tree) {
-            $btn = El::button($title)->id('nav-' . $tree)->onClick()->primary()->w(194.0);
+            $btn->primary();
+        } else {
+            $btn->ghost();
         }
         $nav[] = $btn;
     }
-    $sections = showcaseSections();
     [$title, $builder] = $sections[ShowcaseState::$v['section']] ?? $sections[1];
 
     // "点了没反应"最常见的成因不在我们的代码里，而在系统：进程没有 bundle 身份时

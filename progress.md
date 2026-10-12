@@ -1307,3 +1307,9 @@ selftest/liveclick 13/13/livetyping 9/9/hello/pest 81 全绿。
 把第一刀留下的 caps include 一起卷进了 services.inc（文本上等价、组织上 caps 变成了
 services 的子块）——发现后挪回主文件，并复跑全套门禁（selftest OK、两示例 shotdiff
 `gdfrac=0`、shim_test OK）。
+
+**第 5 步②（示例侧的每帧重复）**：`showcaseShell()` 每帧把整张节表建两遍
+（`foreach (showcaseSections())` 之后又 `$sections = showcaseSections()`），
+且选中行先建一颗 ghost 按钮再整个丢掉重建 primary。改成表建一次、按钮建一次、
+variant 按选中态决定。等价证据：13 棵 shotdiff 全 `gdfrac=0`（选中行的样式就在画面里，
+variant 没挂上一定会花）、selftest OK、`--liveclick 13/13`。
