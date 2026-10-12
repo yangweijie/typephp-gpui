@@ -531,3 +531,629 @@ doctor（现在 8 个 marker）+ CI native job 加 `check-cxx17.sh`。文档里�
 **全链复验**（清沙箱走正规流水线，不是手工打补丁）：8 补丁 → verifyPatches → amalgam →
 shim → tpc 出二进制；cxx17 OK · Pest 65/296 · PHPStan 0 · shim_test OK · selftest 21 链路
 （`mac=1 fs=1 svc=1`）· shotdiff 18 树 · doctor 8 marker。
+
+
+---
+
+## 2026-10-11 · Phase 14：examples/showcase（展示全部特性的示例）
+
+**交付**：`examples/showcase/`（13 节 + `--sections`/`--selftest`/`--shot`）、
+`tests/ShowcaseTest.php`（9 个测试的覆盖率门禁）、`cmd/shotdiff.php` 支持按示例自报树号、
+CI native job 增加 build showcase + selftest、README/getting-started/testing 三处文档。
+
+**验证（本机实测，非推断）**
+| 层 | 命令 | 结果 |
+|---|---|---|
+| wrap-green | `vendor/bin/pest` | 74 passed / 347 assertions（含 showcase 9 项） |
+| 静态 | `vendor/bin/phpstan analyse` | level 5 无错 |
+| 静态 | `npm --prefix docs run docs:build` | 2.21s，页数与 base 断言过 |
+| route-green | `showcase --selftest` | `SHOWCASE SELFTEST OK`，rc=0（13 节零错误节点 + 每个 App 能力真调） |
+| pixel-green | `cmd/shotdiff.php check showcase` | 13 张 gdfrac=0.00000 |
+| 回归 | doctor / check-cxx17 / test-shim / hello selftest / hello shotdiff | 全绿（8 补丁、双标准、21 链路、18 树） |
+
+**过程中修掉的真缺陷（都是"PHP 绿、产物红"那一类）**
+1. `require_once` 在 nano 不支持 → 编译期 fatal，改由 `sources` 组合。
+2. 引用式状态两堵墙（`array &$state` 编译期 fatal；去掉类型后 `RefWrap<Array>::commit()` 运行时 abort）→ 静态表 `ShowcaseState::$v`。
+3. `->border(1, 色)`、`->flex(1)`：PHP 容忍多余实参，nano 抛 ArgumentCountError → 加 AST 版 arity 门禁。
+4. `collapsed`/`align`/`description` 挂错组件（分别属于 Sidebar / Field / Field，Alert 只有 title·banner·visible·size）→ `registeredError()` 逐节逮住。
+5. 手写 base64 的 gzip 向量本身非法（本机 `gzdecode` 也拒）→ 换成外部生成的真字节向量并两边对齐。
+6. `grantRoot` 授了不存在的目录 → 根必须已存在，改授 `/tmp` 再建子目录。
+7. `El::list` 的 children 被上游丢弃（renderer 未接）→ 留空 List 证明 API + 用 vFlex 画真列表。
+8. 巨型 `sprintf` 少一个实参 → selftest 在最需要输出时炸；改成数组拼接。
+9. 手搓 token 扫描器把链式调用吃漏（159 个名字只认 12 个）→ 换 php-parser 真 AST。
+
+**反向锚点**（每条门禁都做一次"故意破坏→变红→还原→变绿"，md5 校验还原一致）：
+工厂覆盖、链式覆盖、枚举取值、arity（border/flex1 两条）、孤儿 handler（in-key-typo）。
+
+**已知不足（未固化成基线的部分）**：左侧导航 210px 下节名被截断；`El::menuBar` 仍报
+"component app effects require a root application snapshot"（root-app 那道墙，task #28/#33），
+它在控制台响但 `registeredError()` 不记，所以 13 节仍判"无错节点"——这一条要在文档里说明白。
+
+
+---
+
+## 2026-10-11 晚 · 用户实测暴露"真实输入从未工作"，已修并补门禁
+
+用户跑 `showcase` 交互版反馈三件事：导航点了没反应、hover 无效、输入框打不进字。
+查下来是两个框架级缺陷 + 一个验收盲区，全部修掉：
+
+| 缺陷 | 位置 | 修法 |
+|---|---|---|
+| 回调 op 名被剥前缀 → gpui 从不挂监听器 | `gpui_shim_callback()` 写 `so.name` | 队列用短名、`so.name` 补回 `on_` |
+| `El::input('x')` 把 id 放进 `text` → retained 建不出 → 静默变 Div | `src/Element.php` | 改放 `->id`；bridge 缺 id 即 `set_error` |
+| `number_input`/`otp_input` 压根没进 retained 清单 | `gpui_bridge.cc` | number 复用 Input；otp 新增 `CreateRetainedOtp` 转发口（补丁自检） |
+| 合成事件缝绕过"监听器挂没挂" | `--selftest` | 新增 `realClick/realMouseMove/realKey/inputProbe` 真输入验收 |
+
+**证据（本机实测）**
+- `showcase --selftest` → `SHOWCASE SELFTEST OK`，`realInput=true/true/true`、
+  `navHits=7`、`evSeen=change{in-num,in-name}`、`probe=4@226,457 746x20`。
+- 回归：`hello --selftest` OK（用新 bridge 重编）、hello 18 张基线 gdfrac=0、
+  showcase 13 张基线重录后 check 全 0、Pest 74、PHPStan 无错、shim cpp tests OK、
+  cxx17 双标准 OK、doctor 9 个补丁标记全落、`vitepress build` 1.55s 过。
+
+**顺手修的流程债**：`cmd/patch-retained.sh` 重写为"每个符号按完整声明文本各自幂等 + 结尾自检"，
+因为发现 `upstream/` 的跟踪树里其实已含早先补丁（`72a021c`），整块闸门会在半补丁状态下把新符号
+插进旧声明中间。
+
+**仍未解决 / 诚实边界**
+- `App::focusedId()` 对 retained input 恒 0（`WindowFocusedId` 读 `win->focusId`，shell 里输入框
+  焦点记在 `win->input`），所以它只当诊断，不当断言。
+- 输入框的**外观**仍是无框样式（paint 里是真 Input、行为真通，但主题没给字段底色/边框）；
+  这是主题层的事，没混进本轮。
+- `El::menuBar` 依旧要 root-app snapshot（task #28/#33），只在控制台响。
+
+### 收尾时的两处订正（写下来免得下轮又信错）
+
+1. 仓库根出现过一个是未跟踪的 6.4MB Mach-O `main`（mtime 23:05 本地）。已删除，且重跑
+   `cmd/test-shim.sh`、`cmd/check-cxx17.sh` 都不复现。**归因未定**：我一开始怀疑是
+   `check-cxx17.sh:73` 缺 `-c`，读过脚本后**这个怀疑是错的**——它的 FLAGS 里本来就有
+   `-fsyntax-only`，不产文件。所以这条只是"清掉了一个野文件"，不是"修了一个 bug"。
+2. `focusedId()` 对 retained input 恒 0：`WindowFocusedId` 读 `win->focusId`，而 shell 里
+   输入框的焦点记在 `win->input` 上。它只能当诊断，不能当断言——已经按这个事实把
+   selftest 的门从 `focusedId()>0` 改成"看打字结果本身"。
+
+## Phase 14c：真输入的两道系统前提（2026-10-12）
+
+症状：用户手点仍"左侧点不了、输入框打不进字"，而 selftest/像素基线全绿。
+
+定位方式：同一颗二进制做 A/B，只换"有没有 .app bundle 身份"。
+
+```
+裸 build/showcase              → startup active=false key=false visible=true  main=false
+build/showcase.app/…/showcase  → startup active=true  key=true  visible=true  main=true
+```
+
+结论：macOS 不把裸可执行文件当正规前台应用；`TransformProcessType` +
+`activateIgnoringOtherApps:` 也起不来 `isActive`。非 active 应用的窗口第一下点击被当成
+"激活这扇窗口"的点击吃掉，`keyDown` 没有 firstResponder —— 现象与"框架事件路由坏了"一模一样。
+
+改动：
+
+1. `bin/gpui`：`appBundle()` 把 `build/$example` 软链进最小 `.app`（Info.plist 带
+   CFBundleIdentifier/CFBundleExecutable）；`run` 与 `selftest` 都从 bundle 里起，
+   `run` 还负责把 `--trace/--sections/--selftest` 转发给二进制（不转发就静默丢 trace）。
+2. `gpui_mac.mm` `Deliver()`：真路由补上"入队后自己按掩码取出并交
+   `-[NSApp sendEvent:]`"。gpui 自己的 `GpuiAppRunStep`（window_mac.cpp:2314/2341）本来就用
+   `nextEventMatchingMask` + `sendEvent:` 泵队列，所以这条路就是手点走的路。
+   同步取完是必须的：`gpui_shim_real_mouse` 断言"调用返回时队列已增长"，只 post 不取会让
+   正常链路读成 `realInput=false` 的假阴性（本轮就这么误判过一次 bundle 的正常运行）。
+3. `windowState()` 加 `bundled`（`[NSBundle mainBundle].bundleIdentifier`）与
+   `nsappDeliveries`（走过真 NSApp 路由的条数，单调不清零）。
+4. showcase 非前台时把这条**画在窗口顶部**（`front` 状态每帧由 `windowState()` 量），
+   不必靠人猜"是框架坏了还是没被激活"。默认 `front=true`，13 张像素基线不受影响。
+
+门禁与负控：
+
+- 新门 `bundleGreen = !bundled || (active && key)`、`routeGreen = !(bundled && frontmost) || nsappDeliveries > 0`。
+- 第一版只写了 `routeGreen = !frontmost || …`，负控（把真路由分支钉死）时 `frontmost` 自己
+  塌成 false，门空转 = **虚绿**；改用 bundle 身份这种不受测试副作用影响的独立事实才对。
+- 负控实测：分支钉死 → `bundled=true frontmost=true nsappDeliveries=0 routeGreen=false`，
+  rc=1 FAIL；按 md5（bd15088b…）还原 → rc=0，`nsappDeliveries=150`，全绿。
+- 六道门禁重跑：hello/showcase 像素基线 0.00000、Pest 74/347、PHPStan 无错、
+  shim cpp 测试 OK、docs:build OK、`bin/gpui selftest hello|showcase` 均 rc=0（走 bundle）。
+
+本机边界（不装）：外部进程 `CGEventPost(kCGSessionEventTap)` 投鼠标/移动**全部被静默丢弃**
+（无注入权限），所以"人手点了一次真的到不到"这一步只能由用户验：
+`php bin/gpui run showcase --trace` 后点导航，`/tmp/showcase-events.log` 应出现 `click id=nav-N`。
+
+## Phase 14c-2：前台是竞争来的，门挪回我们能保证的事（2026-10-12）
+
+- 新读数：同一个 bundle 二进制**两次启动**分别量到 `active=true key=true`（含 150 条真路由投递）
+  与 `active=false key=false`。`App::activate()` 打满 24 轮重试也争不到——macOS 正当拒绝
+  后台进程抢焦点。`SetFrontProcessWithOptions` 实测无效，已撤掉（不留"看着像修复"的死代码）。
+- 于是 `bundleGreen` 从 `bundled ⇒ frontmost` 改成 `--expect-bundle ⇒ bundled`：
+  断言**产物属性**（我们能保证），`frontmost/activateTries/nsappDeliveries` 只作读数。
+  负控：`--selftest --expect-bundle` 配裸二进制 → rc=1 FAIL；配 bundle → rc=0。
+- `activateTries` 上限 24（selftest）、交互模式上限 12 帧：超过就不再抢焦点，因为
+  "一直抢"比"第一下没反应"更伤用户。
+- **nano 不支持 `getenv()`**（编译期 fatal）：期望信号只能走 argv（`--expect-bundle`）。
+- **两次踩到陈旧产物**：`build-shim.sh` 报 `kCPSUserGenerated` undeclared（SDK 没导出该常量）后
+  `;` 串下去，tpc 链的是**旧 .a**，于是"bundle 也 active=false"的结论根本不成立；
+  另外那次 `rc=255` 是 tpc 编译失败，跑 `./build/showcase` 测到的是上一个二进制。
+  规则：测量前必须 `构建 && echo OK || exit 1`，失败别用 `;` 串过去。
+- 门禁：hello/showcase selftest（bundle 与裸两条路）rc=0、像素基线 gdfrac=0.00000 两套、
+  Pest 74/347、PHPStan 无错。
+
+## Phase 14c-3：找到并修掉两个"用户点不动"的真缺陷（2026-10-12）
+
+这轮不再从读数倒推原因，而是直接量：
+
+1. **导航行只有文字宽度可点。** `El::vFlex()->itemsStart()` 让按钮按内容取宽，实测横向命中带
+   只有 x=12..132（侧栏 w=210，可用 194），点行的右半截毫无反应。给按钮 `->w(194.0)` 后
+   实测 12..196（24/26 采样命中）。新增 `navBand` 断言（>=22 命中、min<=12、max>=196）。
+2. **首帧没有命中表。** 新建 `--liveclick` 模式：装 view → 推进 N 帧 → 真点击扫 nav 列。
+   读数：`frames=1 事件=0/38`，`frames=2/5/20/60 事件=18/38 且 nav-1..9 到达 PHP`。
+   画面画得出、点击进不来，正是"刚启动点了没反应"。修法：`App::view()` 注册时立刻
+   materialize 一遍（`run()` 走同一条路）；修后 `frames=1` 也是 18/38。
+   `--liveclick` 首帧为 0 就 rc=1，已进 CI。
+3. 中间产物：`afterRender=false,false / synthetic=true / hits=18→18` 这组读数把
+   "监听器丢了""命中表被清空"两条假设都否掉了（合成缝投得进 = 监听器在；hits 不降 = 表没清）。
+   它们只在 selftest 的畸形时序里出现（前面连续 25 次点击把侧栏滚了），解释不了用户路径，
+   于是把那两条未被证实的读数从报告里删掉，只留下有断言、有解释的读数。
+   教训：**同一现象在测试 harness 里成立，不等于在用户路径上成立**——所以补了 --liveclick。
+4. 副作用受控：预热让 `view()` 立刻调一次回调，`--selftest` 里"只停在一帧"的断言把预热
+   算进了帧数 → 改成只统计 loop 期间的调用（`stopFrames - primed === 1`）；Pest 的
+   `loop runs the view once per frame` 相应更新为 4 次渲染并注明原因。
+5. 门禁：selftest（bundle + 裸）rc=0、`--liveclick` rc=0（两条路）、hello selftest rc=0、
+   showcase 基线重录后 check OK（满宽导航）、hello 基线 OK、Pest 74/347、PHPStan 无错。
+
+## Phase 14c-4：第三条真缺陷——tracking area 只在钥匙窗口里给 mouseMoved（2026-10-12）
+
+- 上游 `window_mac.cpp:680` 的选项是 `NSTrackingActiveInKeyWindow`：窗口不是 key 时
+  AppKit **不投递 mouseMoved**，于是"hover 无效"会跟着焦点状态漂——应用刚起来没被激活、
+  或用户切到别的 app 而鼠标还悬在我们窗口上，两种都收不到悬停。PHP 侧接线本来就是通的。
+- 处置：新增上游补丁 `cmd/patch-hover-always.sh`，把它换成 `NSTrackingActiveAlways`
+  （悬停给反馈与焦点归属无关，是 hover 驱动 UI 的常规做法）。脚本按"恰好一处 Always、
+  且不再有 InKeyWindow"自检，幂等（二次执行 skip）；已进 `bin/gpui` 的补丁序列、
+  `verifyPatches()` 清单、`GPUI.lock` 表；`bin/gpui doctor` 从 14 项变 15 项。
+- 边界（不装）：这条改的是真人鼠标移动的投递条件，而本机无法注入 OS 事件（实测连读光标
+  坐标都 SIGTRAP），app 内的合成缝又不受这个门槛约束（frontmost=false 时 hoverRouted 照样真）。
+  所以这一条**没有本地读数能证明**，只有用户把手移到未激活窗口上能验。
+- 重建后门禁全绿：showcase selftest（裸 + bundle）、`--liveclick`、hello selftest、
+  两套像素基线 check、doctor 15 项。
+
+## Phase 14c-5：逐颗输入框验证 + key_down 段错误（2026-10-12）
+
+- `App::inputProbe(int $index = -1)`（shim/bridge/stub/FakeBridge 同步）——原来只报最后一颗，
+  无法证明"每个输入框都能打字"。`--livetyping` 因此能逐索引取框、点中心、按真实键。
+- 读数 8/8（tree2 3/3、tree7 5/5），退出码进门禁并加进 CI。
+- 发现并跟踪缺陷 #53：`onKeyDown` 元素上按真实键段错误（ScriptView/QuickJS 派发路）。
+  探针里对该框显式跳过并注释原因；修好后要撤掉跳过。
+- 原生链重建后全部门禁重跑（selftest 两条路、liveclick、livetyping、两套像素、Pest、PHPStan、docs）。
+
+## Phase 14c-6：攻 key_down 段错误未果，两条修法都回退（2026-10-12）
+
+- 事实：挂了 `onKeyDown` 的 retained input，点击正常、change 发得出，但真实按键仍段错误；
+  崩点**在** `ShellRuntime::DispatchKey` 里、且在我们能放旁路的位置**之前**。
+- 试过的两条：
+  1. 给 key_down/key_up 登记带 shimId 的 runtime 条目（`PushShimCallback`），配合在
+     `DispatchKey` 碰 JS 之前早返回的新补丁 `cmd/patch-dispatch-key.sh`。
+     诊断读数否掉了它：`[keydbg]` 一行都没出（说明早返回根本没被走到），崩溃照旧；
+     而 `[keyreg]` 暴露第二个问题——`boxCb=16` 不变、`specId` 却 1,2,3,4,5,6 递增，
+     即**每帧登记都漏一条 CallbackEntry**（gpui_shim_callback 每帧都调，那条路径没有去重）。
+  2. 只加补丁 → 同样无效（entry 查不到 shimId）。
+- 处置：两处全部回退（shim 的 specId 分支与 `gpuiEnqueueShimKey` 强弱符号、补丁脚本本体、
+  `bin/gpui` 补丁序列与清单、`GPUI.lock` 表行、沙箱里的诊断插入靠 sync-upstream 复原）。
+  `cmd/patch-*.sh` 回到 9 个，doctor 回到 15 项标记。
+  `--livetyping` 恢复"写明跳过 in-key"，不计为通过。
+- 回退后全绿：showcase selftest 裸/bundle rc=0、`--livetyping` 8/8 rc=0、`--liveclick` rc=0、
+  像素基线 check、Pest、shim cpp 测试、doctor 15。
+- 下一步的线索（都还没验）：崩点早于旁路 ⇒ 要看 `ScriptKeystroke`/`KeyName(event.vk)` 与本
+  KeyEvent 的字段来源（崩溃地址解出来是 ASCII 的 `US-ASCII`，像一个编码名字符串被当指针用），
+  以及 `ScriptView::OnScriptKey` 里 `self->runtime` 的来历是不是 root runtime。
+
+## Phase 14c-7：第三条 key_down 修法也被否，但把根因收窄到 runtime 身份（2026-10-12）
+
+- 新做法：不依赖 CallbackEntry（spec 交出去的是 box 自己 id，表里查不到），改成在
+  `DispatchKey` 碰第一个 JS API 前判 `!impl->context` 并把 keystroke 交给新钩子
+  `gpuiDeliverHostKey`（弱定义在 runtime.cpp，强实现在 shim，配进程级唯一 callback id
+  与 id→box 归属表）。
+- 这次**先把产物验证做实**：`nm` 在 `gpui.o` 与最终二进制里都命中 `gpuiDeliverHostKey`。
+  结果仍崩，PHP 侧也没有 `key_down id=in-key`。
+- 由此得到的推论比前两轮都硬：guard 没触发 ⇒ `impl->context` 读出来**非空**；而 `JS_NewObject`
+  依旧在 `NULL+0x58/0x59` 炸 ⇒ 进 `DispatchKey` 的 `this`（即 `ScriptView::runtime` 指向的对象）
+  不是我们的 ShellRuntime，`impl` 是垃圾指针。下一步查 materialize 给 retained input 建
+  ScriptView 时 `runtime` 怎么填（view.cpp:392 只判非空、不判身份）。
+- 同时更正一条我自己写错的读数：上一轮"[keydbg] 没输出 ⇒ 旁路位置没走到"**无效**——那次只跑了
+  `bun cmd/build.ts`，没重跑 `cmd/build-shim.sh`，而 `gpui.o` 要归档进 `libgpui_shim.a` 才参与链接，
+  最终二进制里根本没有那个符号，跑的是旧产物。另外"崩溃地址解出 US-ASCII"那份案卷时间戳
+  08:42:54 早于 08:45:57 完成的构建，也是在读旧案。规矩加进记忆：改了 gpui.o 必须 build-shim
+  重归档；验"改动进没进产物"用 `nm`/`strings` 看最终二进制，不看 mtime；读 .ips 先比时间戳。
+- 三处尝试全部回退（补丁脚本、shim 的 specId/归属表/钩子、清单与锁文件）。恢复后全绿：
+  doctor 15 标记、showcase selftest 裸/bundle rc=0、`--livetyping` 8/8 rc=0、`--liveclick` rc=0、
+  像素 check、hello selftest、Pest 74/347、PHPStan、shim cpp 测试。
+- 新增保留物：`--livetyping-all`（连挂 onKeyDown 的那颗一起按）作为**已知崩溃的复现位**，不进 CI；
+  默认 `--livetyping` 仍写明跳过那颗。
+
+## Phase 14c-8：把 key_down 崩溃入口关掉，并把"拒绝"做成必须发生的断言（2026-10-12）
+
+- 决定：gpui 的键派发路（ScriptView → ShellRuntime::DispatchKey，进去的 runtime 不是本宿主的）
+  一时修不好，那就**不让产品里有这条入口**：`gpui_shim_callback` 对 `on_key_down`/`on_key_up`
+  不再 PushOp（不挂 gpui 监听器），并把原因写进 lastError。真实按键因此不再进崩溃路。
+  合成缝不受影响（按 cbid 入队），handler 接线的测试照旧。
+- 证据不靠错误串：lastError 每帧被 render 清一次（`box->lastError.clear()`），拿它当证据等于
+  什么都没证 ⇒ 加单调计数器 `g_keyRefusals`，经 `gpui_shim_window_state` 的 out[6] 出去，
+  bridge 暴露成 `windowState()['keyRefusals']`（stub/FakeBridge 同步）。
+- selftest 的门：① 第 2 节（挂 onKeyDown 的那节）**必须**报出这条拒绝（`$keyRefusalTree === 2`），
+  别的节有错就算红；② `keyRefusals > 0`。读数：`keyRefusals=3@tree2`。
+  中途我把"容忍错误串"和"要求错误串"两版都试过，最终形态是**断言它发生**——
+  哪天它不报了，说明监听器又挂回去了、崩溃回来了。
+- 结果：`--livetyping` 从 8/8（跳过一颗）变成 **9/9、无跳过**：连挂 onKeyDown 的那颗也走同一条
+  "点进去、按一个键、看 change"的断言，且进程不再崩。
+- 更正两条我自己的错判：① 上一轮说 `err=''` ⇒ 拒绝不可见——错，是我那行放宽把它擦掉了；
+  ② `strings` 查中文字符串得出"没进产物"——方法错，`strings` 默认只抽 ASCII，中文串本来就取不出；
+  要看符号用 `nm`，要看行为看读数。
+- 文档：`Element::onKeyDown()` 加了明确的 docblock（当前不绑定、原因、请用 onChange），
+  events 指南同段说明；CI 注释改成"断言必须发生"。
+- 门禁全绿：showcase selftest 裸/bundle rc=0、`--livetyping` 9/9 rc=0、`--liveclick` rc=0、
+  两套像素基线、hello selftest、Pest 74/347、PHPStan、doctor 15 标记、shim cpp 测试、docs 构建。
+- 仍未做：#53 的真修（让键事件走宿主而不奔 QuickJS）；用户手点/手打的最终确认。
+
+## Phase 14c-9：#53 真修完成——键事件在 view 层交给宿主（2026-10-12）
+
+- 转折点是想通了"点击为什么能到 PHP"：`patch-view.sh` 把 `ScriptView::OnClick` 里的
+  `runtime->DispatchClick(...)` **整行换成**弱钩子 `gpuiEnqueueClick`。键事件照同一形状做就行，
+  而我前三次都试图在已经进了 `ShellRuntime::DispatchKey` 之后再塞旁路 —— 位置从头就不对。
+- 新增第 10 个补丁 `cmd/patch-key-view.sh`：`OnScriptKey` 函数体换成
+  `gpuiEnqueueKey(self, cx, callbackId, event->ch, event->down)`，弱实现是空函数（内嵌 JS 的
+  原样宿主行为不变）；`cpp-src/gpui_shim.cpp` 给强实现，把码点编成 UTF-8 入对应窗口队列。
+  `bin/gpui` 补丁序列 + 清单 + `GPUI.lock` 同步，doctor 从 15 项变 16 项。
+- 于是上一轮那个"shim 拒绝绑定 onKeyDown"的绕行被撤掉（它砍的是功能不是修 bug）：
+  `gpui_shim_callback` 恢复给 key_down/key_up 挂监听器；`g_keyRefusals` 计数器与
+  `window_state` 的 out[6]、bridge/FakeBridge 的 `keyRefusals` 一并移除；selftest 的门从
+  "断言拒绝发生"翻回"断言真实按键到达 in-key"。
+- 诚实的边界：`key_down` 的 `value` 是空 —— gpui 自己从 NSEvent 算 `KeyEvent.ch`，我们合成的
+  那颗算出 0。所以门禁只钉"key_down 到了哪颗元素"，不钉字符值；`value=[—]` 继续打印出来供观察，
+  文档里写明这个不对称（Element::onKeyDown 的 docblock、events 指南、CI 注释三处同步）。
+  第一次把这颗按"字符必须带"来断言时 `--livetyping` rc=1，那个红是对的：它先于结论暴露了我的
+  假设未经验证。
+- 验收读数：`LIVETYPE 合计=9/9 key_down=[in-key]`（bundle 与裸两条路都 rc=0）、showcase selftest
+  裸/bundle rc=0、`--liveclick` rc=0、hello selftest rc=0、两套像素基线 check、Pest 74/347、
+  PHPStan 无错、shim C++ 测试 OK、doctor 16 项、docs 构建过。任务 #53 关闭。
+
+## Phase 14c-10：key_down 的 value 补全（键名 vs 码点，别再取错源）
+
+- 上一轮说"value 是空、可能真键盘才有"——那是**取错了源**：`KeyEvent` 的 `vk`/`ch` 互斥
+  （`gpui.h:770` 注释写得很清楚），`key_down` 根本不带 `ch`。被换掉的 JS 负载用的是
+  `key = event.vk ? KeyName(event.vk) : keystroke`，所以键名才是它的 value。
+- 补丁与钩子改成同时带：`gpuiEnqueueKey(self, cx, cbid, rune, KeyName(vk), down)`；
+  shim 里"有码点用码点，否则用键名"。`KeyName` 在 `gpui/keymap.h` 是公开的，view.cpp 能用。
+- 门禁从"只断言事件到了"升级成"断言值真的回来"：`--livetyping` 读数
+  `合计=9/9 key_down=[in-key] value=[—1]`，bundle 与裸两条路 rc 都是 0。
+  前后对照本身就是证据：补上前 `value=[—]`、断言字符时 rc=1；补上后 `value=[—1]`。
+- 教训一条：合成键事件 `value` 为空当时被我归因成"宿主/合成限制、需用户实测"，
+  实际是我读了个语义上必然为 0 的字段。**读不到值时先去看字段定义，不要先宣布这是边界。**
+- 全部门禁重跑绿：showcase selftest（CLI 与 bundle 两条）、`--livetyping` 两条、`--liveclick`、
+  hello selftest、两套像素基线、Pest 74/347、PHPStan、shim C++ 测试、doctor 16 项、docs 构建。
+
+## Phase 14c-11：窗口内 HUD：让"我这一下到没到"当场可见
+
+- 用户不必为了验证一次点击去开终端翻 `/tmp/showcase-events.log`，所以把事件计数常驻到
+  窗口标题下方：`已收到事件 点击 N · 输入 N · 按键 N · 悬停 N · 焦点 前台/非前台`。
+  数字直接取自 evSeen（与 selftest 报告同一份数据，不另开计数器），非前台时同一行就写明。
+- 门：HUD 不只是"存在"——selftest 先塞一条 `click nav-5`，再要求 `debug_tree` 里同时出现
+  `表格、列表与进度`（换节了）和 `点击 1`（计数反映事件）。少了任何一个，`rerender` 门就红。
+- `--shot` 走的是同一棵 shell，所以 13 张基线整体位移（gdfrac 0.037~0.073）是**预期变更**，
+  已重录；无事件时计数行是稳定文本，基线因此仍然确定。
+- 一次误操作记在这里：`showcase --debug`（不存在的开关）会静默落到交互模式并阻塞——
+  未知开关应当报错退出，这条待改（不影响本目标，但同类"看起来没反应"的体验值得修）。
+- 门禁：showcase selftest rc=0（含 HUD 断言）、`--livetyping` 9/9 rc=0、`--liveclick` rc=0、
+  两套像素基线 check、hello selftest、Pest 74/347、PHPStan、shim C++ 测试、doctor 16 项。
+
+## Phase 14c-12：左侧点不动的真身——渲染过 WebView 那节之后，原生子视图吃掉了上半区
+
+- 症状还是"左侧点不了"，但这次的读数是：按 y 扫 40..700 时**上面 6 行一次都不进队列**，
+  下面 7 行正常。先立了一条新探针 `App::hitProbe($i)`（C ABI `gpui_shim_hit_probe` →
+  bridge → stub → App/FakeBridge），读的是点击真的会查的 `paint.hits`：
+  13 条导航矩形**全在**、`click=1` **全在**。所以错不在 gpui 的表里——表外面有东西挡着。
+- 二分用的是一次运行内多点重复量（同一套动作在流程各阶段各量一次）：
+  窗口刚建好 13/13 → 只换过一次根树 13/13 → **13 节全渲染过 7/13** → 逐节量精确到
+  `SECTION 11 clicked=7/13`（第 11 节 = WebView 与 Inspector），之后再也回不来。
+- 根因：`ChildView` 背后那颗 WKWebView 是常驻 NSView。元素从树上换掉后它仍挂在窗口上、
+  停在最后一次的矩形里，AppKit 的 `hitTest` 先命中它 ⇒ 那一片的 gpui 元素收不到真实鼠标。
+  修法在 shim 的每帧 materialize 前后各扫一次（`WebViewFrameVisibility` + `WebViewView::seen`），
+  这帧没渲染到的那颗 `WebViewSetVisible(false)`（macOS 侧就是 `hidden=YES`，AppKit 会跳过）。
+- 修后读数：`navProbe fresh=13/13 afterAll=13/13 sectionsReachable=13/13`，裸进程与 bundle
+  （`bundled=true`）两条路都这样；`--liveclick` 加了同一套逐行断言后 `逐行=13/13 到达节数=13`。
+  门的下限按实测写成"矩形数/点动数/到达节数都 ≥ 节数"，不再用 `>= 2` 这种没量过的数。
+- 顺带纠正两条我自己下过的错判：
+  1. "扫描范围放宽导致 selftest 挂住"——`sample` 出来的栈显示卡在
+     `-[NSWindow _handleMouseDownEvent:] → _mouseHysteresisCheck: → nextEventMatchingMask`，
+     也就是**点在窗口 resize 边上**（y=700 已在内容区外）时 AppKit 在等下一个鼠标事件。
+     是探针采样范围越界，不是 gpui 死循环；改成命中表驱动后这个坑不存在。
+  2. "FPS HUD 是凶手"——A2 探针（HUD 开关之后）已经 7/13，但逐节量证明 HUD 之前
+     （A1）就死了；HUD 只是排第二的嫌疑，被读数否掉。
+- 还记一条探针诚实性问题：`realClick` 返回"队列增长了"，而**hover 事件也会让它增长**
+  （y=100 那次"命中"其实是 hover）。所以逐行断言必须看"到达了几个不同节号"，
+  不能只看返回值计数。
+- 门禁全绿：showcase selftest（CLI + bundle `--expect-bundle`）、`--liveclick`（含逐行）、
+  `--livetyping` 9/9、两套像素基线（gdfrac=0，说明收放可见性没动渲染）、hello selftest、
+  Pest 74/347、PHPStan、shim C++ 测试、doctor 16 项。
+- 一次环境抖动记在这里：`bin/gpui selftest` 有一趟 build.ts 报 `clang++ not found` 而没产出
+  gpui.o——`is_file($gpuiO)` 这道检查把它拦住了，没有拿旧产物冒充新产物；重跑即通过。
+
+## Phase 14c-13：把"换节"也改成真点击，并给新门做反向对照（两次都没让它当上回归位）
+
+- `--livetyping` 之前换节是 `ShowcaseState::$v['section'] = N`——等于绕过 hit-test 假装"点过了"。
+  新增 `navClickTo($app, $tree)`（从 `hitProbe` 取第 N 条导航矩形、点中心、再看状态真的换节），
+  于是这条门同时盯住"每一行导航点得到"与"点完打得进字"；读数不变就是没退化：
+  `LIVETYPE 合计=9/9 key_down=[in-key] value=[—1]`，且没有任何一节报"导航点不到"。
+- 又加了一圈用户手势：真点进挂原生子视图那节 → 再真点回第 2 节逐颗打字
+  （`ROUNDTRIP 经节11回节2 导航=true 打字=4/4`）。
+- **反向对照两次都没让这条新门抓到 14c-12 那个 bug**：把 `WebViewSetVisible(raw, v->seen)`
+  临时换成恒 `true`（等于修之前的行为）重建后，ROUNDTRIP 依旧全绿；同一条件下
+  `--selftest` 的 navProbe 立刻红成 `afterAll=7/13`、`SHOWCASE SELFTEST FAIL`。
+  第二次我以为是顺序问题（原生视图停在最后渲染过的那个矩形，于是把裸渲染挪到点进节之后），
+  仍然绿——所以差别在窗口尺寸/进入方式，不在这圈手势里。
+  结论按实测写进代码注释：**回归位是 `--selftest` 的 navProbe，ROUNDTRIP 只是多一层手势覆盖**，
+  不许它冒充抓过这个 bug。（恢复后 shim 与两个示例都重建过，门禁全绿。）
+- 全部门禁复跑绿：showcase selftest（CLI + bundle `bundled=true`）、`--liveclick 逐行=13/13`、
+  `--livetyping` 9/9 + ROUNDTRIP、hello selftest、两套像素基线 gdfrac=0、Pest 74/347、
+  PHPStan、shim C++ 测试、doctor、docs 构建。
+
+## Phase 14c-14：把三条探针挂到交互模式那颗每帧回调上（假设"paint 途中抢前台吃掉点击"被否）
+
+- 还有一条用户现场与门禁的差异没排除：`runInteractive` 的每帧回调里会
+  `$app->activate()`（内部泵 AppKit run loop），而它发生在 **paint 途中**——用户的点击正是从
+  这条队列上来的；`--liveclick`/`--livetyping` 原来注册的是只画 shell 的简化回调，
+  所以这一步从没被任何门走过。
+- 做法是把那颗回调抽成 `interactiveFrame(App $app): El`（第一帧装菜单/定时器 +
+  每帧量窗口状态、必要时抢前台），三条探针改挂同一颗。不是复制一份逻辑，是同一份。
+- 读数：三条门在**同一形状**下全绿——`--liveclick 逐行=13/13 到达节数=13`、
+  `--livetyping 合计=9/9 + ROUNDTRIP 导航=true 打字=4/4`、`--selftest`
+  `fresh=13/13 afterAll=13/13`（裸进程与 bundle `bundled=true` 两条一致）。
+  于是"每帧抢前台把点击吃掉了"这条假设被读数否掉，同时探针与用户路径的形状差被消掉一格。
+- 门禁全绿：showcase selftest 两条、liveclick、livetyping、hello selftest、两套像素基线
+  gdfrac=0、Pest 74/347、PHPStan、shim C++ 测试、doctor、docs 构建。
+
+## Phase 16：MenuBar 这条路真正打通（两层根因都查到底），并补了一条能红的门
+
+Phase 15 里"修通又回退"的那条，这一轮查到真因并修好了——关键是别再把它当"节奏问题"猜。
+
+- **第 1 层**（materialize 卡点）：`MaterializeRequest::AppEffects` 只认 QuickJS 给的根应用身份。
+  补丁 `cmd/patch-host-application.sh` 加 `RegisterHostApplication` + `SetHostApplicationFallback`
+  （只对"不在 `impl->views` 里"的视图兜底 ⇒ QuickJS 路径行为不变）。
+  实测教训：**全宿主必须共用一个身份令牌**——按实体各发一枚时长出两条 app-effect 世代，
+  各自装卸同一份 `OwnedMenus`，崩溃率反而更高（3 次崩 1 → 单一身份 6 次崩 1）。
+- **第 2 层**（接上后的偶发 SIGSEGV）：不是"每帧重建的节奏"，是**类型混淆**。
+  延迟安装走 `WindowPost(... ListenTo(owner, &ScriptView::OnComponentAppEffect, token))`，
+  而该函数读 `self->runtime`；宿主实体是 `EntityNewRaw` 建的 8 字节 `PhpView{Box2*}`，
+  按 ScriptView 布局读就是越界，拿到的垃圾指针非 0 时就被当 `ShellRuntime*` 调用。
+  补丁给宿主视图换 `HostApplyComponentAppEffect`（经 `g_hostAppEffectRuntime` 直达 runtime）。
+  ⇒ `--liveclick` 连跑 **20 次 0 崩**，`--selftest` matfails `1→0`，第 7 节 `Failed to render` 归零。
+- **新门**：`App::componentFailure()`（shim `gpui_shim_component_failure` → runtime 的
+  `ComponentFailureCount()`/`LastComponentFailure()`）。为什么必须有：registered 组件建不出来时
+  gpui 不失败整帧，只把画面渲染成 `Failed to render X`，而 `registeredError()` 照不到
+  materialize 阶段——这类错此前只能靠翻 stderr 发现。自检逐节比对计数增量。
+  **反向对照实测会红**：故意把 `MenuItem` 直接挂到 `MenuBar` 下 →
+  `SHOWCASE SELFTEST FAIL` + `badSections=7:materialize 失败(MenuBar accepts only Menu children)`；
+  恢复后回 OK。第一版我用"扫 `gpui_debug_tree` 找占位文本"做门，**负对照没红**——
+  debug_tree 打的是 spec 树，占位节点是 materialize 阶段才生成的，那条路子无效，已换掉。
+- 第 7 节像素基线因菜单盒真的画出来而位移（gdfrac 0.00334）：重录前后逐文件比 md5，
+  确认**只有 tree7.png 变化**，不是全量洗基线。
+- 一次操作失误记在这里：负对照脚本里我写了 `git checkout <file> || 手工恢复`，而那次 python
+  锚点没匹配上、`git checkout` 就跑了——该文件恰好是未跟踪状态才没丢东西。**带未提交改动的
+  文件里不许放 `|| git checkout`**，恢复只用显式反向替换。
+- 工具链接线：补丁进 `bin/gpui` 清单 + `patchManifest()`（marker `HostApplyComponentAppEffect`），
+  doctor 现报 12 个 marker；`docs/guide/components.md` 里"暂未接入"那段已按事实重写。
+
+
+## Phase 15：showcase 错误清单化后的处置（修了 2 条、1 条修通又主动回退、1 条是上游缺口）
+
+先把"所有错误"从实际运行里枚举出来（`--selftest` / `--liveclick` / `--livetyping` /
+13 节 `--shot` 各跑一遍收集 stderr 并去重），再逐条处置：
+
+| 错误 | 处置 | 证据 |
+| --- | --- | --- |
+| 未知开关（如 `--debug`）静默起一个阻塞 GUI | **已修**：`--` 前缀的未知项报错 + 打用法 + `exit(2)` | `--debug` → rc=2 并打印用法；`--sections` 仍 rc=0/13 行 |
+| 示例把 `MenuItem`/分隔符直接挂 `MenuBar`、还嵌套 `Menu` | **已修**：按上游契约重写（MenuBar→只 Menu；Menu→只 MenuItem/MenuSeparator） | 启用身份注册后 `MenuBar accepts only Menu children` 归零 |
+| `failed to materialize MenuBar: component app effects require a root application snapshot` | **修通又回退**（见下） | 启用补丁时 matfails `1→0`、第 7 节 `Failed to render` 归零；回退后回到 1 |
+| `registeredError()` / `badSections` / `lastErr` / `any` | 本来就是空的 | 自检报告 `badSections=`、`lastErr=''`、`err=''` |
+| 第 5 节 "List 的 children 被上游丢弃（renderer 未接）" | 是**说明文字**（VirtualList 上游缺口，任务 #35），不是错误节点 | `sections.php:241` 是一行 `El::text(...)` |
+
+- MenuBar 这条：卡点是 `MaterializeRequest::AppEffects` 只认 QuickJS 给的"根应用身份"。
+  写了 `cmd/patch-host-application.sh`（宿主身份注册 + 单一 fallback，QuickJS 路径行为不变），
+  **实测确实解掉卡点**。但接上之后 `--liveclick` 出现**偶发 SIGSEGV**，栈顶
+  `ApplyComponentAppEffect ← RunPostedTask ← ExecDrain ← GpuiAppRunStep ← gpui_shim_pump ← App::loop`
+  ——延迟安装的 app effect 在 apply 时踩到已释放对象。崩溃率：每实体一个身份 3 次崩 1；
+  全宿主单一身份 6 次崩 1；**回退后 6 次 0 崩**。
+- 决定：崩溃比一条 materialize 错误严重，所以**回退启用**（shim 侧调用删掉、补丁不接进
+  `bin/gpui` 清单），脚本与读数留在仓库里，任务 #28 写清下一步（pending 安装按 key 去重 +
+  `OwnedMenus`/arena 跨帧生命周期）。契约修正与文档保留——上游修好后接回即可验证。
+- 门禁全绿：`--selftest`（裸 + bundle `bundled=true`）、`--liveclick 逐行=13/13` ×6、
+  `--livetyping`、hello selftest、两套像素基线 gdfrac=0、Pest 74/347、PHPStan、
+  shim C++ 测试、doctor、docs 构建（含死链门）。
+
+
+## Phase 14c-18：真输入端到端复测通过（左侧可点、输入框可打字），#55 判为误报
+
+- 用户开了辅助功能权限后，用 `open` 起**全新** bundle 实例（**不做任何外部激活**）走真 HID
+  点击/按键，原报的两条症状正面复测通过：
+  - 左侧导航：`click id=nav-5 value=1.0`、`click id=nav-2 value=1.0` 到达 PHP，
+    画面真的换节（第 5 节表格/列表内容上屏），HUD 计数跟着走。
+  - 输入框：点 in-name 敲 `h`,`i` → `change id=in-name value='hi'`，画面显示 `hi`
+    且派生文本 `Hello, hi!` 更新；另一次全新实例只点 in-key、只敲 `7`
+    → `key_down id=in-key value='7'` + `change id=in-key value='7'`，画面显示 `7`、`keyDown=7`。
+    HUD：`点击 1 · 输入 1 · 按键 1 · 焦点 前台`。
+- 起法差异记下来（下次别再被绕进去）：本沙箱里**直接 exec** bundle 内二进制常拿不到窗口
+  （`visible=false`、System Events `count of windows`=0），走 `open` 才有真窗口；
+  而且 `open` 若已有存活实例只会把它唤到前面——先前那次"改后首帧 active=true"其实是
+  一个存活 1 小时以上的旧实例。判据：先 `pgrep -x showcase` 看存活数，再核对 pid 与 etime；
+  杀进程要用 `pkill -x`（`pkill -f showcase` 会连自己那条 shell 一起杀，命令行里含 showcase）。
+- #55（change 值"串字段"）判为**误报**：受控单字段序列下每颗各自正确
+  （in-key=`7`、in-name 仍空）。起因是我自己那条多字段序列的时序没固定住。
+- 本轮两处真修都在档：常驻 WKWebView 吃 `hitTest`（14c-12，回归位 `--selftest` navProbe，
+  反向对照能红）与 `activateIgnoringOtherApps:` 在 macOS 26 上是空操作（14c-17，
+  `activateTries=24` 全失败 → 首帧即 `active=true key=true`）。
+
+
+## Phase 14c-17：#54 修好并量到——`activateIgnoringOtherApps:` 在 macOS 26 上是空操作
+
+- 真输入 A/B（用户开了辅助功能权限，`open` 起 bundle + Quartz HID tap）先钉死了机制：
+  **同一坐标 (475,401)=侧栏第 2 行**，app 前台时日志出 `click id=nav-2 value=1.0`；
+  app 非前台时 `click id=nav` 计数 0，且那一下点击连激活都没触发。
+  ⇒ 用户"左侧点不了"是**应用不在前台**，不是路由坏。
+- 顺着这条读到实现：`cpp-src/gpui_mac.mm` 的 `gpui_mac_become_foreground()` 用的是
+  `[NSApp activateIgnoringOtherApps:]`——macOS 14 起废弃，26 上实测不再把应用带到前台。
+  改成 `respondsToSelector:@selector(activate)` 走无参 `-[NSApp activate]`（老系统才回退旧调用），
+  并在 `gpui_mac_activate()` 里补 `[w makeKeyAndOrderFront:nil]`（只 makeKey 不够）。
+- **系统自己计数器的对照**（同一处 selftest 读数，改前 vs 改后）：
+  - 改前：`atStart=false/false` → 有界 activate 用满 `activateTries=24` → 仍 `active=false/key=false`
+  - 改后：`atStart=false/false` → `active=true/key=true`
+  即"内部申请前台"这件事从不可能变成可能；配上真输入那条 A/B，闭环成立。
+- 没做成门的原因：`active/key` 是 OS 竞争态（本机实测同一个产物两次启动能分别量到
+  true 与 false），拿它当硬断言会变成随机红灯——只报读数，不当门。
+- 一次读数污染记在这里，免得下次重犯：我一度以为"改后 `open` 起的新实例首帧就
+  `active=true`"，实际那个 tick#4236 来自一个**存活 1 小时以上的旧实例**（`open` 只是把它
+  唤到前面）。此后凡"起一个 app 量状态"，先 `pgrep -x` 确认存活数、再核对 pid 与 etime。
+  另外 `pkill -f showcase` 会把我自己的 shell 一起杀掉（命令行里含 showcase），要用 `pkill -x`。
+- 门禁：showcase selftest OK（`navProbe fresh=13/13 afterAll=13/13`）、`--liveclick 逐行=13/13`、
+  `--livetyping 合计=9/9`、像素基线 SHOTDIFF OK、Pest 74/347。
+
+
+## Phase 14c-16：真输入实测（用户开了辅助功能权限）——非前台时同一坐标点了没反应
+
+- 第一次拿到**真 OS 输入**的读数（`open` 起 bundle + Quartz `CGEventPost` HID tap，
+  终端已授权辅助功能）。同一坐标 (475,401) = 侧栏第 2 行，做 A/B：
+  - app 前台（trace `active=true key=true`）：日志出现 `click id=nav-2 value=1.0` ✅
+  - app 非前台（trace `active=false key=false`）：`grep -c 'click id=nav'` = **0**，
+    且这一下点击也没把 app 激活 ❌
+- 所以用户报的"左侧还是点不了"现场复现了，而且**根因不是路由**（路由那条 13/13 是真的），
+  是 **bundle 起来的 app 启动后不把自己变成前台应用**：`open` 之后 trace 仍是
+  `active=false key=false`，直到我用 System Events `set frontmost to true` 才变
+  `active=true key=true`。
+- **订正 14c-15 里那条推断**：`-[GpuiView acceptsFirstMouse:]` 虽然无条件返回 YES，
+  实测**并没有**让非前台窗口收到第一下点击（0 条事件、也没激活）。所以"鼠标不受影响、
+  只有键盘要 key window"这句是错的——鼠标同样要 app 在前台。教训：系统策略要以实测为准，
+  读到实现返回 YES 不等于那条路通。
+- 待修的下一步（#54 已改写）：启动时把自己提升为前台应用（bundle 身份下
+  `TransformProcessType(ProcessSerialNumber, kProcessTransformToForegroundApplication)`
+  + `[NSApp activateIgnoringOtherApps:YES]` + `makeKeyAndOrderFront:`），
+  并在真输入下复测"非前台点击"是否消失。裸跑二进制时这条路此前实测无效（无 bundle 身份），
+  但 `bin/gpui run` 走的就是 bundle，且本次已证明该 app **可以被激活**，所以值得做。
+
+
+## Phase 14c-15：启动时抢不到前台（A/B 实测）——但"第一下被吃掉"这句是错的，已订正
+
+- 最后一条"用户现场 ≠ 门禁"的机制假设：探针绿是因为 `Deliver()` 在窗口不是 key 时替它
+  `MakeKey`，而真实用户没有这一步——macOS 会把**第一下点击当成"激活这扇窗口"**吃掉。
+  为此在 selftest 开头取了一份"还没碰过任何缝"的读数（`atStart`），并加了 `--startfront`
+  做 A/B：启动时立刻 `activate()` + loop(2)，再读一次（`tryFront`）。
+- 实测（bundle，`bundled=true`）：`atStart=false/false`、`tryFront=true/false/false`、
+  自检那圈有界 activate 用满 `activateTries=24` 之后仍然 `active=false/key=false`。
+  同一次运行里 navProbe 依旧 `13/13`。**"从终端起的进程抢不到前台"这条成立。**
+- **但由它推的"所以用户第一下点击必然被吃掉"不成立**，是我没查实现就套了通用结论：
+  `window_mac.cpp:589-592` 的 `-[GpuiView acceptsFirstMouse:]` 无条件 `return YES`，
+  而 `window_mac.cpp:2212-2213` 把这个 view 同时设成 `contentView` 与 `firstResponder`。
+  也就是说点击 hit-test 落到的就是 GpuiView，非前台时的第一下**照样会派发**，
+  不需要"先点标题栏"。这条记在这里是为了别再被"macOS 都这样"的直觉带偏——
+  凡是拿系统策略解释用户现场，先去读那个策略的实现。
+- 因此剩下的手点差异只能靠真 OS 输入去量（用户已授权用电脑操控 MCP 走这条路）。
+- 走了，但在**这个执行上下文里量不了**，两条读数记在这里：
+  1. `osascript` 查 System Events 直接 `-25211 不允许辅助访问`（TCC 权限在用户机上，
+     不去改隐私设置），所以注入式真输入依旧无路；截图里也看不到那扇窗口。
+  2. app 本身活着：`--trace` 落到 `/tmp/showcase-events.log` 共 197 行，逐秒
+  `tick#N active=false key=false`，且**没有任何 click/change/key_down 行**——
+     也就是没人点过它，不是点了没到。
+- 顺着 `acceptsFirstMouse:` 那条读出来的**关键区分**（下一轮该按这个问用户）：
+  鼠标有"非前台也能收第一下"的路（`acceptsFirstMouse` 返回 YES），**键盘没有**——
+  keyDown 要求窗口是 key window。所以"点得动但打不进字"这种组合在这条链上是自洽的，
+  而 `atStart=false/false` + `activate()` 抢不到前台正是它的前提。HUD 那行显示
+  「焦点 非前台」时，就是这个状态。
+
+
+
+
+## Phase 17：菜单行的动作回到 PHP（#33）——合成派发已绿，真点原生菜单卡在锁屏
+
+- 四步都落地了：MenuItem 的动作名在 `gpui_shim_registered` 里被收集 → `AppOnAction` 挂
+  app 级处理器 → 处理器把 `ShellActionScriptId(action)` 反查回 PHP 写的那个 id →
+  `enqueueRaw("action", id)` 进同一条事件泵。PHP 侧写法与按钮一致：`$app->onAny('action', fn)`。
+- **真正的 bug 是登记时机**：`g_windowBoxes[box->window] = box` 那行写在
+  `WindowOpenView` **之前**，那时 `box->window` 还是 nullptr，于是表里永远没有条目；
+  app 级回调只拿得到 `Window*`，反查落空就静默 return。读数把两种病分得很清楚：
+  改之前 `action=false/dispatched=true`（派发返回 true＝处理器被调过，但事件没进队列），
+  改之后 `action=true/dispatched=true` 且 `evSeen=… action{cr-m-new}`。这条门自带反向对照
+  ——"表没登记"那个状态就是它的红。
+- 注册口子合并成一颗 `registerMenuAction()`：`El::menuItem`（registered 构造第二参）与
+  `App::setAppMenus`（菜单行 action）走同一条路。去重表从 per-box 的 `actionNames` 换成
+  进程级 `gMenuActionIds`，因为上游 `AppOnAction` 那张表本来就是进程全局的
+  （`gpui.cpp kMaxAppActions=32`，框架自己占 2~3 格）。超预算不再静默丢事件：写进
+  `box->lastError`，`App::lastError()` 与 selftest 的 `lastErr=''` 都看得见。
+- 窗口关闭时把 `g_windowBoxes` 的键收掉：`Window*` 地址会被后面的窗口复用，留着就是
+  往已关的 Box2 里塞事件。
+- 门禁实测：裸 `--selftest` 连跑 3 次 `SELFTEST OK`（`action=true/dispatched=true`、
+  `lastErr=''`）；`php bin/gpui selftest showcase --expect-bundle` 同样 OK。
+- **顺带挖出 showcase 的一条真错**（属于"修复 showcase 所有错误"）：`App::setAppMenus`
+  的键名与 bridge 不一致。bridge 读的是菜单条 `name`、行 `action`
+  （`gpui_bridge.cc:570/584`），showcase 三处调用写的却是 `label`/`id`
+  （`main.php` 的 mc-menus、interactiveFrame、selftest）。键写错**不报错**：
+  `g.action` 落成 nullptr → `r.action=0` → `AppMenuChosen` 第一行 `!action` 直接 return，
+  菜单看着装上了（`menus=1`、辅助功能树里 `{showcase=>关于;退出;}` 也在），点了永远没回音。
+  还夹带一条：`['label'=>'分隔线以下','items'=>[...]]` 那种嵌套 items bridge 根本不认，静默丢。
+  已按契约改成 `name`/`action` + `['separator'=>true]`。
+- 为了把"菜单行装的确实是 PHP 声明的 id"变成能红的门，加了一条读表探针：
+  `gpui_shim_menu_row_action(row,out,outlen)`（>0 字节数 / 0 该行无动作 / -1 越界）→
+  bridge `gpui_menu_rows()` → `App::menuRows()`；selftest 装一颗带动作行 + 一颗分隔符 +
+  一颗无动作行，断言 `rows=st-new` 且只有一条。实测绿，**反向对照也量了**：把键改回
+  `'id' => 'st-new'` 重新编译 → `rows=/rowsOk=false` + `SELFTEST FAIL` + rc=1，
+  而 `action=true/dispatched=true` 那半（El::menuItem 那条路）照旧绿——两条来源各自有位置。
+  Pest 也补了一条双向锚点（正确键 → 出表；错误键 → 空表）。
+- **真点原生菜单行为什么够不到（订正上一版的因果）**：`gpui_mac_send_mouse`
+  （`gpui_mac.mm:367-385`）是 `[NSEvent mouseEventWithType:...]` + `Deliver(w, e)`——
+  事件在**本进程内**直接投给自己的窗口，不经过窗口服务器。所以：
+  1. `--liveclick` 在屏幕被锁的情况下照样 `逐行=13/13`、`到达节数=13`、rc=0，
+     它的绿是"AppKit 层注入"这一类，不是"OS 把输入交给前台窗口"那一类；
+  2. 系统菜单栏的 NSMenu 属于**另一个窗口**（菜单条），`Deliver` 只喂自己的窗口，
+     所以这条缝从设计上就点不到原生菜单行，与锁屏无关；
+  3. 真正被锁屏挡住的是 HID 级注入：`CGWindowListCopyWindowInfo(OnScreenOnly)` 顶层是
+     `Display 1 Shield`（layer 2147483646）与 `loginwindow`（layer 2000/2001）盖住整屏，
+     `screencapture` 全黑，`python3 + Quartz.CGEventPost(kCGHIDEventTap)` 的点击落在锁屏上，
+     app 侧 `tick#N active=false key=false` 一路不变，System Events 报 `windows=0`。
+  结论：原生菜单行的真点击要等屏幕解锁，且它验的是上游 `window_mac.cpp:1828`
+  `gpui::AppMenuChosen([(NSMenuItem*)sender tag])` 那两行——我们能装、能读表、能派发，
+  剩下那一跳不是我们的代码。
+- 收口复测（同一颗最终产物，`static` 收敛后重建）：showcase 裸 `--selftest` OK、
+  bundle `--selftest --expect-bundle` OK、`--liveclick` rc=0（`逐行=13/13`）、
+  `--livetyping` rc=0（`合计=9/9`、`ROUNDTRIP 经节11回节2 导航=true 打字=4/4`）、
+  hello bundle OK、`shotdiff check` 两个示例 OK、`cmd/test-shim.sh` OK、
+  pest `75 passed (350 assertions)`、phpstan 无错、`docs npm run docs:build` 通过。
+  读数：`menus=1 · action=true/dispatched=true/rows=st-new/rowsOk=true · lastErr=''`。
+
+
+## Phase 18：用 Qoder 电脑操控 MCP 真点真打（屏幕解锁后）——菜单行那一跳补上了，key_down 量不到
+
+用户令"点击走电脑操控 mcp"。屏幕这时已解锁（窗口栈顶层不再有 `Display 1 Shield`/`loginwindow`），
+`computer-use` SDK 连上 `top.typephp.gpui.showcase`，读到的 AX 树就是 gpui 自己暴露的那棵
+（13 颗导航按钮 + `19 menu bar → 20 showcase`）。全部读数落在 `/tmp/showcase-events.log`
+（`--trace`，事件行格式 `$type id=$id value=…`）。
+
+**量到的（都是真 GUI 交互，不是进程内注入）**：
+1. **原生菜单行**：AX 点开 `showcase` → 返回的子菜单里两行都带 `ID: gpuiAppMenuItemChosen:`
+   （正是 Phase 17 说"够不到"的那一跳），随后 `change`… 不，是 **`action id=menu-about` 落进日志**。
+   做法：`click(菜单条行)` → 用**返回状态**里的行号 `performSecondaryAction(..., "Pick")`。
+   直接 `click(行)` 会报"菜单已关"——SDK 每次动作后重新抓状态，那一抓就把菜单关掉了；
+   `Pick` 这条 AX 动作不受影响。**#33 的最后一跳就此验完。**
+2. **导航（AX press）**：`click id=nav-7 value=1.0`，截图确认画面切到「侧栏、表单与菜单」，
+   HUD 那行同步显示「已收到事件 点击 1 … 焦点 前台」。
+3. **导航（坐标级真鼠标，走 hit-test）**：`click id=nav-2 value=1.0`。
+4. **真打字回环**：点进 `in-key` 后 `pressKey a`、`pressKey b` →
+   `change id=in-key value='a'` → `value='ab'`。逐字符累积正确，没有串字段。
+
+**量不到的：`key_down` 一条都没有**（同一次会话里 `--livetyping` 的进程内探针报 9/9）。
+按过的键：`a`/`b`/`Return`/`Up`/`Tab`/`1`/`c`/`Escape`，全部只出 `change`（`Tab` 甚至把制表符
+插了进去：末值 `ab\t1c`）。两条候选成因与已做的排除：
+- **候选一：注入的键事件带的是字符而不是真 keyCode**（上游 `WindowMacKeyDown` 里
+  `key = KeyForEvent(event, first)`，`if (key)` 才 `WindowKeyDown`；`gpui.h:770` 注明
+  "vk 是 0 for a typed character"）。这条与所有读数自洽，但**没证**：想拿 HID 级
+  `CGEventCreateKeyboardEvent(NULL, 18, …)` 投一颗真 keyCode 进去判别，结果**一条事件都没到**
+  （日志停在 MCP 那批之后）——这个执行上下文里 app 不是 WindowServer 认的钥匙窗口，
+  HID 键盘投不进去（与 [[feedback-macos-input-injection]] 同一堵墙）。
+- 候选二：我们的 key_down 通道对真按键坏了。目前**没有证据支持**，因为它与"进程内同一条
+  `-[GpuiView keyDown:]` 入口能出 key_down"直接矛盾。
+所以这一条判为**待真人手按**：在 `in-key` 里手敲几个字符，看日志有没有 `key_down id=in-key`。
+在那之前不许把它写成已修或已坏。
+
+**工具层经验（下次少烧两轮）**：`typeText("abc123")` 对 gpui 完全没效果（`pressKey` 逐键才有），
+元素 ID 每次动作后失效（要用**动作返回值**里的新序号，别复用上一次的），
+菜单一抓状态就关（用 `Pick` 而不是 click）。

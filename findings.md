@@ -777,3 +777,285 @@ gpui.h 里 ObjC/AppKit 只出现在**注释**（`NSWindow` 1 处命中在 46115 
 "打了补丁但其实什么都没做"。因此：脚本里任何一处没匹配到就**整体失败并回滚**，
 外加 `cmd/check-cxx17.sh` 进 CI 的 native job。marker `EmitsEventV` 也进了
 `GPUI.lock` 与 `patchManifest()`，doctor 现在校验 8 个补丁。
+
+---
+
+## Phase 14 · showcase：nano 下的"引用式状态"是死路（2026-10-11）
+
+写 `examples/showcase/` 时把可变状态做成 `wireShowcase(App $app, array &$state)` +
+闭包 `use (&$state)`，两次构建各撞一堵墙，且**第二堵墙要跑起来才看得见**：
+
+| 写法 | 结果 | 时机 |
+|---|---|---|
+| `array &$state` 形参 + `use (&$state)` | `Cannot create a reference to variable $state of fixed type php::Array` | 编译期 fatal（`TypeConversionTrait.php:325`：只对 Type::VAR/REF 放行） |
+| 去掉类型声明 `&$state` | **编译过了**，运行时 `A temporary typed reference cannot escape a dynamic call` → SIGABRT(134) | 运行期，`RefWrap<php::Array>::commit()`（`vendor/swoole/phpx/include/typephp_helper.h:124`） |
+
+定位靠 lldb，不是靠猜：`lldb --batch -o "process handle SIGABRT --stop true --notify false"
+-k "thread backtrace" -o run -- ./showcase --shot /tmp/x.png 1`，栈顶是
+`php::RefWrap<php::Array>::commit()` ← `php_runshot()`，一眼指到"把局部数组按引用交给函数"。
+
+**为什么 hello 没事**：它的 `$state` 是 `main()` 里的**局部变量**，`use (&$state)` 在同一
+函数作用域里，不跨"动态调用"这条边；而事件 handler 是 `$handler($event)` 动态调用的，
+引用一旦跨这条边就得走 RefWrap 慢桥。
+
+**结论/做法**：共享可变状态放**静态表**（`ShowcaseState::$v['k'] = ...`），闭包既不捕获引用、
+形参也不取引用；builder 每帧读快照（`ShowcaseState::get()`）。这条同时消掉了两个错误，
+也让 `--selftest`/`--shot`/交互三模式共享同一份状态而不用传参。
+
+## Phase 14 · 覆盖率门禁得先证明它自己会红
+
+`tests/ShowcaseTest.php` 反射 Element/App 的全部公开成员并要求被真调用。第一版就绿≠有效：
+两个反向锚点必须做。
+
+1. **匹配器写错会"全红"**：`token_get_all` 重组时代码在每个 token 后补了空格，正则却写成
+   `/(::|->)name\s*\(/`（操作符与名字之间不容空白）→ 61 个工厂全部"没被调用"。
+   修成 `/(::|->)\s*name\s*\(/` 后才从 61 缺降到真的 11 缺。
+2. **正向锚点（会红吗）**：临时把 `El::breadcrumb(` 与 `->onKeyDown()` 改名，门禁精确点出这两个
+   名字并变红；改回来（md5 与备份一致）再绿。没有这一步，"6 passed" 完全可能是恒真。
+3. **枚举取值要区分"字面量传过"与"整表遍历过"**：`foreach (App::FPS_ANCHORS as $a)` 是真把 8 个
+   锚点都传了，但源码里没有 8 个字面量。所以规则改成：取值以字面量出现 **或** 该常量被
+   `foreach (X::NAME …)` 整体遍历；只认 foreach，不认 `X::NAME[$i]` 取样（那不算覆盖全部）。
+4. **注释不算数**：匹配前先 `token_get_all` 剥掉 `T_COMMENT`/`T_DOC_COMMENT`，否则在文档里
+   写一句 `El::div()` 就能骗过门禁。
+
+## Phase 14 · "PHP 全绿"与"nano 全绿"之间差一个 arity 检查
+
+`El::border()` 是**无参**糖（`paramStyle('border', [1.0])`），我在示例里写成 `->border(1, 0xCCC6BD)`。
+- `php -l` 过；
+- Pest/FakeBridge 全绿（PHP 允许给函数传**多余**实参，静默忽略）；
+- 只有真跑原生二进制才 `ArgumentCountError: Element::border() expects exactly 0 arguments, 2 given`。
+
+同理 `->flex(1)` 也是无参方法被当带参用。这类错**每个都要一次 90 秒的原生构建才发现**，
+所以把它下沉成静态门禁：`tests/ShowcaseTest.php` 用 `nikic/php-parser`（typephp 自带依赖）
+解析两份示例源码，收每个方法名的实参个数，与反射得到的 `[required, total]` 比对；
+同名方法在两个类里都存在时（`text`/`checked`），只有**所有**同名签名都不接受该 arity 才算错。
+
+### 手搓的 token 扫描器差点把门禁做成假的
+
+第一版 arity 门禁是自己数括号逗号写的。反向锚点（把 `->border()->borderColor(...)` 改回
+`->border(1, ...)`）**没有变红**——因为扫描器遇到链式调用就漏：159 个方法名只认出 12 个，
+`border` 根本不在结果里，于是"没有违规"是"什么都没看见"的别名。换成真 AST 后立刻抓到
+`flex(1)`（这条是我修 border 时引入的第二处同类错）。
+
+反向锚点矩阵（每条都要"能红"才算门禁有效）：
+| 断言 | 破坏方式 | 结果 |
+|---|---|---|
+| Element 工厂覆盖 | `El::breadcrumb(` 改名 | 红，精确点名 `El::breadcrumb()` |
+| Element 链式覆盖 | `->onKeyDown()` 改名 | 红，精确点名 |
+| 枚举取值 | 少写一个 `'xsmall'` 字面量 | 红（首版还误判过 foreach 型覆盖） |
+| arity | `->border(1, 0xCCC6BD)`、`->flex1(3)` | 红，两条都点名 |
+| 孤儿 handler | `on('in-key')` 写成 `on('in-key-typo')` | 红 |
+
+### 顺带的一条 nano 约束（已进记忆）
+
+示例的"当前节号/计数"最初是 `wireShowcase(App $app, array &$state)` + 闭包 `use (&$state)`：
+声明 `array` 引参 → **编译期** fatal；去掉类型声明 → **运行期** `RefWrap<php::Array>::commit()` abort。
+最终改成静态表 `ShowcaseState::$v`，形参与捕获都不取引用。lldb 的 `-k "thread backtrace"` 是
+这类"只有运行时才炸且不带消息"的唯一定位手段（`-o` 系列命令在 stop 后不执行，要用 `-k`）。
+
+
+---
+
+## Phase 14 追加 · 用户实测把两条"绿"打回原形（2026-10-11 晚）
+
+用户跑交互版反馈：左侧导航点了没反应、hover 无效、输入框无法聚焦打字。三条都不是示例的错，
+是框架的真实输入路径从来没通过——而七道门禁全是绿的。
+
+### 缺陷 1：SpecOp 的回调名被剥了前缀 ⇒ 监听器根本没挂
+
+- bridge `eventType()` 把 `on_click` 削成 `click`（为了对齐 PHP 的 `on(id,'click')`），
+  然后 `gpui_shim_callback()` 把这个**短名**直接写进 `so.name`。
+- 而 materialize 的 `ResolveBehavior` 逐字比较 `op.name == "on_click"`（materialize.cpp:233-290）。
+  名字对不上 → `behavior.onClick/onHover/onKeyDown` 永远是 0 → gpui 从不注册监听器。
+- 为什么门禁没抓住：自检的事件走 `gpui_shim_test_event`，它按 callbackId 直接
+  `box->enqueue()`，**绕开 behavior 解析**。合成缝能证明"路由与回调能回到 PHP"，
+  不能证明"元素挂上了监听器"。
+- 修法：两套名字并存——队列里保留短名（路由键），`so.name` 补回 `on_` 前缀。
+
+### 缺陷 2：`El::input('x')` 把 id 写进 text ⇒ 输入框静默降级成 Div
+
+- bridge 按 `node['id']` 建 retained（gpui_bridge.cc:149,177），而 `input()`/`textarea()`
+  把参数塞进 `$e->text`。于是 retained 建不出来，materialize `return Div(cx->a)`。
+- 现场：不聚焦、不能打字、点它没事件，而 `registeredError()` **是空的**——静默降级。
+  hello 一直用 `El::input()->id('name')`，所以从没碰到。
+- `number_input`/`otp_input` 同病：bridge 的 retained 清单里根本没有它们。
+- 修法：`input()`/`textarea()` 改写 `->id`；bridge 的 retained 清单补 `number_input`
+  （复用 Input retained）与 `otp_input`（新增 `CreateRetainedOtp` 转发口，第 9 个补丁标记）；
+  缺 id 或建不出 retained 时 `gpui_shim_set_error()` 当场记下，让 registeredError() 能红。
+
+### 新增的验收：只认真实路径
+
+`App::realClick/realMouseMove/realKey` 把事件交给 `-[NSWindow sendEvent:]`（AppKit 自己做
+hit-test 与 focus 迁移），返回值 = "PHP 队列确实多了一条事件"；`inputProbe()` 读
+`win->paint.inputs`（gpui 在 paint 里给真 Input 登记 inputBounds，gpui.cpp:7815）。
+`showcase --selftest` 现在断言：点导航能换节（7 次命中、跨 ≥2 节）、hover 打中 `pr-hover`、
+点输入框后 `realKey` 能把字符送回 `in-name`、`inputProbe()['n'] > 0`。
+
+### 两条踩坑记录（流程层面，值得记住）
+
+1. **合成缝的绿 ≠ 真路通**。凡是"我发个事件给它"的测试，都要问一句：这条缝跳过了生产路径的
+   哪几步？这里跳过的正好是唯一会暴露 bug 的那步（监听器挂载）。
+2. **幂等补丁要按符号各自判**，不能拿"整块标记在不在"当闸门：upstream/ 里其实已含早先的补丁
+   （`72a021c` 把补丁后的文件提交了进来），整块闸门一开就把新符号插到旧声明中间，
+   amalgam 直接编译不过；而 `grep -q MARK` 这种判据在"半补丁"状态下会静默放行。
+   现在改成：每个符号按**完整声明文本**查在否、不在才插、结尾自检每个符号恰好出现一次。
+
+### 反向锚点：新加的三条真输入断言各自能红吗
+
+| 断言 | 破坏方式 | 实测 |
+|---|---|---|
+| `realClick` 能换节 | 把 `so.name` 退回短名（复现原缺陷） | 红：`navHits=0`、`firstNav=0→0`、`realInput=false/…` |
+| `realMouseMove` 打中 hover | 同上 | 红：`hoverMoves=0`、`hoverAt=0,0` |
+| 输入框是真 Input | `El::input('x')` 把 id 放进 text（修复前的原状） | 红：`probe=0@0,0 0x0`、`typedIn=false` |
+| 打字能回 PHP | 同上 | 红（同一轮自然观察到） |
+
+一个**必须写下来的细节**：退回短名那一轮，`typedIn` 依然是 true。原因是 Input 的 change 事件
+走的是 retained 直连路（materialize 里 `state->onChange = Listen(cx, &ScriptView::OnInputEvent,
+retained->id)`），不经过 `ResolveBehavior` 的回调名匹配。所以"能打字"证明的是"输入框是真的"，
+**不能**当作"监听器挂上了"的证据——那条只有 click/hover 说得清。
+
+## 发现：裸二进制 vs bundle —— macOS 的前台身份决定真输入是否落地（Phase 14c）
+
+- 判据是**系统事实**，不是我们的代码：`[NSBundle mainBundle].bundleIdentifier` 为空 ⇒ 进程不是
+  LaunchServices 眼里的正规前台应用 ⇒ `NSApp.isActive` 起不来 ⇒ 窗口不是 keyWindow。
+  这时手点的第一下被当作"激活点击"吃掉，`keyDown` 没有 firstResponder 可去。
+- A/B 用同一颗二进制（bundle 里是 symlink），只差 bundle 身份：
+  裸 `startup active=false key=false main=false`；bundle `active=true key=true main=true`。
+- 第二道前提：**有人在 `NSDefaultRunLoopMode` 泵 `nextEventMatchingMask`**，激活请求才落地。
+  gpui 的 `GpuiAppRunStep`（build/gpui-kit-cpp/src/gpui/window_mac.cpp:2314、2341）本来就泵，
+  但脏窗口的等待时间是 `distantPast`，所以"调了 activate 却永远不 active"在过去出现过。
+- 由此得出一条通用验证纪律：**验收缝不能要求同步见效**（真路由 postEvent 后要等泵），
+  否则正常链路会被读成假阴性；本轮就先误判过一次"bundle 里 realInput=false"。
+- 另一条：**门不能用它要验的状态当条件**。以 `isActive` 为前提的门会被测试缝自己的泵副作用
+  撑成虚绿；换成 bundle 身份这种独立事实，负控才真能红。
+
+## 发现：macOS 前台是"竞争态"，不是进程属性（Phase 14c-2）
+
+`NSApp.isActive` 取决于启动那一刻谁握着焦点，以及 OS 是否允许这个进程抢：从后台 shell 起的
+GUI 进程会被正当拒绝，即使有 bundle 身份、即使 `TransformProcessType` +
+`activateIgnoringOtherApps:` + `SetFrontProcessWithOptions` 全用上（实测 24 轮重试仍
+active=false）。所以任何"以 frontmost 为硬断言"的门都会随机红。可保证的只有产物属性
+（bundle 身份）与"焦点可得时走的是不是真路由"（nsappDeliveries）。
+另：`acceptsFirstMouse:` 在 vendored 的 view 里已经返回 YES（window_mac.cpp:589），
+所以"非 key 窗口第一下点击被吃掉"这个假设作废——不需要加补丁，鼠标本来就能落地；
+真正需要 keyWindow 的是 **keyDown**（打不进字那半边）。
+
+## 发现：gpui 首帧的 materialize 建不出命中表（Phase 14c-3）
+
+- 证据（`examples/showcase --liveclick`，view 每帧重建、然后真点击扫导航列 38 个采样点）：
+  只推进 1 帧 → **0** 个事件；推进到第 2 帧起 → 稳定 18 个事件、`nav-1..nav-9` 真的到达 PHP。
+- 同期否掉的解释：`paint.hits` 条数在重渲染前后都是 18（不是"清了没重建"）；按 callbackId 的
+  合成缝能命中（监听器在）。缺的只是**第一帧的命中矩形**，画面却是画好的——这正是
+  "界面看着正常、点了没反应"的机制。
+- 处置：`App::view()` 注册时立即 materialize 一遍（`run()` 同路），第一帧就把表备齐。
+  回归位是 `--liveclick` 的退出码（首帧 0 事件即 rc=1），已进 CI。
+- 方法论：同一异常在 selftest 的畸形时序里出现（连续 25 次点击把侧栏滚动）不能推断用户路径，
+  所以要为"用户实际处境"单独造一条 harness，再谈结论。
+
+## 发现：悬停事件被钥匙窗口门槛拦住（补丁 cmd/patch-hover-always.sh）
+
+`window_mac.cpp` 的 tracking area 用 `NSTrackingActiveInKeyWindow` —— AppKit 只在窗口是
+keyWindow 时才投递 `mouseMoved`。含义是"hover 反馈"会随焦点状态消失：未激活的应用、或者用户
+在别的 app 里打字而鼠标悬在我们窗口上，`on_hover` 一条都收不到。改成 `NSTrackingActiveAlways`
+（`cmd/patch-hover-always.sh`）后，悬停不再要求焦点归属。
+注意这条**无法用本地门禁证明**：app 内的合成缝（`-[NSWindow sendEvent:]`）不受该门槛约束，
+`frontmost=false` 时 `hoverRouted` 依然为真；能证的只有真人把鼠标移到未激活窗口上。
+
+## 发现：逐颗输入框真打字 = 8/8 打得进；顺带炸出一个 key_down 段错误（Phase 14c-5）
+
+- 新读数（`examples/showcase --livetyping`，用 `App::inputProbe($index)` 逐索引取框，点中心、
+  按一个真实 '1'，看那颗有没有发 change）：`tree2:3/3 tree7:5/5`，合计 **8/8**。覆盖
+  input / textarea / number_input / catalog 字段。这正面回答了"输入框也无法输入"：
+  在 PHP 宿主这条链上，每颗被点开的框都收下了键。
+- 同一条探针当场炸出一个真缺陷：第 2 节 `in-key`（唯一挂 `onKeyDown` 的框）点击正常、change 也发，
+  但**一按真实键 SIGSEGV**。崩溃报告栈：
+  `JS_NewObject ← ShellRuntime::DispatchKey(runtime.cpp:12194) ← ScriptView::OnScriptKey ←
+   DispatchKeyChain ← WindowKeyDown ← -[GpuiView keyDown:]`，KERN_INVALID_ADDRESS 0x100000058。
+  `impl->context` 在鼠标路径上同样的用法不出事，说明 key 这条路拿到的 runtime/ctx 不是 root 那个。
+  为什么以前没暴露：hello 没有元素级 key_down，21 条合成链路走 `gpui_shim_test_event` 绕过
+  DispatchKey——和 `on_` 前缀那次是同一类盲区（合成缝照不到真派发链）。已建任务 #53。
+- 探针自己的两次错：正序跑在崩点之后什么都测不到（改倒序）；`$allOk` 忘了初始化，
+  未定义变量被当 false → 8/8 却 rc=1。
+- 门禁：`--livetyping` 已进 CI；跳过 `in-key` 是**写明跳过**，不计为通过。
+
+## 真实鼠标：gpui 命中表全绿，仍然可以点不动（2026-10-12）
+
+- 新探针 `App::hitProbe($i)`（`gpui_shim_hit_probe` → bridge → stub → App/FakeBridge）读的是
+  点击真的会查的那张表 `paint.hits`：每条 `x/y/w/h`、`id`、`pathId`、`click`(有没有挂监听)、
+  `parent`(派发链走它)。加它的理由：按 y 扫屏幕猜行位置，会把"表没登记 / 坐标换算错 /
+  监听没挂 / 表外有东西挡着"四种错伪装成同一个症状"那一行点不动"。
+- 实测第 11 节（WebView 与 Inspector）渲染过一次之后，导航只剩下面 7 行点得动，而**表里 13 条
+  矩形、`click=1` 全在**——错在表外：`ChildView` 背后那颗 WKWebView 是常驻 NSView，元素换掉后
+  它仍挂在窗口上、停在最后一次的矩形里，AppKit 的 `hitTest` 先命中它。
+  `WebViewSetVisible(false)`（macOS 侧 `hidden=YES`）就能让开鼠标；已按帧收放
+  （`WebViewFrameVisibility`，materialize 前清 `seen`、后据此收）。修后 13/13。
+- 一次运行内多点重复量（同一套动作在流程各阶段各量一次）是这次定位的主力手段：
+  13/13(建窗) → 13/13(换一次根树) → 7/13(13 节全渲染) → 逐节量精确到第 11 节。
+  比猜"是 HUD 还是剪贴板"便宜，而且读数不留歧义。
+- 两条会把人带偏的读数，记下来：
+  1. `realClick` 返回"队列增长了"**不等于点中了**——同一坐标的 hover 事件也满足它
+     （y=100 那次"命中"其实是 hover，节号没变就是线索）。断言要看"到达几个不同节号"。
+  2. 点在窗口 resize 边（内容区之外）时，`-[NSWindow _handleMouseDownEvent:]` 会走到
+     `_mouseHysteresisCheck: → nextEventMatchingMask` **等下一个鼠标事件而不返回**；
+     注入式探针一次只投一对 down/up，于是像死循环。`sample <pid>` 抓一次栈就能定性——
+     这次就是靠它把"扫描放宽导致挂住"这个错误归因翻掉的（真因是探针采样越界）。
+
+
+---
+
+# 全库审核（2026-10-12，五路并行审查 + 主线逐条复核）
+
+方法：安全 / 性能 / 质量 / 架构 / 门禁完整性五路只读审查并行跑，回来的每条 P0/P1 由主线
+自己读码或实跑复核过才记在这里；没复核的一律标「未复核」。审查范围不含 upstream
+（vendored 1184 文件），但引用它作证据。
+
+## P0（复核过）
+
+| # | 位置 | 事实 | 复核方式 |
+|---|---|---|---|
+| 1 | `git ls-files` + `bin/gpui:162` + `ci.yml:165-183` | **当前跟踪的树克隆出来构建不了**：`cmd/patch-{key-view,hover-always,host-application}.sh`、整个 `examples/showcase/`、`tests/ShowcaseTest.php`、`tests/baseline/showcase/*.png` 全是未跟踪，而构建按名调那三个脚本、CI 跑 showcase 四条门禁 | 逐文件 `git ls-files --error-unmatch` → 8 个全 tracked=N exists=Y |
+| 2 | `cpp-src/gpui_shim.cpp:897-900` | 建窗失败路径**双删**：`EntityDrop` 的 deleter 已 `delete PhpView`（`EntityNewRaw` 注册的 lambda），紧接着又 `delete view`；`box->shellRoot` 在这条路上也从不 drop | 读 :853-857 的 deleter 与 :897-900 对照 |
+| 3 | `src/Element.php:261,269,277,294` ↔ `cpp-src/gpui_bridge.cc:149,294` | `table/list/tabs/textView($id)` 把 id 写进 **`text`**，而回调路由取的是 **`node['id']`** ⇒ 这四类元素挂 `->onClick()` 注册的是空 id，事件到不了 PHP。与上一轮修的 `setAppMenus`（`label`/`id` vs `name`/`action`）同一 bug 家族，**还没修完** | 读四个工厂 + bridge 两处取键 |
+| 4 | `cpp-src/gpui_bridge.cc:627-631` | `php_gpui_element_value` 是带 `// Phase 4` 标记的空壳返回 nil ⇒ `App::checked()` **恒 false**；FakeBridge:506 照抄，四层一致地坏。消费者：`showcase/main.php:405,408`（`agree` 永不为真、`in-dark` 恒 `light`） | 读函数体 |
+| 5 | `bin/gpui:134-146` | **`doctor` 永远不会红**：`verifyPatches()` 返回值被丢、case 里没有 `exit`。实测 `GPUI_DIR=/tmp/definitely-not-here php bin/gpui doctor` 打 12 条 ✗ 而 **rc=0**。附带 `bin/gpui:78` 的全角冒号使 `$script：目标文件缺失` 被解析成一个变量名 → PHP Warning，缺文件的诊断丢了脚本名 | 实跑，看 rc |
+
+## P1（复核过）
+
+| # | 位置 | 事实 |
+|---|---|---|
+| 6 | `cpp-src/gpui_shim.cpp:402` | `kindFromString` 兜底 `return K::Div`：新 kind / 拼错 → 静默装成 div，**没有一层报错**；`tests/cpp/shim_test.cpp` 还断言这个兜底，等于给上游漂移上保险 |
+| 7 | `composer.json` ↔ `bin/gpui:162` ↔ `GPUI.lock` | 补丁清单三处不一致：composer **8** 支、bin/gpui **11** 支、lock 文案 **7** 支。`composer patch` 单独跑 = 半补丁树，缺的正是 `patch-key-view.sh`（防 key_down 段错误那支） |
+| 8 | `cmd/patch-host-application.sh:5` ↔ `bin/gpui:67,162` | 脚本头部写着「⚠️ 当前**未接线**…启用它会偶发段错误 rc=139」，而它**正在被跑**。构建路径上的注释在说谎 |
+| 9 | `cmd/shotdiff.php:58-60,116-119` | 视觉门自投「陈旧产物」坑：`$tmpDir` 永不清理、`exec()` 不收退出码、只判 `is_file` ⇒ `--shot` 崩在半路时拿**上一次的 PNG** 判 ✓；`record` 盲拷，能把坏帧洗成基线 |
+| 10 | `src/FakeBridge.php:1029,873-882,742,642,387-434` | 假桥与真桥语义漂移 5 处：`process_run` 恒 `code=0`、授权按**词法前缀**（`/tmp/../etc/passwd` 在假侧放行，真侧是逐层 `openat`）、`notify` 恒成功且不夹枚举、`http_response` 恒 `ok=true/200`、`window_state`/`component_failure`/`hit_probe`/`input_probe` 恒 0 ⇒ 真侧安全门与全部读数门在 Pest 里 0 覆盖 |
+| 11 | `cpp-src/gpui_shim.cpp:2323-2330` | 存储路径**不受根约束**：`gpui_shim_storage_path` 不查 `HasStorage()`/授予根，而同族 `fs_read:2334` 走 `Resolve(...Read...)`。授权一旦给到，存储文件可落在任意路径（未复核上游 `Storage::SetPath` 是否自带门） |
+| 12 | `src/App.php:917-922` | 每帧**无条件**重建：空转窗口 ~60 次/秒跑完整条 PHP 树 + `toArray()` + materialize。这是其余每帧开销的乘数（未复核：改事件驱动的可行性） |
+| 13 | `cpp-src/gpui_shim.cpp:1033,353-403,132-139` + `gpui_bridge.cc:250-265` | 每元素每帧：字符串**两遍** arena 拷贝（`AStr` 之后 `CopyComponent` 再 `StrDup`）、`kindFromString` 至多 46 次串比较、回调 ~5 次串分配 + 2 次哈希查表、bridge 每 op 2 串 + 每参数 op 2 个 vector |
+| 14 | `cpp-src/gpui_shim.cpp:1231-1243,1266,1458,992,1188-1203` | 生命周期只增不减：dialog/sheet 的 `Box2` 关闭时不回收、`g_views` 键不 erase（`boxForView:2122` 可能把已释放的 Box2 交给回调）；`timerKeys` 每次 `setTimer` 追加一条永不删 |
+| 15 | `cpp-src/gpui_shim.h:42-48` | 事件缓冲上限没写进契约：`id[128]`/`vstr[256]` ⇒ 长 id 静默不路由、>255B 的输入值被截在 UTF-8 中间。stub 与 `App::on` 都没提 |
+| 16 | `.github/workflows/ci.yml` | CI 缺：像素基线比对、`doctor`、bundle 起产物的那条路、真输入路径。`bundleGreen`/`routeGreen` 在 CI 里是空蕴含（`main.php:1243-1244`） |
+
+## P2（挑要紧的记）
+
+- `tests/ShowcaseTest.php:231` 调**不存在**的 `treeIds()`：某一节真渲染成空树时，门是以「Call to undefined function」的形式炸，报不出是哪一节；平时短路过去，静默。
+- `App::setAppMenus` 返回值是入参的回声（`gpui_bridge.cc:607` 返回 `menus.count()`，即使 `gpui_shim.cpp:1275` 早退）；`hello:249` 与 `SystemTest:543` 都拿它当断言 ⇒ 装失败也绿。
+- 假参数：`Element.php:249 slider($min,$max,$value)` 只用 `$value`（bridge 硬编码 0/100）、`:233 image($src,$alt)` 丢 `$alt`。
+- 错误通道四套并存且语义交叉：`lastError`（每窗口）/`registeredError`/`componentFailure`（全局）/`fsError`（**静态**，多窗口互串）。
+- `php-src/gpui.stub.php:230` 两条声明挤在同一行（`…{}function gpui_hotkey_count…`）——机器读的契约里格式已经坏了一处，也证明没有 stub↔fake↔bridge 的 parity 门。
+- 文档计数陈旧：`docs/guide/testing.md:3`「6 道门禁」、`GPUI.lock:14`「7 个宿主补丁」、`gpui_bridge.cc:58` 还挂着 Stage C/D 的旧计划标记。
+- `task_plan.md`/`findings.md`/`progress.md` 已 224 KB（README 9 KB），且 `findings.md` 这份审核还在往里加。
+- 注释与代码对不上若干处：`App.php:133-142` 记 7 个 windowState 键、stub 记 5 个；`showcase/main.php:654` 说 keycode 105 是 F7（其余三处都写 F13，F13 才对）。
+
+## 判为「真门」（能红，且红过或机制上必红）
+
+`cmd/check-cxx17.sh`（`static_assert` 双向、无跳过路径）· `cmd/test-shim.sh:24-29`（缺 `.o` 硬 `exit 1`）·
+`--selftest` 的 `navProbe afterAll`（撤修复实测 7/13 红）· `menuRowsOk`（键名改错即 `rows=` 空 + FAIL）·
+`--liveclick firstFrameSent`（修前 0/38）· `shim_test.cpp:53-62`（AStr 真的覆写源缓冲再断言副本）。
+
+## 门禁的绿色类别名（按项目自己的规矩）
+
+`--liveclick` / `--livetyping` / `--selftest` 的真点击真打字是 **route-green**（进程内 `NSEvent` +
+`Deliver` 给自己的窗口），**不是** real-OS-input-green；后者目前只有 `progress.md` Phase 18 那一次
+电脑操控 MCP 会话（且 `cmd/real-input-probe.py` 未跟踪、未进门禁）。`navBandWide` 用 `realClick`
+返回值当"这一行点得动"的证据不成立——那个返回值字面就是"队列涨了"（`gpui_shim.cpp:1918-1937`），
+hover/定时器也算。

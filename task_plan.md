@@ -245,6 +245,28 @@ Phase 9（三个真 bug）/ Phase 10（mac 集成）/ Phase 11（Capabilities �
   **托管 macOS runner 能开真窗口**。门禁 5（`--shot`/shotdiff）仍留本地——它抓真实在屏
   NSView，CI 上硬跑只会得到"能出图但图是空的"这种最坏证据。
 
+### Phase 14: 展示全部特性的示例 app（进行中）
+> 目标不是"再多一个 hello"，而是**一个把 Element 全部工厂、全部链式方法、App 全部能力都走一遍的
+> 示例**，并且"走没走过"要能被机器查——否则"展示了所有特性"只是一句自述。
+
+- [x] `examples/showcase/`：**13 节**（基础原语 / 输入与保留态 / 选择开关按钮变体 / 容器布局滚动 /
+  表格列表进度 / catalog 富组件 / 侧栏表单菜单 / 浮层 dialog·sheet·toast·notifications /
+  系统能力 剪贴板·url·fs·进程·存储 / 服务 http·watch·inflate·sysInfo·HUD·Inspector·主题 /
+  WebView·Inspector / 样式图标弹层原语 / mac 集成 托盘·全局快捷键·Dock·OS 通知）。
+- [x] 三模式：交互（`run()` 主入口）、`--selftest`（逐节渲染断言 `registeredError()` 为空 +
+  真调每个 App 能力，含生命周期 `runFrames/frameCount/isOpen/stop/lastError`）、
+  `--shot <path> <tree>` + `--sections`（一节一棵树，基线树号由二进制自报）。
+- [x] **覆盖率门禁** `tests/ShowcaseTest.php`（9 个测试，进 CI 的 php job）：反射 Element 全部公开
+  工厂/链式方法 + App 全部 API + 每个枚举取值，逐个断言被真调用（注释先剥掉）；再加两条：
+  **调用 arity 与签名比对**（用 php-parser 走真 AST）与**孤儿 handler**（注册到元素的 id 必须
+  在某一节里渲染得出来）。四个断言都做过反向锚点，见 findings.md。
+- [x] 接线：`bin/gpui build showcase` 可用；CI native job 增加 build showcase + selftest 两步；
+  `cmd/shotdiff.php` 支持 `[example]` 参数并向二进制要 `--sections`。
+- [x] 逐节像素基线：`record showcase` 录了 13 张（tests/baseline/showcase/），`check showcase` 全部 gdfrac=0；
+  **check 不进 CI**（--shot 抓真在屏 NSView，托管 runner 无窗口会话，与 hello 的 18 张同理）。
+- [x] 文档引用：README 快速上手 + getting-started 加了 showcase 段；testing.md 写了第八道门禁的
+  两层（反射/AST 静态核在 php job，原生 selftest 在 native job，像素留本地）。`vitepress build` 过。
+
 ## Key Questions
 1. gpui-kit-cpp 的 Arena 内存模型如何在 TypePHP 中表达？TypePHP 支持 `std::any()` 和 Box 类型，但 Arena 分配需要 C++ 侧管理——桥接层负责 arena 生命周期，PHP 侧只持有 EntityId/handle。
 2. El 树的链式 builder 在 PHP 中如何实现？gpui 的 `Div(cx->a)->FlexCol()->SizeFull()->Child(...)` 返回 `El*` 指针；PHP 侧用 Element 对象持有 id，每个方法返回 `$this`，最终序列化为数组传给 C++。
@@ -295,3 +317,30 @@ Phase 9（三个真 bug）/ Phase 10（mac 集成）/ Phase 11（Capabilities �
 - gpui-kit-cpp 的 component_shell 层已经实现了 QuickJS 脚本绑定（ScriptView/ShellRuntime/RenderSnapshot/SpecNode），这是最接近"用脚本语言描述 UI"的先例。TypePHP 桥接可以参考 SpecNode/ComponentKind 的设计，把 PHP 数组翻译成 SpecNode 再 ShellMaterialize 成 El 树。
 - 但更直接的路径是绕过 shell 层，直接在 PHP 侧构造 El 描述（kind + style + children + listener），C++ 侧 materialize。这样不需要嵌入 QuickJS。
 - typephp-qt 的 WidgetTree 数组→C++ QWidget diff 模式是经过验证的，可以类比：GpuiElement 数组→C++ El 树重建（gpui 每帧重建 El 树，不需要 diff）。
+
+
+### Phase 14b: 真实输入路径（用户实测暴露，已完成）
+- [x] 修 `gpui_shim_callback` 的 `on_` 前缀失配（真实鼠标/键盘从未挂上监听器）。
+- [x] 修 `El::input/textarea` 的 id 落点（`id` 字段而非 `text`），number_input/otp_input 补 retained。
+- [x] 新增 `App::realClick/realMouseMove/realKey/inputProbe/focusedId` + 第 9 个补丁标记（CreateRetainedOtp）。
+- [x] `showcase --selftest` 加真输入断言：点导航换节 / hover 命中 / 打字回 PHP / probe.n>0。
+- [x] `cmd/patch-retained.sh` 重写为逐符号幂等 + 自检（upstream 里已含旧补丁，整块闸门会插错位置）。
+- [ ] 遗留：输入框外观无框（主题层）；`focusedId()` 对 retained input 恒 0（只当诊断）。
+
+### Phase 14c：真输入的系统前提（已完成，剩用户手点复核）
+
+- [x] A/B 定位：bundle 身份 ⇒ `active/key/main` 才成立（裸二进制实测 false）
+- [x] `bin/gpui`：`run`/`selftest` 走最小 `.app` bundle；`run` 转发 `--trace` 等开关
+- [x] 事件缝走真 NSApp 路由（postEvent → 按掩码 nextEventMatchingMask → `-[NSApp sendEvent:]`）
+- [x] `windowState()` 新增 `bundled`/`nsappDeliveries`；showcase 非前台时画面顶部自述
+- [x] `bundleGreen`/`routeGreen` 两道门 + 负控（钉死分支 → rc=1；按 md5 还原 → 150 条真路由，全绿）
+- [x] 门禁重跑：hello+showcase 像素、Pest 74、PHPStan、shim cpp、docs:build、两条 selftest
+- [x] 用户手点复核 → **已用真 OS 输入代验**（用户为终端开了辅助功能权限）：
+      `open` 起 bundle 后 Quartz HID 真点击/真按键，`/tmp/showcase-events.log` 出现
+      `click id=nav-5 value=1.0`、`change id=in-name value='hi'`、`key_down id=in-key value='7'`，
+      画面同步换节、HUD 计数跟着走。过程中查出并修掉两个真根因：
+      常驻 WKWebView 吃掉上半区 `hitTest`（Phase 14c-12）、
+      bundle 启动后不自提升为前台应用 ⇒ 非前台窗口的鼠标键盘全不派发（Phase 14c-17，
+      `activateIgnoringOtherApps:` 在 macOS 26 已失效，改用无参 `-[NSApp activate]`）。
+      另订正一条我自己下错的结论：`acceptsFirstMouse:` 返回 YES 并不等于非前台能收到第一下。
+

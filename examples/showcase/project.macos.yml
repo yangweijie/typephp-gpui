@@ -1,0 +1,50 @@
+name: gpui-showcase
+mode: bin
+output: build/showcase
+
+# TypePHP GPUI — macOS arm64，nano 模式。
+#
+# nano 源码 compose、免 libphp、产出自包含二进制；但强制 c++17。gpui-kit-cpp 的
+# amalgam 与唯一 include gpui.h 的 shim 都是 c++20，无法进本次编译——它们已由
+# cmd/patch-view.sh + bun cmd/build.ts + cmd/build-shim.sh 预编译成
+# cpp-src/build/libgpui_shim.a。本 yml 只编译 PHP + c++17 bridge（仅经 C ABI
+# 调 shim），再链接该静态库与系统 frameworks。
+#
+# 路径基准 = 本 yml 所在目录（examples/showcase/）。构建前须先跑 cmd/build-shim.sh。
+
+sources:
+  - src/main.php
+  - src/sections.php
+  - ../../src/App.php
+  - ../../src/Element.php
+  - ../../src/El.php
+  - ../../php-src/gpui.stub.php
+  - ../../cpp-src/gpui_bridge.cc
+
+build-dir: build
+
+cxx-std: c++17
+optimize: 2
+
+include-paths:
+  - ../../cpp-src
+  - ../../php-src
+
+# 静态库绝对路径：tpc 不解析相对 ld-flags，故用 @ROOT@ 占位，由 `bin/gpui build`
+# 在编译期替换为仓库绝对根并写到 project.macos.gen.yml（同目录，相对 sources 不受影响）。
+# 直接手跑 tpc 需自行替换 @ROOT@。
+ld-flags:
+  - "@ROOT@/cpp-src/build/libgpui_shim.a"
+  - -framework Cocoa
+  - -framework CoreServices
+  - -framework CoreText
+  - -framework CoreGraphics
+  - -framework ImageIO
+  - -framework IOKit
+  - -framework WebKit
+  - -framework AudioToolbox
+  - -framework AVFoundation
+  - -framework Speech
+  - -framework Metal
+  - -framework QuartzCore
+  - -framework Carbon
