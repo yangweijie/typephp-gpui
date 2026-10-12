@@ -1297,3 +1297,13 @@ shotdiff 13 棵全 `gdfrac=0`、`shim_test` OK——回调身份若错，点击/
 `backing` 里的 `c_str()` 只需在本节点这次同步调用期间活着。
 证据：两示例 shotdiff 全 `gdfrac=0`（方法实参或 style 传错一定会在像素上露出来）、
 selftest/liveclick 13/13/livetyping 9/9/hello/pest 81 全绿。
+
+**第 5 步④（拆 Box2 那座"2628 行的山"）**：先否掉"拆成独立 .cpp"那条路——`gpui.h` 是
+32 万行的 amalgam，每多一个包含它的 TU 就多付一次全量编译（gpui.o 本身就 27.5 MB）。
+改用**文本切片**：`gpui_shim_services.inc`（HTTP/目录监听/解压，677 行）与
+`gpui_shim_caps.inc`（Capabilities，354 行）由主 TU 在原位置 `#include`，语义、符号可见性、
+编译次数全不变，主文件从 2729 行降到 1710 行。
+中途踩到一次切片边界错：第二刀的"下一个横幅"判定因 Python `or`/`and` 优先级写错，
+把第一刀留下的 caps include 一起卷进了 services.inc（文本上等价、组织上 caps 变成了
+services 的子块）——发现后挪回主文件，并复跑全套门禁（selftest OK、两示例 shotdiff
+`gdfrac=0`、shim_test OK）。
