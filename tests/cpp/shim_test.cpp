@@ -54,6 +54,41 @@ void testKindFromString() {
     known = true; CHECK(kindFromString(nullptr, &known) == K::Div && !known);
     // 不传出参也不能崩（gpui_shim_push 之外的调用形状）。
     CHECK(kindFromString("div") == K::Div);
+
+    // 漂移警报：上游动了 ComponentKind 表就必须注意到。
+    // 判据不是"每个枚举值都得有名字"——我们只登记 PHP 能表达的那些，剩下 18 个
+    // （VirtualList 轴、DockContent、Registered/ChildView 等）本来就没有名字，
+    // 那样每条 CI 都会红。这里量的是**未登记值的个数**：上游加/删一个 kind，
+    // 这个数就会变，红的那次提醒去看一眼"要不要给 PHP 暴露它"。
+    // 今天的事实：表里 46 个名字，值域里未被覆盖的有 18 个。
+    bool covered[256] = {};
+    for (const KindName& e : kKindNames) {
+        covered[(unsigned)e.kind] = true;
+    }
+    // 这些值不是"PHP 写个 kind 字符串就能建"的：Registered 走 gpui_shim_registered
+    // （按描述符索引），ChildView 是 shim 内部挂原生子视图用的。
+    const K unnameable[] = {K::Registered, K::ChildView};
+
+    const int kExpectedUnnamed = 18;
+    int unnamed = 0;
+    for (unsigned v = 0; v <= (unsigned)K::Registered; v++) {
+        if (covered[v]) continue;
+        bool allowed = false;
+        for (K u : unnameable) {
+            if (v == (unsigned)u) allowed = true;
+        }
+        if (!allowed) {
+            std::fprintf(stderr, "  · ComponentKind 值 %u 无名字\n", v);
+            unnamed++;
+        }
+    }
+    if (unnamed != kExpectedUnnamed) {
+        std::fprintf(stderr,
+                     "  ✗ 未登记的 ComponentKind 从 %d 变成 %d：上游动了 kind 表，"
+                     "去看一眼新值要不要进 kKindNames\n",
+                     kExpectedUnnamed, unnamed);
+    }
+    CHECK(unnamed == kExpectedUnnamed);
 }
 
 // 2) AStr：arena 拷贝必须独立于源缓冲（bug #18 的直接守卫）。

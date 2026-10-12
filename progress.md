@@ -1355,3 +1355,24 @@ show/close/count/has_sheet/state_counts 五个口子都过一遍。
 ② 背板点击最初用 (30,700) 落在窗口 resize 边上，AppKit 的 `_mouseHysteresisCheck:` 等下一个
 事件而不返回，selftest 卡到看门狗 rc=142 —— 换内容区内的点即好（这条坑记忆里有过，
 还是先踩了一次才想起来）。
+
+**第 5 步⑤（ComponentKind 漂移警报，第 5 步的最后一项）**：`kindFromString` 的词法表原先是
+函数内的 `static const struct {...} kTable[]`，`shim_test` 拿不到它 ⇒ "上游加了个 kind、
+PHP 侧永远建不出来"这种漂移没人报。把表提到文件作用域（`struct KindName` +
+`static const KindName kKindNames[]`，46 项），测试就能遍历它。
+警报的**判据选错了会被自己骗**：一开始想写"每个枚举值都得有名字"，实测上游有 18 个值
+本来就不可能靠 kind 字符串建（`Registered` 走 `gpui_shim_registered` 的描述符索引、
+`ChildView` 是 shim 内部挂原生子视图用的……），那样每条 CI 都红。改成量**未登记值的个数**
+（`kExpectedUnnamed = 18`，白名单只放 `Registered`/`ChildView`）：上游加/删 kind 时这个数
+必变，红一次提醒去看"要不要给 PHP 暴露它"。
+反向对照：删掉 `{"text", K::Text},` ⇒ `✗ 未登记的 ComponentKind 从 18 变成 19` rc=1，还原 rc=0。
+**这次搬表把 `tests/ContractTest.php` 的 kind 门弄红了**（它从 `kindFromString(const char* k`
+起截 12000 字节，表搬到函数上面后窗口里一个名字都没有 ⇒ "解析器退化了"）。修解析器时顺手
+把窗口收紧到表的 `{...}` 之间：原先从函数头截 12000 字节会越过表读到后面的代码，
+那边随便一个 `{"名字", ...}` 都会被当成"这个 kind 在册"，门是虚的。
+反向对照（PHP 侧）：同样删 `{"text", K::Text},` ⇒ ContractTest 红并点名 `text`，还原
+`vendor/bin/pest` = **81 passed (416 assertions)**。
+门禁（搬表动了 shim，整条原生链**重建后**复测，不拿昨天的产物判今天的绿）：
+`SHOWCASE rc=0`（含 overlay churn=30/left=0/boxes 1→1/views 1→1）、`HELLO rc=0`、
+`SHOTDIFF rc=0`（tree0–13 全 `gdfrac=0.00000`）；phpstan / doctor / check-c-abi /
+check-build-inputs / check-cxx17 / test-shim 均 rc=0。

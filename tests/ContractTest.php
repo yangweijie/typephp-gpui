@@ -138,16 +138,29 @@ test('every kind Element.php can emit is registered in the shim kindFromString t
     $shim = (string) file_get_contents(__DIR__ . '/../cpp-src/gpui_shim.cpp');
     // 用字节位（strpos）而不是字符位（mb_strpos）：下面 substr 按字节切，
     // 混用会让窗口偏移到表中间，一半的 kind 被当成"没登记"。
-    $start = strpos($shim, 'kindFromString(const char* k');
-    expect($start)->not->toBeFalse('找不到 kindFromString，对比无从做起');
-    $body = substr($shim, (int) $start, 12000);
-    // 两种写法都认：老的 `if (s == "x") return K::Y;` 与现在的表项 `{"x", K::Y},`。
+    // 词法表现在在 kindFromString 外面（shim_test 要用它做 ComponentKind 漂移警报），
+    // 所以窗口从表头截到表的右花括号——框到 12000 字节会把它后面的代码也扫进来，
+    // 那边随便一个 `{"名字", ...}` 都能被当成"这个 kind 在册"，门就虚了。
+    $head = 'kKindNames[] = {';
+    $table = strpos($shim, $head);
+    if ($table !== false) {
+        $from = $table + (int) strlen($head);
+        $to = strpos($shim, '};', $from);
+        expect($to)->not->toBeFalse('kKindNames 表没有右花括号：解析器无从截断');
+        $body = substr($shim, $from, $to - $from);
+    } else {
+        // 老形状：表内联在函数体里，写成 `if (s == "x") return K::Y;`。
+        $start = strpos($shim, 'kindFromString(const char* k');
+        expect($start)->not->toBeFalse('找不到 kKindNames/kindFromString，对比无从做起');
+        $body = substr($shim, (int) $start, 12000);
+    }
+    // 两种写法都认：表项 `{"x", K::Y},` 与老的 `if (s == "x") return K::Y;`。
     // 解析不放宽的话，改了表形状这条门会直接报"读不到任何 kind 名"——那正是它该做的。
-    preg_match_all('/if \(s == "([a-z0-9_]+)"\)/', $body, $m);
-    $known = $m[1];
+    preg_match_all('/\{\s*"([a-z0-9_]+)"\s*,\s*K::/', $body, $m2);
+    $known = $m2[1];
     if ($known === []) {
-        preg_match_all('/\{\s*"([a-z0-9_]+)"\s*,\s*K::/', $body, $m2);
-        $known = $m2[1];
+        preg_match_all('/if \(s == "([a-z0-9_]+)"\)/', $body, $m);
+        $known = $m[1];
     }
     expect($known)->not->toBe([], '没从 shim 里读到任何 kind 名：解析器退化了');
 

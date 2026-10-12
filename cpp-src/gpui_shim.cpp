@@ -411,17 +411,16 @@ gpui::shell::Bridged toBridged(const GpuiArg& a, gpui::Arena* arena) {
     }
 }
 
-gpui::shell::ComponentKind kindFromString(const char* k, bool* known = nullptr) {
-    if (known) *known = true;
-    using K = gpui::shell::ComponentKind;
-    if (!k) {
-        if (known) *known = false;  // 空 kind 也不算「合法的一种」，别让它静默变 Div
-        return K::Div;
-    }
-    // 表查而不是 `std::string s(k)` + 46 次 operator==：这条在**每个元素每帧**都跑一次
-    // （showcase 每帧重建整棵树），原先每次要多一次堆分配与至多 46 次串比较。
-    // 顺序保持原样——div 必须在册（它过去只靠兜底存在）。
-    static const struct { const char* name; K kind; } kTable[] = {
+using K = gpui::shell::ComponentKind;   // 表与函数共用这个别名（原先只在函数里）
+
+// kind 名 → 上游枚举。放在函数外面（而不是函数内 static），是为了 shim_test 能拿它
+// 做"每个 ComponentKind 都得有名字"的漂移警报；这里也是 gpui_shim_push 唯一的词法表。
+// 注意 div 必须在册：它过去只靠兜底分支存在，"最常见的 kind"与"拼错的名字"因此同形。
+struct KindName {
+    const char* name;
+    gpui::shell::ComponentKind kind;
+};
+static const KindName kKindNames[] = {
     {"div", K::Div},
     {"h_flex", K::HFlex},
     {"v_flex", K::VFlex},
@@ -468,10 +467,21 @@ gpui::shell::ComponentKind kindFromString(const char* k, bool* known = nullptr) 
     {"select", K::Select},
     {"combobox", K::Combobox},
     {"date_picker", K::DatePicker},
-    };
-    for (const auto& e : kTable) {
+};
+
+gpui::shell::ComponentKind kindFromString(const char* k, bool* known = nullptr) {
+    using K = gpui::shell::ComponentKind;
+    if (known) *known = true;
+    if (!k) {
+        if (known) *known = false;  // 空 kind 也不算「合法的一种」，别让它静默变 Div
+        return K::Div;
+    }
+    // 表查而不是 `std::string s(k)` + 至多 46 次串比较：这条跑在每个元素每帧上。
+    for (const KindName& e : kKindNames) {
         if (std::strcmp(e.name, k) == 0) return e.kind;
     }
+    // 认不出的 kind 不再静默兜成 Div：标成 unknown，由 gpui_shim_push 拒绝建节点
+    // 并写 lastError。兜底分支把"最常见的值"和"拼错的名字"抹成同一形状，四层都不报错。
     if (known) *known = false;
     return K::Div;
 }
