@@ -65,6 +65,46 @@ El::menu($label, array $items) / El::menuItem($label, $action) / El::menuSeparat
 El::dropdownMenu($id, $label)->item($label, $routeId, $type='click')
 ```
 
+菜单家族的**子节点契约**（上游 `component_shell/lifecycle/menu.cpp` 逐字校验，写错了不是
+"看起来不对"而是每帧报错误并渲染成 `Failed to render MenuBar`）：
+
+- `El::menuBar()` 的子节点**只能是 `El::menu()`**——`MenuItem`/分隔符不能直接挂在它下面；
+- `El::menu()` 的子节点**只能是 `El::menuItem()` 或 `El::menuSeparator()`**——不支持嵌套 `menu`，
+  要分组就多写几个 `menuBar` 的子 `menu`。
+
+```php
+El::menuBar('File', [
+    El::menu('File', [El::menuItem('新建', 'new'), El::menuSeparator()]),
+    El::menu('最近', [El::menuItem('a.txt', 'open-a')]),
+])
+```
+
+`El::menuBar()` 在 PHP 宿主下能装出原生菜单条，但需要两处配合（都已在工具链里）：
+
+1. **宿主应用身份**：菜单的安装走 component app effects，而 `MaterializeRequest::AppEffects`
+   只认 QuickJS `cx.new` 给的"根应用身份"。`cmd/patch-host-application.sh` 补了
+   `RegisterHostApplication` / `SetHostApplicationFallback`，shim 在建视图时登记**一个全宿主
+   共用**的身份（不同实体发不同令牌会生出两条世代，各自装卸同一份菜单数据）。
+2. **回调不能走 ScriptView 成员**：延迟安装原本是
+   `WindowPost(..., ListenTo(owner, &ScriptView::OnComponentAppEffect, token))`，而那个函数读
+   `self->runtime`——宿主实体是 `EntityNewRaw` 建的裸对象（我们是 8 字节的 `PhpView{Box2*}`），
+   按 ScriptView 去读就是越界。补丁给宿主视图换了一个不看 ScriptView 的 trampoline。
+   没这一条时表现为**偶发 SIGSEGV**（实测 3 次崩 1；单一身份下 6 次崩 1），修后 `--liveclick` 连跑 20 次 0 崩。
+
+菜单条与 `App::setAppMenus([...])` 是两条路：后者装的是**应用级**菜单（macOS 顶部菜单条），
+`El::menuBar()` 是元素树里的组件，两者都可用。**动作回 PHP 是同一个 `action` 事件**
+（`$app->onAny('action', fn)`，`$e['value']` 就是声明的 id），详见
+[事件与回调 · 菜单动作](/guide/events#_7b-菜单动作-action)。
+
+`setAppMenus` 的键名要跟 bridge 对齐：菜单条用 `name`、行用 `action`、分隔符
+`['separator' => true]`。写成 `label`/`id` **不报错**，只是那一行的动作永远是 0——菜单看着
+装上了、点了没回音。装完拿 `App::menuRows()` 读一次表（各行携带的 action id）就能确认。
+
+`--selftest` 里有一条对应的门：逐节渲染前后比对 `App::componentFailure()` 的计数，
+任何一节让计数增加就报 `7:materialize 失败(MenuBar accepts only Menu children)` 这种带原因的错。
+为什么需要它——registered 组件建不出来时 gpui **不失败整帧**，只在画面上渲染成
+`Failed to render X`，而 `registeredError()` 照不到 materialize 阶段，只有这个计数会动。
+
 catalog 方法糖（走 `registered_method`，枚举 render 前预校验）：
 
 ```php

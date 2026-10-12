@@ -48,6 +48,13 @@ php bin/gpui build hello               # 补丁→amalgam→shim 库→tpc nano�
 php bin/gpui run hello                 # 编译并运行
 php bin/gpui shot hello                # 编译并截图出 /tmp/hello.png
 php bin/gpui selftest hello            # 编译并跑 --selftest（输入回环+点击+定时器），rc=0=通过
+php bin/gpui run showcase              # 另一个示例：13 节把 PHP 面全部特性走一遍
+                                       # （Element 全部工厂/链式方法 + App 全部能力，
+                                       #  coverage 由 tests/ShowcaseTest.php 反射核对）
+                                       # run/selftest 会把二进制包进 .app 再启动：没有
+                                       # bundle 身份的进程在 macOS 不是前台应用，手点第一下
+                                       # 被当成激活点击吃掉、keyDown 也没有 firstResponder，
+                                       # 症状就是"点了没反应、输入框打不进字"
 ```
 
 <details><summary>底层手动步骤（gpui build 内部即按此序）</summary>

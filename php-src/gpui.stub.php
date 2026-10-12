@@ -62,6 +62,23 @@ function gpui_selftest_fire_registered(mixed $window, string $id, string $type):
 
 /** 离屏渲染窗口内容存成 PNG（$w/$h 为逻辑点，内部 2x）；成功返回 true。 */
 function gpui_snapshot(mixed $window, string $path, int $w, int $h): bool {}
+/** 真输入验收缝：type 0=移动 1=左键单击。返回 1 = PHP 队列里确实多出一条事件。 */
+function gpui_real_mouse(mixed $window, int $x, int $y, int $type): int {}
+function gpui_real_key(mixed $window, int $keycode, string $chars): int {}
+/** 合成一次 ShellAction 派发（按名字）：1 = 被监听接住。 */
+function gpui_dispatch_action(mixed $window, string $name): int {}
+/** 当前持有焦点的 gpui 实体 id；0 = 没有焦点，-1 = 窗口不可用。 */
+function gpui_focused_id(mixed $window): int {}
+/** 输入框诊断：['n'=>登记的 input 数, 'x','y','w','h'=>最后一颗的 inputBounds]。 */
+function gpui_input_probe(mixed $window, int $index): array {}
+/** 命中表探针：['n'=>条数, 'x','y','w','h'=>第 index 条的矩形, 'id','path','click'(0/1),'parent']。 */
+function gpui_hit_probe(mixed $window, int $index): array {}
+
+/** 窗口状态：['found'=>int, 'active'=>bool, 'key'=>bool, 'visible'=>bool, 'main'=>bool]。 */
+function gpui_window_state(mixed $window): array {}
+
+/** 有界地再申请一次前台（详见 App::activate）；1 = 此刻应用 active 且窗口 key。 */
+function gpui_activate(mixed $window): int {}
 
 /** 诊断：dump 当前 spec arena 树为文本。 */
 function gpui_debug_tree(mixed $window): string {}
@@ -86,6 +103,9 @@ function gpui_set_app_menus(mixed $window, array $menus): int {}
 
 /** 读回已装 app 菜单数（验证用）。 */
 function gpui_app_menu_count(mixed $window): int {}
+
+/** 原生菜单条各行携带的动作 id（按行号顺序，跳过分隔符等无动作的行）。 */
+function gpui_menu_rows(): array {}
 
 /** 读取 checkbox/switch/slider 等元素的当前值。 */
 function gpui_element_value(mixed $window, string $id): mixed {}
@@ -205,7 +225,9 @@ function gpui_hotkey_register(mixed $window, string $id, int $keycode, int $mods
 
 function gpui_hotkey_unregister(int $id): void {}
 
-function gpui_hotkey_count(): int {}
+
+/** 组件 materialize 失败读数：['count'=>累计次数, 'last'=>最后一次原因]。 */
+function gpui_component_failure(): array {}function gpui_hotkey_count(): int {}
 
 /** 测试接缝：合成第 $index 个快捷键的事件，走完整条派发链。 */
 function gpui_hotkey_fire(int $index): bool {}

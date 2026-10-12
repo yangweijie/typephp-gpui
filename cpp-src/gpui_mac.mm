@@ -290,6 +290,182 @@ int gpui_mac_os_notify(const char* title, const char* body) {
     return 1;
 }
 
+
+namespace {
+
+/* 我们的 app 只有一扇 gpui 窗口（dialog/sheet 是同一扇窗口里的层），所以"第一个可见且
+ * 有 contentView 的窗口"就是它。 */
+NSWindow* GpuiWindow(void) {
+    for (NSWindow* w in [NSApp windows]) {
+        if (w.isVisible && w.contentView) return w;
+    }
+    return nil;
+}
+
+/* 真实点击会让 WindowServer 把窗口升成 key，键盘事件才有 firstResponder 可去；
+ * 我们绕过了 WindowServer，所以这一步要自己补上——否则 keyDown: 落到 nil，
+ * 输入框永远打不进字（鼠标不受影响，所以点击一直是通的）。 */
+void MakeKey(NSWindow* w) {
+    if (!w) return;
+    if (![NSApp isActive]) [NSApp activateIgnoringOtherApps:YES];
+    if (w != [NSApp keyWindow]) [w makeKeyWindow];
+}
+
+/* 1 = 走 NSApp 队列（真实路径），0 = 直接 sendEvent: 到窗口。 */
+int g_postMode = 1;
+
+/* 走过真路由（NSApp 队列 → nextEventMatchingMask → -[NSApp sendEvent:]）的事件条数。
+ * 后台进程激活不了（macOS 只让前台应用抢焦点），这时 postEvent: 会被 NSApplication
+ * 当成"这次点击只用来激活"而吃掉——缝里就得到假阴性。所以只有"应用确实 active 且
+ * 窗口确实是 key"时才走真实路由，否则退回直投。
+ *
+ * 计数单调累加、读后不清零：若只记"最后一次走了哪条路"，读一次就被抹掉，于是
+ * "selftest 全绿"没法说明绿来自真路由还是直投兜底——直投同样能让整条链变绿。 */
+int g_nsappDeliveries = 0;
+
+/* 事件类型 → nextEventMatchingMask 的掩码。取事件要按掩码取，不然会把队列里别的
+ * 类型（比如 1s 计时的 periodic）一起捞出来派发。 */
+NSEventMask MaskFor(NSEventType t) {
+    switch (t) {
+        case NSEventTypeLeftMouseDown:  return NSEventMaskLeftMouseDown;
+        case NSEventTypeLeftMouseUp:    return NSEventMaskLeftMouseUp;
+        case NSEventTypeRightMouseDown: return NSEventMaskRightMouseDown;
+        case NSEventTypeRightMouseUp:   return NSEventMaskRightMouseUp;
+        case NSEventTypeMouseMoved:     return NSEventMaskMouseMoved;
+        case NSEventTypeKeyDown:        return NSEventMaskKeyDown;
+        case NSEventTypeKeyUp:          return NSEventMaskKeyUp;
+        case NSEventTypeFlagsChanged:   return NSEventMaskFlagsChanged;
+        default:                        return NSEventMaskAny;
+    }
+}
+
+void Deliver(NSWindow* w, NSEvent* ev) {
+    if (g_postMode && [NSApp isActive] && w == [NSApp keyWindow]) {
+        /* 真路由：入队 → 自己 nextEventMatchingMask 取出 → 交 -[NSApplication sendEvent:]。
+         * 这三步就是手点事件在 NSApplication 里的完整走法（WindowServer 只负责入队），
+         * 所以激活判定、keyWindow/firstResponder 归属、hitTest 全都按真实规则走一遍。
+         *
+         * 必须同步取完：shim 侧靠"调用返回时 gpui 队列是否增长"判定事件到达，
+         * 只 post 不等取出会让真绿的链路读数成假阴性。 */
+        [NSApp postEvent:ev atStart:NO];
+        const NSEventMask mask = MaskFor(ev.type);
+        for (int i = 0; i < 64; i++) {
+            NSEvent* got = [NSApp nextEventMatchingMask:mask untilDate:[NSDate distantPast]
+                                               inMode:NSDefaultRunLoopMode dequeue:YES];
+            if (!got) break;
+            [NSApp sendEvent:got];
+            if (got == ev) break;
+        }
+        g_nsappDeliveries++;
+        return;
+    }
+    [w sendEvent:ev];
+}
+
+}  // namespace
+
+int gpui_mac_send_mouse(double x, double y, int type, int click_count) {
+    NSWindow* w = GpuiWindow();
+    if (!w) return 0;
+    MakeKey(w);
+    // PHP 传的是视图坐标（左上原点）；NSEvent 要窗口坐标，交给 convertPoint:toView:nil
+    // 按视图是否 flipped 换算，别自己减高度。
+    NSPoint p = [w.contentView convertPoint:NSMakePoint(x, y) toView:nil];
+    NSEventType t = type == 0 ? NSEventTypeMouseMoved
+                : (type == 1 ? NSEventTypeLeftMouseDown : NSEventTypeLeftMouseUp);
+    int clicks = t == NSEventTypeMouseMoved ? 0 : (click_count > 0 ? click_count : 1);
+    NSEvent* e = [NSEvent mouseEventWithType:t location:p modifierFlags:0
+                                   timestamp:[NSProcessInfo processInfo].systemUptime
+                                windowNumber:w.windowNumber context:nil
+                                 eventNumber:0 clickCount:clicks
+                                    pressure:t == NSEventTypeMouseMoved ? 0.0 : 1.0];
+    if (!e) return 0;
+    Deliver(w, e);
+    return 1;
+}
+
+void gpui_mac_set_post_mode(int post) { g_postMode = post ? 1 : 0; }
+
+int gpui_mac_become_foreground(void) {
+    ProcessSerialNumber psn = {0, kCurrentProcess};
+    OSStatus rc = TransformProcessType(&psn, kProcessTransformToForegroundApplication);
+    [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
+    /* `activateIgnoringOtherApps:` 自 macOS 14 起废弃，实测在 26 上不再把应用带到前台
+     * （bundle 起、`open` 起都停在 active=false key=false，真点击于是全部不落——而非前台
+     * 窗口的鼠标键盘都不派发）。14+ 的正解是无参 `activate`；保留旧调用只为了给老系统
+     * 一条路，用 respondsToSelector 探，不当它存在就一定可用。 */
+    if ([NSApp respondsToSelector:@selector(activate)]) {
+        [NSApp activate];
+    } else {
+        [NSApp activateIgnoringOtherApps:YES];
+    }
+    /* 实测（本机，跨帧读 active/key）：这两步在**没有 bundle 身份**的进程上都不生效——
+     * 补上 SetFrontProcessWithOptions(&psn, 0) 同样 active=false key=false。所以真前台
+     * 只能靠 .app bundle 起（见 bin/gpui 的 appBundle），这里保留调用是为了让 bundle
+     * 里已经前台的应用顺带把窗口提到最前，不是"裸二进制的救药"。 */
+    return rc == noErr ? 1 : 0;
+}
+
+int gpui_mac_activate(void) {
+    /* 前台不是"申请一次就有"的状态，而是和当时谁握着焦点在竞争：实测同一个 bundle
+     * 二进制，一次 startup 量到 active=true key=true，另一次量到 false/false。
+     * 所以这里做的是"再申请一次 + 让 runloop 走一拍"：
+     *   - TransformProcessType/activateIgnoringOtherApps 的申请回执要靠 runloop source
+     *     处理才落地，光调不调度就等于没调；
+     *   - 只跑 `runMode:beforeDate:`（不自己 nextEventMatchingMask 取事件），是为了不把
+     *     用户正在排队的鼠标键盘事件从队列里抢走——那会打乱 gpui 自己的派发顺序。
+     * 返回 1 = 申请完且此刻窗口是 key。调用方应当有界重试，不要死等。 */
+    gpui_mac_become_foreground();
+    NSWindow* w = GpuiWindow();
+    if (w) {
+        /* 只 makeKeyWindow 不够：应用刚被带到前台时窗口可能还没 orderFront，
+         * key 状态也就落不下来——实测正是这一步缺，activate 之后仍 key=false。 */
+        [w makeKeyAndOrderFront:nil];
+        MakeKey(w);
+    }
+    for (int i = 0; i < 3; i++) {
+        [[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode
+                                 beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.02]];
+    }
+    return (w && [NSApp isActive] && w == [NSApp keyWindow]) ? 1 : 0;
+}
+
+int gpui_mac_window_state(double* out) {
+    NSWindow* w = GpuiWindow();
+    if (!w || !out) return 0;
+    out[0] = [NSApp isActive] ? 1 : 0;
+    out[1] = (w == [NSApp keyWindow]) ? 1 : 0;
+    out[2] = w.isVisible ? 1 : 0;
+    out[3] = [NSApp mainWindow] ? 1 : 0;
+    out[4] = g_nsappDeliveries;
+    /* bundle 身份是"系统会不会把你当正规前台应用"的判据，且与 runloop 有没有被 pump 无关
+     * ——用它当门，才不会像 [NSApp isActive] 那样被自己那条缝的副作用牵着走。 */
+    out[5] = ([[NSBundle mainBundle] bundleIdentifier] != nil) ? 1 : 0;
+    return 1;
+}
+
+int gpui_mac_send_key(unsigned short keycode, const char* chars) {
+    NSWindow* w = GpuiWindow();
+    if (!w) return 0;
+    MakeKey(w);
+    NSString* s = @(chars ? chars : "");
+    for (int i = 0; i < 2; i++) {
+        NSEventType t = i == 0 ? NSEventTypeKeyDown : NSEventTypeKeyUp;
+        NSEvent* e = [NSEvent keyEventWithType:t location:NSMakePoint(0, 0)
+                                 modifierFlags:0
+                                     timestamp:[NSProcessInfo processInfo].systemUptime
+                                  windowNumber:w.windowNumber
+                                       context:nil
+                                    characters:s
+                  charactersIgnoringModifiers:s
+                                     isARepeat:NO
+                                       keyCode:keycode];
+        if (!e) return 0;
+        Deliver(w, e);
+    }
+    return 1;
+}
+
 }  // extern "C"
 
 #endif  // __APPLE__

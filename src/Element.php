@@ -122,19 +122,26 @@ class Element
         return $e;
     }
 
+    /**
+     * 单行输入。$id 进的是 **id 字段**（不是 text）：bridge 按 node['id'] 建/复用
+     * retained InputState（gpui_bridge.cc:149,177）。id 落在 text 里等于没建，
+     * materialize 于是 `return Div(cx->a)`——输入框静默变成一颗 Div：不聚焦、不能打字、
+     * 点它也没事件。App::text(id) 与 onChange 的路由键同样是这个 id。
+     */
     public static function input(string $id = ''): self
     {
         $e = new self();
         $e->kind = 'input';
-        $e->text = $id;
+        $e->id = $id;
         return $e;
     }
 
+    /** 多行输入。id 的去处同 input()：必须是 id 字段，否则 retained 建不起来。 */
     public static function textarea(string $id = ''): self
     {
         $e = new self();
         $e->kind = 'textarea';
-        $e->text = $id;
+        $e->id = $id;
         return $e;
     }
 
@@ -795,6 +802,14 @@ class Element
         return $this->callback('on_hover');
     }
 
+    /**
+     * 挂 key_down 回调，事件的 `value` 是按下的字符（UTF-8）。
+     *
+     * 实现位置值得知道：gpui 原本把键事件交给 ScriptView → ShellRuntime::DispatchKey →
+     * QuickJS，而 PHP 宿主没有脚本引擎——真实按键会直接段错误。上游补丁
+     * cmd/patch-key-view.sh 按 OnClick 的同一形状，在 view 层就把字符交给宿主队列。
+     * 代价与点击一致：没有脚本端的 stopPropagation，传播由宿主决定。
+     */
     public function onKeyDown(): self
     {
         return $this->callback('on_key_down');

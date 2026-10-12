@@ -46,6 +46,9 @@ namespace TypePHP\Gpui {
         /** app 菜单条：最近一次 set_app_menus 装入的菜单数 */
         public static int $appMenuCount = 0;
 
+        /** @var array<int,string> app 菜单条各行的动作 id（无动作的行不计入） */
+        public static array $menuRows = [];
+
         /** @var string|null 模拟系统粘贴板（null = 空剪贴板） */
         public static ?string $clipboard = null;
 
@@ -141,6 +144,7 @@ namespace TypePHP\Gpui {
             self::$toasts = [];
             self::$dialogCount = 0;
             self::$appMenuCount = 0;
+            self::$menuRows = [];
             self::$clipboard = null;
             self::$clipboardImage = null;
             self::$clipboardPaths = [];
@@ -380,6 +384,55 @@ namespace {
         return true;
     }
 
+    function gpui_window_state(mixed $window): array
+    {
+        return ['found' => 0, 'active' => false, 'key' => false, 'visible' => false,
+                'main' => false, 'nsappDeliveries' => 0, 'bundled' => false];
+    }
+
+    function gpui_activate(mixed $window): int
+    {
+        // 无头替身：没有 AppKit 可竞争前台，恒 0。
+        return 0;
+    }
+
+    function gpui_component_failure(): array
+    {
+        return ['count' => 0, 'last' => ''];
+    }
+
+    function gpui_input_probe(mixed $window, int $index): array
+    {
+        return ['n' => 0, 'x' => 0, 'y' => 0, 'w' => 0, 'h' => 0, 'hits' => 0];
+    }
+
+    function gpui_hit_probe(mixed $window, int $index): array
+    {
+        return ['n' => 0, 'x' => 0, 'y' => 0, 'w' => 0, 'h' => 0,
+                'id' => 0, 'path' => 0, 'click' => 0, 'parent' => -1];
+    }
+
+    function gpui_dispatch_action(mixed $window, string $name): int
+    {
+        return 0;
+    }
+
+    function gpui_focused_id(mixed $window): int
+    {
+        return 0;
+    }
+
+    function gpui_real_mouse(mixed $window, int $x, int $y, int $type): int
+    {
+        // 无头替身：没有 AppKit 可发，恒 0（这条路的真验收在原生 selftest 里）。
+        return 0;
+    }
+
+    function gpui_real_key(mixed $window, int $keycode, string $chars): int
+    {
+        return 0;
+    }
+
     function gpui_snapshot(mixed $window, string $path, int $w, int $h): bool
     {
         // 无头替身：记录请求即可，不真正出图。
@@ -425,7 +478,24 @@ namespace {
     function gpui_set_app_menus(mixed $window, array $menus): int
     {
         FakeBridge::$appMenuCount = count($menus);
+        // 与 C++ bridge 同一套键名语义：菜单条用 name、行用 action，没有 action 的行
+        // （分隔符、纯标题项）不进表。键写错时这里读回来是空的，测试就能抓到。
+        FakeBridge::$menuRows = [];
+        foreach ($menus as $menu) {
+            $items = isset($menu['items']) && is_array($menu['items']) ? $menu['items'] : [];
+            foreach ($items as $item) {
+                $act = isset($item['action']) && is_string($item['action']) ? $item['action'] : '';
+                if ($act !== '') {
+                    FakeBridge::$menuRows[] = $act;
+                }
+            }
+        }
         return FakeBridge::$appMenuCount;
+    }
+
+    function gpui_menu_rows(): array
+    {
+        return FakeBridge::$menuRows;
     }
 
     function gpui_app_menu_count(mixed $window): int

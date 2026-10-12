@@ -59,7 +59,8 @@ final class App
     {
         \gpui_app_create();
         $this->window = \gpui_window_open($title, $width, $height);
-        $this->views[] = $view;
+        // 走 view() 而不是直接压数组：那里有"首帧多渲染一遍把命中表备齐"这一步。
+        $this->view($view);
         $this->loop();
     }
 
@@ -89,12 +90,123 @@ final class App
     public function view(callable $builder): void
     {
         $this->views[] = $builder;
+        // 首帧建不出命中表：实测只跑 1 帧时真点击产生 0/38 个事件，跑到第 2 帧就稳定 18/38
+        // 且 nav-* 真的到达 PHP。窗口此刻已经在了，所以这里立刻多渲染一遍，把命中表在第一帧
+        // 之后就备齐——不然用户在"刚启动那几帧"里点什么都没反应，而画面上看着一切正常。
+        if ($this->window !== null) {
+            $tree = $builder();
+            if ($tree instanceof Element) {
+                $this->render($tree);
+            }
+        }
     }
 
     /** 渲染一棵 Element 树（一次性，非每帧）。 */
     public function render(Element $tree): void
     {
         \gpui_render($this->handle(), $tree->toArray());
+    }
+
+    /**
+     * 真输入验收缝：把一次点击/移动/按键交给 AppKit 的正常派发路径
+     * （-[NSWindow sendEvent:]），于是 hit-test、behavior 解析、focus 迁移都真的走一遍。
+     * 返回 true 表示这一趟 PHP 队列里确实多出了事件——也就是"元素真的挂上了监听器"。
+     *
+     * 与 --selftest 里那条合成缝（gpui_test_event）的区别是要害：合成缝按 callbackId
+     * 直接入队，**绕过监听器到底挂没挂**。bridge 曾经把 "on_click" 剥成 "click" 再交给
+     * materialize，而 materialize 逐字比较 op.name=="on_click"，于是真实鼠标一个事件都
+     * 进不来，而 21 条自检链路全绿。所以交互能力的地基只认这三个方法。
+     *
+     * 坐标是视图坐标（左上原点、整数逻辑点），与 snapshot 同一套。事件仍要下一帧才派发，
+     * 所以调用后得 loop(1) 以上。
+     */
+    public function realClick(int $x, int $y): bool
+    {
+        return \gpui_real_mouse($this->handle(), $x, $y, 1) === 1;
+    }
+
+    public function realMouseMove(int $x, int $y): bool
+    {
+        return \gpui_real_mouse($this->handle(), $x, $y, 0) === 1;
+    }
+
+    /**
+     * 窗口/应用状态：active（NSApp 是否前台）、key（窗口是否钥匙窗口）、visible、main、
+     * bundled（进程有没有 .app bundle 身份），外加 nsappDeliveries——realClick/realKey 里
+     * 已经走真路由（NSApp 队列 → nextEventMatchingMask → -[NSApp sendEvent:]）的事件条数，
+     * 单调累加。
+     * 真实鼠标/键盘能不能落地就看前四个数——钥匙窗口收不到 keyDown，非 active 应用的
+     * 第一次点击可能被激活动作吃掉。把它读出来才能在"代码里全绿、手里点不动"时定位到底
+     * 哪一环没成立；nsappDeliveries 则用来说明这份绿是哪条路给的：0 表示事件缝退回了
+     * 直投 -[NSWindow sendEvent:]，跳过了 NSApplication 的路由判定。
+     */
+    public function windowState(): array
+    {
+        return \gpui_window_state($this->handle());
+    }
+
+    /**
+     * 有界地再申请一次前台并把窗口升成 key，返回是否已经拿到（active && key）。
+     *
+     * 为什么需要它而不是一次性 activate：前台是**和当时握着焦点的一方竞争**出来的状态，
+     * 实测同一个 bundle 二进制一次启动量到 active=true、另一次量到 false——申请的回执要
+     * 靠 runloop 走几拍才落地，所以这里内部已经跑了几拍，调用方按帧重试即可。
+     *
+     * 边界（别当成万能药）：没有 `.app` bundle 身份的裸可执行文件，这里补上
+     * `SetFrontProcessWithOptions` 也照样 active=false（实测），真前台只能从 bundle 起，
+     * 见 `bin/gpui` 的 appBundle。
+     */
+    public function activate(): bool
+    {
+        return \gpui_activate($this->handle()) === 1;
+    }
+
+    /**
+     * 输入框诊断：gpui 在 paint 里登记过几颗 input，以及第 $index 颗的 inputBounds
+     * （-1 = 最后一颗，越界则四值为 0），外加 hits 条数。
+     * 点击能不能聚焦取决于这张框，所以"打不进字"先分清三种可能：根本没登记（渲染侧）、
+     * 框不在那个坐标（换算）、框在但 press 没走到（分发）。
+     * 按索引取，是为了能把屏上**每一颗**输入框都点一遍验一遍，而不是只验最后一颗。
+     */
+    public function inputProbe(int $index = -1): array
+    {
+        return \gpui_input_probe($this->handle(), $index);
+    }
+
+    /**
+     * 命中表探针：读出 gpui 点击 hit-test 真的查那张表（paint.hits）的第 $index 条矩形。
+     * 真实鼠标先过这张表才轮得到 behavior/回调，所以"那一行点不动"在这里只有三种读法：
+     * 表里根本没这条（绘制侧没登记）、这条不在那个位置（坐标换算）、位置对但 click=0
+     * （监听器没挂上）。按 y 扫屏幕猜行位置会被这些情况全部伪装成"点不动"。
+     */
+    public function hitProbe(int $index = -1): array
+    {
+        return \gpui_hit_probe($this->handle(), $index);
+    }
+
+    /**
+     * 焦点探针：gpui 认为当前持有焦点的实体 id（0 = 没有，-1 = 窗口不可用）。
+     * 真键盘只发给有焦点的元素，所以"打不进字"要先分清是没聚焦还是按键没到。
+     */
+    public function focusedId(): int
+    {
+        return \gpui_focused_id($this->handle());
+    }
+
+    /**
+     * 合成一次 ShellAction 派发（按名字）。菜单行的动作以 `action` 事件回到 PHP，
+     * id 就是 MenuItem 写的那个 action 名；原生菜单条在窗口之外，真点击够不到，
+     * 所以这条缝是给门禁覆盖"监听器 → shim 钩子 → PHP"整条路用的。
+     */
+    public function dispatchAction(string $name): bool
+    {
+        return \gpui_dispatch_action($this->handle(), $name) === 1;
+    }
+
+    /** keycode 是 Carbon 的 kVK_*（如 kVK_ANSI_G = 9）；chars 是那个键产出的字符。 */
+    public function realKey(int $keycode, string $chars = ''): bool
+    {
+        return \gpui_real_key($this->handle(), $keycode, $chars) === 1;
     }
 
     /** 离屏渲染当前窗口内容存成 PNG（$w/$h 逻辑点，内部 2x）。供 --shot 视觉验收。 */
@@ -212,7 +324,7 @@ final class App
     /**
      * 装原生 app 菜单条（macOS 系统菜单栏，非窗口内）。
      * $menus = [['name'=>'File','items'=>[['label'=>'New','action'=>'file.new'],['separator'=>true],...]], ...]
-     * 带 action 的项点击后经基石旁路回 PHP：App->on($action, 'action', $handler)。返回装入菜单数。
+     * 带 action 的项被点到时，动作以 `action` 事件回到 PHP：App->onAny('action', fn)。返回装入菜单数。
      */
     public function setAppMenus(array $menus): int
     {
@@ -223,6 +335,19 @@ final class App
     public function appMenuCount(): int
     {
         return (int) \gpui_app_menu_count($this->handle());
+    }
+
+    /**
+     * 原生菜单条各行携带的动作 id（按行号顺序，无动作的行不计入）。
+     *
+     * 为什么要读这张表：系统菜单栏不在本进程那扇窗口里，注入式 NSEvent 到不了，
+     * "真点一下原生菜单行"这一跳没法进门禁；能进的是"行里装的确实是 PHP 声明的那个 id"
+     * （本方法）与"该 id 的动作会回到 PHP"（dispatchAction()）。两段合起来覆盖整条链，
+     * 只差 NSMenuItem 的 target/action——那是上游自己的代码。
+     */
+    public function menuRows(): array
+    {
+        return (array) \gpui_menu_rows();
     }
 
     public function checked(string $id): bool
@@ -488,6 +613,16 @@ final class App
     public static function grantStorage(bool $allowed): void
     {
         \gpui_grant_storage($allowed);
+    }
+
+    /**
+     * 组件 materialize 失败的读数：['count'=>自启动以来累计次数, 'last'=>最后一次原因]。
+     * registered 组件建不出来时 gpui 不失败整帧，而是在画面上渲染成 "Failed to render X"，
+     * 这个计数是宿主唯一能拿到"出过错"的地方（registeredError() 照不到 materialize 阶段）。
+     */
+    public static function componentFailure(): array
+    {
+        return \gpui_component_failure();
     }
 
     public static function storageGranted(): bool

@@ -46,6 +46,13 @@ php bin/gpui build hello
 `cmd/build-shim.sh` 编 C++20 静态库 → `tpc --nano` 编 PHP+C++17 bridge 并链接。
 产物：`examples/hello/build/hello`。
 
+想看**全部**特性不必翻 API 表：`php bin/gpui run showcase` 起一个 13 节的目录 app
+（基础原语 / 输入 / 选择与开关 / 布局 / 表格列表 / catalog 富组件 / 侧栏表单菜单 /
+浮层 / 系统能力 / 服务 / WebView·Inspector / 样式图标 / mac 集成）。
+`examples/showcase/src/sections.php` 里每一节都是真调用，而"有没有漏掉某个 API"
+由 `tests/ShowcaseTest.php` 反射 `src/Element.php` 与 `src/App.php` 逐名核对——
+少写一个 CI 就红，所以"展示了所有特性"是可断言的，不是自述。
+
 ## 4. 运行 / 自检 / 截图
 
 ```bash
@@ -53,6 +60,37 @@ php bin/gpui run hello            # 跑起来（带窗口）
 php bin/gpui selftest hello       # 无交互六链路自检，rc=0 即通过
 php bin/gpui shot hello /tmp/x.png 0   # 渲染测试树存 PNG
 ```
+
+### `run`/`selftest` 会把二进制包进 `.app` 再启动（这不是包装，是前提）
+
+`php bin/gpui run <示例>` 实际执行的是
+`examples/<示例>/build/<示例>.app/Contents/MacOS/<示例>`（里面是指向构建产物的 symlink，
+重建后 bundle 自动跟着新）。为什么要这一层：macOS 只把"有 bundle 身份"的进程当正规前台
+应用。直接跑 `examples/<示例>/build/<示例>` 这颗裸二进制时 `NSApp.isActive` 起不来，
+手点的第一下被系统当成"激活这扇窗口"的点击吃掉，`keyDown` 也没有 firstResponder 可去——
+画面上就是**点了没反应、输入框打不进字**，而代码里的一切看起来都正常。实测两份读数只差
+一个 bundle：
+
+```
+裸：      startup active=false key=false visible=true  main=false
+bundle：  startup active=true  key=true  visible=true  main=true
+```
+
+所以手工验收真鼠标真键盘请用 `php bin/gpui run showcase --trace`，别直接跑 build 下那颗文件；
+`--trace` 会把每条到达 PHP 的事件追加进 `/tmp/showcase-events.log`，手点一次导航就该出现
+`click id=nav-N`。`gpui selftest` 同样走 bundle，并附 `--expect-bundle` 让产物硬断言
+"我确实是从 bundle 里起的"（`bundled` 读数；信号只能走 argv，nano 里 `getenv()` 编译不过）。
+
+**但 `active` 是可以争不到的**：前台是和"当时握着焦点的那一方"竞争出来的状态。实测同一个
+bundle 二进制，几次启动分别量到 `active=true key=true` 与 `active=false key=false`——从
+后台 shell 起进程时，macOS 会正当拒绝它抢焦点（`activateIgnoringOtherApps:` 和 Carbon 的
+`SetFrontProcessWithOptions` 都不管用，后者实测直接否掉）。因此：
+
+- `App::activate()` 是**有界重试**用的（内部会让 runloop 走几拍，回执才落地），不是一次就成的开关；
+  showcase 的头 12 帧会自动重试，之后就不再抢（一直抢焦点比"第一下没反应"更糟）。
+- `selftest` 报 `activateTries/bundled/frontmost/nsappDeliveries` 四个读数，但只把
+  `bundled` 当硬门；`frontmost` 照实报告，不当随机红灯用。
+- 用户侧真正的判据是"点一下窗口之后事件到不到"：`--trace` 里出现 `click id=nav-N` 才算通。
 
 ## 5. 跑测试门禁
 

@@ -59,11 +59,15 @@ function patchManifest(): array {
         ['patch-nano.sh',          "$nano/src/extension.cpp",        'Engine-provided modules'],
         ['patch-view.sh',          "$gpui/src/shell/view.cpp",       '/* typephp-gpui: patched */'],
         ['patch-retained.sh',      "$gpui/src/shell/runtime.cpp",    'CreateRetainedInput'],
+        ['patch-retained.sh',      "$gpui/src/shell/runtime.cpp",    'CreateRetainedOtp'],
         ['patch-focus.sh',         "$gpui/src/shell/runtime.cpp",    'CreateRetainedFocus'],
         ['patch-registered-cb.sh', "$gpui/src/shell/runtime.cpp",    'PushShimCallback'],
         ['patch-dispatch-cb.sh',   "$gpui/src/shell/runtime.cpp",    'typephp-gpui: shim route (DispatchArgs)'],
         ['patch-nested-view.sh',   "$gpui/src/shell/runtime.cpp",    'RegisterHostView'],
+        ['patch-host-application.sh', "$gpui/src/shell/runtime.cpp", 'HostApplyComponentAppEffect'],
         ['patch-concepts.sh',      "$gpui/src/gpui/gpui.h",          'EmitsEventV'],
+        ['patch-hover-always.sh',  "$gpui/src/gpui/window_mac.cpp",  'NSTrackingActiveAlways'],
+        ['patch-key-view.sh',      "$gpui/src/shell/view.cpp",       'typephp-gpui: gpuiEnqueueKey'],
     ];
 }
 
@@ -77,6 +81,53 @@ function verifyPatches(): bool {
         else { bad("$script 未落：$file 缺 marker「$marker」"); $all = false; }
     }
     return $all;
+}
+
+/**
+ * 把裸可执行文件包成最小 .app bundle，返回 bundle 里的可执行路径。
+ *
+ * 为什么必须包：macOS 只把"有 bundle 身份"的进程当正规前台应用。裸二进制即使
+ * TransformProcessType + activateIgnoringOtherApps 全部调过，NSApp.isActive 仍是
+ * false、窗口拿不到 keyWindow——于是手点的第一下被当成"激活你这扇窗口"吃掉，
+ * keyDown 更根本没有 firstResponder 可去。画面上就是"点了没反应、输入框打不进字"。
+ * 同一颗二进制放进 bundle 后读数翻成 active=true key=true main=true。
+ *
+ * 用 symlink 而不是复制：重建只换 build/$example 的内容，bundle 永远指向最新那颗，
+ * 不会出现"跑了个旧的"。
+ */
+function appBundle(string $root, string $example): string
+{
+    $bin = "$root/examples/$example/build/$example";
+    $appDir = "$root/examples/$example/build/$example.app";
+    $macos = "$appDir/Contents/MacOS";
+    if (!is_dir($macos) && !mkdir($macos, 0755, true) && !is_dir($macos)) {
+        err("无法创建 bundle 目录：$macos");
+        exit(1);
+    }
+    $link = "$macos/$example";
+    if (is_link($link) || is_file($link)) {
+        @unlink($link);
+    }
+    if (!symlink($bin, $link)) {
+        err("无法建立 bundle 可执行链接：$link");
+        exit(1);
+    }
+    file_put_contents("$appDir/Contents/Info.plist", <<<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleExecutable</key><string>$example</string>
+<key>CFBundleIdentifier</key><string>top.typephp.gpui.$example</string>
+<key>CFBundleName</key><string>$example</string>
+<key>CFBundlePackageType</key><string>APPL</string>
+<key>CFBundleShortVersionString</key><string>1.0</string>
+<key>LSMinimumSystemVersion</key><string>11.0</string>
+<key>NSHighResolutionCapable</key><true/>
+<key>NSPrincipalClass</key><string>NSApplication</string>
+</dict></plist>
+
+PLIST);
+    return $link;
 }
 
 switch ($cmd) {
@@ -108,7 +159,7 @@ switch ($cmd) {
         if ($rc !== 0) { err('同步 upstream 失败'); exit($rc); }
 
         // 1) 补丁（幂等）——含 Stage D 的 registered-cb。
-        foreach (['patch-nano.sh', 'patch-view.sh', 'patch-retained.sh', 'patch-focus.sh', 'patch-registered-cb.sh', 'patch-dispatch-cb.sh', 'patch-nested-view.sh', 'patch-concepts.sh'] as $p) {
+        foreach (['patch-nano.sh', 'patch-view.sh', 'patch-retained.sh', 'patch-focus.sh', 'patch-registered-cb.sh', 'patch-dispatch-cb.sh', 'patch-key-view.sh', 'patch-nested-view.sh', 'patch-host-application.sh', 'patch-concepts.sh', 'patch-hover-always.sh'] as $p) {
             $rc = run("bash $root/cmd/$p");
             if ($rc !== 0) { err("补丁失败：$p"); exit($rc); }
         }
@@ -134,7 +185,17 @@ switch ($cmd) {
         ok("构建完成：$bin");
 
         if ($cmd === 'run') {
-            exit(run(escapeshellarg($bin)));
+            $exe = appBundle($root, $example);
+            ok("已包成 bundle（真前台应用）：$exe");
+            // 把示例自己的开关（--trace / --sections / --selftest）原样转给 bundle 里的
+            // 二进制：没有这条转发，"php bin/gpui run showcase --trace" 会静默丢掉 trace，
+            // 而那正是量"手点有没有到"的唯一外部手段。
+            $extra = array_slice($args, 1);
+            $quoted = [];
+            foreach ($extra as $a) {
+                $quoted[] = escapeshellarg((string) $a);
+            }
+            exit(run(escapeshellarg($exe) . ($quoted ? ' ' . implode(' ', $quoted) : '')));
         }
         if ($cmd === 'shot') {
             $path = $args[1] ?? "/tmp/$example.png";
@@ -146,7 +207,13 @@ switch ($cmd) {
             exit(run($line));
         }
         if ($cmd === 'selftest') {
-            exit(run(escapeshellarg($bin) . ' --selftest'));
+            // 走 bundle，并用这个环境变量把"我期望自己是 bundle 起的"告诉产物：
+            // selftest 于是能硬断言 bundled=true（这是产物属性，我们能保证），
+            // 而 frontmost 只作读数报告——前台是 OS 跟焦点持有者竞争出来的，
+            // 后台 shell 里 macOS 会正当拒绝抢焦点，拿它当硬门就变成随机红灯。
+            // 信号必须走 argv：nano 不支持 getenv()，环境变量在编译期就过不去。
+            exit(run(escapeshellarg(appBundle($root, $example))
+                . ' --selftest --expect-bundle'));
         }
         break;
     }

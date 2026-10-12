@@ -75,7 +75,7 @@ test('onAny also fires even when on() matched', function (): void {
     expect($any)->toBe(1, 'onAny must also fire even when on() matched');
 });
 
-test('loop runs the view once per frame and stops', function (): void {
+test('view 预热一帧 + loop 每帧一次，注册时那趟是刻意的', function (): void {
     $app = new App();
     $app->create();
     $win = $app->createWindow('T', 400, 300);
@@ -87,6 +87,9 @@ test('loop runs the view once per frame and stops', function (): void {
     FakeBridge::$windowOpen = true;
     $app->loop(3);
 
-    expect($frames)->toBe(3);
-    expect(FakeBridge::$renderLog[(int) $win])->toHaveCount(3);
+    // 4 = view() 注册时预热的 1 次 + loop(3) 的 3 帧。预热不是多余渲染：实测只跑一帧时
+    // 真点击产生 0 个事件，第二帧之后才稳定（首帧的 materialize 建不出命中表），
+    // 见 App::view 的注释与 examples/showcase 的 --liveclick。
+    expect($frames)->toBe(4);
+    expect(FakeBridge::$renderLog[(int) $win])->toHaveCount(4);
 });

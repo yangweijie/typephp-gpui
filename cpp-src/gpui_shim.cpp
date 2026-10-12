@@ -32,6 +32,7 @@ int GpuiAppRunStep(App* app, double maxWaitSecs);
 // 以真实走一遍 boxForView 反查 + 入队路径。
 void gpuiEnqueueClick(ScriptView*, Ctx*, uint64_t, int);
 void gpuiEnqueueChange(ScriptView*, Ctx*, uint64_t, bool);
+
 void gpuiEnqueueHover(ScriptView*, Ctx*, uint64_t, bool);
 // tick 监听强符号：签名须匹配 ListenerArgFn（void(*)(void*,Ctx*,const void*,int64_t)）。
 void gpuiEnqueueTimer(ScriptView*, Ctx*, const void*, int64_t);
@@ -180,6 +181,51 @@ class Box2 {
 // self(view void*) → box，供 patched view.cpp 的事件 handler 反查。
 std::unordered_map<void*, Box2*> g_views;
 
+// App 级动作处理器要用的一张反查表：`ActionFn` 只给 Window* 与 ActionEvent*，
+// 没有 view 可以走 boxForView，所以窗口指针得自己记下对应的 Box2。
+std::unordered_map<gpui::Window*, Box2*> g_windowBoxes;
+
+// 原生菜单行 → PHP 的 `action` 事件。链路：NSMenuItem target/action →
+// `gpuiAppMenuItemChosen:` → `AppMenuChosen(tag)` → `AppMenuRowForId` 取回 action id →
+// 派发到 active window → 焦点链没人接 → 这里。事件 id 就是 MenuItem 写的那个 action 名
+// （`ShellActionScriptId` 反查回来），所以 PHP 侧 `$app->on('cr-m-new', 'action', fn)`
+// 与按钮点击是同一套写法。
+static void gpuiAppActionHandler(gpui::Window* win, gpui::ActionEvent* ev) {
+    if (!win || !ev) return;
+    auto it = g_windowBoxes.find(win);
+    if (it == g_windowBoxes.end() || !it->second) return;
+    gpui::Str name = gpui::shell::ShellActionScriptId(ev->action);
+    if (!name.s || name.len <= 0) return;
+    std::string id(name.s, name.len);
+    it->second->enqueueRaw("action", id.c_str(), GPUI_ARG_NIL, 0, 0, nullptr);
+}
+
+// 上游那张 app 动作表是定长的（gpui.cpp `kMaxAppActions`），塞满后 `AppOnAction`
+// 静默返回——那一行菜单点了就没有任何回音。这里自己数着去重后的条数，超预算就把原因
+// 写进 lastError，让它成为可观测的失败而不是无声丢事件。
+static const int kShimMenuActionBudget = 28;
+static std::vector<std::string> gMenuActionIds;
+
+static void registerMenuAction(Box2* box, gpui::Str actionName) {
+    if (!actionName.s || actionName.len <= 0) return;
+    std::string name(actionName.s, actionName.len);
+    for (size_t i = 0; i < gMenuActionIds.size(); i++) {
+        if (gMenuActionIds[i] == name) return;
+    }
+    if ((int)gMenuActionIds.size() >= kShimMenuActionBudget) {
+        if (box) {
+            box->lastError = "菜单动作注册表已满（" +
+                             std::to_string(kShimMenuActionBudget) + " 条），'" + name +
+                             "' 的动作不会回到 PHP";
+        }
+        return;
+    }
+    uint32_t id = gpui::shell::ShellActionOf(actionName);
+    if (!id) return;
+    gpui::AppOnAction(id, &gpuiAppActionHandler);
+    gMenuActionIds.push_back(name);
+}
+
 // 通知的 click/close 注册表：listener arg → (box, phpId, 事件类型, 兄弟 arg)。
 // 放进程全局而非每窗口一份，是因为回调只拿得到 arg，而反查用的 boxForView 定义在文件
 // 末尾的强符号区（此处用不上）；arg 由全局计数器发号，跨窗口天然不撞。
@@ -221,6 +267,8 @@ static void MacEventSink(void* owner, const char* type, const char* elemId,
 #else
 static void gpui_mac_pump(void) {}
 static void gpui_mac_release_owner(void*) {}
+static int gpui_mac_send_mouse(double, double, int, int) { return 0; }
+static int gpui_mac_send_key(unsigned short, const char*) { return 0; }
 #endif
 
 gpui::Str cppStr(const std::string& s) {
@@ -546,6 +594,10 @@ uint32_t pushErrorNode(Box2* box, gpui::Arena* a, const std::string& msg) {
     return box->specs.Push(c);
 }
 
+// 每帧的 webview 可见性收放：materialize 前清零"这帧渲染到了"，materialize 后据此
+// 把不在树上的那颗隐藏掉。定义在 WebViewView 之后，这里先给个前向声明。
+static void WebViewFrameVisibility(gpui::Ctx* cx, Box2* box, bool beforeMaterialize);
+
 // Root content 实体：帧渲染时把 box->specs materialize 成原生 El 树。
 struct PhpView {
     Box2* box;
@@ -556,8 +608,11 @@ struct PhpView {
         if (view->box->rootId == 0 && view->box->specs.IsEmpty()) {
             return gpui::Div(cx->a);
         }
-        return gpui::ShellMaterializeSpec(cx, g_runtime, &view->box->specs,
-                                          view->box->rootId);
+        WebViewFrameVisibility(cx, view->box, true);
+        gpui::El* el = gpui::ShellMaterializeSpec(cx, g_runtime, &view->box->specs,
+                                                  view->box->rootId);
+        WebViewFrameVisibility(cx, view->box, false);
+        return el;
     }
 };
 
@@ -572,11 +627,15 @@ struct WebViewView {
     std::string loadedUrl;  // 已经交给控件的内容，用来判"这一帧要不要再喂一次"
     std::string loadedHtml;
     bool started = false;
+    // 这一帧有没有被渲染到。ChildView 只在元素还在树上时才会走到这里，所以"没轮到"
+    // 就意味着那颗原生控件该从鼠标路径上让开——见 WebViewFrameVisibility。
+    bool seen = false;
     gpui::Entity<gpui::WebView> web = {};
 
     static gpui::El* Render(void* self, gpui::Ctx* cx) {
         WebViewView* v = static_cast<WebViewView*>(self);
         if (!v || !cx || !cx->a) return nullptr;
+        v->seen = true;
         if (!v->started) {
             // 标志必须先落再建：WebViewNew 靠跑窗口消息循环来创建控件，本次调用的那一帧
             // 可能在它返回之前被重建第二次（webview.h:118-123）。
@@ -608,6 +667,33 @@ struct WebViewView {
         return gpui::Div(cx->a)->SizeFull()->Child(gpui::WebViewEl(v->web, cx));
     }
 };
+
+// 每帧调两次：materialize 之前把这一帧的"渲染到了"清零，之后据此收放可见性。
+//
+// 为什么必须收：ChildView 只在元素还在树上时才会被 EntityRender，而它背后那颗
+// WKWebView 是**真的 NSView**，建好就一直挂在窗口的父视图上。元素换掉之后它停在最后
+// 一次的矩形里，AppKit 的 hitTest 会先命中它——那块区域下面的 gpui 元素从此一个真实
+// 鼠标都收不到（实测：渲染过带 WebView 的那一节再切走，侧栏上面 6 行点不动，而 gpui 的
+// 命中表里那 6 条矩形、监听器全都在，看起来像"点击丢了"）。hidden=YES 的视图 AppKit 会
+// 直接跳过，所以让开鼠标只要隐藏，不用摘下来。
+static void WebViewFrameVisibility(gpui::Ctx* cx, Box2* box, bool beforeMaterialize) {
+    if (!box || !cx) return;
+    for (auto& kv : box->webviews) {
+        WebViewView* v = kv.second.view;
+        if (!v) continue;
+        if (beforeMaterialize) {
+            v->seen = false;
+            continue;
+        }
+        if (!v->started || !v->web.id.IsValid()) continue;
+        gpui::WebView* w = v->web.Get(cx->app);
+        if (!w) continue;
+        if (wry::WebView* raw = gpui::WebViewRaw(w)) {
+            // 这帧没渲染到就 hidden=YES：AppKit 会跳过隐藏视图，鼠标才轮得到下面的 gpui 元素。
+            wry::WebViewSetVisible(raw, v->seen);
+        }
+    }
+}
 
 // Inspector（DevTools）面板的包装 view。gpui 侧每帧 New→IntoEl 就够了
 // （examples/story/story.cpp:1961 的用法），所以这一层没有跨帧状态。
@@ -739,7 +825,13 @@ gpui::Anchor NotifyAnchorFor(const char* s) {
 
 void ensureApp() {
     if (g_app) return;
+    // 先转前台应用再建窗口：非 bundle 的二进制不转的话激活会被拒，
+    // 真实鼠标/键盘就永远到不了元素（见 gpui_mac.h 的 gpui_mac_become_foreground）。
+    gpui_mac_become_foreground();
     g_app = gpui::AppNew();
+    // 再转一次：AppNew→PlatInit 里才 [NSApplication sharedApplication]，
+    // 上一次的 setActivationPolicy:/activateIgnoringOtherApps: 打给了还不存在的 NSApp。
+    gpui_mac_become_foreground();
     // mac 集成的事件出口：owner 是注册时传进去的 Box2*，回调时原样带回来，所以多窗口
     // 各回各的队列。只装一次。
     gpui_mac_set_sink(&MacEventSink);
@@ -765,6 +857,18 @@ void* gpui_shim_app_init(void) {
     return nullptr;
 }
 
+// 宿主视图的"应用身份"注册：没有它，带 component app effects 的组件（MenuBar）
+// 每帧 materialize 失败，画面上渲染成 "Failed to render MenuBar"。
+//
+// 整个宿主只用**一个**身份令牌：组件 materialize 时的 cx->self 会在 PhpView 与
+// ShellRoot 之间换人，两个身份就成了两条 app-effect 世代，各自装卸同一份 OwnedMenus。
+static void registerHostApplication(gpui::EntityId entity) {
+    if (!g_runtime) return;
+    static std::unique_ptr<char[]> token = std::make_unique<char[]>(1);
+    g_runtime->SetHostApplicationFallback(token.get());
+    if (entity.IsValid()) g_runtime->RegisterHostApplication(entity, token.get());
+}
+
 void* gpui_shim_open_window(const char* title, int width, int height) {
     ensureApp();
     auto* box = new Box2();
@@ -775,17 +879,21 @@ void* gpui_shim_open_window(const char* title, int width, int height) {
         gpui::EntityNewRaw(g_app, view, (gpui::RenderFn)&PhpView::Render,
                            [](void* p) { delete static_cast<PhpView*>(p); });
     g_views[view] = box;
+    registerHostApplication(box->viewEntity);
 
     // 窗口根换成 ShellRoot：它渲染我们的 PhpView content，并托管 dialog/sheet/toast。
     // 用 WindowOpenView 直接把 ShellRoot 作窗口根（KitOpenWindow 会再包一层 Base Root，
     // 令 ShellRootOf 的 window->root==state->root 判定失败）。
     auto root = gpui::ShellRoot::New(g_app, box->viewEntity);
     box->shellRoot = root.id;
+    registerHostApplication(box->shellRoot);
 
     gpui::WinOpts opts = {};
-    box->window =
-        gpui::WindowOpenView(g_app, cppStr(title ? title : ""), width, height,
-                             box->shellRoot, opts);
+    // 建窗口之前再激活一次：OrderFrontOnce 只在首次 Redraw 里跑，而那时激活可能仍被
+    // LaunchServices 拒（非前台进程），拒了就没有钥匙窗口，鼠标键盘全丢。
+    gpui_mac_become_foreground();
+    box->window = gpui::WindowOpenView(g_app, cppStr(title ? title : ""), width, height,
+                                       box->shellRoot, opts);
     if (!box->window) {
         g_views.erase(view);
         gpui::EntityDrop(g_app, box->viewEntity);
@@ -793,6 +901,8 @@ void* gpui_shim_open_window(const char* title, int width, int height) {
         delete box;
         return nullptr;
     }
+    // App 级动作回调只拿得到 Window*，反查 Box2 靠这张表，所以必须在这里登记。
+    g_windowBoxes[box->window] = box;
     return box;
 }
 
@@ -868,6 +978,7 @@ void gpui_shim_close(void* win) {
         else ++it;
     }
     if (box->window) {
+        g_windowBoxes.erase(box->window);  // Window* 会被后面的窗口复用，留着就是野指针
         gpui::AppClose(box->window);
         box->window = nullptr;  // AppClose 已撤窗口及其定时器；置空防后续误用
     }
@@ -957,6 +1068,22 @@ uint64_t gpui_shim_retained_slider(void* win, const char* id, double min,
         box->retainedIdToElem[e->id] = id;
     return h;
 }
+
+uint64_t gpui_shim_retained_otp(void* win, const char* id, int length,
+                                const char* value, int masked) {
+    auto* box = static_cast<Box2*>(win);
+    if (!box || !id || !*id) return 0;
+    auto it = box->inputHandles.find(id);
+    if (it != box->inputHandles.end()) return it->second;
+    uint64_t h = g_runtime->CreateRetainedOtp(length, cppStr(value ? value : ""),
+                                              masked != 0, g_app,
+                                              box->viewEntity, box);
+    box->inputHandles[id] = h;
+    if (auto* e = g_runtime->Retained((gpui::shell::EntityHandle)h))
+        box->retainedIdToElem[e->id] = id;
+    return h;
+}
+
 
 uint64_t gpui_shim_retained_focus(void* win, const char* id) {
     auto* box = static_cast<Box2*>(win);
@@ -1111,6 +1238,7 @@ void* gpui_shim_dialog_begin(void* win) {
         g_app, view, (gpui::RenderFn)&PhpView::Render,
         [](void* p) { delete static_cast<PhpView*>(p); });
     g_views[view] = dlg;
+    registerHostApplication(dlg->viewEntity);
     return dlg;
 }
 
@@ -1143,7 +1271,7 @@ int gpui_shim_dialog_close(void* win) {
 }
 
 void gpui_shim_set_app_menus(void* win, const GpuiMenu* menus, int count) {
-    (void)win;
+    auto* box = static_cast<Box2*>(win);
     if (!g_app || count < 0) return;
     // BaseSetAppMenus 深拷进自己的 arena，故 defs/rows 只需在本次调用内有效。
     std::vector<gpui::MenuDef> defs(static_cast<size_t>(count));
@@ -1159,6 +1287,9 @@ void gpui_shim_set_app_menus(void* win, const GpuiMenu* menus, int count) {
             r.action = (it.action && *it.action)
                            ? gpui::shell::ShellActionOf(gpui::Str(it.action))
                            : 0;
+            // 菜单行的动作与 El::menuItem 走同一条 App 级回调：AppMenuChosen 只把 id
+            // 派给钥匙窗口，PHP 宿主的内容树没有根应用焦点链可冒泡。
+            if (r.action) registerMenuAction(box, gpui::Str(it.action));
             r.stroke = nullptr;  // 拷指针会悬垂，本版不支持快捷键
             r.separator = it.separator != 0;
             r.disabled = it.disabled != 0;
@@ -1179,6 +1310,26 @@ int gpui_shim_app_menu_count(void* win) {
     if (!g_app) return 0;
     int n = 0;
     gpui::BaseAppMenus(g_app, &n);
+    return n;
+}
+
+// 系统菜单条第 row 行（1 起）带的动作名——即 PHP 当初声明的那个 id。
+// 返回：>0 写入字节数 / 0 该行存在但没有动作（分隔符、禁用项）/ -1 行号越界。
+// 为什么单独量这一跳：真点原生菜单行的最后一跳在系统菜单条那个窗口里，进程内注入的
+// NSEvent 到不了（`gpui_mac_send_mouse` 只 Deliver 给自己的窗口），所以"行里装的确实是
+// 那个 id"必须单独取证，不能靠 dispatchAction 顺带代表。
+int gpui_shim_menu_row_action(int row, char* out, int outlen) {
+    if (row < 1 || !out || outlen <= 1) return -1;
+    uint32_t action = 0;
+    int64_t arg = 0;
+    if (!gpui::AppMenuRowForId(row, &action, &arg)) return -1;
+    if (!action) return 0;
+    gpui::Str name = gpui::shell::ShellActionScriptId(action);
+    if (!name.s || name.len <= 0) return 0;
+    int n = (int)name.len;
+    if (n > outlen - 1) n = outlen - 1;
+    std::memcpy(out, name.s, (size_t)n);
+    out[n] = '\0';
     return n;
 }
 
@@ -1688,13 +1839,126 @@ void gpui_shim_method(void* win, uint32_t spec, const char* name,
     box->specs.PushOp(spec, so);
 }
 
+int gpui_shim_window_state(void* win, double* out) {
+    auto* box = static_cast<Box2*>(win);
+    if (!box || !out) return 0;
+    for (int i = 0; i < 6; i++) out[i] = 0;
+    return gpui_mac_window_state(out);
+}
+
+int gpui_shim_activate(void* win) {
+    auto* box = static_cast<Box2*>(win);
+    if (!box) return 0;
+    return gpui_mac_activate();
+}
+
+int gpui_shim_focused_id(void* win) {
+    auto* box = static_cast<Box2*>(win);
+    if (!box || !box->window) return -1;
+    return gpui::WindowFocusedId(box->window);
+}
+
+void gpui_shim_set_error(void* win, const char* msg) {
+    auto* box = static_cast<Box2*>(win);
+    if (box && msg) box->lastError = msg;
+}
+
+
+int gpui_shim_input_probe(void* win, int index, double* out) {
+    auto* box = static_cast<Box2*>(win);
+    if (!box || !box->window) return -1;
+    auto& inputs = box->window->paint.inputs;
+    int i = index < 0 ? inputs.len - 1 : index;
+    if (out && i >= 0 && i < inputs.len) {
+        const gpui::Bounds b = inputs[i]->inputBounds;
+        out[0] = b.x;
+        out[1] = b.y;
+        out[2] = b.w;
+        out[3] = b.h;
+    }
+    /* out[4] = 命中矩形条数。真实点击先过 HitTestRect(ctx->hits) 才轮得到 behavior/回调，
+     * 所以"监听器还在（合成缝投得进）但鼠标点不动"这种组合，只有直接读这张表才能分辨：
+     * 表空/变短 = 这一帧的绘制没把命中表重建，问题在 paint 侧；表满而仍不响应 = 坐标换算侧。 */
+    if (out) out[4] = box->window->paint.hits.len;
+    return inputs.len;
+}
+
+long long gpui_shim_component_failure(char* out, int outlen) {
+    if (out && outlen > 0) out[0] = '\0';
+    if (!g_runtime) return 0;
+    uint64_t n = g_runtime->ComponentFailureCount();
+    gpui::Str msg = g_runtime->LastComponentFailure();
+    if (out && outlen > 0 && msg.s) {
+        int m = msg.len < outlen - 1 ? msg.len : outlen - 1;
+        std::memcpy(out, msg.s, m);
+        out[m] = '\0';
+    }
+    return (long long)n;
+}
+
+int gpui_shim_hit_probe(void* win, int index, double* out) {
+    auto* box = static_cast<Box2*>(win);
+    if (!box || !box->window) return -1;
+    auto& hits = box->window->paint.hits;
+    int i = index < 0 ? hits.len - 1 : index;
+    if (out && i >= 0 && i < hits.len) {
+        const gpui::HitRect& h = hits[i];
+        out[0] = h.bounds.x;
+        out[1] = h.bounds.y;
+        out[2] = h.bounds.w;
+        out[3] = h.bounds.h;
+        out[4] = h.id;
+        out[5] = h.pathId;
+        out[6] = h.listener.fn != 0 ? 1 : 0;
+        out[7] = h.parent;
+    }
+    return hits.len;
+}
+
+int gpui_shim_real_mouse(void* win, int x, int y, int type) {
+    auto* box = static_cast<Box2*>(win);
+    if (!box) return 0;
+    const size_t before = box->queue.size();
+    if (type == 1) {
+        if (!gpui_mac_send_mouse(x, y, 1, 1)) return 0;
+        gpui_mac_send_mouse(x, y, 2, 1);
+    } else if (!gpui_mac_send_mouse(x, y, 0, 0)) {
+        return 0;
+    }
+    return box->queue.size() > before ? 1 : 0;
+}
+
+int gpui_shim_dispatch_action(void* win, const char* name) {
+    auto* box = static_cast<Box2*>(win);
+    if (!box || !box->window || !name || !*name) return 0;
+    std::string id(name);
+    return gpui::WindowDispatchAction(box->window,
+                                      gpui::shell::ShellActionOf(cppStr(id))) ? 1 : 0;
+}
+
+int gpui_shim_real_key(void* win, int keycode, const char* chars) {
+    auto* box = static_cast<Box2*>(win);
+    if (!box) return 0;
+    const size_t before = box->queue.size();
+    if (!gpui_mac_send_key((unsigned short) keycode, chars ? chars : "")) return 0;
+    return box->queue.size() > before ? 1 : 0;
+}
+
 uint64_t gpui_shim_callback(void* win, uint32_t spec, const char* elem_id,
                             const char* type) {
     auto* box = static_cast<Box2*>(win);
     uint64_t cb = box->newCallback(elem_id ? elem_id : "", type ? type : "");
     gpui::shell::SpecOp so;
     so.kind = gpui::shell::SpecOpKind::Callback;
-    so.name = AStr(box->specs.Storage(), type);
+    // 两个名字必须分开：队列里的 type 用**短名**（"click"）对齐 PHP 的 on(id,'click')，
+    // 但 SpecOp.name 必须是 materialize 认识的**长名**（"on_click"）——ResolveBehavior
+    // 逐字比较 op.name 与 "on_click"/"on_hover"/"on_key_down"（materialize.cpp:233-290），
+    // 名字对不上就不挂 gpui 的监听器。bridge 传的是短名，所以这里补回前缀。
+    // 补前缀之前，真实鼠标点击/hover/按键一个都到不了 PHP：自检走的是 gpui_shim_test_event
+    // 那条合成缝（直接按 cbid 入队，绕过 behavior），所以 21 条链路全绿也照不出这个洞。
+    std::string opName(type ? type : "");
+    if (opName.rfind("on_", 0) != 0) opName = "on_" + opName;
+    so.name = AStr(box->specs.Storage(), opName.c_str());
     so.callback = cb;
     box->specs.PushOp(spec, so);
     return cb;
@@ -1745,6 +2009,13 @@ uint32_t gpui_shim_registered(void* win, const char* export_name,
                               : std::string("constructor factory failed");
         err = std::string(export_name) + ": " + msg;
         return pushErrorNode(box, a, err);
+    }
+    if (desc->name && strcmp(desc->name, "MenuItem") == 0 && schemaN > 1 &&
+        arguments[1].kind == gpui::shell::ComponentArgumentKind::String) {
+        // 处理器登记在 app 级而不是元素上：菜单动作先走焦点元素的链，没人接才落到
+        // AppOnAction。实测挂在根元素上的 El::OnAction 收不到（WindowDispatchAction
+        // 直接返回 false），而 app 级这一层是上游给"没有元素要的动作"留的位置。
+        registerMenuAction(box, arguments[1].string);
     }
     gpui::shell::Component c;
     c.kind = gpui::shell::ComponentKind::Registered;
@@ -1856,6 +2127,39 @@ static Box2* boxForView(void* self) {
 void gpuiEnqueueClick(ScriptView* self, Ctx*, uint64_t callbackId, int clickCount) {
     if (Box2* box = boxForView((void*)self))
         box->enqueue(callbackId, GPUI_ARG_NUM, (double)clickCount, 0, nullptr);
+}
+
+// cmd/patch-key-view.sh 在 ScriptView::OnScriptKey 里调过来：键事件不再去碰 QuickJS，
+// 字符码点就地编成 UTF-8 入队。key_down 与 key_up 各自有自己的 callbackId，所以类型
+// 由 id 反查决定，down 这里只作记录（不额外造第二种事件）。
+void gpuiEnqueueKey(ScriptView* self, Ctx*, uint64_t callbackId, unsigned rune,
+                    const char* keyName, int down) {
+    (void)down;
+    Box2* box = boxForView((void*)self);
+    if (!box) return;
+    // 有字符就报字符（输入法/字符事件），否则报键名（key_down/key_up 携带 vk）。
+    if (!rune) {
+        box->enqueue(callbackId, GPUI_ARG_STR, 0, 0, keyName ? keyName : "");
+        return;
+    }
+    char buf[5] = {0, 0, 0, 0, 0};
+    int n = 0;
+    if (rune < 0x80) {
+        buf[n++] = (char)rune;
+    } else if (rune < 0x800) {
+        buf[n++] = (char)(0xC0 | (rune >> 6));
+        buf[n++] = (char)(0x80 | (rune & 0x3F));
+    } else if (rune < 0x10000) {
+        buf[n++] = (char)(0xE0 | (rune >> 12));
+        buf[n++] = (char)(0x80 | ((rune >> 6) & 0x3F));
+        buf[n++] = (char)(0x80 | (rune & 0x3F));
+    } else {
+        buf[n++] = (char)(0xF0 | (rune >> 18));
+        buf[n++] = (char)(0x80 | ((rune >> 12) & 0x3F));
+        buf[n++] = (char)(0x80 | ((rune >> 6) & 0x3F));
+        buf[n++] = (char)(0x80 | (rune & 0x3F));
+    }
+    box->enqueue(callbackId, GPUI_ARG_STR, 0, 0, buf);
 }
 
 void gpuiEnqueueChange(ScriptView* self, Ctx*, uint64_t callbackId, bool checked) {

@@ -65,6 +65,42 @@ void gpui_mac_dock_badge(const char* text);
  * 屏幕上出现了横幅。 */
 int gpui_mac_os_notify(const char* title, const char* body);
 
+/* ── 真输入验收缝（AppKit 正常派发路径）─────────────────────────────────────── */
+/* 把一条鼠标/键盘事件交给 -[NSWindow sendEvent:]，于是 AppKit 的 hit-test、gpui 的
+ * behavior 解析、focus 迁移全都真的走一遍。这与 gpui_shim_test_event 那条合成缝不同：
+ * 后者按 callbackId 直接入队，**绕过"监听器到底挂没挂"**——on_ 前缀那次失配（真实点击
+ * 一个都到不了 PHP）就是被它掩盖的。
+ * x/y 是 gpui 视图坐标（左上原点、逻辑点），与 snapshot 同一套。
+ * type: 0=move 1=left-down 2=left-up。返回 1=已投递，0=找不到窗口。 */
+int gpui_mac_send_mouse(double x, double y, int type, int click_count);
+/* keycode 是 kVK_*；chars 是 UTF-8 字符（可空串）。 */
+int gpui_mac_send_key(unsigned short keycode, const char* chars);
+
+/* 投递模式：1 = 交给 -[NSApp postEvent:atStart:]，于是事件要经过程序自己的
+ * nextEventMatchingMask → -[NSApp sendEvent:] 才被处理，与真实鼠标/键盘同一条路；
+ * 0 = 直接 -[NSWindow sendEvent:]（快，但跳过 NSApplication 的路由与钥匙窗口判定）。
+ * 默认 1。真实输入"点了没反应"而缝里是绿的，差别通常就在这两条路之间。 */
+void gpui_mac_set_post_mode(int post);
+
+/* 量窗口状态：out[0]=NSApp.isActive out[1]=window.isKeyWindow
+ * out[2]=window.isVisible out[3]=mainWindow 是否存在
+ * out[4]=真路由（NSApp 队列）已投递的事件数（单调累加，读不清零）
+ * out[5]=进程有没有 bundle 身份（[NSBundle mainBundle].bundleIdentifier 非空）。返回 1 = 找到窗口。 */
+int gpui_mac_window_state(double* out);
+
+/* 把"裸可执行文件"转成 LaunchServices 眼里的前台应用。
+ * 没这一步：非 bundle 的 CLI 二进制调 -[NSApp activateIgnoringOtherApps:] 会被拒，
+ * 于是 NSApp.isActive=NO、窗口不是 keyWindow —— NSApplication 的 sendEvent: 把鼠标按下
+ * 当成"这次点击只用来激活"而吃掉，键盘更没有钥匙窗口可去。表现就是"代码里全绿、
+ * 手点没反应、输入框打不进字"。返回 1 = TransformProcessType 成功。 */
+int gpui_mac_become_foreground(void);
+
+/* 再申请一次前台并把窗口升成 key，然后让 runloop 走几拍（只跑 runMode:beforeDate:，
+ * 不自己取事件，免得把用户排队的鼠标键盘事件从 gpui 的派发顺序里抢走）。
+ * 前台是和"当时谁握着焦点"竞争出来的状态，申请一次未必落地，所以这个函数是给
+ * 有界重试用的。返回 1 = 此刻应用 active 且窗口 key。 */
+int gpui_mac_activate(void);
+
 #ifdef __cplusplus
 }
 #endif

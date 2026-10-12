@@ -40,6 +40,7 @@
 | `$app->notify(string $title, string $message, string $type, string $placement, int $timeoutMs, string $id): int`<br>`$app->dismissNotification($id)` / `clearNotifications()` / `notificationCount()` | `component::NotificationPush/Dismiss/Clear`（`ui/notification.cpp:507/557/618`） | wrap + route（selftest #18 打的是 `close` 那条；`click` 只静态核对过 listener 接线，合成指针点不到浮层）+ pixel（tree32：两张卡各自落在 `top_right`/`bottom_left`，边距与宽度即主题默认值）|
 | `El::notifications($id)` | `component::NotificationList::IntoEl()` 经 `ChildView` 挂载 | pixel（tree32）——**这一颗必须显式摆**，见下方硬约束 |
 | `$app->setAppMenus(array)` / `appMenuCount()` | `BaseSetAppMenus` | route（#7）；macOS 系统菜单栏在窗口外，无像素验收 |
+| `$app->menuRows()` | `AppMenuRowForId` + `ShellActionScriptId` | route：读回菜单条各行携带的 action id，键名写错（`label`/`id`）时它是空的 |
 
 `openUrl` 用的是 gpui 自己那条白名单（`capability.cpp:5`）：只放行 `http`/`https`，authority
 里不许有控制字符、DEL、反斜杠，host 非空，端口必须是 ≤65535 的十进制。`Link.href` 和

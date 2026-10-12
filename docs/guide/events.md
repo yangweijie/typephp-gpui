@@ -21,10 +21,57 @@ $app->on('go', 'click', function (mixed $value): void {
 `App::onAny($fn)` 收所有事件。arity 自适应（handler 可省 `$value` 参数）。
 
 支持类型：`click` / `change`（input/textarea/slider）/ `hover` / `key_down` 等。
+链式标记与事件名的对应关系是 `on_hover` → `hover`、`on_key_down` → `key_down`：
+bridge 剥掉 `on_` 前缀后作为 `(id, type)` 的路由键（`gpui_bridge.cc:49`），而交给
+materialize 的 op 名**必须保留 `on_` 前缀**（它逐字比较 `"on_click"`，`materialize.cpp:233`）。
+这两套名字曾经被混用成一整套短名，结果是真实鼠标/键盘一个事件都进不来。
+
+## 1b. 真输入的验收缝（`realClick` / `realMouseMove` / `realKey`）
+
+自检里的合成事件走 `gpui_test_event`：按 callbackId 直接入队，**绕过 gpui 的 hit-test 与
+behavior 解析**——也就是说"监听器根本没挂到元素上"这类错，在合成事件下永远是绿的。
+所以交互能力还有一条只认真实路径的验收：
+
+```php
+$app->realClick(100, 104);      // 走 -[NSWindow sendEvent:]，hit-test/behavior/focus 全走
+$app->loop(2);                  // 事件下一帧才派发
+$app->realMouseMove(300, 522);  // → hover
+$app->realKey(9, 'g');          // kVK_ANSI_G → 打给当前聚焦的输入框
+$app->inputProbe();             // ['n'=>paint 登记了几颗真 Input, x/y/w/h=>最后一颗的框]
+```
+
+返回值 = "这一趟 PHP 队列里确实多出了事件"。`showcase --selftest` 用它断言三件事：
+点导航能换节、hover 能打中 `onHover` 的元素、点输入框后打字能回到 PHP。
+`inputProbe()['n'] > 0` 单独断言"输入框是真的 Input，不是静默降级出来的 Div"。
+
+### 命中表探针（`hitProbe`）：为什么不能按 y 猜"哪一行点不动"
+
+真实鼠标先过 gpui 的 `paint.hits` 这张表，命中了才轮得到 behavior/回调。所以"那一行点不动"
+有四五种成因，长得一模一样：表里没这条、这条不在那个位置、位置对但监听没挂、
+**表外面还有东西挡着**。按 y 扫屏幕猜行位置会把四种统一伪装成同一个症状——
+`hitProbe($index)` 读的就是点击真正查的那张表：
+
+```php
+$p = $app->hitProbe();          // ['n'=>命中矩形条数]
+$h = $app->hitProbe($i);        // + x/y/w/h、id、path、click(0/1)、parent
+```
+
+`showcase` 的导航验收因此改成表驱动：先量出 13 颗按钮各自的矩形，再逐颗点自己的中心，
+断言"13 条矩形、13 次都进 PHP、到达 13 个不同节号"。
+
+最后那种成因踩过一次真的：渲染过带 WebView 的那一节之后，侧栏上面 6 行再也点不动，
+而 `hitProbe` 里 13 条矩形、`click=1` 全都在——因为 `ChildView` 背后那颗 WKWebView 是**常驻的
+原生 NSView**，元素从树上换掉之后它仍挂在窗口上、停在最后一次的矩形里，AppKit 的 `hitTest`
+会先命中它，gpui 的元素从此收不到那一片的鼠标。现在 shim 每帧 materialize 前后各扫一次
+（`WebViewFrameVisibility`）：这一帧没渲染到的那颗就 `hidden=YES`，AppKit 会跳过隐藏视图，
+鼠标就还给下面的元素了。
 
 ## 2. 保留态取值（Input / Slider）
 
-带 id 的 input/textarea/slider 在 render 时建 retained 实体（跨帧稳定）。事件只带
+带 id 的 input/textarea/numberInput/otpInput/slider 在 render 时建 retained 实体（跨帧稳定）。
+**id 必须在节点的 `id` 字段上**：`El::input('name')` 与 `El::input()->id('name')` 现在等价；
+建不出 retained 时 materialize 是 `return Div(cx->a)`——不报错、`registeredError()` 也是空的，
+只是这颗控件静默变成一段文字（不聚焦、不能打字、点它没事件）。事件只带
 RetainedEntry 本地 id，shim 反查回 elementId + 读当前值入队：
 
 ```php
@@ -139,6 +186,97 @@ $app->on('focus', 'hotkey', function (): void { /* … */ });
 - **`hotkey` 能被合成、`tray` 不能。** `App::fireHotkeyForTest($i)` 是自检用的接缝，它验
   派发链；系统级"在别的 app 有焦点时仍然响"只能人按。`tray` 连这条接缝都没有（要真点菜单），
   所以它只有 existence-green。
+
+## 7b. 菜单动作（`action`）
+
+菜单有两条来源，动作回到 PHP 是同一件事件、同一个写法：
+
+```php
+// ① 元素树里：El::menuBar / El::menu / El::menuItem($label, $actionId)
+// ② 应用级（macOS 顶部菜单条）：
+$app->setAppMenus([
+    ['name' => 'File', 'items' => [          // 菜单条用 name，行用 action
+        ['label' => '新建', 'action' => 'file.new'],
+        ['separator' => true],               // 分隔符没有 action
+        ['label' => '关于本应用'],             // 纯标题项也没有 action
+    ]],
+]);
+
+$app->onAny('action', function (array $e): void {
+    // $e['value'] 就是声明时写的那个 action id
+});
+```
+
+链路与两个坑：
+
+- 走的是 `NSMenuItem` 的 target/action → `AppMenuChosen(tag)` → 按行号取回 action id →
+  派发到钥匙窗口 → 焦点链没人接 → 落到 app 级处理器（`AppOnAction`）→ 入 PHP 事件队列。
+  挂在根元素上的 `El::OnAction` **收不到**菜单动作（实测 `WindowDispatchAction` 直接返回
+  false），app 级这一层才是上游给"没有元素要的动作"留的位置。
+- **键名写错不报错。** bridge 读的是菜单条 `name`、行 `action`；写成 `label`/`id`
+  时菜单照样装得上去、辅助功能里也看得见，但那一行的 action 是 0，`AppMenuChosen`
+  第一行就 return，点了永远没回音。`App::menuRows()` 是专门读这张表的探针：
+  它返回菜单条各行携带的 action id（无动作的行不计入），装完立刻读一次就能把键名钉住。
+- 动作表是进程级的、定长的（上游 `kMaxAppActions`）。超出预算时 shim 不再静默丢，
+  会把原因写进 `App::lastError()`。
+
+`--selftest` 里对应两条门：`rows=st-new/rowsOk=true`（表里装的确实是 PHP 声明的 id）与
+`action=true/dispatched=true`（该 id 的动作回到了 PHP）。原生菜单行的"真点一下"进不了门禁
+——`realClick` 是进程内把 `NSEvent` 投给自己的窗口，够不到系统菜单条那个窗口，
+所以这一跳拆成上面两段取证。
+
+## 真输入还差一步：应用得是"前台应用"
+
+上面讲的都是"事件怎么路由"，但从 WindowServer 进来的真鼠标/真键盘在此之前先过一道系统门：
+`NSApp.isActive` 与 `window.isKeyWindow`。这两个数不成立时——第一次点击被系统当成"激活这扇
+窗口"的点击吃掉，`keyDown` 根本没有 firstResponder 可去——现象是**代码全绿而手里点不动**。
+`App::windowState()` 就是把这四个数读出来（`active/key/visible/main`），外加
+`bundled`（进程有没有 `.app` 身份）和 `nsappDeliveries`（事件缝里走过真
+`postEvent → nextEventMatchingMask → -[NSApp sendEvent:]` 的条数）。
+
+`php bin/gpui run`/`selftest` 会把构建产物包进 `.app` 再启动，就是因为裸二进制即使调了
+`TransformProcessType` 也起不来 `isActive`。showcase 在非前台时还会直接把这条画在窗口顶上
+（`front` 状态，每帧由 `windowState()` 量出来），"是不是系统那一步没成立"不必靠猜。
+
+## 首帧的命中表：为什么"刚启动那几下"点不进去
+
+真实点击要先过 hit-test（gpui 的 `paint.hits` 矩形表），再轮得到 behavior 解析与回调。
+实测：`--liveclick` 里只跑 1 帧时，38 个采样点产生 **0** 个事件；跑到第 2 帧起稳定 18/38
+且 `nav-*` 真的到达 PHP。也就是说首帧把画面画出来了，却没把命中表建起来——用户看到界面正常、
+点了没反应，就是这一格。
+
+`App::view()` 因此**注册时就先 materialize 一遍**（`run()` 也走这条路），把命中表在第一帧就
+备齐；对应的回归位是 `examples/showcase --liveclick`（首帧事件数为 0 就 rc=1，CI 已跑）。
+写自定义循环时要注意：`view()` 的回调现在会被立刻调一次，帧数统计要扣掉这趟预热。
+
+### 键事件走的是 view 层的宿主钩子，不是 QuickJS
+
+gpui 原本把键事件交给 `ScriptView → ShellRuntime::DispatchKey`，那里无条件用 QuickJS 建负载；
+PHP 宿主没有脚本引擎，于是"给元素挂了 onKeyDown 之后一按真实键就段错误"。
+上游补丁 `cmd/patch-key-view.sh` 按 `OnClick` 的**同一形状**处理：在 view 层就把字符交给
+`gpuiEnqueueKey` 弱钩子（强实现在 shim，转成 UTF-8 入窗口队列），键事件从此不去碰 JS。
+`key_down` 的 `value` 是按下的字符（UTF-8）。与点击一样的取舍：不再有脚本端的
+`stopPropagation`，传播语义由宿主决定。
+
+`value` 的取材按 `KeyEvent` 的定义分两种，因为它的 `vk` 与 `ch` 是**互斥**的（`gpui.h` 里写明
+`vk` 是 "0 for a typed character"、`ch` 是 "0 for key down/up"）：`key_down` / `key_up` 给的是
+键名 `KeyName(vk)`（如 `1`、`backspace`、`f5`），输入字符那一路给的才是码点转成的 UTF-8。
+`--livetyping` 两种都钉住，读数 `key_down=[in-key] value=[—1]`——那个 `1` 就是 keycode 18 的键名。
+
+这条路由 `examples/showcase --livetyping` 逐颗输入框验：读数
+`合计=9/9 key_down=[in-key]`（每一颗都收得进字符，且挂了 `onKeyDown` 的那颗确实收到
+`key_down`）——它同时是回归位：键路再断，这条就红。
+
+顺带一条同类陷阱：`El::vFlex([...])->itemsStart()` 里的按钮只占**文字宽度**，不是整行。
+showcase 的导航实测可点带只有 x=12..132（侧栏宽 210），点行右半截什么都没发生；
+给满 `->w(194.0)` 之后实测 12..196。`--selftest` 的 `navBand` 断言盯着这件事。
+
+还有一条在 AppKit 那一侧：上游的 tracking area 原本写的是 `NSTrackingActiveInKeyWindow`，
+意思是**窗口不是钥匙窗口就不投递 `mouseMoved`**。于是应用没被激活（或用户切到别的 app 而鼠标
+还悬在我们窗口上）时，悬停反馈一条都收不到——PHP 侧的 `on_hover` 接线本来就是通的。
+上游补丁 `cmd/patch-hover-always.sh` 把它换成 `NSTrackingActiveAlways`。
+这条改动只有把手移到未激活窗口上才验得出来：app 内的合成缝不受这个门槛约束，
+所以它在自动门禁里既不会绿得可疑，也不会红得有用。
 
 ## 生命周期与幂等
 

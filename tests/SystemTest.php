@@ -528,3 +528,25 @@ test('storage needs an explicit grant and round-trips values', function (): void
         ->and(App::storageRemove('theme'))->toBeTrue()
         ->and(App::storageLen())->toBe(0);
 });
+
+test('app menu rows carry the action ids PHP declared', function (): void {
+    $app = sysApp();
+    $n = $app->setAppMenus([
+        ['name' => 'File', 'items' => [
+            ['label' => 'New', 'action' => 'file.new'],
+            ['separator' => true],
+            ['label' => '纯标题项'],
+        ]],
+        ['name' => 'Edit', 'items' => [['label' => 'Copy', 'action' => 'edit.copy']]],
+    ]);
+    // 菜单数按"条"算，行表只收带动作的行：分隔符与无动作行混进表里，说明键名读歪了。
+    expect($n)->toBe(2)
+        ->and($app->menuRows())->toBe(['file.new', 'edit.copy']);
+
+    // 反方向锚点：键名写成 id（而不是 action）时装不出任何可路由的行——
+    // showcase 上一版就是这么写的，菜单看着在、点了没回音。
+    $app->setAppMenus([
+        ['label' => 'File', 'items' => [['label' => 'New', 'id' => 'file.new']]],
+    ]);
+    expect($app->menuRows())->toBe([]);
+});

@@ -54,6 +54,55 @@ int   gpui_shim_is_open(void* win);
 void  gpui_shim_pump(void* win, double max_wait_secs);
 /* 取一条待处理事件；无则返回 0，有则填充 *out 返回 1。 */
 int   gpui_shim_poll(void* win, GpuiEvent* out);
+
+/* 真输入验收缝（见 gpui_mac.h 的 gpui_mac_send_mouse）。type: 0=移动 1=左键单击。
+ * 返回 1 = 这一趟在 PHP 队列里确实多出一条事件，即"元素真的挂上了监听器"；
+ * 0 = 没有（窗口找不到，或 hit-test 上没有回调的元素）。
+ * x/y 是视图坐标（左上原点、整数逻辑点），与 snapshot 同一套。 */
+int   gpui_shim_real_mouse(void* win, int x, int y, int type);
+int   gpui_shim_real_key(void* win, int keycode, const char* chars);
+/* 合成一次 ShellAction 派发（按名字）：原生菜单条在窗口之外，真点击缝够不到，
+ * 而菜单动作回到宿主的整条路（AppOnAction → shim 钩子 → PHP 的 `action` 事件）
+ * 需要能被门禁覆盖。返回 1 = 派发被某个监听接住。 */
+int   gpui_shim_dispatch_action(void* win, const char* name);
+/* 焦点探针：gpui 认为当前持有焦点的实体 id（0 = 没有焦点，-1 = 窗口不可用）。
+ * 真键盘只发给有焦点的元素，所以"打不进字"要先分清是没聚焦还是按键没到。 */
+int   gpui_shim_focused_id(void* win);
+/* 输入框聚焦诊断：返回 paint 登记过的 input 个数（<0 表示窗口不可用），并把第 `index` 颗
+ * 的 inputBounds 写进 out[0..3]，out[4]=命中矩形条数。index<0 取最后一颗，越界则四值保持 0。
+ * 点击能不能聚焦取决于这张框，所以"打不进字"
+ * 要先分清：根本没登记（渲染侧）、框不在那儿（坐标换算）、还是框在但 press 没走到。
+ * 做成按索引，是为了能证明"屏上每一个输入框都能打字"，而不是只证明最后一颗能。 */
+int   gpui_shim_input_probe(void* win, int index, double* out);
+/* 命中表探针：真实点击先过 paint.hits 这张表（HitTestRect），命中了才轮得到 behavior/回调，
+ * 所以"看着在那儿却点不动"只有对着这张表量才能分辨是**没登记**、**矩形不在那个位置**，
+ * 还是**矩形在但没挂上监听**。返回条数，out[0..3]=bounds，out[4]=id，out[5]=pathId，
+ * out[6]=有没有 click 监听，out[7]=父命中条索引（派发链走的是它）。index<0 取最后一条。 */
+int   gpui_shim_hit_probe(void* win, int index, double* out);
+/* 组件 materialize 失败的读数：返回自启动以来失败次数，并把最后一次的原因写进 out。
+ * registered 工厂建不出来时 gpui 不失败整帧，而是渲染成 "Failed to render X"，
+ * 所以宿主只能从这里知道出过错——registeredError() 是另一条通道，照不到它。 */
+long long gpui_shim_component_failure(char* out, int outlen);
+
+/* 让 bridge 能把"看起来能渲染、其实是静默降级"的情况记进 last_error，
+ * 于是 registeredError() 抓得到（否则只是画面上少一个控件，没人知道）。 */
+
+/* 窗口/应用状态：out[0]=NSApp.isActive out[1]=isKeyWindow out[2]=isVisible
+ * out[3]=有 mainWindow out[4]=真路由（NSApp 队列）已投递的事件数。真实输入要能落地，
+ * 窗口得是 key、应用得是 active；这几个数就是"用户手点为什么没反应"的直接读数，
+ * 而事件数用来说明 selftest 的绿是从真路由来的、还是从直投兜底来的。
+ * out[5]=进程有没有 bundle 身份：没有 bundle 身份的进程在 macOS 眼里不是正规前台应用，
+ * 手点的第一下会被当成"激活这扇窗口"的点击吃掉，keyDown 也没有 firstResponder 可去。
+ * 返回 1 = 找到窗口。 */
+int   gpui_shim_window_state(void* win, double* out);
+
+/* 有界地再申请一次前台：TransformProcessType/activateIgnoringOtherApps 的回执要靠
+ * runloop 走几拍才落地，所以这里顺带跑几拍（只 runMode:beforeDate:，不取事件）。
+ * 返回 1 = 此刻应用 active 且窗口 key。前台是和当时焦点持有者在竞争的状态，
+ * 调用方应当有界重试，别把它当"一次就成"的开关。 */
+int   gpui_shim_activate(void* win);
+
+void  gpui_shim_set_error(void* win, const char* msg);
 void  gpui_shim_close(void* win);
 void  gpui_shim_set_theme(void* win, const char* mode);
 
@@ -66,6 +115,11 @@ uint64_t gpui_shim_retained_slider(void* win, const char* id, double min,
                                    double max, double step);
 /* 为 DatePicker/Select/Combobox 创建常驻 Focus 实体（按 id 幂等）。返回 EntityHandle。 */
 uint64_t gpui_shim_retained_focus(void* win, const char* id);
+
+/* Otp 的 retained（RetainedKind::Otp）。materialize 的 OtpInput 分支要的就是这个，
+ * 没有它整颗 otp_input 静默降级成 Div。length 目前由 bridge 定（4 格）。 */
+uint64_t gpui_shim_retained_otp(void* win, const char* id, int length,
+                                const char* value, int masked);
 /* 读取某 input 元素当前文本值：写入 out（至多 outlen-1 字节 + '\0'），返回长度。 */
 int gpui_shim_input_value(void* win, const char* id, char* out, int outlen);
 /* 程序化设置某 input 元素文本（InputSetValue）。成功返回 1。供自检/预填用。 */
@@ -126,6 +180,11 @@ typedef struct {
 void gpui_shim_set_app_menus(void* win, const GpuiMenu* menus, int count);
 /* 读回已装菜单数（BaseAppMenus），验证安装。 */
 int  gpui_shim_app_menu_count(void* win);
+/* 系统菜单条第 row 行（1 起）带的动作名，写进 out。
+ * 返回 >0 = 写入字节数；0 = 该行存在但没有动作（分隔符等）；-1 = 行号越界。
+ * 用来取证"装进原生菜单条的行确实带着 PHP 声明的 id"——原生菜单行的真点击够不到，
+ * 这一跳只能读表。 */
+int  gpui_shim_menu_row_action(int row, char* out, int outlen);
 
 /* ── 系统能力 ──────────────────────────────────────────────────────────
  * 每一项都只包 gpui.o 里已存在的符号：不新增上游补丁，不引外部库。 */

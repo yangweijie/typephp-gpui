@@ -142,7 +142,7 @@ jobs:
       - name: Composer install
         run: composer install --no-interaction --prefer-dist
 
-      # 一条命令跑完整链：同步沙箱 → 7 个补丁 → verifyPatches → bun 生成 amalgam →
+      # 一条命令跑完整链：同步沙箱 → 8 个补丁 → verifyPatches → bun 生成 amalgam →
       # build-shim 归档 → tpc --nano 出二进制。hello_world 的链接会因入口 main 被改名
       # 而失败（预期），只要 gpui.o 是新的就行。
       - name: Build
@@ -159,3 +159,35 @@ jobs:
       # 的实测答案——能过就说明 selftest 这条不需要 self-hosted。
       - name: Native selftest
         run: ./examples/hello/build/hello --selftest
+
+      # showcase 的覆盖率门禁（tests/ShowcaseTest.php）在 php job 里，反射只能证明
+      # "源码里调用过"；这一步证明这些调用在真产物里没产出错误节点、能力真有返回。
+      - name: Build showcase example
+        run: php bin/gpui build showcase
+
+      - name: Showcase selftest
+        run: ./examples/showcase/build/showcase --selftest
+
+      # 首帧必须可点：这条直接盯住"启动后左侧点了没反应"。修之前实测 frames=1 时真点击
+      # 产生 0/38 个事件，跑到第二帧才有 18/38；App::view() 现在注册时就预热一帧。
+      - name: Live-click gate（首帧可点）
+        run: ./examples/showcase/build/showcase --liveclick
+
+      # 逐颗输入框真打字：点进 paint 登记的每一颗、按一个真实键，改到值才算过（实测 9/9，
+      # input / textarea / number_input / catalog 字段全覆盖，没有"跳过"的特例）。
+      # 挂 onKeyDown 的那颗曾经"一按真实键就段错误"（任务 #53）：现在键事件在 view 层就
+      # 交给宿主队列（cmd/patch-key-view.sh，形状与 OnClick 相同），这条门断言 key_down
+      # 真的到了 in-key，且 value 带回键名（key_down 给 KeyName(vk)，字符那一路才给码点；
+      # KeyEvent 的 vk/ch 互斥）。实测 value=[—1]，那个 1 就是 keycode 18 的键名。
+      - name: Live-typing gate（每颗输入框都打得进字）
+        run: ./examples/showcase/build/showcase --livetyping
+
+      # 边界（不装）：这里跑的是**裸二进制**，所以 selftest 读数里 bundled=false，
+      # bundleGreen/routeGreen 两道门在 CI 记为"未验"而不是"通过"——它们要的是
+      # "有 .app 身份 → NSApp.isActive 起得来 → 事件缝走真 NSApp 路由"，而托管 runner
+      # 能不能把 bundle 应用激活我没实测过，不该拿它赌 CI 绿。本地用
+      # `php bin/gpui selftest showcase`（走 bundle）覆盖这两道门，读数见 progress.md。
+
+      # 注意：showcase 的 13 张像素基线（php cmd/shotdiff.php check showcase）**不进 CI**，
+      # 与 hello 同理——--shot 抓的是真在屏 NSView，托管 runner 没有窗口会话。
+      # 覆盖率门禁（tests/ShowcaseTest.php）在 php job 里，它不需要原生。

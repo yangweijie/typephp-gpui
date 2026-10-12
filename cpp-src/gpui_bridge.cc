@@ -150,7 +150,10 @@ uint32_t emitTree(void* win, Array node) {
 
     // Input/Textarea/Slider：先建（或复用）retained 实体，push 时按 id 附带 handle。
     // placeholder/初值从 method ops 提取（Element.placeholder()/value() 记的 op）。
-    if (kind == "input" || kind == "textarea" || kind == "slider") {
+    // number_input 也复用 Input 的 retained（materialize 的 NumberInput 分支要的就是
+    // RetainedKind::Input，materialize.cpp:1968），所以它和 input 同一条路。
+    if (kind == "input" || kind == "textarea" || kind == "slider"
+        || kind == "number_input" || kind == "otp_input") {
         std::string ph, val = value;
         int rows = 0;
         Variant opsV0 = node.get("ops");
@@ -169,7 +172,15 @@ uint32_t emitTree(void* win, Array node) {
                 else if (mn == "rows" && !a0.empty()) rows = (int)atoll(a0.c_str());
             }
         }
-        if (kind == "slider") {
+        if (id.empty()) {
+            // 没 id 就建不出 retained，materialize 会静默 return Div——宁可报错。
+            gpui_shim_set_error(win, (kind + ": 缺 id，retained 实体建不出来（会静默降级成 Div）").c_str());
+        }
+        if (kind == "otp_input") {
+            // 4 格：shell 目前没有把"格子数"传下来的通道（OtpInput 的 ctor 只吃 handle），
+            // 所以长度定在 bridge 里；要可配的话得先给 Element/桥加一条 length 通道。
+            gpui_shim_retained_otp(win, id.c_str(), 4, val.c_str(), 0);
+        } else if (kind == "slider") {
             // slider 的 min/max 未进树（Element.slider 只记 value op）；用默认量程。
             double lo = 0, hi = 100, st = 1;
             gpui_shim_retained_slider(win, id.c_str(), lo, hi, st);
@@ -410,6 +421,91 @@ Bool php_gpui_snapshot(Variant boxVar, String path, Int w, Int h) {
     return gpui_shim_snapshot(win, p.c_str(), (int)w, (int)h) != 0;
 }
 
+Array php_gpui_input_probe(Variant boxVar, Int index) {
+    Array out;
+    void* win = winOf(boxVar);
+    double b[5] = {0, 0, 0, 0, 0};
+    int n = win ? gpui_shim_input_probe(win, (int) index, b) : -1;
+    out["n"] = n;
+    out["x"] = (Int) b[0];
+    out["y"] = (Int) b[1];
+    out["w"] = (Int) b[2];
+    out["h"] = (Int) b[3];
+    out["hits"] = (Int) b[4];
+    return out;
+}
+
+Array php_gpui_hit_probe(Variant boxVar, Int index) {
+    Array out;
+    void* win = winOf(boxVar);
+    double b[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+    int n = win ? gpui_shim_hit_probe(win, (int) index, b) : -1;
+    out["n"] = n;
+    out["x"] = (Int) b[0];
+    out["y"] = (Int) b[1];
+    out["w"] = (Int) b[2];
+    out["h"] = (Int) b[3];
+    out["id"] = (Int) b[4];
+    out["path"] = (Int) b[5];
+    out["click"] = (Int) b[6];
+    out["parent"] = (Int) b[7];
+    return out;
+}
+
+Array php_gpui_window_state(Variant boxVar) {
+    Array out;
+    void* win = winOf(boxVar);
+    double st[6] = {0, 0, 0, 0, 0, 0};
+    int found = win ? gpui_shim_window_state(win, st) : 0;
+    out["found"] = found;
+    out["active"] = (Bool)(st[0] != 0);
+    out["key"] = (Bool)(st[1] != 0);
+    out["visible"] = (Bool)(st[2] != 0);
+    out["main"] = (Bool)(st[3] != 0);
+    out["nsappDeliveries"] = (Int) st[4];
+    out["bundled"] = (Bool)(st[5] != 0);
+    return out;
+}
+
+Int php_gpui_focused_id(Variant boxVar) {
+    void* win = winOf(boxVar);
+    if (!win) return -1;
+    return gpui_shim_focused_id(win);
+}
+
+Int php_gpui_activate(Variant boxVar) {
+    void* win = winOf(boxVar);
+    if (!win) return 0;
+    return gpui_shim_activate(win);
+}
+
+Array php_gpui_component_failure() {
+    Array out;
+    char msg[256] = {0};
+    long long n = gpui_shim_component_failure(msg, (int) sizeof(msg));
+    out["count"] = (Int) n;
+    out["last"] = String(msg, (size_t) strlen(msg));
+    return out;
+}
+
+Int php_gpui_real_mouse(Variant boxVar, Int x, Int y, Int type) {
+    void* win = winOf(boxVar);
+    if (!win) return 0;
+    return gpui_shim_real_mouse(win, (int) x, (int) y, (int) type);
+}
+
+Int php_gpui_dispatch_action(Variant boxVar, String name) {
+    void* win = winOf(boxVar);
+    if (!win) return 0;
+    return gpui_shim_dispatch_action(win, std::string(name.data(), name.length()).c_str());
+}
+
+Int php_gpui_real_key(Variant boxVar, Int keycode, String chars) {
+    void* win = winOf(boxVar);
+    if (!win) return 0;
+    return gpui_shim_real_key(win, (int) keycode, chars.data());
+}
+
 String php_gpui_debug_tree(Variant boxVar) {
     void* win = winOf(boxVar);
     char buf[8192];
@@ -514,6 +610,18 @@ Int php_gpui_set_app_menus(Variant boxVar, Array menus) {
 Int php_gpui_app_menu_count(Variant boxVar) {
     void* win = winOf(boxVar);
     return (Int)(win ? gpui_shim_app_menu_count(win) : 0);
+}
+
+Array php_gpui_menu_rows() {
+    Array out;
+    char name[128] = {0};
+    for (int row = 1; row <= 256; row++) {
+        int n = gpui_shim_menu_row_action(row, name, (int) sizeof(name));
+        if (n < 0) break;  // 行号越界：表读完了
+        if (n == 0) continue;  // 分隔符一类没有动作的行
+        out.append(String(name, (size_t) n));
+    }
+    return out;
 }
 
 Variant php_gpui_element_value(Variant boxVar, String id) {

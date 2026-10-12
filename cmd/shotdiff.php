@@ -12,7 +12,8 @@ declare(strict_types=1);
  * 在屏 NSView，故仅 macOS 本地/有 GUI 的 runner 可跑（CI 的托管 runner 拉不到
  * gpui-kit-cpp，跑不了原生链——见 .github/workflows/ci.yml 顶部）。
  *
- * 基线树集：跳过 24（MenuBar 现报 app-effects 错误节点，不纳入基线以免固化坏态）。
+ * 基线树集：hello 用下面的固定表（跳过 24：MenuBar 现报 app-effects 错误节点，
+ * 不纳入基线以免固化坏态）；其他示例向二进制要 `--sections`，由示例自报节号。
  */
 
 $root = dirname(__DIR__);
@@ -37,6 +38,22 @@ if (!is_file($bin)) {
 // 31 = Inspector 面板（El::inspector），gpui 自己画的，像素可验。
 // 32 = 通知层（El::notifications + 两条不自动退场的通知）。
 $trees = [0, 10, 11, 12, 13, 14, 20, 21, 22, 23, 25, 26, 27, 28, 29, 30, 31, 32];
+if ($example !== 'hello') {
+    // 其他示例（如 showcase：一节一棵树）不自报树号集就不比对——宁缺毋滥，
+    // 免得把"没截图"当成"截了但一致"。
+    $trees = [];
+    $list = (string) shell_exec($bin . ' --sections 2>/dev/null');
+    foreach (explode("\n", $list) as $line) {
+        $parts = explode("\t", trim($line));
+        if (count($parts) >= 1 && ctype_digit($parts[0])) {
+            $trees[] = (int) $parts[0];
+        }
+    }
+    if ($trees === []) {
+        fwrite(STDERR, "$example 既没有 --sections 也没有内置树表，无法比对\n");
+        exit(2);
+    }
+}
 $baselineDir = "$root/tests/baseline/$example";
 $tmpDir = sys_get_temp_dir() . "/gpui-shotdiff-$example";
 @mkdir($baselineDir, 0777, true);
