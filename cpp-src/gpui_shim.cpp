@@ -70,6 +70,8 @@ class Box2 {
     std::unordered_map<uint64_t, std::pair<std::string, std::string>> callbacks;
     // "elemId\x1ftype" → callbackId：newCallback 幂等复用（每帧重建同结构不增长）
     std::unordered_map<std::string, uint64_t> cbByKey;
+    std::string scratchKey;   // newCallback 的复用缓冲（见其注释）
+    std::string scratchOpName; // 回调 op 名的复用缓冲
     // "elemId\x1ftype" → runtime CallbackId（catalog 组件回调旁路，自检直接触发用）
     std::unordered_map<std::string, uint64_t> shimCallbacks;
     // 最近一次 registered 构造/方法失败的原因（每帧 render_begin 清空，供 gpui_last_error 回传）
@@ -138,13 +140,19 @@ class Box2 {
 
     // 幂等：同 (elementId,type) 复用同一 callbackId，避免每帧无限增长。
     // (id,type) 是 App->on 的路由键，本就一对一映射到一个 handler，复用安全。
-    uint64_t newCallback(const std::string& elementId, const std::string& type) {
-        std::string key = elementId + "\x1f" + type;
-        auto it = cbByKey.find(key);
+    // 每个回调 op 每帧都要过这里，所以键不新建 string：拼进复用的 scratchKey
+    // （capacity 跨帧保留，稳态零分配）。返回后 callbacks/cbByKey 才各自存自己的副本，
+    // 而那两本表按 (id,type) 幂等，只在**第一次**见到这个组合时才写。
+    uint64_t newCallback(const char* elementId, const char* type) {
+        scratchKey.assign(elementId ? elementId : "");
+        const size_t elemLen = scratchKey.size();   // 分隔符之前的长度，别倒推
+        scratchKey.push_back('\x1f');
+        scratchKey.append(type ? type : "");
+        auto it = cbByKey.find(scratchKey);
         if (it != cbByKey.end()) return it->second;
         uint64_t id = nextCallback++;
-        callbacks[id] = {elementId, type};
-        cbByKey[key] = id;
+        callbacks[id] = {scratchKey.substr(0, elemLen), type ? type : ""};
+        cbByKey[scratchKey] = id;
         return id;
     }
 
@@ -2048,7 +2056,7 @@ int gpui_shim_real_key(void* win, int keycode, const char* chars) {
 uint64_t gpui_shim_callback(void* win, uint32_t spec, const char* elem_id,
                             const char* type) {
     auto* box = static_cast<Box2*>(win);
-    uint64_t cb = box->newCallback(elem_id ? elem_id : "", type ? type : "");
+    uint64_t cb = box->newCallback(elem_id, type);
     gpui::shell::SpecOp so;
     so.kind = gpui::shell::SpecOpKind::Callback;
     // 两个名字必须分开：队列里的 type 用**短名**（"click"）对齐 PHP 的 on(id,'click')，
@@ -2057,8 +2065,10 @@ uint64_t gpui_shim_callback(void* win, uint32_t spec, const char* elem_id,
     // 名字对不上就不挂 gpui 的监听器。bridge 传的是短名，所以这里补回前缀。
     // 补前缀之前，真实鼠标点击/hover/按键一个都到不了 PHP：自检走的是 gpui_shim_test_event
     // 那条合成缝（直接按 cbid 入队，绕过 behavior），所以 21 条链路全绿也照不出这个洞。
-    std::string opName(type ? type : "");
-    if (opName.rfind("on_", 0) != 0) opName = "on_" + opName;
+    // 同样用复用缓冲：原来 `std::string opName(type)` + `"on_" + opName` 每次再多两次分配。
+    std::string& opName = box->scratchOpName;
+    opName.assign(type ? type : "");
+    if (opName.rfind("on_", 0) != 0) opName.insert(0, "on_");
     so.name = AStr(box->specs.Storage(), opName.c_str());
     so.callback = cb;
     box->specs.PushOp(spec, so);
@@ -2181,7 +2191,7 @@ uint64_t gpui_shim_new_callback(void* win, const char* elem_id,
     // shimId=boxCbId 的合成回调条目，返回其 runtime CallbackId 塞进
     // ComponentArgument.callback。点击时 InvokeWith 命中 shimId → gpuiEnqueueShimCallback
     // → box->enqueue(boxCbId) → 复用同一 (elemId,type)。
-    uint64_t boxCb = box->newCallback(elem_id ? elem_id : "", type ? type : "");
+    uint64_t boxCb = box->newCallback(elem_id, type);
     uint64_t res = boxCb;
     if (g_runtime && box->viewEntity.IsValid()) {
         uint64_t rt = g_runtime->PushShimCallback(box->viewEntity, boxCb);

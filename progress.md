@@ -1282,3 +1282,11 @@ record——空白帧一旦被 record 洗成基线，之后每轮都拿它当标
 "这一帧"+ 脏判据说明；`events.md` 新增「渲染是脏驱动的」一节列出四条判据与新 API。
 门禁：pest 81 passed、showcase 裸/bundle selftest OK、`--liveclick 13/13`、
 hello OK、shotdiff 两示例 OK、docs build OK。
+
+**第 5 步②（回调路径的每帧分配）**：`newCallback` 原来每次调用要构造 3 个 `std::string`
+（两个 `const char*`→`const std::string&` 的隐式形参 + 拼键的 `elementId + "\x1f" + type`），
+再加 `opName` 与 `"on_" + opName` 两次——每个回调 op 每帧 5 次分配。改成签名收 `const char*`、
+键与 op 名各用 Box2 上的复用缓冲（capacity 跨帧保留，稳态零分配）。
+行为等价的证据：`--selftest`、`--liveclick 13/13`、`--livetyping 9/9`、hello、
+shotdiff 13 棵全 `gdfrac=0`、`shim_test` OK——回调身份若错，点击/按键路由会当场塌。
+（没有做墙钟计时，所以这里只声明"分配次数按调用图从 5 降到 ~1"，不报百分比。）
