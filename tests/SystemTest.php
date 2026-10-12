@@ -550,3 +550,23 @@ test('app menu rows carry the action ids PHP declared', function (): void {
     ]);
     expect($app->menuRows())->toBe([]);
 });
+
+test('elementValue/checked read the last value that came in on a change event', function (): void {
+    $app = sysApp();
+    // 从没上报过 = null，不是 false：这两件事必须分得开，否则"没读过"会被当成"没勾上"。
+    expect($app->elementValue('sw'))->toBeNull()
+        ->and($app->checked('sw'))->toBeFalse();
+
+    FakeBridge::pushEvent(1, 'change', 'sw', true);
+    expect($app->elementValue('sw'))->toBeTrue()
+        ->and($app->checked('sw'))->toBeTrue();
+
+    FakeBridge::pushEvent(1, 'change', 'sw', false);
+    expect($app->checked('sw'))->toBeFalse()
+        ->and($app->elementValue('sw'))->toBeFalse();
+
+    // 无值事件（click/hover）不许覆盖已记录的值。
+    FakeBridge::pushEvent(1, 'change', 'slider', 37.0);
+    FakeBridge::pushEvent(1, 'click', 'slider');
+    expect($app->elementValue('slider'))->toBe(37.0);
+});

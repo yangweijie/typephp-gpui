@@ -1167,6 +1167,13 @@ function runSelfTest(bool $expectBundle, bool $startFront = false): void
         $typedIn = ShowcaseState::$v['name'] !== '';
     }
 
+    // 值回读门（审核 P0-4 的回归位）：App::checked()/elementValue() 过去是恒 false 的空壳
+    // （php_gpui_element_value 里一句 `// Phase 4` 直接 return nil）。现在它读的是 shim 随
+    // change 事件留下的"最近一次上报值"，所以这里用**真打字**那条路验：上面往 in-name 里
+    // 打进去的 'g'，必须能从读口拿回来。走的是 enqueue → rememberValue → bridge → PHP，
+    // 与用户手打之后想读值的同一条链。
+    $valuePull = $typedIn && str_contains((string) $app->elementValue('in-name'), 'g');
+
     // 交互模式"点了要看得见"靠的是每帧重算 view：注册一个 view，改状态，下一帧的树
     // 必须换成新节。上面 navRouted 只证明 handler 改到了状态，不证明屏幕会换——
     // 用户看到的"点了没反应"是这两件事里的后者。
@@ -1260,7 +1267,7 @@ function runSelfTest(bool $expectBundle, bool $startFront = false): void
         && $inf === $plainVec && $infGzip === $plainVec && $infBad === null
         && (int) $sys['ncpu'] > 0 && (float) $sys['memPct'] > 0.0
         && $httpQueued && $resp !== null && $resp['ok'] === false
-        && $navRouted && $hoverRouted && $typedIn && $inputsReal && $windowUsable
+        && $navRouted && $hoverRouted && $typedIn && $inputsReal && $windowUsable && $valuePull
         && $actionRouted && $menuRowsOk
         && $bundleGreen && $routeGreen && $navBandWide
         && $viewRerenders
@@ -1311,6 +1318,7 @@ function runSelfTest(bool $expectBundle, bool $startFront = false): void
             . '/routeGreen=' . var_export($routeGreen, true),
         'action=' . var_export($actionRouted, true) . '/dispatched=' . var_export($actDispatched, true)
             . '/rows=' . implode(',', $menuRows) . '/rowsOk=' . var_export($menuRowsOk, true),
+        'valuePull=' . var_export($valuePull, true),
         'rerender=' . var_export($viewRerenders, true),
         'realInput=' . var_export($navRouted, true) . '/' . var_export($hoverRouted, true)
             . '/' . var_export($typedIn, true) . ' navHits=' . $navClicked

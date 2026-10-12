@@ -26,7 +26,8 @@ $args = array_slice($argvv, 1);
 function out(string $s): void { fwrite(STDOUT, $s . "\n"); }
 function err(string $s): void { fwrite(STDERR, $s . "\n"); }
 function ok(string $s): void { out("  \033[32m✓\033[0m $s"); }
-function bad(string $s): void { out("  \033[31m✗\033[0m $s"); }
+function bad(string $s): void { $GLOBALS["gpui_bad_n"] = (int) ($GLOBALS["gpui_bad_n"] ?? 0) + 1;
+    out("  \033[31m✗\033[0m $s"); }
 
 function which(string $bin): ?string {
     $p = trim((string) @shell_exec('command -v ' . escapeshellarg($bin) . ' 2>/dev/null'));
@@ -75,10 +76,10 @@ function patchManifest(): array {
 function verifyPatches(): bool {
     $all = true;
     foreach (patchManifest() as [$script, $file, $marker]) {
-        if (!is_file($file)) { bad("$script：目标文件缺失 $file"); $all = false; continue; }
+        if (!is_file($file)) { bad("{$script}：目标文件缺失 {$file}"); $all = false; continue; }
         $hit = trim((string) @shell_exec('grep -qF ' . escapeshellarg($marker) . ' ' . escapeshellarg($file) . ' && echo Y'));
         if ($hit === 'Y') { ok("$script 已落（" . basename($file) . "）"); }
-        else { bad("$script 未落：$file 缺 marker「$marker」"); $all = false; }
+        else { bad("{$script} 未落：{$file} 缺 marker「{$marker}」"); $all = false; }
     }
     return $all;
 }
@@ -139,9 +140,12 @@ switch ($cmd) {
         $tpc ? ok('tpc: ' . $tpc) : bad('tpc 未找到（composer install）');
         is_dir("$root/vendor/swoole/php-nano") ? ok('php-nano 已装') : bad('php-nano 未装（composer require swoole/php-nano）');
         $gpui = gpuiDir();
-        is_dir($gpui) ? ok("gpui-kit-cpp 源码就位：$gpui") : bad("gpui-kit-cpp 未就位（$gpui；或设 GPUI_DIR）");
+        is_dir($gpui) ? ok("gpui-kit-cpp 源码就位：$gpui") : bad("gpui-kit-cpp 未就位（{$gpui}；或设 GPUI_DIR）");
         out('补丁落位校验：');
         verifyPatches();
+        // doctor 的产物必须是退出码：以前它把 ✗ 打出来照样返回 0，于是
+        // `gpui doctor && <下一步>` 在缺工具链/半补丁的机器上照样往下走。
+        exit(($GLOBALS["gpui_bad_n"] ?? 0) > 0 ? 1 : 0);
         break;
     }
 

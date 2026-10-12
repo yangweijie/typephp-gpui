@@ -254,11 +254,16 @@ class Element
         return $e;
     }
 
+    /**
+     * 表格容器。$id 进 **id 字段**（同 input 的规则，见本文件 input() 的注释）：
+     * bridge 的回调路由键是 node['id']，id 落在 text 里等于这颗元素没名字，
+     * 挂 ->onClick() 注册的是空 id，事件永远到不了 PHP。
+     */
     public static function table(string $id = ''): self
     {
         $e = new self();
         $e->kind = 'table';
-        $e->text = $id;
+        $e->id = $id;
         return $e;
     }
 
@@ -266,7 +271,7 @@ class Element
     {
         $e = new self();
         $e->kind = 'list';
-        $e->text = $id;
+        $e->id = $id;
         return $e;
     }
 
@@ -274,7 +279,7 @@ class Element
     {
         $e = new self();
         $e->kind = 'tabs';
-        $e->text = $id;
+        $e->id = $id;
         return $e;
     }
 
@@ -286,12 +291,13 @@ class Element
         return $e;
     }
 
+    /** Markdown 文本视图：正文进 value（native 读的是它），$id 进 id 字段。 */
     public static function textView(string $markdown, string $id = ''): self
     {
         $e = new self();
         $e->kind = 'text_view';
         $e->value = $markdown;
-        $e->text = $id;
+        $e->id = $id;
         return $e;
     }
 

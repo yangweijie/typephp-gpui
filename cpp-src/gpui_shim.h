@@ -141,6 +141,11 @@ int gpui_shim_debug_tree(void* win, char* out, int outlen);
 /* 取本帧最近一次 registered 构造/方法失败的原因，写入 out（至多 outlen-1 字节 +
  * '\0'），返回长度；无错误返回 0。render_begin 每帧清空。 */
 int gpui_shim_last_error(void* win, char* out, int outlen);
+/* 读回某元素最近一次上报的值（App::checked()/elementValue() 的读源）。
+ * 返回 GpuiArgKind；GPUI_ARG_NIL = 该 id 从未上报过值（不是"值为 false"）。
+ * 按 kind 只填对应出参：NUM→*out_num，BOOL→*out_bool，STR→out_str（NUL 结尾）。 */
+int gpui_shim_element_value(void* win, const char* id, double* out_num,
+                            int* out_bool, char* out_str, int outlen);
 
 /* 注册/取消周期定时器：intervalMs>0 用 WindowSetInterval 挂一个 tick 监听，到点入队
  * {type:"timer", id:phpId}；intervalMs<=0 取消同名定时器。 */

@@ -350,6 +350,16 @@ final class App
         return (array) \gpui_menu_rows();
     }
 
+    /**
+     * 某元素最近一次随 `change` 上报的值（checkbox/switch 是 bool，slider 是数，input 是串）。
+     * 从没上报过返回 null——注意 null 与 false 是两回事，别把"没读过"当成"没勾上"。
+     */
+    public function elementValue(string $id): mixed
+    {
+        return \gpui_element_value($this->handle(), $id);
+    }
+
+    /** 开关/勾选框的布尔值；没上报过时为 false。要看"是否报过"用 elementValue()。 */
     public function checked(string $id): bool
     {
         return (bool) \gpui_element_value($this->handle(), $id);

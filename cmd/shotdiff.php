@@ -27,7 +27,7 @@ if (!in_array($mode, ['record', 'check'], true)) {
 
 $bin = "$root/examples/$example/build/$example";
 if (!is_file($bin)) {
-    fwrite(STDERR, "找不到二进制：$bin（先 bin/gpui build $example）\n");
+    fwrite(STDERR, "找不到二进制：{$bin}（先 bin/gpui build {$example}）\n");
     exit(2);
 }
 
@@ -117,7 +117,7 @@ foreach ($trees as $tree) {
     $cmd = escapeshellarg($bin) . ' --shot ' . escapeshellarg($shot) . ' ' . (int) $tree;
     exec($cmd . ' >/dev/null 2>&1');
     if (!is_file($shot)) {
-        fwrite(STDERR, "  ✗ tree $tree：出图失败\n");
+        fwrite(STDERR, "  ✗ tree {$tree}：出图失败\n");
         $failures++;
         continue;
     }
@@ -128,7 +128,7 @@ foreach ($trees as $tree) {
         continue;
     }
     if (!is_file($ref)) {
-        fwrite(STDERR, "  ✗ tree $tree：无基线（先跑 record）\n");
+        fwrite(STDERR, "  ✗ tree {$tree}：无基线（先跑 record）\n");
         $failures++;
         continue;
     }

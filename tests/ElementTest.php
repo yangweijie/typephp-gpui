@@ -252,3 +252,91 @@ test('icon() rejects the shapes gpui would silently paint nothing for', function
     expect(fn () => El::icon('icons/settings.png'))->toThrow(InvalidArgumentException::class);
     expect(El::icon('icons/settings.svg')->toArray()['ctorArgs'])->toBe(['icons/settings.svg']);
 });
+
+/**
+ * 带 $id 的工厂：id 必须落在**该 kind 实际用来路由的那个字段**上。
+ *
+ * 两套约定（都在这条门里钉住）：
+ *  - base kind（div/input/table/list/tabs/text_view/…）：bridge 的回调路由键是
+ *    node['id']（gpui_bridge.cc:149,294）。id 落在 text/value 里等于这颗元素没名字，
+ *    挂 ->onClick() 注册的是空 id，事件永远到不了 PHP。审核 P0-3 抓到 table/list/tabs/
+ *    textView 四个工厂正是这么写的——画面正常、不报错、点着没反应。
+ *  - registered 组件（alert/dropdownMenu/…）：$id 是**原生构造实参** ctorArgs[0]
+ *    （schema 按位置对），事件走 item()/cb() 那条旁路，不要求 node['id']。
+ * 用反射一次覆盖全部带 $id 的工厂：手写断言会漏掉下一个新加的工厂。
+ */
+test('every factory that takes an $id puts it where its kind routes events', function (): void {
+    $rc = new ReflectionClass(El::class);
+    $sentinel = 'probe-id-9';
+    $base = 0;
+    $registered = 0;
+    foreach ($rc->getMethods(ReflectionMethod::IS_PUBLIC) as $m) {
+        // getMethods 的掩码是"命中任一标志即入选"，只写 IS_STATIC 会把 public 实例方法
+        // （如 item()）一起捞进来，反射调用它们时要对象实例——所以这里显式再筛一遍。
+        if (!$m->isStatic() || $m->getDeclaringClass()->getName() !== El::class || $m->isConstructor()) {
+            continue;
+        }
+        $params = $m->getParameters();
+        $hasId = false;
+        foreach ($params as $p) {
+            if ($p->getName() === 'id') {
+                $hasId = true;
+            }
+        }
+        if (!$hasId) {
+            continue;
+        }
+        // 只看"返回 Element 的工厂"：cb() 这类静态辅助也带 $id，但它返回 marker 数组。
+        $ret = $m->getReturnType();
+        if (!$ret instanceof ReflectionNamedType
+            || !in_array($ret->getName(), ['self', \TypePHP\Gpui\Element::class], true)) {
+            continue;
+        }
+        $args = [];
+        foreach ($params as $p) {
+            $t = $p->getType();
+            if ($p->getName() === 'id') {
+                $args[] = $sentinel;
+                continue;
+            }
+            if ($p->isDefaultValueAvailable()) {
+                // 有默认值的参数一律不传：传了就要猜形状，不传则由工厂自己兜底。
+                continue;
+            }
+            if ($t === null) {
+                $args[] = 'x';
+                continue;
+            }
+            $tn = $t instanceof ReflectionNamedType ? $t->getName() : '';
+            $args[] = match ($tn) {
+                'string' => 'x',
+                'float' => 1.0,
+                'int' => 1,
+                'bool' => false,
+                'array' => [],
+                default => ($tn === El::class || $tn === \TypePHP\Gpui\Element::class)
+                    ? El::div()
+                    : 'x',
+            };
+        }
+        $el = $m->invokeArgs(null, $args);
+        expect($el)->toBeInstanceOf(El::class, $m->getName() . ' 的返回值不是 Element');
+        $arr = $el->toArray();
+        if (!empty($arr['registered'])) {
+            expect($arr['ctorArgs'][0] ?? null)->toBe(
+                $sentinel,
+                $m->getName() . '() 是注册组件，$id 必须进 ctorArgs[0]（原生按位置取它）'
+            );
+            $registered++;
+            continue;
+        }
+        expect($arr['id'])->toBe(
+            $sentinel,
+            $m->getName() . '() 的 $id 没进 id 字段（base kind 靠 node[\'id\'] 路由回调）'
+        );
+        $base++;
+    }
+    // 两类都得真跑到，别让它悄悄退化成"一个都没查"或"只查了一类"。
+    expect($base)->toBeGreaterThanOrEqual(8);
+    expect($registered)->toBeGreaterThanOrEqual(2);
+});

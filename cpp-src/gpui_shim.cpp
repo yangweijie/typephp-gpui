@@ -74,6 +74,15 @@ class Box2 {
     std::unordered_map<std::string, uint64_t> shimCallbacks;
     // 最近一次 registered 构造/方法失败的原因（每帧 render_begin 清空，供 gpui_last_error 回传）
     std::string lastError;
+    // elementId → 最近一次上报的值（App::checked()/elementValue() 的读源，见 rememberValue）。
+    // 只在事件里带值时写，所以条目数 ≤ 声明过回调的元素数，不随帧数增长。
+    struct ElemValue {
+        int vkind = GPUI_ARG_NIL;
+        double vnum = 0;
+        int vbool = 0;
+        std::string vstr;
+    };
+    std::unordered_map<std::string, ElemValue> lastValues;
     // elementId → retained EntityHandle（Input/Slider 常驻状态，跨帧稳定）
     std::unordered_map<std::string, uint64_t> inputHandles;
     // RetainedEntry 本地 id → elementId（OnInputEvent/OnSliderEvent 反查）
@@ -155,6 +164,7 @@ class Box2 {
         if (it != callbacks.end()) {
             std::snprintf(ev.type, sizeof(ev.type), "%s", it->second.second.c_str());
             std::snprintf(ev.id, sizeof(ev.id), "%s", it->second.first.c_str());
+            rememberValue(it->second.first.c_str(), vkind, vnum, vbool, vstr);
         }
         ev.vkind = vkind;
         ev.vnum = vnum;
@@ -174,7 +184,21 @@ class Box2 {
         ev.vnum = vnum;
         ev.vbool = vbool;
         if (vstr) std::snprintf(ev.vstr, sizeof(ev.vstr), "%s", vstr);
+        rememberValue(elemId, vkind, vnum, vbool, vstr);
         queue.push_back(ev);
+    }
+
+    // App::checked()/elementValue() 的读源：gpui 把 checkbox/switch/滑块的新值只往事件里
+    // 放一份，宿主侧没有可查的原生状态，所以这里留一份"最近一次上报的值"。
+    // 语义必须是"最近一次 change 报的"，不是"原生此刻的"——从未上报过就是 nil。
+    void rememberValue(const char* elemId, int vkind, double vnum, int vbool,
+                       const char* vstr) {
+        if (!elemId || !*elemId || vkind == GPUI_ARG_NIL) return;
+        ElemValue& v = lastValues[elemId];
+        v.vkind = vkind;
+        v.vnum = vnum;
+        v.vbool = vbool;
+        v.vstr = vstr ? vstr : "";
     }
 };
 
@@ -896,8 +920,11 @@ void* gpui_shim_open_window(const char* title, int width, int height) {
                                        box->shellRoot, opts);
     if (!box->window) {
         g_views.erase(view);
-        gpui::EntityDrop(g_app, box->viewEntity);
-        delete view;
+        // 只 drop 根，一条链自己走完：ShellRoot 的析构会 EntityDrop(content)
+        // （root.cpp:773），而 content 的 deleter 又 delete PhpView（下面 EntityNewRaw
+        // 注册的那个 lambda）。原先这里既 EntityDrop(viewEntity) 又 delete view，
+        // 同一块 PhpView 删两次；shellRoot 反倒从没放过。
+        if (box->shellRoot.IsValid()) gpui::EntityDrop(g_app, box->shellRoot);
         delete box;
         return nullptr;
     }
@@ -1022,6 +1049,26 @@ int gpui_shim_last_error(void* win, char* out, int outlen) {
     if (n > 0) std::memcpy(out, box->lastError.data(), (size_t)n);
     out[n] = '\0';
     return n;
+}
+
+// 读回某元素最近一次上报的值。返回 GpuiArgKind（GPUI_ARG_NIL = 没上报过 / 窗口不可用）；
+// 按 kind 只填对应的那个出参，其余保持不动。
+int gpui_shim_element_value(void* win, const char* id, double* out_num,
+                            int* out_bool, char* out_str, int outlen) {
+    auto* box = static_cast<Box2*>(win);
+    if (!box || !id || !*id) return GPUI_ARG_NIL;
+    auto it = box->lastValues.find(id);
+    if (it == box->lastValues.end()) return GPUI_ARG_NIL;
+    const Box2::ElemValue& v = it->second;
+    if (v.vkind == GPUI_ARG_NUM && out_num) *out_num = v.vnum;
+    if (v.vkind == GPUI_ARG_BOOL && out_bool) *out_bool = v.vbool;
+    if (v.vkind == GPUI_ARG_STR && out_str && outlen > 0) {
+        int n = (int)v.vstr.size();
+        if (n > outlen - 1) n = outlen - 1;
+        std::memcpy(out_str, v.vstr.data(), (size_t)n);
+        out_str[n] = '\0';
+    }
+    return v.vkind;
 }
 
 uint32_t gpui_shim_push(void* win, const char* kind, const char* text,

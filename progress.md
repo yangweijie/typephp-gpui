@@ -1157,3 +1157,55 @@ Phase 15 里"修通又回退"的那条，这一轮查到真因并修好了——
 **工具层经验（下次少烧两轮）**：`typeText("abc123")` 对 gpui 完全没效果（`pressKey` 逐键才有），
 元素 ID 每次动作后失效（要用**动作返回值**里的新序号，别复用上一次的），
 菜单一抓状态就关（用 `Pick` 而不是 click）。
+
+
+## Phase 19：全库审核开工（第 1、2 步落地）
+
+按审核给的顺序走，每步都带能红的对照。
+
+**第 1 步（可复现）**：把 CI/构建点名却未跟踪的输入纳入版本控制——3 支补丁脚本
+（key-view / hover-always / host-application）、整个 examples/showcase、
+tests/ShowcaseTest.php、13 张 showcase 基线、cmd/real-input-probe.py。提交前逐个扫敏感串。
+验收不是"我说提交了"，而是拿 `bin/gpui:162` 的补丁清单与 showcase yml 的 `sources:`
+去对 `git ls-files`：**11/11 支脚本、6/6 项 sources、CI 脚本与基线全在树里，剩余未跟踪 0**。
+
+顺带挖出并修掉 `patch-host-application.sh` 的预检错：它拿只进 .cpp 的 trampoline 符号
+`HostApplyComponentAppEffect` 去 .h 里找，于是**已完整打好补丁的沙箱被判成"半补丁"、rc=1 中止**。
+流水线里看不出来，只因 `bin/gpui` 每次都先 sync-upstream 把沙箱重置。改成每个文件认自己的
+落点符号后，三支脚本单独重跑全 rc=0 且不自毁（key-view 的自检要求 `gpuiEnqueueKey` 恰好 4 处、
+残留旧体 0，跑两遍仍是 4）。头部那段"⚠️ 未接线、启用会 rc=139"也订正成实况。
+
+**第 2 步（四条静默错）**：
+1. **建窗失败路径双删**：`EntityDrop(viewEntity)` 的 deleter 已 `delete PhpView`，紧接着又
+   `delete view`。改成只 drop `shellRoot`——`ShellRoot` 的析构自己 `EntityDrop(content)`
+   （root.cpp:773），content 的 deleter 再删 PhpView，一条链走完；原先 `shellRoot` 反倒从没放过。
+2. **四类元素的 id 走错字段**：`table/list/tabs/textView` 把 `$id` 写进 `text`，而 base kind 的
+   回调路由键是 `node['id']`（gpui_bridge.cc:149,294）⇒ 挂 `->onClick()` 注册的是空 id。
+   新增反射门 `every factory that takes an $id puts it where its kind routes events`：
+   base kind 断言进 `id`，registered 组件断言进 `ctorArgs[0]`（两套约定都钉）。
+   **反向对照**：把 `table` 改回 `text` → 门红并点名 `table()`；还原后绿。
+   反射还多抓出一处：`alert()` 的 `$id` 是原生构造实参（不是路由键），所以规则必须分两类，
+   一条 blanket 断言会误伤——这条已写进测试注释。
+3. **`App::checked()` 恒 false**：`php_gpui_element_value` 是 `// Phase 4` 空壳。实现为
+   "最近一次随 change 上报的值"：`Box2::rememberValue` 在 `enqueue`/`enqueueRaw` 两处写，
+   新口 `gpui_shim_element_value` 按 vkind 读；**null（从没报过）与 false（报过、值为假）分开**。
+   新增 `App::elementValue()` 取原始值，`checked()` 明确是它的 bool 投影。
+   门禁两层：Pest 钉假侧语义（null→true→false、无值事件不覆盖），showcase selftest 加
+   `valuePull`——用**真打字**那条链（enqueue→rememberValue→bridge→PHP）读回打进去的 'g'。
+   **反向对照**：把 `rememberValue` 摘成空操作 → `valuePull=false` + `SELFTEST FAIL` + rc=1，
+   还原复绿。附带发现 `agree` 这个读数过去只记录、从不进 `$ok`。
+4. **`bin/gpui doctor` 永不红**：`verifyPatches()` 返回值被丢、case 无 exit。改成 `bad()` 计数
+   + doctor 据此 `exit(1)`。**双向都量**：`GPUI_DIR=/tmp/definitely-not-here` → 12 条 ✗ rc=1；
+   正常树 → 17 条 ✓ rc=0。同一条链上揪出 **6 处"变量后紧跟全角标点"**的插值陷阱
+   （`"$script：…"`、`"「$marker」"`、shotdiff 的 `"$tree：出图失败"` 等）——PHP 把全角字符吃进
+   变量名，于是**失败分支的文案**恰好是最先坏的那条（实测退化成 `Undefined variable` 警告）。
+   统一改 `{$...}`，并用"变量名后紧跟任何非 ASCII 字符"的正则全仓复扫到 0 处。
+
+**一次不可复现的构建故障**（记下来免得下次当代码回归）：`bin/gpui selftest hello` 有一次在
+amalgam 步报 `clang++ not found`，而同一条命令手跑、经 PHP `passthru` 跑都正常（gpui.o 时间戳
+就是那次 run 的），重跑 hello rc=0。真正的问题是**报错把"编译失败"说成"amalgam 对象未生成"**，
+第 3 步要给 build 链加退出码透传。
+
+第 2 步收口读数：showcase 裸/bundle selftest OK（`valuePull=true`、`action=true/rows=st-new/rowsOk=true`）、
+`--liveclick 13/13`、`--livetyping 9/9`、hello OK、shotdiff 两示例 OK（元素 id 换字段**没有**改动像素）、
+pest 77 passed (397 assertions)、phpstan 无错、test-shim OK、docs build OK。

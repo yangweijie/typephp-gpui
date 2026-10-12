@@ -49,6 +49,9 @@ namespace TypePHP\Gpui {
         /** @var array<int,string> app 菜单条各行的动作 id（无动作的行不计入） */
         public static array $menuRows = [];
 
+        /** @var array<string,mixed> "windowId\x1felementId" → 最近一次随事件上报的值 */
+        public static array $lastValues = [];
+
         /** @var string|null 模拟系统粘贴板（null = 空剪贴板） */
         public static ?string $clipboard = null;
 
@@ -145,6 +148,7 @@ namespace TypePHP\Gpui {
             self::$dialogCount = 0;
             self::$appMenuCount = 0;
             self::$menuRows = [];
+            self::$lastValues = [];
             self::$clipboard = null;
             self::$clipboardImage = null;
             self::$clipboardPaths = [];
@@ -184,6 +188,10 @@ namespace TypePHP\Gpui {
         /** 测试用：入队一个事件，下一次 poll_event 取走。 */
         public static function pushEvent(int $windowId, string $type, string $id, mixed $value = null): void
         {
+            // 与真侧同语义：值只随事件走，读口取"最近一次上报的值"；null（=无值）不覆盖。
+            if ($id !== '' && $value !== null) {
+                self::$lastValues[$windowId . "\x1f" . $id] = $value;
+            }
             self::$eventQueue[] = ['window' => $windowId, 'type' => $type, 'id' => $id, 'value' => $value];
         }
 
@@ -505,7 +513,8 @@ namespace {
 
     function gpui_element_value(mixed $window, string $id): mixed
     {
-        return null;
+        // 真侧语义：只认"最近一次 change 报上来的值"，从没报过就是 null（不是 false）。
+        return FakeBridge::$lastValues[((int) $window) . "\x1f" . $id] ?? null;
     }
 
     function gpui_set_timer(mixed $window, string $id, int $intervalMs): void

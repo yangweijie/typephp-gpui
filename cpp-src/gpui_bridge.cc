@@ -625,9 +625,24 @@ Array php_gpui_menu_rows() {
 }
 
 Variant php_gpui_element_value(Variant boxVar, String id) {
-    (void)boxVar;
-    (void)id;  // Phase 4
-    return Variant();
+    void* win = winOf(boxVar);
+    if (!win) return Variant();
+    std::string key(id.data(), id.length());
+    double num = 0;
+    int boolean = 0;
+    char str[512] = {0};
+    int kind = gpui_shim_element_value(win, key.c_str(), &num, &boolean, str,
+                                       (int)sizeof(str));
+    switch (kind) {
+        case GPUI_ARG_BOOL:
+            return Variant((bool)(boolean != 0));
+        case GPUI_ARG_NUM:
+            return Variant(num);
+        case GPUI_ARG_STR:
+            return Variant(String(str, strlen(str)));
+        default:
+            return Variant();  // 从未上报过：null，不是 false
+    }
 }
 
 void php_gpui_set_timer(Variant boxVar, String id, Int intervalMs) {
