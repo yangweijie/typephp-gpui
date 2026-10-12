@@ -114,17 +114,40 @@ $THRESHOLD = 0.001;
 $failures = 0;
 foreach ($trees as $tree) {
     $shot = "$tmpDir/tree$tree.png";
+    // 先删旧图：$tmpDir 从不清理，--shot 崩在半路时上一轮的 PNG 还躺在那儿，
+    // 于是"今天的产物"其实是昨天的像素——这条门自己踩进项目明文禁止的陈旧产物坑。
+    if (is_file($shot)) {
+        unlink($shot);
+    }
     $cmd = escapeshellarg($bin) . ' --shot ' . escapeshellarg($shot) . ' ' . (int) $tree;
-    exec($cmd . ' >/dev/null 2>&1');
+    // 收退出码：过去只判 is_file，非 0 退出但留下文件的情况会被当成成功。
+    exec($cmd . ' >/dev/null 2>&1', $cmdOut, $rc);
+    if ($rc !== 0) {
+        fwrite(STDERR, "  ✗ tree {$tree}：--shot 退出码 {$rc}（非 0 就不算出图）\n");
+        $failures++;
+        continue;
+    }
     if (!is_file($shot)) {
-        fwrite(STDERR, "  ✗ tree {$tree}：出图失败\n");
+        fwrite(STDERR, "  ✗ tree {$tree}：出图失败（退出码 0 但没有文件）\n");
+        $failures++;
+        continue;
+    }
+    // 帧必须是"读得开且有内容"的图：空白/截断的帧一旦被 record 洗成基线，
+    // 之后每一轮都会拿它当标准答案比对，全绿。
+    $info = @getimagesize($shot);
+    if ($info === false || $info[0] < 8 || $info[1] < 8 || filesize($shot) < 4096) {
+        fwrite(STDERR, "  ✗ tree {$tree}：产物不像一帧图（"
+            . ($info === false ? '解不开' : $info[0] . 'x' . $info[1])
+            . ', ' . (int) filesize($shot) . " 字节）\n");
         $failures++;
         continue;
     }
     $ref = "$baselineDir/tree$tree.png";
     if ($mode === 'record') {
+        $before = is_file($ref) ? filesize($ref) : 0;
         copy($shot, $ref);
-        echo "  ✓ record tree $tree → " . basename($ref) . "\n";
+        printf("  ✓ record tree %d → %s（%d 字节，基线原为 %d 字节）\n",
+               $tree, basename($ref), (int) filesize($ref), (int) $before);
         continue;
     }
     if (!is_file($ref)) {

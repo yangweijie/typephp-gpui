@@ -53,7 +53,7 @@ foreach (glob("$root/examples/*/project.macos.yml") ?: [] as $yml) {
         }
         $abs = realpath($dir . '/' . $m[1]);
         $rel = $abs === false ? $relDir . '/' . $m[1] : ltrim(str_replace($root, '', $abs), '/');
-        $tracked($rel) ? $ok("sources 已跟踪：$rel") : $bad("sources 未跟踪：$rel（$relDir 的构建在干净克隆上会缺文件）");
+        $tracked($rel) ? $ok("sources 已跟踪：{$rel}") : $bad("sources 未跟踪：{$rel}（{$relDir} 的构建在干净克隆上会缺文件）");
     }
 }
 
