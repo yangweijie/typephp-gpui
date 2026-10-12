@@ -1324,3 +1324,10 @@ variant 没挂上一定会花）、selftest OK、`--liveclick 13/13`。
 所以证据取最强的三样：两示例 shotdiff 全 `gdfrac=0`（文本像素）、selftest 的
 `clip='SHOWCASE-Ω'` 多字节回环、`--livetyping 9/9` + `--liveclick 13/13`。
 `toComponentArg`（registered 构造实参）**没**改：它的落点不是 Push/CopyOp，深拷不成立。
+
+**第 5 步④（补刀）**：把事件汇（`boxForView` + 8 个 `gpuiEnqueue*` 强符号，115 行）从
+`services.inc` 里分出来成 `gpui_shim_events.inc`——它原本被我第二刀的边界错留在 services 里，
+文件名与内容不符，正是拆文件要避免的那种"名字在骗人"。
+证据：`--liveclick 13/13 到达 13 节`、`--livetyping 9/9`、selftest OK、shotdiff `gdfrac=0`、
+shim_test OK、hello OK（事件汇是点击/按键/定时的必经之路，错了这些一定塌）。
+主文件 1716 行 + 三块 .inc（caps 361 / services 567 / events 119）。

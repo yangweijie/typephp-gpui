@@ -1667,6 +1667,7 @@ uint32_t gpui_shim_inspector(void* win, const char* id) {
 
 #include "gpui_shim_services.inc"  // HTTP / 目录监听 / 解压（文本切片）
 #include "gpui_shim_caps.inc"  // 授权文件系统 / 进程 / 存储（文本切片，见该文件头）
+#include "gpui_shim_events.inc"  // 事件入队强符号（文本切片）
 // ── macOS 系统集成：转发到 gpui_mac.mm ────────────────────────────────────────
 //
 // 这一层只做两件事：把 win 变成 owner 指针交出去，以及把 labels 的 C 数组转成
