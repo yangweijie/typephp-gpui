@@ -1376,3 +1376,21 @@ PHP 侧永远建不出来"这种漂移没人报。把表提到文件作用域（
 `SHOWCASE rc=0`（含 overlay churn=30/left=0/boxes 1→1/views 1→1）、`HELLO rc=0`、
 `SHOTDIFF rc=0`（tree0–13 全 `gdfrac=0.00000`）；phpstan / doctor / check-c-abi /
 check-build-inputs / check-cxx17 / test-shim 均 rc=0。
+
+**第 5 步收口（也是审核五步的收口）——明确记下的"不做"及其理由**：
+审核后还挂着两条性能/结构项，评估后**主动不做**，不是漏掉：
+- `F8`：`std::deque<GpuiEvent>` 每事件约 440 B 的分块分配，以及 webview 每帧重算
+  `wantUrl`/`wantHtml` 两串。前者要换成事件池就得动 `poll_event` 的返回形状（C ABI +
+  stub + bridge + FakeBridge 四层），后者要加"URL/HTML 未变则不重设"的脏标记。
+  两条都是**可测但收益薄**：事件是用户动作级的量（一次点击一条），不是每帧每元素级；
+  而 ① 已经把"每帧无条件重建"这个真正的乘数拿掉了。动它们的收益/风险比不划算。
+- `④续`：把 `HostedViewRegistry` / `RetainedStore` / `NotifyKey` 再从 `Box2` 里拆出去。
+  现主文件 1793 行 + 三块 `.inc`（caps 361 / services 567 / events 119），可读性已经解决；再拆要动
+  `Box2` 的**析构顺序**（dialog 内容归上游持有，见本步③那段所有权推理），
+  那是把已经验过的生命周期重新变成未验状态。等下一个真需要跨窗口共享的功能出现再拆。
+所以别人问"#61 完了怎么还有性能项"，答案在这段：**①②③④⑤ 都带了反向对照的数字**，
+剩下的是评估后砍掉的，砍掉的理由写在这里而不是留在对话里。
+
+审核五步到此结束。仍然开着的两项都不在这五步的范围内，且都需要人或上游才能推进：
+`#56` key_down 在真 OS 按键下是否触发（要真人手按一次才能判别"没人监听"还是"没人送到"），
+`#62` PHP 宿主下 Escape 关不掉 dialog（focus trap 从未拿到焦点，属上游焦点分配）。
