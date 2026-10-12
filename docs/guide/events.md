@@ -278,6 +278,33 @@ showcase 的导航实测可点带只有 x=12..132（侧栏宽 210），点行右
 这条改动只有把手移到未激活窗口上才验得出来：app 内的合成缝不受这个门槛约束，
 所以它在自动门禁里既不会绿得可疑，也不会红得有用。
 
+## 渲染是脏驱动的
+
+`App::loop()` 每圈都做三件事：泵 + 派发事件、（若开了 `keepTryingForeground`）有界地抢一次
+前台、然后**判断这一帧要不要画**。要画的四种情况：
+
+| 判据 | 为什么 |
+|---|---|
+| 每轮 `loop()` 的首帧 | 首帧的 materialize 建不出命中表，必须有一帧"画完"才有可点的东西（见下节） |
+| 这一圈派发过事件 | 点击/输入/定时器改了状态 |
+| `windowState()` 的 active/key/visible/main 变了 | HUD 与"当前不是前台应用"那条横幅就是它的函数 |
+| `$app->invalidate()` | app 自己改了状态但没有任何事件（外部定时器、跨窗口联动等） |
+
+四条都不成立就 `continue`：不跑 view 回调、不序列化、不 materialize。
+
+配套读数与开关：
+
+```php
+$app->keepTryingForeground(12);  // 让框架在头 12 次里替 app 抢前台；默认不开
+$app->foregroundTries();         // 已经试了几次（0 = 没开）
+$app->renderCount();             // 真正重画过几回
+$app->frameCount();              // 循环跑了几圈
+$app->invalidate();              // 标脏：下一帧必须重画
+```
+
+`keepTryingForeground` 之所以在框架里而不是 app 的每帧回调里：**帧可能被跳过**。如果
+"没拿到前台就再试一次"写在 view 回调里，就会变成"没画 → 没尝试 → 永远不是前台"的死结。
+
 ## 生命周期与幂等
 
 - 回调按 `(elementId, type)` **幂等复用**：每帧重建同结构不增长（live app 友好）。

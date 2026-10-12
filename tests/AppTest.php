@@ -75,7 +75,7 @@ test('onAny also fires even when on() matched', function (): void {
     expect($any)->toBe(1, 'onAny must also fire even when on() matched');
 });
 
-test('view 预热一帧 + loop 每帧一次，注册时那趟是刻意的', function (): void {
+test('渲染是脏驱动的：预热 1 帧 + 每轮 loop 的首帧 + 事件/invalidate 各一次', function (): void {
     $app = new App();
     $app->create();
     $win = $app->createWindow('T', 400, 300);
@@ -85,11 +85,31 @@ test('view 预热一帧 + loop 每帧一次，注册时那趟是刻意的', func
         return El::text("frame $frames");
     });
     FakeBridge::$windowOpen = true;
-    $app->loop(3);
 
-    // 4 = view() 注册时预热的 1 次 + loop(3) 的 3 帧。预热不是多余渲染：实测只跑一帧时
-    // 真点击产生 0 个事件，第二帧之后才稳定（首帧的 materialize 建不出命中表），
-    // 见 App::view 的注释与 examples/showcase 的 --liveclick。
+    // 预热那一次不是多余渲染：实测只跑一帧时真点击产生 0 个事件，第二帧之后才稳定
+    // （首帧的 materialize 建不出命中表），见 App::view 的注释与 --liveclick。
+    expect($frames)->toBe(1);
+
+    // 空转 3 帧：没有事件、窗口状态没变 → 只补 loop 的首帧一次，不是 3 次。
+    // 这条就是审核第 5 步①的新契约（改之前是"每帧必画"，空闲窗口 60 次/秒重建整棵 PHP 树）。
+    $app->loop(3);
+    expect($frames)->toBe(2);
+    // renderCount 只算 loop 驱动的渲染：view() 那次预热走的是直接 render，不计入。
+    expect($app->renderCount())->toBe(1);
+    expect($app->frameCount())->toBe(3);
+
+    // 正半：事件必须把下一帧叫醒，否则"跳过渲染"就变成了"永远不画"的假绿。
+    FakeBridge::pushEvent((int) $win, 'click', 'btn');
+    $app->on('btn', 'click', static function (): void {});
+    $app->loop(2);
+    expect($frames)->toBe(3);
+    expect($app->renderCount())->toBe(2);
+
+    // app 自己改了状态但没有任何事件时，invalidate() 是唯一的叫醒方式。
+    $app->invalidate();
+    $app->loop(2);
     expect($frames)->toBe(4);
+    expect($app->renderCount())->toBe(3);
+
     expect(FakeBridge::$renderLog[(int) $win])->toHaveCount(4);
 });

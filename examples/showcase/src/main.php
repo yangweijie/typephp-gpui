@@ -105,6 +105,10 @@ function runLiveClick(): void
     wireShowcase($app);
     $app->create();
     $app->createWindow('Showcase LiveClick', 1180, 760);
+    // 前台是"和当时握着焦点的一方竞争"来的，一次申请未必赢：让框架在头 12 帧里
+    // 没拿到就再申请一次，12 帧之后收手——用户可能正在别的 app 里打字，
+    // 一直抢焦点比"点第一下没反应"更糟。
+    $app->keepTryingForeground(12);
     // 与交互模式同一颗每帧回调（每帧重建 view + paint 途中抢前台），不是只画 shell 的简化版：
     // 用户面前的节奏里就有那一步，探针必须跑在同一形状上。
     $app->view(static function () use ($app): El { return interactiveFrame($app); });
@@ -162,6 +166,7 @@ function runLiveType(): void
     $app->createWindow('Showcase LiveType', 1180, 760);
     // 与交互模式同一颗每帧回调（含 paint 途中的 activate 抢前台），不是只画 shell 的简化版：
     // 用户面前的节奏里就有那一步，探针必须跑在同一形状上。
+    $app->keepTryingForeground(12);
     $app->view(static function () use ($app): El { return interactiveFrame($app); });
     $app->loop(2);
 
@@ -800,16 +805,10 @@ function interactiveFrame(App $app): El
     }
     // 每帧量一次：banner 的显示条件只有 app 自己测得到，而"什么时候被系统降级成
     // 非前台"是运行时才发生的（比如用户点了别的 app），不能只在启动时判。
+    // 抢前台本身已经交给框架（keepTryingForeground）：帧可能被脏门跳过，
+    // 放在这里就会变成"没画→没尝试→永远不是前台"的死结。
     $live = $app->windowState();
-    $front = (bool) $live['active'] && (bool) $live['key'];
-    // 前台是"和当时握着焦点的一方竞争"来的，一次申请未必赢：头 12 帧里没拿到就再申请
-    // 一次（activate 内部已经让 runloop 走几拍，回执才落地）。12 帧之后就不再抢——
-    // 用户可能正在别的 app 里打字，一直抢焦点比"点第一下没反应"更糟。
-    if (!$front && ShowcaseState::$v['frontTries'] < 12) {
-        ShowcaseState::$v['frontTries']++;
-        $front = $app->activate();
-    }
-    ShowcaseState::$v['front'] = $front;
+    ShowcaseState::$v['front'] = (bool) $live['active'] && (bool) $live['key'];
     return showcaseShell();
 }
 
@@ -819,6 +818,10 @@ function runInteractive(bool $trace = false): void
     $app = new App();
     // 处理器注册不碰原生，先接线再进 run()。
     wireShowcase($app);
+    // 前台是"和当时握着焦点的一方竞争"来的，一次申请未必赢：让框架在头 12 帧里
+    // 没拿到就再申请一次，12 帧之后收手——用户可能正在别的 app 里打字，
+    // 一直抢焦点比"点第一下没反应"更糟。
+    $app->keepTryingForeground(12);
     // run() 是 create + createWindow + view + loop 的糖，也是 PHP 面的主入口；
     // 窗口要到 run() 里面才存在，所以菜单/定时器这类"要有窗口"的调用挂到第一帧。
     $app->run('TypePHP GPUI — Showcase', 1180, 760, static function () use ($app): El {
@@ -974,6 +977,25 @@ function runSelfTest(bool $expectBundle, bool $startFront = false): void
             ['label' => '无动作项'],
         ]],
     ]);
+    // 脏门证据（审核第 5 步①）：两半都要，只测一半可以靠"永远不画"或"永远都画"蒙过去。
+    // 正半：有事件进来必须真的重画一次；反半：没事件、状态不变的帧一律不画。
+    // 先把**所有**定时器撤掉——它们一响就是真事件，留着这条门就变成随机的。
+    // 第一版只撤了 st-timer，漏了 interactiveFrame 第一帧装的 tick(1000ms)：
+    // 40 帧的墙钟够它响一次，门于是红在 idle=1——红得对，撤漏的那个才是 bug。
+    $app->setTimer('st-timer', 0);
+    $app->setTimer('tick', 0);
+    $rendersBefore = $app->renderCount();
+    $app->runFrames(40);
+    // 期望是 1 不是 0：$first 是 loop() 的局部，重进一次循环必补一帧（这个语义要留着
+    // ——两次 loop() 之间 app 状态可能已经变了）。要证明的是"40 帧只画 1 次"，
+    // 而不是"一帧不画"；不做脏门的话这里是 40。
+    $idleRenders = $app->renderCount() - $rendersBefore;
+    $framesRan = $app->frameCount();
+    $app->dispatchAction('cr-m-new');
+    $app->loop(2);
+    $wakesOnEvent = $app->renderCount() > $rendersBefore;
+    $dirtyGate = $idleRenders === 1 && $wakesOnEvent && $framesRan >= 40;
+
     // 内存增长门（审核第 5 步③的回归位）：同一个 id 反复重挂定时器，
     // timerKeys 必须还是 1——修之前每挂一次净增一条，永不回收。
     $tk0 = (int) ($app->stateCounts()['timerKeys'] ?? -1);
@@ -1194,6 +1216,8 @@ function runSelfTest(bool $expectBundle, bool $startFront = false): void
     // 用户面前的节奏里就有那一步，探针必须跑在同一形状上。
     $app->view(static function () use ($app): El { return interactiveFrame($app); });
     ShowcaseState::$v['section'] = 5;
+    // 直接改状态、没有事件：脏门会跳过空帧，所以必须显式标脏，否则下一帧还是旧节。
+    $app->invalidate();
     $app->loop(2);
     $treeAfter = \gpui_debug_tree($app->handle());
     $viewRerenders = str_contains($treeAfter, '表格、列表与进度')
@@ -1278,7 +1302,7 @@ function runSelfTest(bool $expectBundle, bool $startFront = false): void
         && (int) $sys['ncpu'] > 0 && (float) $sys['memPct'] > 0.0
         && $httpQueued && $resp !== null && $resp['ok'] === false
         && $navRouted && $hoverRouted && $typedIn && $inputsReal && $windowUsable && $valuePull
-        && $actionRouted && $menuRowsOk && $timerNoGrow
+        && $actionRouted && $menuRowsOk && $timerNoGrow && $dirtyGate
         && $bundleGreen && $routeGreen && $navBandWide
         && $viewRerenders
         && $granted && $menuCnt > 0 && $openBefore && $frames3 === 3
@@ -1321,7 +1345,7 @@ function runSelfTest(bool $expectBundle, bool $startFront = false): void
             . '/key=' . var_export($winState['key'], true)
             . '/visible=' . var_export($winState['visible'], true)
             . '/main=' . var_export($winState['main'], true)
-            . ' activateTries=' . $activateTries
+            . ' activateTries=' . $activateTries . ' fgTries=' . $app->foregroundTries()
             . ' bundled=' . var_export($bundled, true) . ' frontmost=' . var_export($frontmost, true)
             . ' nsappDeliveries=' . $nsappDeliveries
             . '/bundleGreen=' . var_export($bundleGreen, true)
@@ -1330,6 +1354,8 @@ function runSelfTest(bool $expectBundle, bool $startFront = false): void
             . '/rows=' . implode(',', $menuRows) . '/rowsOk=' . var_export($menuRowsOk, true),
         'valuePull=' . var_export($valuePull, true),
         "timerKeys {$tk0}->{$tk1} noGrow=" . var_export($timerNoGrow, true),
+        "dirty idle={$idleRenders}/40frames wake=" . var_export($wakesOnEvent, true)
+            . " gate=" . var_export($dirtyGate, true),
         'rerender=' . var_export($viewRerenders, true),
         'realInput=' . var_export($navRouted, true) . '/' . var_export($hoverRouted, true)
             . '/' . var_export($typedIn, true) . ' navHits=' . $navClicked

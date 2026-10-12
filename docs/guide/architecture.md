@@ -13,7 +13,13 @@ App / Element / El   ──array──▶ gpui_bridge.cc ──C ABI──▶ gp
 
 PHP 侧把 `Element` 树序列化成扁平数组；bridge 递归展开成 `push/style/method/callback/
 attach/slot/registered` 的 C 调用下发；shim 落到 gpui 的 `SpecArena`，`ShellMaterializeSpec`
-每帧翻成原生 `El*` 树；事件反向经定长 `GpuiEvent` 结构入队，PHP 主循环 poll 取走分派。
+把这一帧翻成原生 `El*` 树；事件反向经定长 `GpuiEvent` 结构入队，PHP 主循环 poll 取走分派。
+
+**"每一帧"不等于"每一圈循环"**：`App::loop()` 只在**脏**的时候才重建 view——首帧、
+派发过事件、窗口状态（active/key/visible/main）变了、或 app 自己调过
+[`invalidate()`](/guide/events#渲染是脏驱动的)。空闲窗口因此不再每秒 60 次重建整棵
+PHP 树；代价是"改了自家状态但没有任何事件"必须显式 `invalidate()`，否则那一帧不会被画。
+判据与读数见 `App::renderCount()` 与 `--selftest` 的 `dirty idle=1/40frames`。
 
 ## 为什么要有"防火墙"
 

@@ -30,6 +30,10 @@ final class App
 
     private bool $running = false;
     private int $frames = 0;
+    private int $renders = 0;
+    private bool $dirty = true;
+    private int $foregroundBudget = 0;
+    private int $foregroundUsed = 0;
     private string $lastError = '';
 
     /** Sheet 可滑出的边。 */
@@ -921,6 +925,8 @@ final class App
     {
         $this->running = true;
         $this->frames = 0;
+        $first = true;
+        $sig = null;
 
         while ($this->running && \gpui_window_is_open($this->handle())) {
             if ($maxFrames > 0 && $this->frames >= $maxFrames) {
@@ -930,9 +936,24 @@ final class App
 
             // 1. 泵事件并分派
             \gpui_pump_events($this->handle());
-            $this->drainEvents();
+            $dispatched = $this->drainEvents();
 
-            // 2. 按最新状态渲染每个 view
+            // 2. 抢前台的自举放在框架里而不是 app 的每帧回调里：下面第 3 步可能不画这一帧，
+            //    交给 app 就会变成"没画→没尝试→永远不是前台"的死结。
+            $this->pumpForeground();
+
+            // 3. 脏判据：首帧 / 有事件 / 窗口状态变了（HUD 与"非前台"横幅就是它的函数）/
+            //    app 自己 invalidate() 过。空闲窗口因此不再每帧重建整棵 PHP 树。
+            $st = $this->windowState();
+            $next = $st['active'] . '|' . $st['key'] . '|' . $st['visible'] . '|' . $st['main'];
+            if (!($first || $this->dirty || $dispatched > 0 || $next !== $sig)) {
+                continue;
+            }
+            $first = false;
+            $sig = $next;
+            $this->dirty = false;
+            $this->renders++;
+
             foreach ($this->views as $builder) {
                 $tree = $builder();
                 if ($tree instanceof Element) {
@@ -942,6 +963,55 @@ final class App
         }
 
         $this->running = false;
+    }
+
+    /**
+     * 让框架在头 $tries 帧里替 app 抢前台（每帧读一次窗口状态，成了就停）。
+     * 默认不开——抢焦点是对用户手头工作的打扰，得 app 自己说要。
+     */
+    public function keepTryingForeground(int $tries = 12): void
+    {
+        $this->foregroundBudget = $tries;
+    }
+
+    /** 已经试了几次抢前台（0 = 没开这个能力）。 */
+    public function foregroundTries(): int
+    {
+        return $this->foregroundUsed;
+    }
+
+    /** 真正重画过几回。与 frameCount() 对比就是脏门的证据：空闲时应远小于帧数。 */
+    public function renderCount(): int
+    {
+        return $this->renders;
+    }
+
+    /**
+     * 标脏：下一帧必须重画。
+     * app 改了自家状态但没有任何事件（比如外部定时器算了点什么）时调它。
+     */
+    public function invalidate(): void
+    {
+        $this->dirty = true;
+    }
+
+    /** loop 每帧调一次：有预算、还没成前台才试；成功或预算用尽就收手。 */
+    private function pumpForeground(): void
+    {
+        if ($this->foregroundBudget <= 0) {
+            return;
+        }
+        $st = $this->windowState();
+        if (!empty($st['active']) && !empty($st['key'])) {
+            $this->foregroundBudget = 0;
+            return;
+        }
+        if ($this->foregroundUsed >= $this->foregroundBudget) {
+            return;
+        }
+        $this->foregroundUsed++;
+        $this->activate();
+        $this->dirty = true;   // 试过就要重画：横幅与 HUD 的文案取决于结果
     }
 
     /** 跑固定帧数后退出，用于无头截图。 */
@@ -989,15 +1059,19 @@ final class App
         }
     }
 
-    private function drainEvents(): void
+    /** 排空事件队列并分派，返回**派发掉的事件数**（帧的脏判据之一）。 */
+    private function drainEvents(): int
     {
+        $n = 0;
         while (true) {
             $event = \gpui_poll_event($this->handle());
             if (empty($event)) {
                 break;
             }
             $this->handleEvent($event);
+            $n++;
         }
+        return $n;
     }
 
     private function handleEvent(array $event): void

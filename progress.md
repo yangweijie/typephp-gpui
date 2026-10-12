@@ -1265,3 +1265,20 @@ record——空白帧一旦被 record 洗成基线，之后每轮都拿它当标
 `shim_test` 的 kindFromString 双向断言仍过。
 连带：`ContractTest` 的 kind 门解析器同时支持老写法 `if (s == "x")` 与新表项 `{"x", K::Y},`
 ——不放宽的话它会在表一换形状时立刻报"读不到任何 kind 名"，这正是要的行为。
+
+**第 5 步①（每帧无条件重建 → 脏驱动）**：`App::loop()` 的渲染改成四条判据之一才画
+（每轮 loop 首帧 / 本轮派发过事件 / `windowState()` 的 active-key-visible-main 变了 /
+`invalidate()`）。**量到的**：40 个空闲帧只画 1 次（`dirty idle=1/40frames`），
+把脏门短路成"永远画"则 `idle=40/40` 且 `SELFTEST FAIL` rc=1，还原复绿——正反两半都有数。
+前置改动：把"抢前台自举"从示例的每帧回调搬进框架（`keepTryingForeground(12)` +
+`foregroundTries()`），否则帧被跳过会变成"没画→没尝试→永远不是前台"的死结。
+新增 `App::renderCount()` / `invalidate()`。
+连带修的两条测试（都是测试逮到语义变更，不是产品坏）：
+`view 预热一帧 + loop 每帧一次` 断言的正是被改掉的那条契约，按新契约重写并显式测
+"空闲帧被跳过 + 事件/invalidate 各自叫醒一帧"；`showcase 覆盖 App 全部公开 API`
+因为新加的 `invalidate()`/`foregroundTries()` 没被调用而红，遂在真正需要它的地方
+（直接改 `section` 而不走事件）用上它。
+文档：`architecture.md` 里"`ShellMaterializeSpec` 每帧翻成原生树"这句已不成立，改成
+"这一帧"+ 脏判据说明；`events.md` 新增「渲染是脏驱动的」一节列出四条判据与新 API。
+门禁：pest 81 passed、showcase 裸/bundle selftest OK、`--liveclick 13/13`、
+hello OK、shotdiff 两示例 OK、docs build OK。
