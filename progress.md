@@ -1290,3 +1290,10 @@ hello OK、shotdiff 两示例 OK、docs build OK。
 行为等价的证据：`--selftest`、`--liveclick 13/13`、`--livetyping 9/9`、hello、
 shotdiff 13 棵全 `gdfrac=0`、`shim_test` OK——回调身份若错，点击/按键路由会当场塌。
 （没有做墙钟计时，所以这里只声明"分配次数按调用图从 5 降到 ~1"，不报百分比。）
+
+**第 5 步②（bridge 每 op 的分配）**：`opKind`/`name` 两个 `std::string` 与
+`args`/`backing` 两个 vector 从"每 op 构造一次"提到"每节点一次"（循环外声明 + 循环内
+`assign`/`clear`，capacity 复用）。放在节点这一层而不是函数静态，是为了不跨递归别名：
+`backing` 里的 `c_str()` 只需在本节点这次同步调用期间活着。
+证据：两示例 shotdiff 全 `gdfrac=0`（方法实参或 style 传错一定会在像素上露出来）、
+selftest/liveclick 13/13/livetyping 9/9/hello/pest 81 全绿。

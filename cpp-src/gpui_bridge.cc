@@ -243,21 +243,28 @@ uint32_t emitTree(void* win, Array node) {
     Variant opsV = node.get("ops");
     if (opsV.isArray()) {
         Array ops = opsV.toArray();
+        // 这几个缓冲提到 op 循环外：原来每个 op 都要构造 2 个 std::string（其中
+        // opKind 只是拿去和 4 个字面量比），param_style/method 还要再来 2 个 vector。
+        // 放在这一层（每个节点一次）既省掉 per-op 分配，又不会跨递归别名——
+        // backing 里的 c_str() 只在本节点这次同步调用期间需要活着。
+        std::string opKind, name;
+        std::vector<GpuiArg> args;
+        std::vector<std::string> backing;
         for (size_t i = 0; i < ops.count(); ++i) {
             Variant ov = ops.get(i);
             if (!ov.isArray()) continue;
             Array op = ov.toArray();
-            std::string opKind = strOf(op.get("kind"));
-            std::string name = strOf(op.get("name"));
+            opKind = strOf(op.get("kind"));
+            name = strOf(op.get("name"));
 
             if (opKind == "nullary_style") {
                 gpui_shim_nullary_style(win, spec, name.c_str());
             } else if (opKind == "param_style" || opKind == "method") {
                 Variant argsV = op.get("args");
-                std::vector<GpuiArg> args;
                 // backing 每参数一个槽位、建好即定长，保证 c_str() 地址稳定，
                 // 直到 shim 把值拷进 arena。
-                std::vector<std::string> backing;
+                args.clear();
+                backing.clear();
                 if (argsV.isArray()) {
                     Array aa = argsV.toArray();
                     const size_t n = aa.count();
