@@ -1209,3 +1209,24 @@ amalgam 步报 `clang++ not found`，而同一条命令手跑、经 PHP `passthr
 第 2 步收口读数：showcase 裸/bundle selftest OK（`valuePull=true`、`action=true/rows=st-new/rowsOk=true`）、
 `--liveclick 13/13`、`--livetyping 9/9`、hello OK、shotdiff 两示例 OK（元素 id 换字段**没有**改动像素）、
 pest 77 passed (397 assertions)、phpstan 无错、test-shim OK、docs build OK。
+
+**第 3 步（漂移警报）**：
+- 补丁清单收敛成一份：`patchScripts()` 从 `patchManifest()` 派生，`bin/gpui build` 与新的
+  `bin/gpui patch` 子命令都走它，`composer patch` 改成 `@php bin/gpui patch`。以前
+  composer 8 支 / bin/gpui 11 支 / GPUI.lock 写 7 个，单跑 composer 得到半补丁树
+  （缺的正是防 key_down 段错误那支）。doctor 加"cmd/ 下每支 patch-*.sh 必须在清单里"，
+  负对照（丢一支假脚本进去）rc=1 点名。
+- `kindFromString` 的静默兜底改成拒收 + 写 `lastError`。**这条改动当场抓出真 bug**：
+  `div` 从来就不在表里，全靠兜底存在——第一次跑 tree1 像素差 0.05649（worst=1.000）、
+  selftest 直接卡到看门狗（rc=142）。补进表后 shotdiff/selftest 全复绿，且证明
+  webview/inspector/notifications 三个伪 kind 确实不走 push。教训：兜底分支把
+  "最常见的值"和"拼错的名字"抹成同一个形状，四层都不会报错。
+- 新增 `cmd/check-c-abi.sh`（gpui_shim.h 用 `clang -x c` 编一遍 + 文本扫 C++ 记号）与
+  `cmd/check-build-inputs.php`（补丁脚本/清单/示例 sources 是否都在版本控制里），
+  分别挂进 CI 的 native 与 php job。
+- 新增 `tests/ContractTest.php`：stub ↔ FakeBridge ↔ bridge 名字与元数对齐、App.php 调用的
+  `gpui_*` 必须已声明、Element 发出的 kind 必须在 shim 表里在册。反向对照：把 stub 里
+  `gpui_menu_rows` 改名 → 两条差集立刻红并点名；把表里 `div` 删掉 → kind 门红。
+  顺手修了 `gpui.stub.php:230` 两条声明挤同一行（php -l 不报，行向读取会静默漏一个）。
+- 自己的测试也翻过一次车：`mb_strpos` 给字符位、`substr` 按字节切，混用后窗口偏进表中间，
+  25 个合法 kind 被误报"未登记"。已改回字节位并写明原因。

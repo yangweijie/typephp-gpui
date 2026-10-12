@@ -37,16 +37,23 @@ const gpui::shell::ArgumentSchema& strElemSchema() {
     return s;
 }
 
-// 1) kindFromString：已映射 kind 精确、未知回落 Div。
+// 1) kindFromString：已映射 kind 精确；认不出的**必须标出来**，不再静默当 Div。
+// 原来这条断言的是 `未知 -> Div`，那等于给上游漂移上了保险：新 kind 拼错或没登记时，
+// 整棵子树会渲染成看不见的空盒子，而 registeredError() 只管 registered 那条路，
+// 于是四层各自"看着对"、现场零报错。现在 push 侧据 known 拒绝建节点并写 lastError。
 void testKindFromString() {
     std::puts("kindFromString");
-    CHECK(kindFromString("button") == K::Button);
-    CHECK(kindFromString("number_input") == K::NumberInput);
-    CHECK(kindFromString("otp_input") == K::OtpInput);
-    CHECK(kindFromString("resizable_panel") == K::ResizablePanel);
-    CHECK(kindFromString("toggle_group") == K::ToggleGroup);
-    CHECK(kindFromString("totally_unknown") == K::Div);
-    CHECK(kindFromString(nullptr) == K::Div);
+    bool known = false;
+    known = true; CHECK(kindFromString("button", &known) == K::Button && known);
+    known = true; CHECK(kindFromString("number_input", &known) == K::NumberInput && known);
+    known = true; CHECK(kindFromString("otp_input", &known) == K::OtpInput && known);
+    known = true; CHECK(kindFromString("resizable_panel", &known) == K::ResizablePanel && known);
+    known = true; CHECK(kindFromString("toggle_group", &known) == K::ToggleGroup && known);
+    // 兜底：值仍是 Div（不新增枚举，避免动 C ABI 结构），但 known 必须翻成 false。
+    known = true; CHECK(kindFromString("totally_unknown", &known) == K::Div && !known);
+    known = true; CHECK(kindFromString(nullptr, &known) == K::Div && !known);
+    // 不传出参也不能崩（gpui_shim_push 之外的调用形状）。
+    CHECK(kindFromString("div") == K::Div);
 }
 
 // 2) AStr：arena 拷贝必须独立于源缓冲（bug #18 的直接守卫）。

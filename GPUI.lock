@@ -9,7 +9,9 @@
   `upstream/gpui-kit-cpp` 复制而来（补丁、.work/ amalgam、out/ 对象都落在沙箱，跟踪树保持干净）。
   上游源码现在**vendored 进本仓库**：`upstream/gpui-kit-cpp`（src/assets/cmd/examples/gpui_shell +
   根文档，22M、1198 个文件，已去掉 out/.work/tests/bench/web 与上游留下的 *.bak）。
-  这份树**已含我们的 7 个宿主补丁**（marker 在源码里），补丁脚本保留是为了幂等复现与审计：
+  这份树**已含我们的宿主补丁**（支数以 `php bin/gpui doctor` 打出来的清单为准：它既逐支校验 marker，
+  也校验「cmd/ 下每支 patch-*.sh 都在清单里」。以前这里写死 7、composer 写死 8、bin/gpui 跑 11，
+  单跑 `composer patch` 得到的是半补丁树——现在 composer 与 build 都走 `bin/gpui patch` 这一个入口）（marker 在源码里），补丁脚本保留是为了幂等复现与审计：
   从上游刷新源码后必须重跑 `composer patch`。
 - 覆盖：设环境变量 `GPUI_DIR=/abs/path/to/gpui-kit-cpp`（`bin/gpui` 与所有 `cmd/patch-*.sh`、
   `cmd/build-shim.sh` 都遵循它）。

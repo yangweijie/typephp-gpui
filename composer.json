@@ -4,7 +4,15 @@
     "type": "library",
     "license": "MIT",
     "keywords": [
-        "typephp", "aot", "gpui", "gpui-kit", "desktop", "gui", "native", "php", "cross-platform"
+        "typephp",
+        "aot",
+        "gpui",
+        "gpui-kit",
+        "desktop",
+        "gui",
+        "native",
+        "php",
+        "cross-platform"
     ],
     "require": {
         "php": ">=8.1",
@@ -38,7 +46,7 @@
             "@php vendor/bin/phpstan analyse --no-progress",
             "@bash cmd/test-shim.sh"
         ],
-        "patch": "@bash cmd/patch-nano.sh && @bash cmd/patch-view.sh && @bash cmd/patch-retained.sh && @bash cmd/patch-focus.sh && @bash cmd/patch-registered-cb.sh && @bash cmd/patch-dispatch-cb.sh && @bash cmd/patch-nested-view.sh && bash cmd/patch-concepts.sh",
+        "patch": "@php bin/gpui patch",
         "bootstrap": "@php bin/gpui build",
         "build": "@php bin/gpui build",
         "run": "@php bin/gpui run",
@@ -59,7 +67,10 @@
     "extra": {
         "bridge": {
             "stub": "php-src/gpui.stub.php",
-            "sources": ["cpp-src", "php-src"],
+            "sources": [
+                "cpp-src",
+                "php-src"
+            ],
             "gpui-kit-dir": "build/gpui-kit-cpp"
         }
     }

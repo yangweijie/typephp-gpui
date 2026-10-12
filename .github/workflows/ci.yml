@@ -61,6 +61,9 @@ jobs:
       - name: Pest (FakeBridge, headless)
         run: vendor/bin/pest
 
+      - name: 构建输入都在版本控制里（审核 P0-1 的常驻门）
+        run: php cmd/check-build-inputs.php
+
       - name: PHPStan (level 5, src)
         run: vendor/bin/phpstan analyse --no-progress
 
@@ -151,6 +154,9 @@ jobs:
       # 第 8 个补丁的门禁：上游一刷新就可能静默失配（站点排版变了 → 补丁什么也没做）。
       - name: C++17 parseability of gpui.h
         run: bash cmd/check-cxx17.sh
+
+      - name: C ABI 防火墙仍是纯 C（gpui_shim.h 用 clang -x c 编一遍）
+        run: bash cmd/check-c-abi.sh
 
       - name: C++ shim tests (headless)
         run: bash cmd/test-shim.sh

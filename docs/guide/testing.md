@@ -1,7 +1,7 @@
 # 测试与门禁
 
-六道门禁，全绿即交付。改代码后按此清单跑；改 stub/C++ 后**必跑原生 selftest**（PHP 层门禁
-抓不到 AOT 运行期问题）。
+门禁清单如下（数目以本表为准，别在别处再抄一份数字——以前"六道/七道"就和表不同步）。
+改代码后按此清单跑；改 stub/C++ 后**必跑原生 selftest**（PHP 层门禁抓不到 AOT 运行期问题）。
 
 | # | 门禁 | 命令 | 覆盖 | 依赖 gpui？ |
 |---|------|------|------|------------|
@@ -12,6 +12,9 @@
 | 5 | shotdiff | `php bin/gpui shotdiff check hello` | 视觉回归：逐树像素比对基线（18 棵） | 是（二进制） |
 | 6 | doctor | `php bin/gpui doctor` | 工具链 + 全部补丁 marker 校验（清单见 `GPUI.lock`） | 部分 |
 | 7 | C++17 可解析性 | `bash cmd/check-cxx17.sh` | 第 8 个补丁的门禁：`gpui.h` 在 `-std=c++17` 与 `-std=c++20` 下都要能解析，且 `EmitsEvent` 降级后判据**双向**正确（有特化为真、无特化为假） | 是（头文件） |
+| 8 | C ABI 纯 C | `bash cmd/check-c-abi.sh` | 防火墙的主张本身：`gpui_shim.h` 用 `clang -x c -std=c11 -Wall -Wextra` 编得过，且文本里没有 `namespace`/`template`/`std::`/非 C 标准头的 `#include <>`。头里漏进 C++ 时，报错原本要晚到几分钟后的链接期 | 否 |
+| 9 | 构建输入在册 | `php cmd/check-build-inputs.php` | 「克隆出来能不能构建」：bin/gpui 点名的每支补丁脚本都已跟踪、cmd/ 下每支 `patch-*.sh` 都在清单里、每个示例 yml 的 `sources:` 都在版本控制里。审核 P0-1 量到这三类输入当时全未跟踪，而本地跑起来一切正常 | 否 |
+| 10 | 三层契约 parity | `composer test`（`tests/ContractTest.php`） | stub ↔ FakeBridge ↔ `gpui_bridge.cc` 的名字与元数一一对齐；`src/App.php` 里调用的 `gpui_*` 必须在 stub 里声明过；Element 能发出的每个 kind 都必须在 shim 的 `kindFromString` 表里在册（三个走 bridge 的伪 kind 豁免）。`setAppMenus` 键名那族错就是四层各自"看着对"，编译期没人查 | 否 |
 
 一键：`composer test:all`（Pest + PHPStan + shim_test）。
 

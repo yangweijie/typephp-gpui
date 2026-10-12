@@ -374,10 +374,18 @@ gpui::shell::Bridged toBridged(const GpuiArg& a, gpui::Arena* arena) {
     }
 }
 
-gpui::shell::ComponentKind kindFromString(const char* k) {
+gpui::shell::ComponentKind kindFromString(const char* k, bool* known = nullptr) {
+    if (known) *known = true;   // 下面每条命中都不必再置位，只有两条兜底会改它
     using K = gpui::shell::ComponentKind;
-    if (!k) return K::Div;
+    if (!k) {
+        if (known) *known = false;  // 空 kind 也不算「合法的一种」，别让它静默变 Div
+        return K::Div;
+    }
     std::string s(k);
+    // div 必须显式在册：它曾是兜底分支的"顺带结果"，于是"最常见的 kind"和
+    // "拼错的名字"长得一模一样，兜底一改成拒收就整片树消失（实测 tree1 像素差 5.6%、
+    // selftest 卡死）。写进表里之后，认不出就是真认不出。
+    if (s == "div") return K::Div;
     if (s == "h_flex") return K::HFlex;
     if (s == "v_flex") return K::VFlex;
     if (s == "text") return K::Text;
@@ -423,6 +431,10 @@ gpui::shell::ComponentKind kindFromString(const char* k) {
     if (s == "select") return K::Select;
     if (s == "combobox") return K::Combobox;
     if (s == "date_picker") return K::DatePicker;
+    // 认不出的 kind 过去静默兜成 Div：整棵子树照样"渲染"，只是变成看不见的空盒子，
+    // 而 registeredError() 照不到这条路（它只管 registered 组件）。上游新增或拼错的
+    // kind 因此完全没有现场——现在标成"不知道"，由 gpui_shim_push 拒绝建节点并写 lastError。
+    if (known) *known = false;
     return K::Div;
 }
 
@@ -1076,7 +1088,13 @@ uint32_t gpui_shim_push(void* win, const char* kind, const char* text,
     auto* box = static_cast<Box2*>(win);
     gpui::Arena* a = box->specs.Storage();
     gpui::shell::Component c;
-    c.kind = kindFromString(kind);
+    bool knownKind = true;
+    c.kind = kindFromString(kind, &knownKind);
+    if (!knownKind) {
+        box->lastError = std::string("unknown element kind '") + (kind ? kind : "") +
+                         "'（节点未建：静默降级成 Div 会让整棵子树看不见）";
+        return 0;
+    }
     if (text && *text) c.text = AStr(a, text);
     if (value && *value) c.value = AStr(a, value);
     if (id && *id) {

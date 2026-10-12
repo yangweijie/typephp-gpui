@@ -227,7 +227,10 @@ function gpui_hotkey_unregister(int $id): void {}
 
 
 /** 组件 materialize 失败读数：['count'=>累计次数, 'last'=>最后一次原因]。 */
-function gpui_component_failure(): array {}function gpui_hotkey_count(): int {}
+function gpui_component_failure(): array {}
+
+/** 已注册的全局快捷键条数（只读计数）。 */
+function gpui_hotkey_count(): int {}
 
 /** 测试接缝：合成第 $index 个快捷键的事件，走完整条派发链。 */
 function gpui_hotkey_fire(int $index): bool {}

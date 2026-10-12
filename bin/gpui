@@ -72,6 +72,20 @@ function patchManifest(): array {
     ];
 }
 
+/** 从 marker 表派生"要跑哪些补丁脚本"——执行清单与校验清单从此是同一份数据。
+ *  以前 composer.json 8 支、bin/gpui 11 支、GPUI.lock 写 7 个，单跑 `composer patch`
+ *  得到半补丁树，缺的正是防 key_down 段错误的 patch-key-view.sh。 */
+function patchScripts(): array
+{
+    $out = [];
+    foreach (patchManifest() as $row) {
+        if (!in_array($row[0], $out, true)) {
+            $out[] = $row[0];
+        }
+    }
+    return $out;
+}
+
 // 校验所有补丁 marker 就位；全在返回 true，否则逐条报缺。
 function verifyPatches(): bool {
     $all = true;
@@ -141,6 +155,19 @@ switch ($cmd) {
         is_dir("$root/vendor/swoole/php-nano") ? ok('php-nano 已装') : bad('php-nano 未装（composer require swoole/php-nano）');
         $gpui = gpuiDir();
         is_dir($gpui) ? ok("gpui-kit-cpp 源码就位：$gpui") : bad("gpui-kit-cpp 未就位（{$gpui}；或设 GPUI_DIR）");
+        // 漂移警报：cmd/ 下每支 patch-*.sh 都必须出现在清单里。漏登记的新补丁
+        // 不会报错、也不会被跑到——正是"半补丁树"的来路。
+        $listed = patchScripts();
+        foreach (glob("$root/cmd/patch-*.sh") ?: [] as $path) {
+            $name = basename($path);
+            in_array($name, $listed, true)
+                ? ok("清单收录：$name")
+                : bad("$name 存在于 cmd/ 但不在补丁清单里（永远不会被跑到）");
+        }
+        // 防火墙的主张是「gpui_shim.h 只有 C」。这句话现在没人守着：头里漏进
+        // 一个 std:: 或 C++ 头，报错要晚到几分钟后的链接期。跑一下门脚本。
+        $cAbi = run('bash ' . escapeshellarg("$root/cmd/check-c-abi.sh"));
+        $cAbi === 0 ? ok('gpui_shim.h 纯 C 编译通过') : bad('gpui_shim.h 不再是纯 C（C ABI 防火墙漏了）');
         out('补丁落位校验：');
         verifyPatches();
         // doctor 的产物必须是退出码：以前它把 ✗ 打出来照样返回 0，于是
@@ -163,7 +190,7 @@ switch ($cmd) {
         if ($rc !== 0) { err('同步 upstream 失败'); exit($rc); }
 
         // 1) 补丁（幂等）——含 Stage D 的 registered-cb。
-        foreach (['patch-nano.sh', 'patch-view.sh', 'patch-retained.sh', 'patch-focus.sh', 'patch-registered-cb.sh', 'patch-dispatch-cb.sh', 'patch-key-view.sh', 'patch-nested-view.sh', 'patch-host-application.sh', 'patch-concepts.sh', 'patch-hover-always.sh'] as $p) {
+        foreach (patchScripts() as $p) {
             $rc = run("bash $root/cmd/$p");
             if ($rc !== 0) { err("补丁失败：$p"); exit($rc); }
         }
@@ -228,6 +255,17 @@ switch ($cmd) {
         $ex = $args[1] ?? 'hello';
         exit(run('php ' . escapeshellarg("$root/cmd/shotdiff.php") . ' '
             . escapeshellarg($mode) . ' ' . escapeshellarg($ex)));
+    }
+
+    case 'patch': {
+        // 唯一的补丁入口：composer 与 bin/gpui build 都走这里，清单只有一份。
+        foreach (patchScripts() as $p) {
+            $script = "$root/cmd/$p";
+            if (!is_file($script)) { err("补丁脚本缺失：$script"); exit(1); }
+            $rc = run('bash ' . escapeshellarg($script));
+            if ($rc !== 0) { err("补丁失败：$p"); exit($rc); }
+        }
+        exit(verifyPatches() ? 0 : 1);
     }
 
     case 'new': {
