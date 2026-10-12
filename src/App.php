@@ -351,6 +351,15 @@ final class App
     }
 
     /**
+     * 内部各容器的条数（诊断/回归用）：内存增长类修复的仪表。
+     * 例：同一个 id 反复 setTimer 之后 timerKeys 必须还是 1，而不是每挂一次加一条。
+     */
+    public function stateCounts(): array
+    {
+        return (array) \gpui_state_counts($this->handle());
+    }
+
+    /**
      * 某元素最近一次随 `change` 上报的值（checkbox/switch 是 bool，slider 是数，input 是串）。
      * 从没上报过返回 null——注意 null 与 false 是两回事，别把"没读过"当成"没勾上"。
      */

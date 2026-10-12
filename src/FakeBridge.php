@@ -506,6 +506,17 @@ namespace {
         return FakeBridge::$menuRows;
     }
 
+    function gpui_state_counts(mixed $window): array
+    {
+        // 替身只有菜单行这张真表；其余容器在假侧不存在，一律报 0。
+        return [
+            'timerKeys' => 0, 'timerIds' => 0, 'callbacks' => 0, 'cbByKey' => 0,
+            'shimCallbacks' => 0, 'inputHandles' => 0, 'lastValues' => count(FakeBridge::$lastValues),
+            'webviews' => 0, 'inspectors' => 0, 'notifyLists' => 0, 'dialogs' => 0,
+            'watchCtx' => 0, 'httpResponses' => 0,
+        ];
+    }
+
     function gpui_app_menu_count(mixed $window): int
     {
         return FakeBridge::$appMenuCount;

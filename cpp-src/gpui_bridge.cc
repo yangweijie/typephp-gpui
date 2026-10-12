@@ -612,6 +612,22 @@ Int php_gpui_app_menu_count(Variant boxVar) {
     return (Int)(win ? gpui_shim_app_menu_count(win) : 0);
 }
 
+Array php_gpui_state_counts(Variant boxVar) {
+    static const char* kNames[] = {
+        "timerKeys", "timerIds", "callbacks", "cbByKey", "shimCallbacks",
+        "inputHandles", "lastValues", "webviews", "inspectors", "notifyLists",
+        "dialogs", "watchCtx", "httpResponses",
+    };
+    Array out;
+    long long c[32] = {0};
+    void* win = winOf(boxVar);
+    int n = win ? gpui_shim_state_counts(win, c, 32) : 0;
+    for (int i = 0; i < n && i < (int)(sizeof(kNames) / sizeof(kNames[0])); i++) {
+        out[kNames[i]] = (Int)c[i];
+    }
+    return out;
+}
+
 Array php_gpui_menu_rows() {
     Array out;
     char name[128] = {0};

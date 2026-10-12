@@ -144,6 +144,11 @@ int gpui_shim_last_error(void* win, char* out, int outlen);
 /* 读回某元素最近一次上报的值（App::checked()/elementValue() 的读源）。
  * 返回 GpuiArgKind；GPUI_ARG_NIL = 该 id 从未上报过值（不是"值为 false"）。
  * 按 kind 只填对应出参：NUM→*out_num，BOOL→*out_bool，STR→out_str（NUL 结尾）。 */
+/* 各容器条数（内存增长仪表）。顺序与 gpui_shim.cpp 里一致：
+ * timerKeys/timerIds/callbacks/cbByKey/shimCallbacks/inputHandles/lastValues/
+ * webviews/inspectors/notifyLists/dialogs/watchCtx/httpResponses。返回写入条数。 */
+int gpui_shim_state_counts(void* win, long long* out, int cap);
+
 int gpui_shim_element_value(void* win, const char* id, double* out_num,
                             int* out_bool, char* out_str, int outlen);
 

@@ -1029,6 +1029,9 @@ void gpui_shim_close(void* win) {
     // EntityNewRaw 的 deleter 释放各 PhpView（含 dialog 内容视图），我们再删就是
     // double-free/UAF（tree13 未关 dialog 直接 close 曾触发 SIGABRT）。
     for (Box2* dlg : box->dialogs) {
+        // 悬垂键：PhpView 已由上面的实体拆除释放，g_views 里若还留着它的地址，
+        // 日后该地址被新视图复用时会反查到这个已删除的 Box2。
+        if (dlg->viewPtr) g_views.erase(dlg->viewPtr);
         delete dlg;
     }
     box->dialogs.clear();
@@ -1065,6 +1068,32 @@ int gpui_shim_last_error(void* win, char* out, int outlen) {
 
 // 读回某元素最近一次上报的值。返回 GpuiArgKind（GPUI_ARG_NIL = 没上报过 / 窗口不可用）；
 // 按 kind 只填对应的那个出参，其余保持不动。
+// 各容器的条数：内存增长类修复的仪表（没有它，"重挂定时器不涨表"这类话就只能靠读码相信）。
+// 顺序必须与 bridge 里的名字表一致，所以这里一次性列全。
+int gpui_shim_state_counts(void* win, long long* out, int cap) {
+    auto* box = static_cast<Box2*>(win);
+    if (!box || !out || cap < 1) return 0;
+    const size_t all[] = {
+        box->timerKeys.size(),      // 0
+        box->timerIds.size(),       // 1
+        box->callbacks.size(),      // 2
+        box->cbByKey.size(),        // 3
+        box->shimCallbacks.size(),  // 4
+        box->inputHandles.size(),   // 5
+        box->lastValues.size(),     // 6
+        box->webviews.size(),       // 7
+        box->inspectors.size(),     // 8
+        box->notifyLists.size(),    // 9
+        box->dialogs.size(),        // 10
+        box->watchCtx.size(),       // 11
+        box->httpResponses.size(),  // 12
+    };
+    int n = (int)(sizeof(all) / sizeof(all[0]));
+    if (n > cap) n = cap;
+    for (int i = 0; i < n; i++) out[i] = (long long)all[i];
+    return n;
+}
+
 int gpui_shim_element_value(void* win, const char* id, double* out_num,
                             int* out_bool, char* out_str, int outlen) {
     auto* box = static_cast<Box2*>(win);
@@ -1254,6 +1283,12 @@ void gpui_shim_set_timer(void* win, const char* php_id, int interval_ms) {
     if (old != box->timerIds.end()) {
         gpui::WindowCancelTimer(box->window, old->second);
         box->timerIds.erase(old);
+    }
+    // timerKeys 的键是"本次重挂发的号"，旧号没人收就是每次 setTimer 净增一条：
+    // 每帧重挂的 app（滑杆驱动 tick）会一直长。按 phpId 反查删掉同名旧键。
+    for (auto it = box->timerKeys.begin(); it != box->timerKeys.end();) {
+        if (it->second == id) it = box->timerKeys.erase(it);
+        else ++it;
     }
     if (interval_ms <= 0) return;
 

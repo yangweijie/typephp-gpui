@@ -1241,3 +1241,19 @@ record——空白帧一旦被 record 洗成基线，之后每轮都拿它当标
 顺带：我自己新写的那条消息又中了同一个雷（`$rc（不是` 被解析成变量名，实测 26 条 PHP Warning），
 连同 `check-build-inputs.php` 里的 `$rel（` 一起改成 `{$...}`；用"变量名后紧跟非 ASCII 字符"
 的宽正则复扫，全仓现在 0 处。
+
+**第 5 步（第一批：只增不减的容器 + 一条常驻仪表）**：
+- 新增 `App::stateCounts()`（`gpui_shim_state_counts` → 13 个容器条数）。没有仪表，
+  "重挂定时器不涨表"这类话就只能靠读码相信；现在它是 selftest 的一条门。
+- `setTimer` 同名重挂时把 `timerKeys` 的旧号一起收掉（修前每挂一次净增一条，永不回收）。
+  **量过**：修后 `timerKeys 0->1`；把回收循环摘掉 → `0->50` 且 `SELFTEST FAIL` rc=1；
+  还原复绿。这是本步第一条带数字的回归位。
+- 窗口析构 `delete dlg` 时把 dialog 的 `g_views` 键一起 erase：那些 `PhpView*` 已被上游
+  实体拆除释放，留着悬垂键意味着日后同一地址被新视图复用时 `boxForView` 会反查到已删除的
+  Box2（安全审查也点了这条）。
+- **没做也不硬做**：dialog/sheet 关闭时立刻回收 Box2。上游 `ShellRoot` 自己持有内容实体，
+  代码里就写着"再手动 EntityDrop/delete 就是 double-free/UAF（tree13 曾 SIGABRT）"，
+  在没有可靠的关闭期读数之前不猜所有权。这条留在 #61。
+- 顺带又中了一次自己刚修的雷：报告串写成单引号（`'timerKeys=$tk0...'` 不插值）；
+  以及门的第一版把基线写成 1——取数点在第一次 setTimer 之前，实际是 0，
+  是**我的断言错**不是产品错，这条区分清楚才没去"修"一个没坏的东西。

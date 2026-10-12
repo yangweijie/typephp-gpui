@@ -974,6 +974,16 @@ function runSelfTest(bool $expectBundle, bool $startFront = false): void
             ['label' => '无动作项'],
         ]],
     ]);
+    // 内存增长门（审核第 5 步③的回归位）：同一个 id 反复重挂定时器，
+    // timerKeys 必须还是 1——修之前每挂一次净增一条，永不回收。
+    $tk0 = (int) ($app->stateCounts()['timerKeys'] ?? -1);
+    for ($i = 0; $i < 50; $i++) {
+        $app->setTimer('st-timer', 40);
+    }
+    $tk1 = (int) ($app->stateCounts()['timerKeys'] ?? -2);
+    // 取数点在第一次 setTimer 之前，所以基线是 0；重挂 50 次之后必须只剩 1 条
+    // （一个 id 一个键）。修之前是 0 → 51：每次重挂发一个新号，旧号没人收。
+    $timerNoGrow = $tk0 === 0 && $tk1 === 1;
     $app->setInput('st-input', '值');
     $app->setTimer('st-timer', 40);
     $app->loop(6);
@@ -1268,7 +1278,7 @@ function runSelfTest(bool $expectBundle, bool $startFront = false): void
         && (int) $sys['ncpu'] > 0 && (float) $sys['memPct'] > 0.0
         && $httpQueued && $resp !== null && $resp['ok'] === false
         && $navRouted && $hoverRouted && $typedIn && $inputsReal && $windowUsable && $valuePull
-        && $actionRouted && $menuRowsOk
+        && $actionRouted && $menuRowsOk && $timerNoGrow
         && $bundleGreen && $routeGreen && $navBandWide
         && $viewRerenders
         && $granted && $menuCnt > 0 && $openBefore && $frames3 === 3
@@ -1319,6 +1329,7 @@ function runSelfTest(bool $expectBundle, bool $startFront = false): void
         'action=' . var_export($actionRouted, true) . '/dispatched=' . var_export($actDispatched, true)
             . '/rows=' . implode(',', $menuRows) . '/rowsOk=' . var_export($menuRowsOk, true),
         'valuePull=' . var_export($valuePull, true),
+        "timerKeys {$tk0}->{$tk1} noGrow=" . var_export($timerNoGrow, true),
         'rerender=' . var_export($viewRerenders, true),
         'realInput=' . var_export($navRouted, true) . '/' . var_export($hoverRouted, true)
             . '/' . var_export($typedIn, true) . ' navHits=' . $navClicked

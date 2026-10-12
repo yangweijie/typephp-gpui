@@ -107,6 +107,10 @@ function gpui_app_menu_count(mixed $window): int {}
 /** 原生菜单条各行携带的动作 id（按行号顺序，跳过分隔符等无动作的行）。 */
 function gpui_menu_rows(): array {}
 
+/** 各内部容器条数（内存增长仪表）：timerKeys/timerIds/callbacks/cbByKey/shimCallbacks/
+ *  inputHandles/lastValues/webviews/inspectors/notifyLists/dialogs/watchCtx/httpResponses。 */
+function gpui_state_counts(mixed $window): array {}
+
 /** 读取 checkbox/switch/slider 等元素的当前值。 */
 function gpui_element_value(mixed $window, string $id): mixed {}
 
