@@ -18,22 +18,57 @@ test('text carries content', function (): void {
     expect($el->text)->toBe('Hello');
 });
 
-test('button records label as child and variant op', function (): void {
-    $el = El::button('Go')->primary();
+test('button records label as a child text element', function (): void {
+    $el = El::button('Go');
     expect($el->kind)->toBe('button');
     // 标签是子 text 元素（gpui Button 可见标签来自 children）
     expect($el->children)->toHaveCount(1);
     expect($el->children[0]->kind)->toBe('text');
     expect($el->children[0]->text)->toBe('Go');
-
-    $found = false;
-    foreach ($el->ops as $op) {
-        if ($op['name'] === 'variant' && $op['args'][0] === 'primary') {
-            $found = true;
-        }
-    }
-    expect($found)->toBeTrue('primary variant op recorded');
 });
+
+// 这一对是 #66 的回归位。以前 primary() 发的是 method('variant', ['primary'])，
+// 而上游的 Button 变体是 catalog 的**零参方法** primary()（`variant(enum)` 属于
+// DropdownButton/Tag/…）——名字两边都不认，带参未知 Method op 会被
+// materialize.cpp:451-454 那条链尾无 else 的行为链静默丢掉，于是五个变体糖
+// 一个像素都不改变（实测 tests/baseline/showcase/tree3.png 六颗按钮无差别）。
+// 现在：kind 节点上直接抛，catalog 节点上发 registered_method。
+test('variant sugar is loud on a kind node, not silently dropped', function (): void {
+    expect(fn () => El::button('Go')->primary())
+        ->toThrow(InvalidArgumentException::class, '只对 catalog 组件有效');
+    expect(fn () => El::div()->ghost())->toThrow(InvalidArgumentException::class);
+    expect(fn () => El::text('x')->outline())->toThrow(InvalidArgumentException::class);
+});
+
+test('catalogButton records the catalog channel: id ctor + label/primary methods', function (): void {
+    $el = El::catalogButton('btn-p', 'Go')->onClick()->primary();
+    expect($el->registered)->toBeTrue();
+    expect($el->kind)->toBe('Button');                 // kind 存的是导出名
+    expect($el->ctorArgs)->toBe(['btn-p']);            // Button 构造器只要一个非空 id
+    expect($el->id)->toBe('btn-p');                    // 事件路由靠它
+
+    $ops = [];
+    foreach ($el->ops as $op) { $ops[$op['kind'] . ':' . $op['name']] = $op; }
+    expect($ops)->toHaveKey('registered_method:label');
+    expect($ops['registered_method:label']['args'])->toBe(['Go']);
+    expect($ops)->toHaveKey('registered_method:primary');
+    expect($ops['registered_method:primary']['args'])->toBe([]);
+    expect($ops)->toHaveKey('callback:on_click');
+    // 关键：不能再有 method:variant —— 那是走错通道的那个名字。
+    expect($ops)->not->toHaveKey('method:variant');
+});
+
+test('the generic catalog factory reaches exports with no dedicated factory', function (): void {
+    $el = El::catalog('Accordion', ['acc-1']);
+    expect($el->registered)->toBeTrue();
+    expect($el->kind)->toBe('Accordion');
+    expect($el->ctorArgs)->toBe(['acc-1']);
+    // registered 节点上 catalog 糖不再抛，发的是 registered_method。
+    $badge = El::catalog('Badge')->color('#e07b39');
+    $names = array_map(fn ($o) => $o['kind'] . ':' . $o['name'], $badge->ops);
+    expect($names)->toContain('registered_method:color');
+});
+
 
 test('style chain records nullary + param ops', function (): void {
     $el = El::div()->flexCol()->sizeFull()->gap(8)->itemsCenter();

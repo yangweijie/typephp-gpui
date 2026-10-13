@@ -1394,3 +1394,44 @@ check-build-inputs / check-cxx17 / test-shim 均 rc=0。
 审核五步到此结束。仍然开着的两项都不在这五步的范围内，且都需要人或上游才能推进：
 `#56` key_down 在真 OS 按键下是否触发（要真人手按一次才能判别"没人监听"还是"没人送到"），
 `#62` PHP 宿主下 Escape 关不掉 dialog（focus trap 从未拿到焦点，属上游焦点分配）。
+
+## Phase 20：对齐上游 gpui-kit（文档 + 三处"op 走错通道"的修复）
+
+**先量后修**：把上游三张权威词法表做成可复跑的抽表器 `cmd/upstream-vocab.php`
+（读 **vendored 在仓库里的** `upstream/gpui-kit-cpp`，CI 上不需要外部树）：
+`ComponentKind` 66 值、`materialize.cpp` 的 101 个 op 名、prelude 的 11 个槽名、
+`component_shell` 的 126 descriptor / 137 导出名 / 301 方法名。
+抽表器第一版只认 `ComponentDescriptor kX = {…}`，漏了家族表 `kX[] = { {…} }`，
+少算 28 个组件——是拿文档站的组件名单回查才发现的（教训已进记忆）。
+
+**新门 `cmd/check-upstream-parity.php`**（composer `parity:upstream` + CI + Pest 各一处）：
+我们发出的每个按名字查表的符号必须在册，含 **bridge 里硬编码的 op 名**。
+它的第一次运行就是反向对照：修之前红，点名 `variant, outline, focus, content_focus`；修完绿。
+
+**修掉的三处静默错**：
+1. `El::primary()/secondary()/danger()/ghost()/outline()` 发的是 `method('variant', [...])`，
+   上游两个名字都不认 ⇒ 五个糖一个像素都不改变。查 descriptor 才看清：catalog `Button`
+   根本没有 `variant` 方法，变体本身就是零参方法（`primary/ghost/outline/success/warning/
+   link/compact/loading`），`variant(enum)` 属于 DropdownButton/Tag/Bubble/Marker/GroupBox/TabBar
+   ——我上一轮的判定对 Button 是错的，这条以 descriptor 表为准。
+2. bridge 里 `"focus"` / `"content_focus"` ⇒ 正确名是 `track_focus` / `content_focus_handle`：
+   Select 那两个 retained focus 句柄**从未交出去过**。
+3. `rm()` 打在 kind 节点上（示例里 `El::progress(...)->rm('size', …)`）：RegisteredMethod op
+   在非 registered 节点上连"未知名"都算不上（`ResolveBehavior` 开头就 continue）。
+   现在 catalog 糖统一走 `catalogMethod()`，非 registered 节点直接抛 `InvalidArgumentException`。
+
+**新增公开 API**：`El::catalog(导出名, 构造实参, children)` 与 `El::catalogButton(id, label)`
+——上游 137 个导出名从"只有 21 个能用"变成"全部可达（22 个有专用工厂）"。
+
+**像素侧的收获与一次自我纠偏**：变体行现在真的长出五种样式（primary 深色药丸 / secondary 灰 /
+danger 粉 / ghost 透明 / outline 描边），kind 版那颗留作对照并标了 `(kind)`。
+但把侧栏导航也换成 catalog Button 之后，新图里长标题被**居中裁字**（"服务：http · 目录监听 · 解压 ·
+系统"两头掉字）——catalog Button 按盒子裁标签。遂把导航回退成 base Button，选中态改用 `->bold()`
+表达（旧基线里选中态本来就看不见，因为 primary/ghost 一直是哑的）。这条坑写进了组件文档。
+
+**门禁**（bridge 动过 ⇒ 整条原生链重建后复测）：`SHOWCASE SELFTEST OK`、
+`--liveclick 逐行=13/13 到达节数=13`（导航行此时还是 catalog Button 版本，等于顺手证明了
+catalog 组件的 `on_click` 真能路由到 PHP）、`HELLO SELFTEST OK`、
+基线重录后 `shotdiff check` 两示例 OK（showcase 13 棵 + hello 5 棵字节数变化，逐条打过新旧字节）、
+pest 85 passed (436 assertions)、phpstan / test-shim / doctor / check-c-abi / check-build-inputs /
+upstream-parity / docs:build 全 rc=0。

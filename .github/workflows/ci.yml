@@ -64,6 +64,9 @@ jobs:
       - name: 构建输入都在版本控制里（审核 P0-1 的常驻门）
         run: php cmd/check-build-inputs.php
 
+      - name: 我们发出的名字都在上游词表里（第三条哑路的哨兵）
+        run: php cmd/check-upstream-parity.php --info
+
       - name: PHPStan (level 5, src)
         run: vendor/bin/phpstan analyse --no-progress
 

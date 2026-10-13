@@ -164,12 +164,15 @@ function sectionChoices(array $s): El
             El::toggleGroup([El::toggle('左'), El::toggle('中'), El::toggle('右')]),
         ])->gap(14.0)->itemsCenter(),
         El::hFlex([
-            El::button('默认')->id('btn-plain')->onClick(),
-            El::button('primary')->id('btn-p')->onClick()->primary(),
-            El::button('secondary')->id('btn-s')->onClick()->secondary(),
-            El::button('danger')->id('btn-d')->onClick()->danger(),
-            El::button('ghost')->id('btn-g')->onClick()->ghost(),
-            El::button('outline')->id('btn-o')->onClick()->outline(),
+            // 这颗是 **kind 原语**（gpui-base Button：只有点击与文本，没有圆角/底色/变体），
+            // 后面五颗才是上游画廊里那个 catalog Button。两者同名不同物，
+            // 在左边这颗上调 ->primary() 现在会直接抛（以前是静默丢，见 #66）。
+            El::button('默认(kind)')->id('btn-plain')->onClick(),
+            El::catalogButton('btn-p', 'primary')->onClick()->primary(),
+            El::catalogButton('btn-s', 'secondary')->onClick()->secondary(),
+            El::catalogButton('btn-d', 'danger')->onClick()->danger(),
+            El::catalogButton('btn-g', 'ghost')->onClick()->ghost(),
+            El::catalogButton('btn-o', 'outline')->onClick()->outline(),
         ])->gap(8.0)->itemsCenter()->flexWrap(),
         El::hFlex([
             El::select('ch-select', ['Apple', 'Banana', 'Cherry'])->w(180),
@@ -257,7 +260,7 @@ function sectionCatalog(array $s): El
         El::text('经 component_shell catalog 按导出名分发；枚举在 render 前预校验')->font(11.0)->truncate(),
         // Alert 只暴露 title / banner / visible / size（alert.cpp:140 的 kMethods），
         // description 是 Field 的方法——硬挂上去就是 "no such registered method"。
-        El::alert('ca-alert', 'default 变体', 'default')->title('Alert 标题')->size('small'),
+        El::alert('ca-alert', 'default 变体', 'default')->title('Alert 标题')->sizeEnum('small'),
         El::alert('ca-alert-ok', 'success 变体', 'success')->banner(),
         El::alert('ca-alert-info', 'info 变体', 'info'),
         El::alert('ca-alert-warn', 'warning 变体', 'warning'),
@@ -329,7 +332,7 @@ function sectionChrome(array $s): El
             ])->flex1()->gap(8.0)->pl(12.0),
         ])->sizeFull(),
         El::hFlex(array_map(
-            static fn (string $mode): El => El::button('折叠·' . $mode)->id('cr-collapse-' . $mode)->onClick()->ghost(),
+            static fn (string $mode): El => El::catalogButton('cr-collapse-' . $mode, '折叠·' . $mode)->onClick()->ghost(),
             El::COLLAPSE_MODES
         ))->gap(6.0),
         El::text("左边大侧栏当前 collapsibleMode={$s['collapse']}")->font(11.0),
@@ -344,7 +347,7 @@ function sectionChrome(array $s): El
             El::COLLAPSE_MODES
         ))->gap(10.0)->itemsStart(),
         El::hFlex(array_map(
-            static fn (string $a): El => El::button('align·' . $a)->id('cr-align-' . $a)->onClick()->ghost(),
+            static fn (string $a): El => El::catalogButton('cr-align-' . $a, 'align·' . $a)->onClick()->ghost(),
             El::FIELD_ALIGN
         ))->gap(6.0),
         // FIELD_ALIGN 全枚举：form 的 label 对齐三档并排画出来。
@@ -363,33 +366,33 @@ function sectionOverlays(array $s): El
 {
     $sheetBtns = [];
     foreach (App::SHEET_ANCHORS as $a) {
-        $sheetBtns[] = El::button("Sheet·{$a}")->id("ov-sheet-{$a}")->onClick()->ghost();
+        $sheetBtns[] = El::catalogButton("ov-sheet-{$a}", "Sheet·{$a}")->onClick()->ghost();
     }
     $noticeBtns = [];
     foreach (App::NOTICE_TYPES as $t) {
-        $noticeBtns[] = El::button("通知·{$t}")->id("ov-notify-{$t}")->onClick()->outline();
+        $noticeBtns[] = El::catalogButton("ov-notify-{$t}", "通知·{$t}")->onClick()->outline();
     }
     // NOTICE_PLACEMENTS 全枚举：8 个锚点各一颗按钮，钉在哪一角是看得见的（像素证据）。
     $placeBtns = [];
     foreach (App::NOTICE_PLACEMENTS as $p) {
-        $placeBtns[] = El::button($p)->id('ov-place-' . $p)->onClick()->ghost()->size('xsmall');
+        $placeBtns[] = El::catalogButton('ov-place-' . $p, $p)->onClick()->ghost()->sizeEnum('xsmall');
     }
 
     return El::vFlex([
         El::text('浮层：dialog / sheet / toast / 通知')->font(22.0)->semibold(),
         El::text('dialog 与 toast 由 ShellRoot 持有；通知层必须自己摆一颗 El::notifications()。')->font(11.0)->truncate(),
         El::hFlex([
-            El::button('打开 dialog')->id('ov-dialog')->onClick()->primary(),
-            El::button('关 dialog')->id('ov-dialog-close')->onClick()->ghost(),
-            El::button('toast')->id('ov-toast')->onClick()->ghost(),
+            El::catalogButton('ov-dialog', '打开 dialog')->onClick()->primary(),
+            El::catalogButton('ov-dialog-close', '关 dialog')->onClick()->ghost(),
+            El::catalogButton('ov-toast', 'toast')->onClick()->ghost(),
             El::text("dialog=" . $s['dialogCount'])->font(12.0),
         ])->gap(8.0)->itemsCenter(),
         El::hFlex($sheetBtns)->gap(8.0),
         El::text("sheet: has=" . ($s['hasSheet'] ? '1' : '0') . " anchor=" . $s['sheetAnchor'])->font(12.0),
         El::hFlex($noticeBtns)->gap(8.0),
         El::hFlex([
-            El::button('带 id 的通知（可点）')->id('ov-notify-click')->onClick()->secondary(),
-            El::button('关掉全部通知')->id('ov-notify-clear')->onClick()->ghost(),
+            El::catalogButton('ov-notify-click', '带 id 的通知（可点）')->onClick()->secondary(),
+            El::catalogButton('ov-notify-clear', '关掉全部通知')->onClick()->ghost(),
             El::text("在场 " . $s['notifyCount'] . ' 条')->font(12.0),
         ])->gap(8.0),
         El::hFlex($placeBtns)->gap(4.0)->flexWrap(),
@@ -405,19 +408,19 @@ function sectionSystem(array $s): El
     return El::vFlex([
         El::text('系统能力：剪贴板 · url · 文件系统 · 进程 · 存储')->font(22.0)->semibold(),
         El::hFlex([
-            El::button('写剪贴板')->id('sy-clip-set')->onClick()->ghost(),
-            El::button('读文本')->id('sy-clip-get')->onClick()->ghost(),
-            El::button('读完整一项')->id('sy-clip-item')->onClick()->ghost(),
-            El::button('打开 URL')->id('sy-url')->onClick()->ghost(),
-            El::button('选文件')->id('sy-pick')->onClick()->ghost(),
+            El::catalogButton('sy-clip-set', '写剪贴板')->onClick()->ghost(),
+            El::catalogButton('sy-clip-get', '读文本')->onClick()->ghost(),
+            El::catalogButton('sy-clip-item', '读完整一项')->onClick()->ghost(),
+            El::catalogButton('sy-url', '打开 URL')->onClick()->ghost(),
+            El::catalogButton('sy-pick', '选文件')->onClick()->ghost(),
         ])->gap(8.0),
         El::text($s['clip'] !== '' ? "剪贴板：{$s['clip']}" : '剪贴板：还没读（三通道：文本/图像/文件）')->font(12.0),
         El::text($s['picked'] !== '' ? "选中：{$s['picked']}" : 'promptForPath 自带嵌套消息循环 ⇒ 只能在事件回调里调')->font(11.0)->truncate(),
         El::text('授权文件系统（先 grantRoot，之后每个调用内部自己选根）：')->font(12.0),
         El::hFlex([
-            El::button('fs 写·读·列·删')->id('sy-fs')->onClick()->secondary(),
-            El::button('跑 /bin/echo')->id('sy-proc')->onClick()->ghost(),
-            El::button('存储 set/get')->id('sy-store')->onClick()->ghost(),
+            El::catalogButton('sy-fs', 'fs 写·读·列·删')->onClick()->secondary(),
+            El::catalogButton('sy-proc', '跑 /bin/echo')->onClick()->ghost(),
+            El::catalogButton('sy-store', '存储 set/get')->onClick()->ghost(),
         ])->gap(8.0),
         El::vFlex(array_map(
             static fn (string $line): El => El::text($line)->font(11.0)->truncate(),
@@ -432,11 +435,11 @@ function sectionServices(array $s): El
     return El::vFlex([
         El::text('服务：http · 目录监听 · 解压 · 系统状态 · HUD · Inspector · 主题')->font(22.0)->semibold(),
         El::hFlex([
-            El::button('httpGet（loopback，必然失败）')->id('sv-http')->onClick()->secondary(),
-            El::button('watchDir 临时目录')->id('sv-watch')->onClick()->ghost(),
-            El::button('停监听')->id('sv-unwatch')->onClick()->ghost(),
-            El::button('inflate 一段 gzip')->id('sv-inflate')->onClick()->ghost(),
-            El::button('sysInfo 采样')->id('sv-sysinfo')->onClick()->ghost(),
+            El::catalogButton('sv-http', 'httpGet（loopback，必然失败）')->onClick()->secondary(),
+            El::catalogButton('sv-watch', 'watchDir 临时目录')->onClick()->ghost(),
+            El::catalogButton('sv-unwatch', '停监听')->onClick()->ghost(),
+            El::catalogButton('sv-inflate', 'inflate 一段 gzip')->onClick()->ghost(),
+            El::catalogButton('sv-sysinfo', 'sysInfo 采样')->onClick()->ghost(),
         ])->gap(8.0),
         El::text($s['http'] !== '' ? "http：{$s['http']}" : 'http：HttpSend 阻塞 ⇒ 只接 HttpSendAsync，结果走事件队列')->font(11.0)->truncate(),
         El::text("dirChange：watch id={$s['watchId']}，命中 {$s['watchHits']} 次（合并上报，不带文件名）")->font(11.0),
@@ -446,16 +449,16 @@ function sectionServices(array $s): El
             $s['sysInfo']
         ))->gap(2.0)->p(8.0)->bg(0xFAF8F5)->roundedMd(),
         El::hFlex([
-            El::button('Inspector 拾取')->id('sv-insp')->onClick()->ghost(),
-            El::button('切主题 dark/light')->id('sv-theme')->onClick()->ghost(),
+            El::catalogButton('sv-insp', 'Inspector 拾取')->onClick()->ghost(),
+            El::catalogButton('sv-theme', '切主题 dark/light')->onClick()->ghost(),
         ])->gap(8.0),
         // FPS_ANCHORS 全枚举：8 个锚点各一颗，HUD 真钉在那一角。
         El::hFlex(array_map(
-            static fn (string $a): El => El::button('HUD·' . $a)->id('sv-fps-' . $a)->onClick()->ghost()->size('xsmall'),
+            static fn (string $a): El => El::catalogButton('sv-fps-' . $a, 'HUD·' . $a)->onClick()->ghost()->sizeEnum('xsmall'),
             App::FPS_ANCHORS
         ))->gap(4.0)->flexWrap(),
         El::hFlex([
-            El::button('藏 HUD')->id('sv-fps-off')->onClick()->ghost(),
+            El::catalogButton('sv-fps-off', '藏 HUD')->onClick()->ghost(),
             El::text("hud=" . ($s['hud'] ? 'on' : 'off') . " anchor={$s['fpsAnchor']} · 主题={$s['theme']}")->font(12.0),
         ])->gap(8.0),
     ])->sizeFull()->gap(10.0)->p(16.0)->overflowYScroll();
@@ -469,9 +472,9 @@ function sectionEmbedded(array $s): El
         El::text('两者都经 ComponentKind::ChildView + host 侧 nested-view 注册挂进元素树。')->font(11.0)->truncate(),
         El::text('WebView 是盖在窗口上的 OS 控件：挡住后面的元素、不随容器滚动、没有圆角。')->font(11.0)->truncate(),
         El::hFlex([
-            El::button('后退')->id('em-back')->onClick()->ghost(),
-            El::button('前进')->id('em-fwd')->onClick()->ghost(),
-            El::button('探针读 url/盒子')->id('em-probe')->onClick()->ghost(),
+            El::catalogButton('em-back', '后退')->onClick()->ghost(),
+            El::catalogButton('em-fwd', '前进')->onClick()->ghost(),
+            El::catalogButton('em-probe', '探针读 url/盒子')->onClick()->ghost(),
             El::text($s['probe'] !== '' ? "probe：{$s['probe']}" : 'probe：读 wry 报的当前地址与应用盒子')->font(11.0)->truncate(),
         ])->gap(8.0),
         El::hFlex([
@@ -501,9 +504,10 @@ function sectionStyling(array $s): El
             El::text('这是一段会被 truncate 截断的很长很长的文本，用来验证单行省略')->font(13.0)->truncate()->w(180.0),
         ])->gap(8.0)->itemsCenter(),
         El::hFlex([
-            El::button('悬停有 tooltip')->id('st-tooltip')->onClick()->tooltip('这是 tooltip')->ghost(),
-            // value/size 是 method op；rm 是 registered_method 的逃生舱；slot 是命名槽。
-            El::progress(0.5)->w(120.0)->value('0.5')->size('small')->rm('size', ['large']),
+            El::catalogButton('st-tooltip', '悬停有 tooltip')->onClick()->tooltip('这是 tooltip')->ghost(),
+            // progress 是 kind 原语：value/size 走 method op。rm('size') 打在 kind 节点上
+            // 是**没用的**（上游 RegisteredMethod op 只被 registered 节点读），所以这里不演。
+            El::progress(0.5)->w(120.0)->value('0.5')->size('small'),
             // popup 是无 catalog 名的浮层原语，内容走 child。
             El::popup()->child(El::text('popup 内容')->font(12.0)->p(6.0)),
             El::vFlex([El::text('children 数组形式')->font(12.0)])->children([
@@ -516,11 +520,22 @@ function sectionStyling(array $s): El
             ['circle-check', 'triangle-alert', 'circle-x', 'info', 'star', 'heart', 'save', 'search']
         ))->gap(10.0)->itemsCenter(),
         // SIZES 全枚举：整条列表 foreach 一遍，每个取值都真传进 size()/sizeEnum()。
-        // size() 是 method op（原语的 100%/枚举字符串），sizeEnum() 是 registered 组件的糖。
+        // size() 是 method op（原语吃），sizeEnum() 是 catalog 组件的 registered_method。
+        // 这一行演后者：catalog Button 的 size 是它自己声明的方法（xsmall/small/medium/large）。
         El::hFlex(array_map(
-            static fn (string $sz): El => El::button($sz)->id('st-size-' . $sz)->onClick()->size($sz),
+            static fn (string $sz): El => El::catalogButton('st-size-' . $sz, $sz)->onClick()->sizeEnum($sz),
             El::SIZES
         ))->gap(8.0)->itemsCenter(),
+        // 通用 catalog 工厂 El::catalog(导出名, 构造实参) 开的是上游剩下那 100+ 个组件的门；
+        // 这四颗演 Button 剩下的方法：label(string)、success/warning/compact() 零参、loading(bool)。
+        // ->id() 与构造器里的 id 必须一致：事件按元素 id 路由，只给构造器不给 ->id()
+        // 的话点击会落到空 id 上（El::catalogButton 把这两件事一起做掉，这里手工对齐一次）。
+        El::hFlex([
+            El::catalog('Button', ['st-success'])->id('st-success')->label('success')->onClick()->success(),
+            El::catalog('Button', ['st-warning'])->id('st-warning')->label('warning')->onClick()->warning(),
+            El::catalog('Button', ['st-compact'])->id('st-compact')->label('compact')->onClick()->compact(),
+            El::catalog('Button', ['st-loading'])->id('st-loading')->label('loading')->onClick()->loading(true),
+        ])->gap(8.0)->itemsCenter(),
         El::hFlex(array_map(
             static fn (string $sz): El => El::icon('icons/star.svg')->sizeEnum($sz),
             El::SIZES
@@ -535,35 +550,35 @@ function sectionMac(array $s): El
     // HOTKEY_MODS 全部走一遍：每个修饰键组合一颗按钮，注册成真全局快捷键。
     $hkBtns = [];
     foreach (array_keys(App::HOTKEY_MODS) as $mod) {
-        $hkBtns[] = El::button('HK·' . $mod)->id('mc-hk-' . $mod)->onClick()->ghost();
+        $hkBtns[] = El::catalogButton('mc-hk-' . $mod, 'HK·' . $mod)->onClick()->ghost();
     }
 
     return El::vFlex([
         El::text('mac 集成：托盘 · 全局快捷键 · Dock · OS 通知')->font(22.0)->semibold(),
         El::text('托盘/快捷键/Dock/OS 通知都经 gpui_mac.mm 的 Cocoa+Carbon 直路，不碰 gpui.h。')->font(11.0)->truncate(),
         El::hFlex([
-            El::button('装托盘（A/B 两项）')->id('mc-tray')->onClick()->primary(),
-            El::button('撤掉托盘')->id('mc-tray-off')->onClick()->ghost(),
+            El::catalogButton('mc-tray', '装托盘（A/B 两项）')->onClick()->primary(),
+            El::catalogButton('mc-tray-off', '撤掉托盘')->onClick()->ghost(),
             El::text("trayId={$s['trayId']} 在场=" . App::trayCount())->font(12.0),
         ])->gap(8.0)->itemsCenter(),
         El::text('托盘项被点 ⇒ 事件 type=tray，值=菜单项文本（无人值守下用 fireHotkeyForTest 那条缝验派发链）。')->font(11.0)->truncate(),
         El::hFlex([
-            El::button('注册 ⌘⇧F7')->id('mc-hk-1')->onClick()->secondary(),
-            El::button('注册 ⌥F8')->id('mc-hk-2')->onClick()->ghost(),
-            El::button('注册 ⌃F9')->id('mc-hk-3')->onClick()->ghost(),
-            El::button('撤最近一条')->id('mc-hk-off')->onClick()->ghost(),
+            El::catalogButton('mc-hk-1', '注册 ⌘⇧F7')->onClick()->secondary(),
+            El::catalogButton('mc-hk-2', '注册 ⌥F8')->onClick()->ghost(),
+            El::catalogButton('mc-hk-3', '注册 ⌃F9')->onClick()->ghost(),
+            El::catalogButton('mc-hk-off', '撤最近一条')->onClick()->ghost(),
             El::text("hkId={$s['hotkeyId']} 在场=" . App::hotkeyCount() . " 命中={$s['hotkeyHits']} mods={$s['hotkeyMods']}")->font(12.0),
         ])->gap(8.0)->itemsCenter(),
         El::hFlex($hkBtns)->gap(6.0)->flexWrap(),
         El::text('上面一排按 HOTKEY_MODS 的每个键各注册一条（cmd/shift/option/control 全覆盖）。')->font(11.0),
         El::hFlex([
-            El::button('Dock 角标 7')->id('mc-dock-7')->onClick()->ghost(),
-            El::button('Dock 角标清掉')->id('mc-dock-off')->onClick()->ghost(),
-            El::button('OS 通知')->id('mc-osn')->onClick()->outline(),
+            El::catalogButton('mc-dock-7', 'Dock 角标 7')->onClick()->ghost(),
+            El::catalogButton('mc-dock-off', 'Dock 角标清掉')->onClick()->ghost(),
+            El::catalogButton('mc-osn', 'OS 通知')->onClick()->outline(),
             El::text("badge={$s['dock']} osNotify={$s['osNotify']}")->font(12.0),
         ])->gap(8.0)->itemsCenter(),
         El::hFlex([
-            El::button('装 app 菜单（含分隔线与子菜单）')->id('mc-menus')->onClick()->primary(),
+            El::catalogButton('mc-menus', '装 app 菜单（含分隔线与子菜单）')->onClick()->primary(),
             El::text("menuCount=" . $s['menuCount'])->font(12.0),
         ])->gap(8.0)->itemsCenter(),
     ])->sizeFull()->gap(12.0)->p(16.0)->overflowYScroll();

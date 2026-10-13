@@ -15,8 +15,9 @@
 | 8 | C ABI 纯 C | `bash cmd/check-c-abi.sh` | 防火墙的主张本身：`gpui_shim.h` 用 `clang -x c -std=c11 -Wall -Wextra` 编得过，且文本里没有 `namespace`/`template`/`std::`/非 C 标准头的 `#include <>`。头里漏进 C++ 时，报错原本要晚到几分钟后的链接期 | 否 |
 | 9 | 构建输入在册 | `php cmd/check-build-inputs.php` | 「克隆出来能不能构建」：bin/gpui 点名的每支补丁脚本都已跟踪、cmd/ 下每支 `patch-*.sh` 都在清单里、每个示例 yml 的 `sources:` 都在版本控制里。审核 P0-1 量到这三类输入当时全未跟踪，而本地跑起来一切正常 | 否 |
 | 10 | 三层契约 parity | `composer test`（`tests/ContractTest.php`） | stub ↔ FakeBridge ↔ `gpui_bridge.cc` 的名字与元数一一对齐；`src/App.php` 里调用的 `gpui_*` 必须在 stub 里声明过；Element 能发出的每个 kind 都必须在 shim 的 `kKindNames` 表里在册（静态解析表的 `{...}` 体内，不越界读后面的代码；三个走 bridge 的伪 kind 豁免）。`setAppMenus` 键名那族错就是四层各自"看着对"，编译期没人查 | 否 |
+| 11 | 上游词表 parity | `composer parity:upstream` / `php cmd/check-upstream-parity.php` | 我们发出的每个"上游按名字查表"的符号都必须在册：kind ↔ `ComponentKind` 枚举、method/callback/槽名 ↔ `materialize.cpp` 的 101 个 op 名与 prelude 槽表、catalog 导出名与方法名 ↔ descriptor 表（含 bridge 里硬编码的那两个）。上游对**带参未知名**是静默丢弃（`materialize.cpp:451-454` 链尾无 else），五层门禁都不报，这条是唯一的哨兵。取数端 `cmd/upstream-vocab.php` 读的是 vendored 的 `upstream/gpui-kit-cpp`，克隆即可跑 | 否 |
 
-一键：`composer test:all`（Pest + PHPStan + shim_test）。
+一键：`composer test:all`（Pest + PHPStan + 上游词表 parity + shim_test）。
 
 ## Pest（PHP 无头）
 

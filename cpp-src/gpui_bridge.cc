@@ -234,10 +234,13 @@ uint32_t emitTree(void* win, Array node) {
     }
 
     if (selTrigger || selContent) {
+        // 名字必须是上游的 `track_focus` / `content_focus_handle`
+        // （materialize.cpp:415-417）。写成 "focus"/"content_focus" 时上游查不到，
+        // 而带参未知名走的是**静默丢弃**那条路（行为链链尾没有 else），焦点句柄就从未生效过。
         GpuiArg at{GPUI_ARG_NUM, (double)selTrigger, 0, nullptr};
-        gpui_shim_method(win, spec, "focus", &at, 1);
+        gpui_shim_method(win, spec, "track_focus", &at, 1);
         GpuiArg ac{GPUI_ARG_NUM, (double)selContent, 0, nullptr};
-        gpui_shim_method(win, spec, "content_focus", &ac, 1);
+        gpui_shim_method(win, spec, "content_focus_handle", &ac, 1);
     }
 
     Variant opsV = node.get("ops");

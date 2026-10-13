@@ -176,3 +176,21 @@ test('every kind Element.php can emit is registered in the shim kindFromString t
     // div 必须在册——它过去只靠兜底存在，是整条链最脆的一环。
     expect(in_array('div', $known, true))->toBeTrue('div 不在 kindFromString 表里');
 });
+
+/**
+ * 我们发出的每个"上游按名字查表"的符号，都必须真的在上游表里在册。
+ *
+ * 这条门盯的是三层都不看的那一格：带参且非行为名的 op 会被
+ * `materialize.cpp:451-454` 那条链尾没有 else 的行为链**静默丢掉** ——
+ * 编译过、phpstan 过、pest 过、selftest 过、shotdiff 也过（基线是自录的）。
+ * 取数与判定都在 cmd/check-upstream-parity.php 里（同一份实现供 CI 用）。
+ */
+test('every name we emit exists in the upstream vocabulary', function (): void {
+    require_once __DIR__ . '/../cmd/check-upstream-parity.php';
+    $root = dirname(__DIR__);
+    $tree = rtrim((getenv('GPUI_DIR') !== false && getenv('GPUI_DIR') !== '')
+        ? (string) getenv('GPUI_DIR') : $root . '/upstream/gpui-kit-cpp', '/');
+    [$problems] = upstreamParityProblems($root, $tree);
+    expect($problems)->toBe([], "这些名字上游查不到，运行期不会有任何提示：\n  "
+        . implode("\n  ", $problems));
+});

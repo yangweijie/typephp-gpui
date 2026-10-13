@@ -26,6 +26,14 @@ El::popover(string $trigger, El $content) / El::hoverCard(...) / El::collapsible
 El::avatar(string $src) / El::accordionItem(string $header, El $panel) / El::svg(string $path)
 ```
 
+> **这一节全是 gpui 的 base 原语，不带组件库样式。**
+> 同名的东西在上游有两张脸：base 的 `ComponentKind::Button`（只有点击与文本，没有圆角/底色/变体）
+> 与 catalog 的 `Button` 组件（`label`/`size`/`primary`/`ghost`/`outline`/`loading` 等 13 个方法，
+> 才是 gpui-kit.com 画廊里那个样子；注意它没有 `variant` 方法——`variant(enum)` 属于
+> DropdownButton / Tag / Bubble / Marker / GroupBox / TabBar）。
+> 上面这些工厂走的是**前者**。要画廊那种带样式的按钮，用 `El::catalogButton($id, $label)`
+> 或通用工厂 `El::catalog($导出名, $构造实参)`；两者的差别见下面「样式与行为」一节末尾。
+
 ### C 类便捷工厂
 
 ```php
@@ -45,10 +53,37 @@ El::popup() / El::radioGroup(array $children) / El::toggleGroup(array $children)
 ->rounded(6)->roundedMd()->roundedLg()->roundedFull()->border()
 ->bg(0xRRGGBB)->textColor('#hex')->font(16)->bold()->semibold()
 ->overflowYScroll()->overflowXScroll()          // gpui 原生滚动（method/behavior op）
-->id('name')->disabled()->selected()->checked()->primary()->ghost()->tooltip('..')
+->id('name')->disabled()->selected()->checked()->tooltip('..')
 ->onClick()->onChange()->onHover()->onKeyDown()  // 声明事件；handler 在 App->on 注册
 ->slot('header', $child)                          // 命名槽（Popover/Avatar/Sidebar…）
 ```
+
+**按钮有两张脸，选对那张**：`El::button()` 是 gpui-base 的 `ComponentKind::Button`
+（只有点击与文本），上游画廊里带圆角/底色/变体的是 component_shell 的 `Button`
+（`label/tooltip/loading/size/outline/primary/secondary/danger/success/warning/ghost/link/compact`）。
+后者用 `El::catalogButton($id, $label)` 造，或走通用工厂 `El::catalog($导出名, $构造实参, $children)`：
+
+```php
+El::catalogButton('btn-save', '保存')->onClick()->primary();
+El::catalog('Accordion', ['acc-1'])->child(El::catalog('AccordionItem', ['i1']));
+```
+
+变体糖 `primary()/secondary()/danger()/ghost()/outline()/success()/warning()/compact()/loading()`
+以及 `title()/banner()/description()/label()/side()/align()/columns()/…` 只对 catalog 节点有效，
+打在 kind 节点上**抛 `InvalidArgumentException`**。以前它们发的是
+`method('variant', [...])` / `method('outline')` —— 上游两个名字都不认，而带参未知 op 是
+静默丢弃那一格，于是这五个糖一个像素都不改变（见 `cmd/check-upstream-parity.php` 那条门）。
+
+一个实测到的坑：**catalog Button 会把标签居中并按盒子裁字**。所以"宽度固定、文案可能很长"
+的位置（侧栏导航就是这种）不要用它——`examples/showcase` 的导航行因此保留 base Button，
+选中态改用 `->bold()` 表达。另外构造器里的 id 与 `->id()` 要一致：事件按元素 id 路由，
+只给构造器不给 `->id()` 的话点击会落到空 id 上（`El::catalogButton()` 把这两件事一起做了）。
+
+样式糖只覆盖上游 137 个 nullary 关键字里的 25 个，且 `style()` / `paramStyle()` / `method()` /
+`callback()` 都是 private —— 没有"发一个没写糖的名字"的公开口子。缺的名字（`grid`、`self_*`、
+`whitespace_nowrap`、`text_ellipsis`、`line_through`、`aspect_square`、`cursor_*` 等）目前只能用
+已有糖拼出来，拼不出来就是没有。
+
 
 ## catalog 富组件（Registered 机制）
 

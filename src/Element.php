@@ -524,6 +524,39 @@ class Element
         return $e;
     }
 
+    /**
+     * 通用 catalog 工厂：上游 component_shell 的 137 个导出名里，只有 22 个有专用工厂，
+     * 这条是剩下那些的门（Accordion、Pagination、Rating、Stepper、TabBar、Settings、
+     * Tree、Badge、Tag、Label、Toolbar、Skeleton、Spinner、图表五种、Empty…）。
+     *
+     * 导出名写错 PHP 侧**不会**报（nano 里没有上游 descriptor 表）：它走
+     * gpui_shim_registered 的错误通道 —— 节点降级成一个带错误文本的 Div，
+     * 文本用 App::registeredError() 读。CI 上 cmd/check-upstream-parity.php 会把
+     * 源码与示例里用到的导出名逐个对一遍上游表，那条门才是名字写错时的哨兵。
+     *
+     * @param array<int, mixed> $ctorArgs 按 descriptor 声明顺序（可少传，缺的须是 Optional）
+     * @param array<int, self>  $children typed / ordinary 子元素
+     */
+    public static function catalog(string $export, array $ctorArgs = [], array $children = []): self
+    {
+        return self::reg($export, $ctorArgs, $children);
+    }
+
+    /**
+     * 带组件库样式、有变体的按钮（catalog Button）。
+     *
+     * 与 `El::button()` 的区别不是糖度而是**两个不同的组件**：`El::button()` 是
+     * gpui-base 的 `ComponentKind::Button`（只有点击与文本，没有圆角/底色/变体），
+     * 上游文档画廊里那个带 `primary/ghost/danger` 的是 component_shell 的 `Button`。
+     * 两者的方法表不通用 —— 在 kind 版上调 `->primary()` 现在会直接抛。
+     *
+     * Button 的构造器只要一个非空 id，标签走 `label(string)` 方法。
+     */
+    public static function catalogButton(string $id, string $label): self
+    {
+        return self::reg('Button', [$id])->id($id)->label($label);
+    }
+
     /** Alert 家族：id+message 必填（id 非空），variant 选导出变体。Alert 拒 children。 */
     public static function alert(string $id, string $message, string $variant = 'default'): self
     {
@@ -639,20 +672,59 @@ class Element
 
     // ── catalog 组件常用方法糖（registered_method）；与静态工厂重名的用别名 ──
 
-    public function title(string $s): self { return $this->rm('title', [$s]); }
-    public function banner(): self { return $this->rm('banner', []); }
-    public function description(string $s): self { return $this->rm('description', [$s]); }
-    public function columns(float $n): self { return $this->rm('columns', [$n]); }
-    public function labelWidth(float $w): self { return $this->rm('label_width', [$w]); }
-    public function side(string $s): self { self::enumCheck('side', $s, self::SIDES); return $this->rm('side', [$s]); }
-    public function collapsibleMode(string $mode): self { self::enumCheck('collapsibleMode', $mode, self::COLLAPSE_MODES); return $this->rm('collapsible', [$mode]); }
-    public function collapsed(bool $v): self { return $this->rm('collapsed', [$v]); }
-    public function navIcon(string $name): self { self::enumCheck('navIcon', $name, self::NAV_ICONS); return $this->rm('icon', [$name]); }
-    public function rotate(float $rad): self { return $this->rm('rotate', [$rad]); }
-    public function color(string $c): self { return $this->rm('color', [$c]); }
-    public function align(string $a): self { self::enumCheck('align', $a, self::FIELD_ALIGN); return $this->rm('align', [$a]); }
+    /**
+     * catalog 组件的方法：只有 registered 节点吃得到。
+     *
+     * 为什么要在 PHP 侧拦：这些名字走的是 gpui_shim_registered_method，打在 kind 节点上
+     * 时上游把它记成 RegisteredMethod op，而 `ResolveBehavior` 开头就是
+     * `if (op.kind != Method) continue;`（materialize.cpp:314）—— 连"未知名字"都算不上，
+     * 直接跳过，一个像素都不变。以前 primary() 那批就是这么哑掉的。
+     */
+    private function catalogMethod(string $name, array $args = []): self
+    {
+        if (!$this->registered) {
+            throw new \InvalidArgumentException(
+                'Element::' . $name . '() 只对 catalog 组件有效，而当前节点的 kind=\'' . $this->kind
+                . '\' 走的是 gpui-base 原语。带样式的版本用 El::catalog(\'Button\', [$id]) 造，'
+                . '或去掉这个调用（它发出去会被上游静默跳过）。'
+            );
+        }
+        return $this->rm($name, $args);
+    }
+
+    public function title(string $s): self { return $this->catalogMethod('title', [$s]); }
+    public function banner(): self { return $this->catalogMethod('banner'); }
+    public function description(string $s): self { return $this->catalogMethod('description', [$s]); }
+    /** Button 的标签、Field 的标题：两边都是 catalog 方法名 label(string)。 */
+    public function label(string $s): self { return $this->catalogMethod('label', [$s]); }
+    public function columns(float $n): self { return $this->catalogMethod('columns', [$n]); }
+    public function labelWidth(float $w): self { return $this->catalogMethod('label_width', [$w]); }
+    public function side(string $s): self { self::enumCheck('side', $s, self::SIDES); return $this->catalogMethod('side', [$s]); }
+    public function collapsibleMode(string $mode): self { self::enumCheck('collapsibleMode', $mode, self::COLLAPSE_MODES); return $this->catalogMethod('collapsible', [$mode]); }
+    public function collapsed(bool $v): self { return $this->catalogMethod('collapsed', [$v]); }
+    public function navIcon(string $name): self { self::enumCheck('navIcon', $name, self::NAV_ICONS); return $this->catalogMethod('icon', [$name]); }
+    public function rotate(float $rad): self { return $this->catalogMethod('rotate', [$rad]); }
+    public function color(string $c): self { return $this->catalogMethod('color', [$c]); }
+    public function align(string $a): self { self::enumCheck('align', $a, self::FIELD_ALIGN); return $this->catalogMethod('align', [$a]); }
     /** catalog 组件的语义尺寸（走 registered_method 'size'，枚举预校验）。 */
-    public function sizeEnum(string $s): self { self::enumCheck('sizeEnum', $s, self::SIZES); return $this->rm('size', [$s]); }
+    public function sizeEnum(string $s): self { self::enumCheck('sizeEnum', $s, self::SIZES); return $this->catalogMethod('size', [$s]); }
+
+    /**
+     * 按钮变体。上游把它们做成 catalog Button 的**零参方法**
+     * （Button methods: label, tooltip, loading, size, outline, primary, secondary,
+     * danger, success, warning, ghost, link, compact），不是 `variant('primary')`——
+     * `variant(enum)` 是 DropdownButton / Tag / Bubble / Marker / GroupBox / TabBar 的方法。
+     * 所以这里必须发方法名本身；发 variant 时 Button 上查无此名，kind 路径上更是静默丢。
+     */
+    public function primary(): self { return $this->catalogMethod('primary'); }
+    public function secondary(): self { return $this->catalogMethod('secondary'); }
+    public function danger(): self { return $this->catalogMethod('danger'); }
+    public function ghost(): self { return $this->catalogMethod('ghost'); }
+    public function outline(): self { return $this->catalogMethod('outline'); }
+    public function success(): self { return $this->catalogMethod('success'); }
+    public function warning(): self { return $this->catalogMethod('warning'); }
+    public function compact(): self { return $this->catalogMethod('compact'); }
+    public function loading(bool $v = true): self { return $this->catalogMethod('loading', [$v]); }
 
     // ── 样式方法（nullary style，无参关键字）──
 
@@ -746,30 +818,10 @@ class Element
         return $this->method('checked', [$v]);
     }
 
-    public function primary(): self
-    {
-        return $this->method('variant', ['primary']);
-    }
-
-    public function secondary(): self
-    {
-        return $this->method('variant', ['secondary']);
-    }
-
-    public function danger(): self
-    {
-        return $this->method('variant', ['danger']);
-    }
-
-    public function ghost(): self
-    {
-        return $this->method('variant', ['ghost']);
-    }
-
-    public function outline(): self
-    {
-        return $this->method('outline', []);
-    }
+    // primary()/secondary()/danger()/ghost()/outline() 在这里改过一轮：它们原先发
+    // method('variant', [...]) 与 method('outline')，上游两个名字都不认（Button 的变体是
+    // 零参**方法** primary/ghost/…，`variant(enum)` 属于 DropdownButton/Tag/…），
+    // 于是这五个糖一个像素都不改变。现在的实现在上面 catalogMethod 那一节。
 
     public function tooltip(string $tip): self
     {

@@ -1059,3 +1059,208 @@ keyWindow 时才投递 `mouseMoved`。含义是"hover 反馈"会随焦点状态�
 电脑操控 MCP 会话（且 `cmd/real-input-probe.py` 未跟踪、未进门禁）。`navBandWide` 用 `realClick`
 返回值当"这一行点得动"的证据不成立——那个返回值字面就是"队列涨了"（`gpui_shim.cpp:1918-1937`），
 hover/定时器也算。
+
+---
+
+# 对齐 gpui-kit.com/docs 与 gpui-kit-cpp（2026-10-13）
+
+参照物两处：**上游文档站**（38 个概念页 + 组件画廊 80 个名字）与本机
+`/Volumes/data/git/c/gpui-kit-cpp`（我们真正链接的那棵树）。
+判定口径：一个能力只有当 PHP 能发出**上游认得的符号**时才算实现；上游对不认的名字
+分两种下场（见第 5 条），所以"没发"与"发了但没生效"必须分开列。
+所有数字来自脚本抽表（`/tmp/upstream-catalog.php`、`/tmp/gap-report.php`、
+`/tmp/parity-check.php` + 两侧 `sort/comm`），不是人肉数出来的。
+
+## 1. catalog（Registered）面：137 个导出名，PHP 只开了 21 个门
+
+上游 `src/component_shell/**/*.cpp` 里的 descriptor 有**两种形状**：一文件一个
+`constexpr ComponentDescriptor kX = {…}`，以及家族表 `constexpr ComponentDescriptor kX[] = { {…}, {…} }`。
+第一版脚本只认前者，**少算了 28 个组件**（Carousel / Calendar / Questionnaire / TimeField /
+ColorPicker / Empty 整批都不在结果里）——是拿文档站的组件名单回查才发现抽漏了。
+补上家族表后的权威数：**126 个组件 / 137 个构造器导出名 / 301 个方法名**。
+
+我们侧 `Element.php` 实际发出的导出名 **21 个**，而且 `Element::reg()` 是 **private**
+（`src/Element.php:517`）、没有任何公开的通用入口 ⇒ 用户连"手动发一个没写工厂的组件"都做不到。
+
+差的 116 个导出名分四桶：
+- **35 个**有同名 kind（Button/Checkbox/Table/Tabs/Select/Image/Popover/…）——见第 3 条，
+  这**不是**"同一组件的两张脸都齐了"，两张脸的能力不等价。
+- **65 个**既没 catalog 也没有同名 kind，且实参不需要上游 entity 句柄 ⇒
+  **加一个通用工厂就能通**（C ABI `gpui_shim_registered(win, export_name, …)` 本来就按导出名通用，
+  **不用动 shim**）。名单：Accordion 家族、Pagination、Rating、Stepper/StepperItem、TabBar、
+  Settings 四件套、Tree/TreeItem、Separator 三件套、Badge、Tag、Label、Kbd、Toolbar、StatusBar、
+  Skeleton、Spinner、ShimmerText、Chat 家族（Bubble/Marker/Message/Attachment）、Empty 六件套、
+  InputGroupText、五种图表（Area/Bar/Line/Pie/Radar）、DropdownButton、GroupBox、
+  DescriptionList/Item、CommandGroup/Item/Separator、NativeMenu 三件套、Resizable、Clipboard、
+  Questionnaire/QuestionnaireItem/Choice、TableFooter、VForm、Dialog/AlertDialog/Sheet/Notification/Tooltip。
+- **16 个**还需要上游 **entity 状态句柄**（`SchemaEntity("CommandState"/"DataTableState"/"DiffState"/
+  "EditorState"/"MessageScrollerState"/"CarouselState"/"CalendarState"/"TimeFieldState"/
+  "ColorPickerState"/"ScrollbarHandle"/…)`），我们没有任何 API 造得出这类句柄：
+  Command、DataTable、Diff、Editor、MessageScroller、Scroll、Carousel 六件套、
+  QuestionnaireInput、ColorPicker、Calendar、TimeField。
+- **8 个**能力我们用**非组件**的路子做了，别误报成缺口：Dialog/AlertDialog→`App::openDialog()`、
+  Sheet→`App::openSheet()`、Notification→`App::notify()`、Tooltip→元素上的 `tooltip` op、
+  剪贴板读写→`App::clipboardText()/setClipboardText()`、FpsMonitor→`App::showFpsHud()`。
+
+## 2. kind 面：ComponentKind 66 值，PHP 能表达 46 个
+
+`src/shell/spec.h:71` 的枚举 66 个值（`Registered` 是最后一个 ⇒ shim_test 那条漂移警报
+扫 0..Registered 的范围是对的）。`kKindNames` 登记 46 个，`Registered`/`ChildView` 走专用 ABI，
+剩下 **18 个值 PHP 表达不了**：Accordion、AccordionHeader、AccordionPanel、AccordionTrigger、
+AvatarImage、AvatarFallback、DockArea、DockContent、FpsMonitor、HVirtualList、VVirtualList、
+UniformList、Pagination、PathFill、PathStroke、SliderTrack、SliderIndicator、SliderThumb。
+最扎心的是 Slider 与 Accordion 两族：**父建得出来、子建不出来**（我们有 `slider` 和
+`accordion_item` 两个 kind，却没有 track/indicator/thumb 与 accordion/header/panel/trigger），
+写出去的树在上游是残缺的，比"整个组件没有"更容易踩。
+另外词法表里 `scrollbar`/`table_row`/`table_cell` 三项**全仓无工厂、无示例、无测试**
+（`grep -rl` 只命中 `gpui_shim.cpp:441-446` 自己）——登记了但没人能发。
+
+## 3. 「两张脸」不等价：kind 路是 gpui-base 裸原语，catalog 路才带组件库样式
+
+这条是**看图看出来的**，不是读代码读出来的：
+`tests/baseline/showcase/tree3.png` 里六颗按钮（默认 / primary / secondary / danger / ghost /
+outline）**长得一模一样，全是裸文本**；radio/toggle/select 同样是裸文本。
+同一时刻 `tree6.png` 的 catalog Alert 有彩色边框与底色、图标画得出来、DropdownMenu 有盒子。
+⇒ 主题没坏，坏的是我们把 `El::button()` 映射到了 **kind（gpui-base 原语，组件库不给它样式）**，
+而带 variant/尺寸/圆角的那套是 **catalog `Button`（13 个方法）**——我们从未包过。
+`El::popover()`/`El::hoverCard()` 同理（kind 版要靠 `trigger`/`content` 槽才成形状）。
+
+## 4. 由此暴露的死糖（真 bug，五个方法）
+
+`src/Element.php:750-772` 的 `primary()/secondary()/danger()/ghost()` 发的是
+`method('variant', [...])`，`outline()` 发的是 `method('outline', [])`；
+而 `variant` / `outline` **既不在上游 materialize 的 101 个 op 名表里，也不该出现在 method 通道上**
+（`variant` 是 catalog descriptor 的 RegisteredMethod 名）。bridge 把 `method` 与 `param_style`
+走同一条 `gpui_shim_push_op`（`cpp-src/gpui_bridge.cc:262`）⇒ 这五个糖**一个像素都不改变**。
+`showcase/src/sections.php:168-172` 正在用它们，`ElementTest` 里那条
+"button records label as child and variant op" 断言的是**我们自己序列化的数组**，
+不是上游生效与否——典型的"测试跟着实现走"，绿色类别该叫 wrap，不该被当成效果。
+（第三个可疑名 `placeholder` 查清楚了：**不是 bug**，我们的 bridge 在
+`gpui_bridge.cc:152-170` 自己把 `placeholder`/`value` 两个 method op 截走喂给 retained 输入，
+从不交给上游。但它在别的元素上仍会落到静默丢弃那条路。）
+
+## 5. 静默 vs 响亮的确切分界（决定前面所有条目的严重度）
+
+上游在**记账时**就决定了这个 op 会不会响：
+`src/shell/runtime.cpp:3700-3703` —— `op.kind = IsParamStyle(name) ? ParamStyle : (!IsBehavior(name) && argCount == 0 ? NullaryStyle : Method)`。
+- 未知**零参**名 ⇒ NullaryStyle ⇒ `materialize.cpp:2576-2577` 会 `ShellErrorSet(UnknownElementMethodTemp(name))`，**响**；
+- 未知**带参**名 ⇒ Method ⇒ `ResolveBehavior` 的 if/else 链在 `materialize.cpp:451-454` **以无 else 收尾**，**静默丢**；
+- 带参但拼错的样式名 ⇒ `materialize.cpp:2580` 记 `invalid style call`，响。
+我们的 `variant`/`outline` 恰好落在"带参 + 非行为名"这一格，所以连错误通道都没有。
+（对照：kind 名错我们已改成拒收 + `lastError`；catalog 名/实参错走 `request->Fail`，
+`registeredError()` 读得到。三条路现在只有 op 名这一条还是哑的。）
+
+## 6. op 面：上游认 101 个名字，我们只发得出 17 个
+
+`method()`/`callback()`/`style()`/`paramStyle()` 全是 **private**（`src/Element.php:868-890`），
+所以 PHP 能发出的 op 名 = 糖的集合，实测 **17 个**：
+`id disabled selected checked value size tooltip variant outline placeholder href
+overflow_scroll overflow_x_scroll overflow_y_scroll on_click on_change on_hover on_key_down`。
+其中 `href` 已接（Link 跳转 + `IsOpenableUrl` 授权），三个 overflow 已接。
+**没接的整族**（按上游文档页归组，全部 `file:line` 在 `materialize.cpp:322-454`）：
+- **焦点与无障碍**（对应 docs 的 focus / accessibility 两页）：`track_focus`、
+  `content_focus_handle`、`tab_stop`、`tab_index`、`role`、`aria_label`/`accessibility_label`、
+  `aria_selected`、`aria_level`、`aria_active_descendant`、`key_context`。
+  ⇒ **#62「Escape 关不掉 dialog」的根因就在这**：上游的焦点陷阱靠 `track_focus`/
+  `content_focus_handle` 把句柄交给元素，我们一个都没发过，dialog 里的元素从未进过焦点链。
+- **浮层行为**：`open`、`default_open`、`overlay_closable`、`open_delay`、`close_delay`、
+  `on_open_change`（Popover/HoverCard/Popup 的开合与延迟）。
+- **事件面只接了 4/24**：缺 `on_key_up`、`on_mouse_down_left|right|middle`、
+  `on_mouse_up_left|right|middle`、`on_mouse_down_out`、`on_mouse_move`、`on_scroll_wheel`、
+  `on_open_change`、`on_confirm`、`on_dismiss`、`on_step`、`on_resize`、`on_item_click`、
+  `on_item_secondary_click`、`on_link_click`、`token`/`on_token_click`/`on_token_hover`。
+- **动画**（docs 的 animation 页）：`transition(prop, ms, delay, easing)` 与
+  `spring(prop, response, damping, epsilon)`，可动画属性只有 `opacity/w/h/left/top`
+  （`materialize.cpp:895-896`）——我们整族没接，所以 PHP 侧没有任何"会动的东西"。
+- **自定义绘制**（docs 的 paint 页）：`move_to`/`line_to`/`curve_to`/`cubic_bezier_to`/
+  `arc_to`/`close` 配 `PathFill`/`PathStroke` 两个 kind——两边都没有 ⇒ PHP 画不了任何路径。
+- **表格结构**：`row_count`/`column_count`（`materialize.cpp:352-354`）我们从不发，
+  且 `TableRow`/`TableHead`/`TableCell` 的构造读 `component.index`
+  （`materialize.cpp:1838-1842`）而**我们的 C ABI 根本没有 index 通道**
+  （`gpui_shim_push(win, kind, text, value, id)` 五个槽，全仓无 `component.index` 赋值）。
+  ⇒ hello/showcase 里的"表格"其实是 Table 节点塞 text 子元素，行/列语义为零；
+  像素基线是自录的，所以这条永远不会红。
+- **滚动控制**：`mode`（scrollbar 的 scrolling|hover|always）、`scroll_size`、
+  `viewport_from_layout`、`overflow_scrollbar`/`overflow_x_scrollbar`/`overflow_y_scrollbar`、
+  `track_scroll`、`with_item_to_measure_index`。
+- **杂项**：`pressed`、`indeterminate`、`start`、`controls_right`、`panel_visible`、
+  `panel_size`、`size_range`、`set_position`、`keep_mounted`、`selectable`、`scrollable`、
+  `mouse_button`、`frame_budget`、`axis`。
+
+## 7. 样式词表：上游 137 个 nullary 关键字，我们只发了 25 个
+
+`src/shell/style.cpp:920-1277` 的 `kKeywords` 有 **137** 项；我们糖里出现的 nullary 样式名
+**25** 项（`flex flex_1 flex_col flex_row flex_wrap flex_none items_* justify_* text_center
+text_right truncate italic underline font_bold font_semibold hidden absolute relative
+cursor_pointer shadow_sm shadow_md`），**全部在册**（0 个拼错）。
+但 `grid`、`self_*`、`content_*`、`whitespace_nowrap`、`text_ellipsis(_start|_middle)`、
+`line_through`、`aspect_square`、`border_dashed`、`overflow_hidden*`、`text_xs…3xl`、
+`font_thin…black`、`cursor_*`（25 种）、`debug*` 等 **112 项没有糖，也没有公开逃生口**。
+带参样式（`w_/h_/gap_/p_/m_/rounded/border` 家族 + 数字坡道）我们覆盖得比较全，
+且这类名字写错是**响**的（`invalid style call`）。
+
+## 8. 上游文档 38 页里，我们文档没开口的概念
+
+grep 过 `docs/guide/*` 与 `README.md`：`keybinding`、`SharedString`、`view cache`、`animation`、
+`a11y/accessibility`、`i18n/locale`、`auto-update`、`packaging`、`wasm`、`mobile`、`element id`、
+`multi-window`、`Global` 全部 **0 命中**。
+其中三类要分开写清：
+- **代码里有、文档没写**（补文档就行）：多窗口 `App::createWindow()`、全局快捷键
+  `onHotkey()/removeHotkey()`、主题 `setTheme()`、动作 `dispatchAction()`/`menuRows()`。
+- **上游有、我们没做**（要写进"与上游差异"）：焦点链与无障碍整族、动画、自定义绘制、
+  VirtualList/Dock、内联 token（附件式输入）、i18n、字体装载、图片加载策略、auto-update、
+  打包/wasm/mobile。
+- **概念不对应**（要解释为什么）：`Entity`/`Context`/`Render`/`RenderOnce`/`Task`/`Global`/
+  `ElementId`/`ViewCache` 是 Rust 侧写视图的抽象，我们的对应物是"PHP 数组 + 每帧重算 +
+  脏驱动"，不该照抄目录，但要在架构页点明这层替换关系。
+
+## 9. 可行性上顺手纠正的一条
+
+Dock 与 VirtualList 我们一直记成"要宿主先造 entity 才能做"（#29/#35 因此挂着）。
+上游实际把入口做在**脚本侧**：`RetainedStore::CreateDock/CreateVirtualScroll`
+（`src/shell/retained.h:141-159`）由 `__dock_area_new` / `__virtual_scroll_new` /
+`__v_virtual_list` / `__h_virtual_list` / `list` / `uniform_list` 调用，
+chrome 回调（`tab_bar`/`empty_group`/`drop_indicator`/`dock`）与面板注册
+（`DockArea.register_panel` → `__dock_register_panel`）也都在脚本可达的范围内。
+我们已经有同类补丁的先例（`runtime.h:129-135` 的 `CreateRetainedInput/Slider/Focus`
+就是标着 `typephp-gpui` 的转发口）⇒ 这两项的门槛比记录里低一档。
+
+## 修复轮 1（2026-10-13）：op 走错通道这一类，一次修三处 + 装哨兵
+
+上面第 4、5 条点到的"静默丢"不是理论问题，实测有三处正在哑着：
+
+1. **`El::primary()/secondary()/danger()/ghost()/outline()`**（`src/Element.php`）。
+   以前发 `method('variant', ['primary'])`。查上游 descriptor 才发现 catalog `Button` 的
+   13 个方法里**没有 `variant`**——变体本身就是零参方法 `primary/secondary/danger/ghost/
+   outline/success/warning/link/compact`，而 `variant(enum)` 属于 DropdownButton/Tag/Bubble/
+   Marker/GroupBox/TabBar。也就是说我上一轮的判定（"`variant` 是 catalog 的 RegisteredMethod 名"）
+   对 Button 是**错的**，只对那六个组件成立。改成发方法名本身。
+2. **bridge 里硬编码的 `"focus"` / `"content_focus"`**（`cpp-src/gpui_bridge.cc:236-241`）。
+   上游认的是 `track_focus` / `content_focus_handle`（`materialize.cpp:415-417`）。
+   ⇒ Select 那两个 `gpui_shim_retained_focus()` 造出来的句柄**从来没交出去过**。
+   这条是抽表脚本顺手抓到的：我第一版门只扫 PHP 糖，得到 0 条问题，加上
+   "扫 bridge 里的 `gpui_shim_method(..., \"name\"`" 之后立刻红了这俩。
+3. **`rm()` 打在 kind 节点上**（`El::progress(...)->rm('size', ['large'])` 这类示例）。
+   上游 `ResolveBehavior` 开头 `if (op.kind != Method) continue;`（`materialize.cpp:314`），
+   RegisteredMethod op 在非 registered 节点上连"未知名"都算不上。现在 catalog 糖统一走
+   `catalogMethod()`：非 registered 节点直接抛 `InvalidArgumentException`。
+
+哨兵：`cmd/upstream-vocab.php`（从 **vendored 在仓库里的** `upstream/gpui-kit-cpp` 抽
+kind / op / 槽名 / catalog 四张表，CI 上无需外部树）+ `cmd/check-upstream-parity.php`
+（我们发出的每个名字必须在册；Pest 与 CI 各挂一处，`composer parity:upstream`）。
+它的**第一次运行就是反向对照**：修之前红，点名 `variant, outline, focus, content_focus` 四个名字；
+修完绿。这也说明门只在该红的地方红——它不查样式名（样式那格是响的，混进来只会稀释红信号）。
+
+配套改动：`El::catalog(导出名, 构造实参, children)` 与 `El::catalogButton(id, label)` 公开
+（`Element::reg()` 仍是 private）；示例里 65 处 `El::button(X)->id(Y)->…->变体()` 机械改写成
+`El::catalogButton(Y, X)->…->变体()`，`El::button('默认(kind)')` 留一颗做两种脸的对照；
+`->size('xsmall')` 在 catalog 节点上改成 `sizeEnum('xsmall')`（op 通道与 registered_method 通道不通用）。
+
+**新增的公开 API 让两条覆盖门变红**（`showcase 覆盖 Element 的全部公开工厂/链式方法`），
+按项目规矩这不是测试坏，是新 API 没被演示：遂在「样式、图标与弹层原语」节补了
+`El::catalog('Button', […])->label(...)->success()/warning()/compact()/loading(true)` 一行。
+
+测量到的：`SHOWCASE SELFTEST OK`（含 overlay churn=30/left=0/boxes 1→1/views 1→1）、
+`--liveclick 逐行=13/13 到达节数=13`——**这条是"catalog Button 的 onClick 真能路由到 PHP"的
+端到端证据**（导航行整排换成了 catalog Button）。`vendor/bin/pest` 85 passed (436 assertions)、
+phpstan OK、parity 门 OK。像素侧：变体行现在应当真的长出五种样式，基线待复看后重录。

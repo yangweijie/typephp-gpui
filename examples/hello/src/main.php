@@ -48,13 +48,13 @@ function main(int $argc, array $argv): void
             El::input()->id('name')->placeholder('Your name')->onChange(),
             El::slider()->id('vol')->onChange(),
             El::hFlex([
-                El::button('+1')->id('inc')->onClick()->primary(),
-                El::button('Reset')->id('reset')->onClick()->ghost(),
-                El::button('Open…')->id('pick')->onClick()->ghost(),
-                El::button('Clipboard')->id('clip')->onClick()->ghost(),
-                El::button('Notify')->id('note')->onClick()->ghost(),
-                El::button('Tray')->id('tray')->onClick()->ghost(),
-                El::button('Dock 3')->id('dock')->onClick()->ghost(),
+                El::catalogButton('inc', '+1')->onClick()->primary(),
+                El::catalogButton('reset', 'Reset')->onClick()->ghost(),
+                El::catalogButton('pick', 'Open…')->onClick()->ghost(),
+                El::catalogButton('clip', 'Clipboard')->onClick()->ghost(),
+                El::catalogButton('note', 'Notify')->onClick()->ghost(),
+                El::catalogButton('tray', 'Tray')->onClick()->ghost(),
+                El::catalogButton('dock', 'Dock 3')->onClick()->ghost(),
             ])->gap(8.0)->itemsCenter(),
             El::text($state['path'] !== '' ? "Picked: {$state['path']}" : 'Open… 走原生对话框（无人值守自检里不测，见 runSelfTest 注释）')->font(12.0),
             // 剪贴板图像/文件通道的**人工**验收：截一张图（⌘⇧⌃3）或从 Finder 复制文件，
@@ -169,7 +169,7 @@ function runSelfTest(): void
     $app->render(El::vFlex([
         El::input()->id('name')->placeholder('type'),
         El::slider()->id('vol'),
-        El::button('hit')->id('inc')->onClick(),
+        El::catalogButton('inc', 'hit')->onClick(),
         El::dropdownMenu('dd', 'Actions')->item('New', 'dd-new'),
     ]));
 
@@ -206,7 +206,7 @@ function runSelfTest(): void
     // 4) Dialog 回环：openDialog → ShellRootOpenDialogView → dialogCount>0 →
     //    closeDialog → dialogCount 归零。验证窗口根 ShellRoot overlay 链路。
     $before = $app->dialogCount();
-    $opened = $app->openDialog(El::vFlex([El::text('dlg'), El::button('x')->id('dx')])->p(16.0));
+    $opened = $app->openDialog(El::vFlex([El::text('dlg'), El::catalogButton('dx', 'x')])->p(16.0));
     $during = $app->dialogCount();
     $closed = $app->closeDialog();
     $after = $app->dialogCount();
@@ -571,8 +571,8 @@ function runShot(string $path, int $tree = 0): void
             3 => El::vFlex([
                 El::text('text1')->font(20.0),
                 El::hFlex([
-                    El::button('+1')->id('inc')->primary(),
-                    El::button('Reset')->id('reset')->ghost(),
+                    El::catalogButton('inc', '+1')->primary(),
+                    El::catalogButton('reset', 'Reset')->ghost(),
                 ])->gap(8.0),
             ]),
             4 => El::vFlex([
@@ -605,7 +605,7 @@ function runShot(string $path, int $tree = 0): void
                 El::table()->w(300)->children([
                     El::tableHeader([El::text('H1'), El::text('H2')]),
                     El::tableBody([
-                        El::button('cell-btn')->id('cb'),
+                        El::catalogButton('cb', 'cell-btn'),
                     ]),
                 ]),
                 El::progress(0.6)->w(200),
@@ -724,8 +724,8 @@ function runShot(string $path, int $tree = 0): void
                 El::input()->id('name')->placeholder('Your name')->onChange(),
                 El::slider()->id('vol')->w(240)->onChange(),
                 El::hFlex([
-                    El::button('+1')->id('inc')->onClick()->primary(),
-                    El::button('Reset')->id('reset')->onClick()->ghost(),
+                    El::catalogButton('inc', '+1')->onClick()->primary(),
+                    El::catalogButton('reset', 'Reset')->onClick()->ghost(),
                 ])->gap(8.0)->itemsCenter(),
             ]),
         };
@@ -740,7 +740,7 @@ function runShot(string $path, int $tree = 0): void
             El::vFlex([
                 El::text('Dialog Title')->font(20.0)->semibold(),
                 El::text('This is a modal dialog over the window root.')->font(14.0),
-                El::button('OK')->id('ok')->primary(),
+                El::catalogButton('ok', 'OK')->primary(),
             ])->p(24.0)->gap(12.0)
         );
         $app->toast('Saved', 'Your changes are stored.', 'success', 8000);
@@ -760,7 +760,7 @@ function runShot(string $path, int $tree = 0): void
             El::vFlex([
                 El::text('Sheet Title')->font(20.0)->semibold(),
                 El::text('Slides in from the edge its anchor names.')->font(14.0),
-                El::button('Done')->id('done')->primary(),
+                El::catalogButton('done', 'Done')->primary(),
             ])->p(24.0)->gap(12.0),
             'right'
         );

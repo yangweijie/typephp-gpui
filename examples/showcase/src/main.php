@@ -303,12 +303,13 @@ function showcaseShell(): El
         // w(194) 不是装饰：侧栏是 itemsStart()，按钮默认只占文字宽度，实测命中带只有
         // x=12..132，而侧栏宽 210——点在行右半截（用户以为是"同一行"）什么都不会发生。
         // 给满宽之后整行可点，selftest 的 navBand 断言盯着这件事。
-        // 选中态决定 variant，别先把 ghost 那颗建出来再丢掉。
+        // 导航行必须是 base Button，不能用 catalog Button：后者会把标签居中并按盒子裁掉，
+        // 而这里的标题最长有「系统能力：剪贴板 · url · 文件系统 · 进程」，194px 装不下
+        // （实测新图左右各被切掉几个字）。选中态改用 bold 表达——它不依赖组件库的盒子。
+        // 上游的 primary/ghost 变体属于 catalog Button，打在 kind 节点上现在会抛（见 #66）。
         $btn = El::button($title)->id('nav-' . $tree)->onClick()->w(194.0);
         if (ShowcaseState::$v['section'] === $tree) {
-            $btn->primary();
-        } else {
-            $btn->ghost();
+            $btn->bold();
         }
         $nav[] = $btn;
     }
@@ -442,7 +443,7 @@ function wireShowcase(App $app): void
             El::vFlex([
                 El::text('Showcase dialog')->font(18.0)->semibold(),
                 El::text('dialog 内容是一棵独立的 Element 树（自己的 Box2）。')->font(13.0),
-                El::button('好')->id('ov-dialog-ok')->primary(),
+                El::catalogButton('ov-dialog-ok', '好')->primary(),
             ])->p(20.0)->gap(10.0)
         );
     });
