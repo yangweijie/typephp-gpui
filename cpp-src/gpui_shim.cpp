@@ -1279,8 +1279,22 @@ int gpui_shim_input_value(void* win, const char* id, char* out, int outlen) {
     auto it = box->inputHandles.find(id);
     if (it == box->inputHandles.end()) return 0;
     auto* e = g_runtime->Retained((gpui::shell::EntityHandle)it->second);
-    if (!e || !e->input) return 0;
-    gpui::Str v = gpui::InputValue(e->input);
+    if (!e) return 0;
+    gpui::Str v;
+    if (e->input) {
+        v = gpui::InputValue(e->input);
+    } else if (e->kind == gpui::shell::RetainedKind::Otp) {
+        // OTP 的值不在 InputState 上：CreateRetainedOtp 填的是 entry->otp（OtpState），
+        // 所以只看 e->input 的旧写法把 otp 当成"没有值可读"——setInput/text 双双静默失败
+        // （examples/input 的 --selftest 实测 set=false、text=''，而 registeredError 是空的）。
+        if (auto* st = e->otp.Get(e->app)) {
+            v = gpui::OtpValue(st);
+        } else {
+            return 0;
+        }
+    } else {
+        return 0;
+    }
     int n = v.len < outlen - 1 ? v.len : outlen - 1;
     if (n > 0 && v.s) std::memcpy(out, v.s, n);
     out[n] = '\0';
@@ -1293,8 +1307,16 @@ int gpui_shim_set_input_value(void* win, const char* id, const char* text) {
     auto it = box->inputHandles.find(id);
     if (it == box->inputHandles.end()) return 0;
     auto* e = g_runtime->Retained((gpui::shell::EntityHandle)it->second);
-    if (!e || !e->input) return 0;
-    gpui::InputSetValue(e->input, cppStr(text ? text : ""));
+    if (!e) return 0;
+    if (e->input) {
+        gpui::InputSetValue(e->input, cppStr(text ? text : ""));
+    } else if (e->kind == gpui::shell::RetainedKind::Otp) {
+        auto* st = e->otp.Get(e->app);
+        if (!st) return 0;
+        gpui::OtpSetValue(st, cppStr(text ? text : ""));
+    } else {
+        return 0;
+    }
     gpui::NotifyApp(g_app);
     return 1;
 }
