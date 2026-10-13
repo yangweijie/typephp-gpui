@@ -84,9 +84,28 @@ PathFill、PathStroke、SliderTrack、SliderIndicator、SliderThumb。
 但**没有**元素级的 PHP 糖：这两个 op 的实参是一个 `Bridged` 焦点句柄，
 只有 bridge 那侧能造出来，从 PHP 传不进去。给它造个假糖只会再产一条哑路。）
 
-样式词表：上游 `style.cpp` 的 nullary 关键字有 **137** 个，我们发了 **25** 个且**全部在册**
-（0 个拼错）；`grid`、`self_*`、`content_*`、`whitespace_nowrap`、`text_ellipsis`、`line_through`、
-`aspect_square`、`border_dashed`、`text_xs…3xl`、`font_thin…black`、`cursor_*`、`debug*` 没有糖。
+样式词表：上游 `style.cpp` 的零参关键字有 **137** 个（表是 `static const Keyword kKeywords[]`），
+我们发 **72** 个且**全部在册**（0 个拼错，由 `cmd/check-upstream-parity.php` 的 2c 段静态核）。
+带参那侧：族表 `kFamilies[]` 47 个 + `kOtherParamNames` 12 个，我们发 27 个，同样全在册。
+
+一个读表时容易上的当：`struct Keyword` 的第三个字段是 `uint32_t fields`，**它不是 arity，
+也不是"这条会不会生效"**。`ApplyNullaryStyle()` 拿到条目就无条件 `apply(element)`，
+`fields` 全树只被 `StyleFieldsOf()` 读一次，用途是"这个名字动了哪些被追踪字段"，
+给 `transition()` / `spring()` 判可动画性。**零参关键字**那 137 条里只有 7 条非零，正好是字号那一族
+`text_xs, text_sm, text_base, text_lg, text_xl, text_2xl, text_3xl`；带参那侧另有来源——
+`bg` / `text_color` / `border_color` / `opacity` / `text_size` 是 `StyleFieldsOf()` 里硬编码的几个，
+其余族名（`w` / `h` / `left` / `top` / …）由 `FamilyFields(family->fam)` 给掩码。
+所以"能动画的属性"= 字号七档 + 那五个硬编码名 + `FamilyFields()` 为各族声明的掩码——
+精确清单要读 `FamilyFields()` 本体（本轮没读它），别拿旧文档那句"可动画属性只有
+opacity/w/h/left/top"当这张 C++ 表的事实：那是上游对脚本端动画的说明，来源不是同一张表。
+表上方那句 "changes nothing" 说的是**空 apply**，
+而实测全表空 lambda 条目 0 个。
+
+还没糖的关键字：`col_span_full`、`row_span_full`、`self_flex_start/_end`、`content_normal`、
+`overflow_x_hidden` / `overflow_y_hidden`、`shadow_2xs/xs/xl/2xl`、`not_italic`、
+`text_decoration_*`、`text_left`（有 `textCenter/textRight` 缺它）、`flex_grow_0/1`、
+`flex_shrink_0/1`、大部分 `cursor_*`、`debug*`。补齐它们现在只差一行糖 +
+一次 `isCalled` 覆盖率门的认可。
 
 ## 4. 当前已知不生效的 API（文档写了但别当能用）
 

@@ -1028,6 +1028,28 @@ function runSelfTest(bool $expectBundle, bool $startFront = false): void
     } catch (\Throwable $t) {
         $roleThrows = true;
     }
+    // 2026-10-13 补的 47 个零参样式关键字，在**编出来的产物**里逐个调用一遍。
+    // 这一格量两件事：nano 那边每个方法都真编进去了（未编进去的动态调用是 SIGABRT 而不是异常，
+    // 只有跑产物能排掉），以及每个方法确实发出一条 style:<上游名字>。
+    // 元素是 detached 的——不喂给 render，所以像素一位不动；shotdiff 仍全绿就是这条断言的证据。
+    $styleEl = El::div()
+        ->block()->grid()->visible()->invisible()
+        ->flexRowReverse()->flexColReverse()->flexWrapReverse()->flexNowrap()->flexAuto()->flexInitial()
+        ->itemsBaseline()->itemsStretch()->selfStart()->selfCenter()->selfEnd()->selfStretch()
+        ->justifyAround()->justifyEvenly()
+        ->contentCenter()->contentBetween()->contentAround()->contentEvenly()->contentStretch()
+        ->overflowHidden()->aspectSquare()->whitespaceNowrap()->textEllipsis()
+        ->lineThrough()->borderDashed()->shadowNone()->shadowLg()
+        ->cursorText()->cursorMove()->cursorNotAllowed()->cursorGrab()
+        ->fontThin()->fontLight()->fontNormal()->fontMedium()->fontBlack()
+        ->textXs()->textSm()->textBase()->textLg()->textXl()->text2xl()->text3xl();
+    $styleNames = [];
+    foreach ($styleEl->ops as $op) {
+        if ($op['kind'] === 'nullary_style') { $styleNames[] = $op['name']; }
+    }
+    // 47 = 这批糖的数量；名字逐个等于上游 kKeywords（拼错由 parity 门 2c 静态拦），
+    // 而"47 个不重复"防的是链上少写一个 / 同一个调两遍这种手滑。
+    $styleSugarOk = count($styleNames) === 47 && count(array_unique($styleNames)) === 47;
 
     // 能力真调用（不只看形状）：每一项都断在"结果对"而不是"没崩"。
     $app->setClipboardText('SHOWCASE-Ω');
@@ -1490,7 +1512,7 @@ function runSelfTest(bool $expectBundle, bool $startFront = false): void
     $routeGreen = !($bundled && $frontmost) || $nsappDeliveries > 0;
 
     $ok = $badSections === []
-        && $tableOk && $roleAllOk && $roleThrows
+        && $tableOk && $roleAllOk && $roleThrows && $styleSugarOk
         && $clipBack === 'SHOWCASE-Ω' && $item['text'] === 'SHOWCASE-Ω'
         && $urlRejected === false && $hudOn && $hudVisible
         && $overlayReclaimed && $bdNativeClosed && $bdReclaimed
@@ -1521,7 +1543,10 @@ function runSelfTest(bool $expectBundle, bool $startFront = false): void
     // ArgumentCountError，而 selftest 恰恰在最需要输出时炸。改成拼字符串数组，加字段不再有成本。
     $report = [
         'badSections=' . implode('|', $badSections),
-        'roles=' . count(El::ROLES) . '/allOk=' . var_export($roleAllOk, true) . ' unknownThrows=' . var_export($roleThrows, true) . ' · table rowIndex=' . implode(',', $rowIdx) . ' miss=' . $cellIdx
+        'roles=' . count(El::ROLES) . '/allOk=' . var_export($roleAllOk, true)
+            . ' unknownThrows=' . var_export($roleThrows, true)
+            . ' styleSugar=' . count($styleNames) . '/ok=' . var_export($styleSugarOk, true)
+            . ' · table rowIndex=' . implode(',', $rowIdx) . ' miss=' . $cellIdx
             . '/ok=' . var_export($tableOk, true),
         'clip=' . var_export($clipBack, true),
         'notify=' . $nid . '/' . $notifyCount . '/' . $notifyAfter,

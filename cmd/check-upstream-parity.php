@@ -128,6 +128,50 @@ function upstreamParityProblems(string $repo, string $tree): array
         }
     }
 
+    // ── 2c. 样式名：style()/paramStyle() 发的名字要在 style.cpp 的表里在册 ──────
+    // 这一族原本被排除在门外，理由是"未知零参名会响"（materialize.cpp:2576 写错误）。
+    // 但响只在真跑起来时响：拼错的名字要等某块像素不对才被看见，而带参名走的是
+    // ApplyParamStyle 的 false 分支。静态核一遍不花钱，顺带把"哪 7 个关键字动到被
+    // 追踪字段"这类事实固定到取数端（animated 表是 transition() 的唯一可用面）。
+    $sk = $v['styleKeywords'];
+    if ($sk['all'] === [] || $sk['families'] === []) {
+        $problems[] = '抽样式表失败：style.cpp 里没有 kKeywords/kFamilies（路径：' . $tree . '）';
+    } elseif ($sk['missing'] !== []) {
+        $problems[] = '取数端漏了 ' . count($sk['missing']) . ' 条样式关键字（fields 没解析出来）：'
+            . implode(', ', $sk['missing']);
+    } else {
+        $nullaryNames = [];
+        $paramNames = [];
+        if (preg_match_all("/\\\$this->style\(\s*'([a-z0-9_]+)'/", $src, $ms)) {
+            $nullaryNames = $ms[1];
+        }
+        if (preg_match_all("/\\\$this->paramStyle\(\s*'([a-z0-9_]+)'/", $src, $mp)) {
+            $paramNames = $mp[1];
+        }
+        // 零参样式：关键字表，或族表（ramp 名如 p_4 由 ParseFamily 现拼，也算认得）。
+        $badNullary = array_values(array_unique(array_diff(
+            $nullaryNames, $sk['all'], $sk['families'], $sk['otherParams'])));
+        sort($badNullary);
+        if ($badNullary !== []) {
+            $problems[] = '这些零参样式名 style.cpp 不认（会在 materialize 写错误）：'
+                . implode(', ', $badNullary);
+        }
+        // 带参样式：族表 + kOtherParamNames。
+        $badParam = array_values(array_unique(array_diff(
+            $paramNames, $sk['families'], $sk['otherParams'], $sk['all'])));
+        sort($badParam);
+        if ($badParam !== []) {
+            $problems[] = '这些带参样式名上游既不在族表也不在 other-param 表里（ApplyParamStyle 直接 return false）：'
+                . implode(', ', $badParam);
+        }
+        $info[] = sprintf('样式：%d 个零参名 + %d 个带参名在册（上游 %d 关键字 / %d 族 / %d other-param，其中 %d 个关键字动到被追踪字段）',
+            count(array_unique($nullaryNames)), count(array_unique($paramNames)),
+            count($sk['all']), count($sk['families']), count($sk['otherParams']),
+            count($sk['animated']));
+        $info[] = '动到被追踪字段的关键字（transition/spring 才有得动画）：'
+            . implode(', ', $sk['animated']);
+    }
+
     // ── 3. catalog：导出名与方法名都要在 descriptor 表里 ────────────────────
     $exports = [];
     $methods = [];

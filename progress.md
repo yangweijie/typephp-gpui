@@ -1527,3 +1527,24 @@ check-build-inputs / doctor / docs:build 全绿。
 - 右/中键那四对只在示例里声明、不当门：selftest 的真点击只发左键。
 - 顺手把 evSeen 的叶子从 `true` 改成事件 value 本身（`$e['value'] ?? true`），
   这样同一条真输入缝里既能数"到了几条"也能看到"带的是什么值"。
+
+**修复轮 6（#72 样式词表：取数端 + 47 个糖 + 第 2c 条门）**：
+- `cmd/upstream-vocab.php` 新增 `styleKeywords()`：解析 `kKeywords[]`（137 条零参关键字）、
+  `kFamilies[]`（47 族）、`kOtherParamNames`（12），并分开返回 `all` / `animated` / `missing`。
+  两次误读都记进 findings：第一版把第三字段当 arity ⇒ 静默丢掉 7 条（靠独立枚举
+  `grep -c "\[\](El"`=137 vs 解析 130 才发现）；第二版把 `fields==0` 读成"什么都不画"
+  ⇒ 差点把现有 25 个样式糖全判成死接口。读消费端才定死：`ApplyNullaryStyle` 无条件 apply，
+  `fields` 只是 `StyleFieldsOf()` 给 transition/spring 用的动画掩码（137 里仅 7 条非零，全是字号）。
+- `cmd/check-upstream-parity.php` 新增 2c 段：`style()` / `paramStyle()` 发的名字必须在
+  相应表里在册，另外 `missing` 非零即红（取数端自己有洞就叫）。拼错名双向对照过：
+  `truncte` → rc=1、`gapp` → rc=1、还原 → rc=0。
+- 47 个零参样式糖（显示模式 / 弹性方向与收缩 / items_ 与 self_ / content_ / overflow /
+  aspect / whitespace+ellipsis+line-through / border-dashed / shadow / cursor 四款 /
+  字重五档 / 字号七档）。刻意不做组合糖。
+- showcase selftest 新增 `$styleSugarOk`（在编出来的产物上调完 47 个，断言 47 条不重复的
+  `nullary_style` op）。回归位量过两次：删掉链上一个 `->invisible()` ⇒ `46/ok=false` rc=1；
+  更早 `0/ok=false` 那轮是门抓到我 op 种类写错（真名 `nullary_style`）。
+- 元素保持 detached ⇒ 两示例在册基线（hello 18 + showcase 13）逐张 `gdfrac=0.00000`，
+  这就是"补样式没偷改像素"的证据；hello/showcase selftest 均 rc=0。
+- 门禁：pest 102 passed、phpstan / parity（样式 72+27 全在册）/ test:all 含真跑的 shim /
+  check-c-abi / check-build-inputs / doctor / docs:build 全 rc=0。

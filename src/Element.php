@@ -838,6 +838,80 @@ class Element
     public function textCenter(): self { return $this->style('text_center'); }
     public function textRight(): self { return $this->style('text_right'); }
 
+    // ── 补齐的样式关键字（2026-10-13）──
+    //
+    // 每一个都是 style.cpp 的 kKeywords 表里的零参关键字，名字由
+    // cmd/check-upstream-parity.php 的 2c 段静态核过（发错名会在 materialize 写错误，
+    // 但那要等真跑起来才响）。这里刻意**只发关键字本身**，不做组合糖：
+    // 组合（如 `flexBetween()`）看着省一个调用，实际是把两个正交概念焊死，
+    // 上游改名时又是一条新的静默路。
+
+    // 显示模式
+    public function block(): self { return $this->style('block'); }
+    public function grid(): self { return $this->style('grid'); }
+    public function visible(): self { return $this->style('visible'); }
+    public function invisible(): self { return $this->style('invisible'); }
+
+    // 弹性布局的其余面（方向 / 换行 / 收缩语义）
+    public function flexRowReverse(): self { return $this->style('flex_row_reverse'); }
+    public function flexColReverse(): self { return $this->style('flex_col_reverse'); }
+    public function flexWrapReverse(): self { return $this->style('flex_wrap_reverse'); }
+    public function flexNowrap(): self { return $this->style('flex_nowrap'); }
+    public function flexAuto(): self { return $this->style('flex_auto'); }
+    public function flexInitial(): self { return $this->style('flex_initial'); }
+
+    // 交叉轴对齐：items_* 管容器，self_* 管子元素自己
+    public function itemsBaseline(): self { return $this->style('items_baseline'); }
+    public function itemsStretch(): self { return $this->style('items_stretch'); }
+    public function selfStart(): self { return $this->style('self_start'); }
+    public function selfCenter(): self { return $this->style('self_center'); }
+    public function selfEnd(): self { return $this->style('self_end'); }
+    public function selfStretch(): self { return $this->style('self_stretch'); }
+
+    // justify_* 是主轴；content_* 是"多行之间"的分布，别和 justify_* 混用
+    public function justifyAround(): self { return $this->style('justify_around'); }
+    public function justifyEvenly(): self { return $this->style('justify_evenly'); }
+    public function contentCenter(): self { return $this->style('content_center'); }
+    public function contentBetween(): self { return $this->style('content_between'); }
+    public function contentAround(): self { return $this->style('content_around'); }
+    public function contentEvenly(): self { return $this->style('content_evenly'); }
+    public function contentStretch(): self { return $this->style('content_stretch'); }
+
+    public function overflowHidden(): self { return $this->style('overflow_hidden'); }
+    public function aspectSquare(): self { return $this->style('aspect_square'); }
+    public function whitespaceNowrap(): self { return $this->style('whitespace_nowrap'); }
+    public function textEllipsis(): self { return $this->style('text_ellipsis'); }
+    public function lineThrough(): self { return $this->style('line_through'); }
+    public function borderDashed(): self { return $this->style('border_dashed'); }
+    public function shadowNone(): self { return $this->style('shadow_none'); }
+    public function shadowLg(): self { return $this->style('shadow_lg'); }
+
+    public function cursorText(): self { return $this->style('cursor_text'); }
+    public function cursorMove(): self { return $this->style('cursor_move'); }
+    public function cursorNotAllowed(): self { return $this->style('cursor_not_allowed'); }
+    public function cursorGrab(): self { return $this->style('cursor_grab'); }
+
+    // 字重（font_bold / font_semibold 早就有了，这里补其余档）
+    public function fontThin(): self { return $this->style('font_thin'); }
+    public function fontLight(): self { return $this->style('font_light'); }
+    public function fontNormal(): self { return $this->style('font_normal'); }
+    public function fontMedium(): self { return $this->style('font_medium'); }
+    public function fontBlack(): self { return $this->style('font_black'); }
+
+    /**
+     * 字号档位。text_size 的 ramp（text_xs…text_3xl）是上游 style.cpp 里
+     * **唯一动到被追踪字段的零参样式**（fields=StyleFieldFontSize），
+     * 也就是说它们是 transition()/spring() 能动画的那批字号；
+     * 与 paramStyle('text_size', [px]) 互斥，后调用者覆盖前一个。
+     */
+    public function textXs(): self { return $this->style('text_xs'); }
+    public function textSm(): self { return $this->style('text_sm'); }
+    public function textBase(): self { return $this->style('text_base'); }
+    public function textLg(): self { return $this->style('text_lg'); }
+    public function textXl(): self { return $this->style('text_xl'); }
+    public function text2xl(): self { return $this->style('text_2xl'); }
+    public function text3xl(): self { return $this->style('text_3xl'); }
+
     // ── 参数化样式（带值）──
 
     public function w(float|string $v): self { return $this->paramStyle('w', [$v]); }

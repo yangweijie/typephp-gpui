@@ -1435,3 +1435,34 @@ move `"x,y,pressed,button,mods"`、scroll `"dx,dy,x,y,mods"`。
    报 tree 29/31 `gdfrac=1.00000`；重跑整轮 18 棵全绿，再对这两棵树各连拍两次，
    两次互为同一张且与基线 md5 相同 ⇒ 不是"这两棵基线带活数字"（HUD / Inspector），
    是那一次捕获的一次性异常。记在这里，免得下次当成回归追。
+
+## #72：`Keyword::fields` 不是"生效位"——差点把它读成第 6 条哑路
+
+给样式补糖之前先取 style.cpp 的关键字表。第一版解析器把第三个字段当 arity，于是
+`text_xs…3xl` 这 7 条**被静默丢掉**（它们的第三字段是 `StyleFieldFontSize` 而不是数字）；
+用独立枚举（`grep -c "\[\](El"` = 137）对了一下才发现解析法只有 130。
+修法是取数端把"表里有多少条"与"我解析出多少条"分开报（`missing` 数组非零即红），
+而不是只信一个数字。
+
+紧接着第二次误读更值得记：看到 `struct Keyword { name; apply; uint32_t fields; }`
+再配上表上方 "Where this tree's Style has no field for what the method sets, the entry
+says so and changes nothing"，我判定 `fields == 0` = 这条关键字什么都不画 ——
+照这个结论，我们现有的 25 个样式糖（`flex_row`、`items_center`、`hidden`…）**全部是死接口**，
+而这些样式在截图里明明在起作用。差一点就把这个结论写进文档并据此重做一批 API。
+
+去读消费端才纠正过来：`ApplyNullaryStyle()`（style.cpp:1642）拿到条目就无条件
+`keyword->apply(element)`，从不看 `fields`；`fields` 全树只被 `StyleFieldsOf()`
+（style.cpp:1694）读一次，是给 `transition()`/`spring()` 判"这个名字动了哪些被追踪字段"用的
+动画掩码。空 apply 那条注释指的是另一种条目，实测全表空 lambda 0 个。
+于是这批数据被重新命名成 `animated`（137 里只有 7 条非零，恰好是字号一族），
+文档也按这个说法写，并留了一句"精确的可动画清单要读 `FamilyFields()`，本轮没读它"——
+不把自己没验的部分写成事实。
+
+这轮的产物：47 个零参样式糖（全部经 parity 门 2c 静态核名字），parity 门新增 2c 段
+（`style()` / `paramStyle()` 发的名字必须在 kKeywords / kFamilies / kOtherParamNames 里），
+拼错名双向对照过（`truncte` → rc=1、`gapp` → rc=1、还原 rc=0）。
+showcase selftest 里加 `$styleSugarOk`：在**编出来的产物**上把 47 个糖各调一遍，
+断言发出 47 条不重复的 `nullary_style` op；元素是 detached 的，所以 13+18 张基线
+逐张 `gdfrac=0.00000` 就是"这批糖没偷改像素"的证据。
+门的回归位也是量过的：删掉链上一个 `->invisible()` → `styleSugar=46/ok=false` rc=1；
+更早一次 `styleSugar=0/ok=false` 则是门自己抓到我 op 种类写错（真名 `nullary_style`）。

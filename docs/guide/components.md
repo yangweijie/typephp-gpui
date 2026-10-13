@@ -115,8 +115,36 @@ El::catalog('Accordion', ['acc-1'])->child(El::catalog('AccordionItem', ['i1']))
 已有糖拼出来，拼不出来就是没有。
 
 
-### 读屏与键盘：`role()` / `aria_*` / `tab_*`
+### 补齐的样式关键字（47 个）
 
+上游 `style.cpp` 的 137 个零参关键字里，我们现在发得出 72 个。新增的这批按组记：
+
+```php
+El::div()->block()->grid()->visible()->invisible();                    // 显示模式
+El::div()->flexRowReverse()->flexColReverse()->flexWrapReverse();
+El::div()->flexNowrap()->flexAuto()->flexInitial();                    // 弹性方向与收缩语义
+El::div()->itemsBaseline()->itemsStretch();                             // 容器交叉轴
+El::div()->selfStart()->selfCenter()->selfEnd()->selfStretch();         // 子元素自己
+El::div()->justifyAround()->justifyEvenly();
+El::div()->contentCenter()->contentBetween()->contentAround()
+    ->contentEvenly()->contentStretch();                                // 多行之间，别和 justify_* 混
+El::div()->overflowHidden()->aspectSquare();
+El::text('…')->whitespaceNowrap()->textEllipsis()->lineThrough();
+El::div()->borderDashed()->shadowNone()->shadowLg();
+El::div()->cursorText()->cursorMove()->cursorNotAllowed()->cursorGrab();
+El::text('…')->fontThin()->fontLight()->fontNormal()->fontMedium()->fontBlack();
+El::text('…')->textXs()->textSm()->textBase()->textLg()->textXl()->text2xl()->text3xl();
+```
+
+两条纪律：
+
+1. **不做组合糖**。`flexBetween()` 这种看着省一次调用，实际是把两个正交概念焊死，
+   上游改名时又是一条新的静默路。
+2. `text_*` 那七档与 `paramStyle('text_size', [px])`（即 `El::font(16.0)`）**互斥**，
+   后调用者覆盖前一个；它们也是零参样式里唯一动到被追踪字段的（`transition()`/`spring()`
+   只对这一族有字号可动画），细节见[上游覆盖](./upstream-coverage)。
+
+### 读屏与键盘：`role()` / `aria_*` / `tab_*`
 这一族全是 behavior op，**不改变像素**，只改变读屏软件和键盘轮询看到的树。
 给一颗原本没有语义的 `div` / `text` 打标：
 

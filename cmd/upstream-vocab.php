@@ -19,7 +19,7 @@ declare(strict_types=1);
 
 final class UpstreamVocab
 {
-    /** @return array{kinds: list<string>, ops: list<string>, slots: list<string>, stateStyles: list<string>, roles: list<string>, catalog: array<string,array{ctors:array<string,list<array{0:?string,1:string,2:list<string>>}>,methods:array<string,list<array{0:?string,1:string,2:list<string>>}>,file:string}>} */
+    /** @return array{kinds: list<string>, ops: list<string>, slots: list<string>, stateStyles: list<string>, roles: list<string>, styleKeywords: array{all: list<string>, animated: list<string>, missing: list<string>, families: list<string>, otherParams: list<string>}, catalog: array<string,array{ctors:array<string,list<array{0:?string,1:string,2:list<string>>}>,methods:array<string,list<array{0:?string,1:string,2:list<string>>}>,file:string}>} */
     public static function load(string $treeDir): array
     {
         [$slots, $states] = self::slotTables($treeDir . '/src/shell/runtime.cpp');
@@ -29,6 +29,7 @@ final class UpstreamVocab
             'slots' => $slots,
             'stateStyles' => $states,
             'roles' => self::roles($treeDir . '/src/shell/a11y.cpp'),
+            'styleKeywords' => self::styleKeywords($treeDir . '/src/shell/style.cpp'),
             'catalog' => self::catalog($treeDir . '/src/component_shell'),
         ];
     }
@@ -212,6 +213,93 @@ final class UpstreamVocab
     }
 
     /**
+     * style.cpp 的样式关键字表 `static const Keyword kKeywords[] = {…}`，
+     * 外加族表 kFamilies[]（`{"w", Fam::W, Suffix::Box, Arg::Length}`）与 kOtherParamNames。
+     *
+     * `struct Keyword { const char* name; void (*apply)(El* e); uint32_t fields; }`
+     * —— 第三个字段**不是 arity，也不是"生不生效"**。这是查过消费端才敢下的结论：
+     * `ApplyNullaryStyle()`（style.cpp:1642）拿到条目就无条件 `keyword->apply(element)`，
+     * `fields` 全树只被 `StyleFieldsOf(name)`（style.cpp:1694）读一次，用途是
+     * "这个名字动了哪些 Style 字段"，给 transition()/spring() 判可动画属性用。
+     * 表上方那句 "Where this tree's Style has no field for what the method sets,
+     * the entry says so and changes nothing" 说的是**空 apply**，而实测全表空 lambda
+     * 条目 0 个（`grep -cE '\[\]\(El[^)]*\) *\{ *\}'`）。
+     * 所以键名是 animated 而不是 inert：fields != 0 = 这关键字动到被追踪的字段。
+     *
+     * @return array{all: list<string>, animated: list<string>, missing: list<string>, families: list<string>, otherParams: list<string>}
+     *         missing 是解析器自己没取到 fields 的名字——非零即说明取数端有洞
+     */
+    public static function styleKeywords(string $styleCpp): array
+    {
+        $text = is_file($styleCpp) ? (string) file_get_contents($styleCpp) : '';
+        $all = [];
+        $animated = [];
+        $missing = [];
+        $decl = 'static const Keyword kKeywords[] = {';
+        $head = strpos($text, $decl);
+        if ($head === false) {
+            return ['all' => [], 'animated' => [], 'missing' => [], 'families' => [], 'otherParams' => []];
+        }
+        $body = self::braceBody($text, $head + strlen($decl) - 1);
+        if ($body !== null) {
+            // 逐条定位 `{"名字", [](`，再从 lambda 的第一个 { 配对花括号；其后紧跟的
+            // 就是 fields 表达式（0 / 标识符 / 标识符|标识符，可跨行）。
+            if (preg_match_all('/\{\s*"([a-z0-9_]+)"\s*,\s*\[\]\s*\(/', $body, $dm, PREG_OFFSET_CAPTURE)) {
+                foreach ($dm[0] as $k => $hit) {
+                    $name = $dm[1][$k][0];
+                    $all[] = $name;
+                    $brace = strpos($body, '{', $hit[1] + strlen($hit[0]));
+                    if ($brace === false) { $missing[] = $name . '(取不到 lambda 体)'; continue; }
+                    $end = self::matchingBrace($body, $brace);
+                    if ($end === null) { $missing[] = $name . '(花括号不配对)'; continue; }
+                    if (!preg_match('/^\s*,\s*([A-Za-z0-9_|()\s]+?)\s*[,}]/',
+                            substr($body, $end + 1, 120), $fm)) {
+                        $missing[] = $name . '(无 fields 字段)';
+                        continue;
+                    }
+                    if (preg_replace('/\s+/', '', $fm[1]) !== '0') { $animated[] = $name; }
+                }
+            }
+        }
+        // paramStyle() 发的名字要在族表或"其他带参名"里在册。
+        $families = [];
+        if (preg_match_all('/\{\s*"([a-z0-9_]+)"\s*,\s*Fam::/', $text, $fm2)) {
+            $families = $fm2[1];
+        }
+        $others = [];
+        if (preg_match('/kOtherParamNames\[\]\s*=\s*\{/', $text, $om, PREG_OFFSET_CAPTURE)) {
+            $ob = self::braceBody($text, $om[0][1] + strlen($om[0][0]) - 1);
+            if ($ob !== null) { preg_match_all('/"([a-z0-9_]+)"/', $ob, $os); $others = $os[1]; }
+        }
+        return ['all' => $all, 'animated' => $animated, 'missing' => $missing,
+            'families' => $families, 'otherParams' => $others];
+    }
+
+    /** 从 $open 处的 '{' 找到配对闭合位的下标（字符串字面量里的花括号不算）。 */
+    private static function matchingBrace(string $text, int $open): ?int
+    {
+        $depth = 0;
+        $len = strlen($text);
+        for ($i = $open; $i < $len; $i++) {
+            $c = $text[$i];
+            if ($c === '"' || $c === "'") {
+                $q = $c;
+                $i++;
+                while ($i < $len && $text[$i] !== $q) {
+                    if ($text[$i] === '\\') { $i++; }
+                    $i++;
+                }
+                continue;
+            }
+            if ($c === '{') { $depth++; } elseif ($c === '}') {
+                $depth--;
+                if ($depth === 0) { return $i; }
+            }
+        }
+        return null;
+    }
+
+    /**
      * 一份描述能用的槽名与状态样式名。
      *
      * 权威源是 runtime.cpp 的 prelude 字面量表（`for (const name of [...])` 那两张），
@@ -309,9 +397,20 @@ if (PHP_SAPI === 'cli' && isset($argv[0]) && realpath($argv[0]) === realpath(__F
         $exports += count($rec['ctors']);
         $methods += count($rec['methods']);
     }
-    printf("kinds=%d ops=%d roles=%d catalog=%d 组件 / %d 导出名 / %d 方法名（树：%s）\n",
+    printf("kinds=%d ops=%d roles=%d styles=%d个关键字(其中%d个动到被追踪字段)+%d族+%d其他带参 catalog=%d 组件 / %d 导出名 / %d 方法名（树：%s）\n",
         count($v['kinds']), count($v['ops']), count($v['roles']),
+        count($v['styleKeywords']['all']), count($v['styleKeywords']['animated']),
+        count($v['styleKeywords']['families']), count($v['styleKeywords']['otherParams']),
         count($v['catalog']), $exports, $methods, $dir);
+    if ($v['styleKeywords']['missing'] !== []) {
+        printf("⚠ 样式表有 %d 条没解析出 fields 字段：%s\n",
+            count($v['styleKeywords']['missing']),
+            implode(', ', $v['styleKeywords']['missing']));
+    }
+    if (in_array('--dump-styles', $argv, true)) {
+        echo '动到被追踪字段（transition/spring 才有得可动画）：',
+            implode(', ', $v['styleKeywords']['animated']), "\n";
+    }
     if (in_array('--dump-roles', $argv, true)) {
         echo "    " . implode(",\n    ", array_map(
             static fn (string $r): string => "'" . $r . "'",
