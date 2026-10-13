@@ -1296,3 +1296,31 @@ phpstan OK、parity 门 OK。像素侧：变体行现在应当真的长出五种
 `Undefined symbols: _main / linker command failed`——那是上游树自带的示例没有 main，
 我们的流水线不依赖它（`cmd/build-shim.sh` 与 tpc 在其后照常跑完）。历史日志
 （t-scene/t2/rec）里同样有这几行，而对应的那些轮门禁全绿。别再把它当成本轮回归。
+
+## #62 的排查记录（2026-10-13）：三个假设被读数否掉
+
+现象：dialog 开着按 Escape 不关。上一轮我写的根因（"我们从未发 track_focus /
+content_focus_handle"）**是错的**，这里把量过的东西留下，别再从头猜。
+
+showcase `--selftest` 里加了一段只报不判的读数（`escape esc=… invalidate=… countAfterPress=… focusWas=…`），
+实测：
+
+| 试过的 | 读数 | 结论 |
+|---|---|---|
+| 开框 + 10 帧 + Escape | `esc=false` | 不是"帧数不够"（Deferred 挂载已生效） |
+| 再 `invalidate()` + 6 帧 + Escape | `invalidate=false` | 不是"脏驱动没重画"（#62 与 ① 无关） |
+| 开框时 shim 清焦点（InputBlur + WindowSetFocusId(0)） | `focusWas=0` 且 `esc=false` | **焦点清掉也不关** ⇒ 我上一轮的根因判断被否 |
+| 点窗口中心 (600,380) 后再看 | `countAfterPress=0` | 那一下是**背板把框点掉的**；先前"点了就能关"的结论是我自己把两件事混在了一次读数里 |
+
+已经排除的还有：注入路不通（同一个派发口上 Tab 会换焦点：`-1061 → 212381998`）、
+`escape/backdrop` 四层参数顺序错（PHP→bridge→shim→DialogOptions 一致）、
+`topmost` 没置（root.cpp:840-847 每次渲染重算，且背板可关说明这条是真的）。
+
+下一步该查的是**绑定这一侧**：`base/dialog.cpp:127` 给 popup 挂
+`KeyContext(DialogContext())->FocusId(HashClickId(name))->TabStop(false)->OnAction(Cancel)`，
+而按键解析要"焦点元素所在的上下文链"命中 DialogContext。焦点为 0 时显然没有链，
+焦点为旧内容树元素时链里没有 DialogContext —— 两种都不关，符合观测。
+所以问题收敛成一句：**在这个 PHP 宿主里，谁该把焦点放进刚开的 dialog**。
+上游 `Dialog::Popup()` 只 `FocusTrapArm(win,id,id)`（arm，不抢焦点），
+脚本宿主里是"框里第一个可聚焦控件"被 Tab/点击带进去；我们的 dialog 内容常常是纯文本，
+没有可聚焦的东西，而 popup 自己 `TabStop(false)`。

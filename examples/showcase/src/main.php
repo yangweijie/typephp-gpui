@@ -1021,6 +1021,41 @@ function runSelfTest(bool $expectBundle, bool $startFront = false): void
         && (int) ($bdCounts['viewsAlive'] ?? -1) === $viewsBase;
     $dialogN = $app->openDialog(El::text('st dialog')->p(10.0));
     $dialogCount = $app->dialogCount();
+    // #62 的**读数**（暂时只报不进 $ok，因为断言现在是红的）：dialog 开着、
+    // 不去点它，按 Escape 关不关？实测三种都关不掉：
+    //   esc=false            开框 + 10 帧 + Escape
+    //   invalidate=false     再强制一次 PHP 重画 + Escape
+    //   countAfterPress=0    点窗口中心 (600,380) 之后计数就已经是 0 ——
+    //                        那一下是**背板把它点掉的**，不是 Escape 关的。
+    // 已排除：注入路不通（Tab 会换焦点，同一个派发口）、参数顺序错
+    // （escape/backdrop 四层一致）、topmost 没置（root.cpp:840-847 每次渲染重算）、
+    // 焦点没进框（开框时清焦点后 Escape 依然不关）。
+    // 剩下要查的是绑定这一侧：base/dialog.cpp:127 给 popup 挂的
+    // KeyContext(DialogContext()) 到底有没有被 WindowKeyDownDispatch 的上下文链取到。
+    $escClosed = false;
+    $escAfterInvalidate = false;
+    $countAfterPress = -1;
+    $focusBeforeEsc = $app->focusedId();
+    if ($dialogCount >= 1) {
+        $app->loop(10);
+        $app->realKey(53, '');            // kVK_Escape
+        $app->loop(6);
+        $escClosed = $app->dialogCount() === 0;
+        if (!$escClosed) {
+            $app->invalidate();
+            $app->loop(6);
+            $app->realKey(53, '');
+            $app->loop(6);
+            $escAfterInvalidate = $app->dialogCount() === 0;
+        }
+        if (!$escAfterInvalidate && $app->dialogCount() >= 1) {
+            $app->realClick(600, 380);
+            $app->loop(3);
+            $countAfterPress = $app->dialogCount();
+            $app->realKey(53, '');
+            $app->loop(6);
+        }
+    }
     $app->closeDialog();
     $app->toast('st toast', 'desc', 'warning', 100);
     $nid = $app->notify('st 通知', 'body', 'success', 'bottom_left', 0, 'st-note');
@@ -1348,7 +1383,7 @@ function runSelfTest(bool $expectBundle, bool $startFront = false): void
         && $urlRejected === false && $hudOn && $hudVisible
         && $overlayReclaimed && $bdNativeClosed && $bdReclaimed
         && $sheetN > 0 && $hasSheet && $dialogN >= 0 && $dialogCount >= 1
-        && $nid > 0 && $notifyCount === 1 && $notifyAfter === 0
+                && $nid > 0 && $notifyCount === 1 && $notifyAfter === 0
         && $menuCount > 0 && $trayId > 0 && $trayCount === 1 && $hk > 0 && $hkFired
         && $theme === ''
         && $mk && $w && $phpSees === "gpui 写的\n第二段"
@@ -1386,6 +1421,8 @@ function runSelfTest(bool $expectBundle, bool $startFront = false): void
         'overlay backdrop nativeClosed=' . var_export($bdNativeClosed, true)
             . ' reclaimed=' . var_export($bdReclaimed, true),
         'dialog=' . $dialogN . '/' . $dialogCount,
+        'escape esc=' . var_export($escClosed, true) . ' invalidate=' . var_export($escAfterInvalidate, true)
+            . ' countAfterPress=' . $countAfterPress . ' focusWas=' . $focusBeforeEsc,
         'tray=' . $trayId . '/' . $trayCount,
         'hk=' . $hk . '/' . var_export($hkFired, true),
         'osn=' . var_export($osn, true) . '(参考：裸二进制无 bundle id)',
