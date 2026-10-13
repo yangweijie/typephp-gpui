@@ -1574,3 +1574,32 @@ key window——只是当下焦点被我这边占着，属于前台竞争，不�
 以后用电脑操控量输入类事件，第一步应该读应用自己画的那行状态（showcase 把
 `active/key/visible/main` 与"非前台"警告直接渲染在标题下方），确认前提成立再按键盘；
 否则得到的是一个"看起来不通"的假阴——和 #74 那条查错表的假阴同一类。
+
+## #73 下一步该做什么：缺的是"把焦点放进部件"的 API（这轮把身份问题查清了）
+
+派发内建动作已经能用（#74），Select 那族仍收不到，原因查到底是一句：**动作派发从焦点节点出发**。
+所以要让 `confirm/dismiss/open_change` 可达，得先有"把焦点放进某颗部件"的口——而现在
+`cpp-src/gpui_shim.h` / bridge / `src/App.php` 里**一个设焦点的入口都没有**（`grep SetFocusId|set_focus|setFocus` 全空），
+只有读口 `focusedId()` / `focusTrap()`。
+
+难点在"焦点身份"，这轮把三种来源查清了，下次别重新推：
+
+| 谁 | 焦点身份怎么来 | 出处 |
+|---|---|---|
+| dialog 的 popup | `FocusId(HashClickId(name))` ⇒ 纯字符串 FNV 哈希，PHP 侧可算 | `base/dialog.cpp:127`、`gpui.cpp:2133 int HashClickId(Str)` |
+| Select / DatePicker 的触发器与内容 | `TrackFocus(RetainedFocus(runtime, handle))`——handle 是 bridge 用 `gpui_shim_retained_focus(win, id+":t")` / `+":c"` 造的 | `materialize.cpp:1863,1885`、`cpp-src/gpui_bridge.cc:197-203` |
+| 普通可聚焦元素 | `element->TrackFocus(state->focus)`（focus 来自部件自己的状态） | `materialize.cpp:2326,2633` |
+
+也就是说 `WindowSetFocusId(win, HashClickId('某个名字'))` 只对**第一类**成立；
+要聚焦 Select，得让 shim 把 `id+":t"` 那个 handle 的**实际 focus id** 取回来再设。
+所以下一步的具体形状是：shim 加一个 `gpui_shim_focus_named(win, name)`——
+按 `name` 找回 retained focus handle、把它的 id 交给 `WindowSetFocusId`、返回读回的
+`WindowFocusedId` 让调用方自查——再往上一层层暴露成 `App::focusElement(string $id): int`
+（返回 0 表示这颗部件根本没有焦点身份，那本身就是有用的信息）。
+有了它，#73 就能变成一条**不依赖输入**的门：`focusElement('ch-select')` →
+`focusedId()` 非零且等于它 → `dispatchAction('ui::SelectDown'/'ui::Confirm')` →
+`confirm`/`open_change` 该到 PHP。
+
+顺带记一条已经被这次探索否掉的猜想：`--probe-events` 那轮 `pressKey` 没反应，
+**不是**因为 `in-key` 的 `on_key_down` 挂错（它挂在 `El::input('in-key')` 上，
+`onKeyDown()` 与 `onKeyUp()` 都在），而是因为窗口不是 key window。
