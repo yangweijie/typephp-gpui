@@ -198,9 +198,15 @@ final class App
     }
 
     /**
-     * 合成一次 ShellAction 派发（按名字）。菜单行的动作以 `action` 事件回到 PHP，
-     * id 就是 MenuItem 写的那个 action 名；原生菜单条在窗口之外，真点击够不到，
-     * 所以这条缝是给门禁覆盖"监听器 → shim 钩子 → PHP"整条路用的。
+     * 合成一次 ShellAction 派发（按名字）。两类名字都认：
+     *  · 菜单项/脚本声明的动作——上游给它们加 `shell::` 前缀后 intern，命中后以
+     *    `action` 事件回到 PHP，id 就是 MenuItem 写的那个动作名；原生菜单条在窗口之外，
+     *    真点击够不到，所以这条缝是给门禁覆盖"监听器 → shim 钩子 → PHP"整条路用的；
+     *  · gpui 内建动作 `ui::Confirm` / `ui::Cancel` / `ui::SelectUp` / `ui::SelectDown` …
+     *    （它们由 base/actions.cpp 用不带前缀的名字 intern，所以 shim 里要按两张表各试一次。
+     *    dialog 的"取消"就挂在这条路上：开框后 dispatchAction('ui::Cancel') 会把它关掉，
+     *    完全不依赖真按键送达。）
+     * 返回 false 表示这一帧的派发链上没有任何监听者接下这个动作。
      */
     public function dispatchAction(string $name): bool
     {

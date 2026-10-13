@@ -84,9 +84,17 @@ posted=20 open=0 confirm=0 dismiss=0 step=0 resize=0 | confirmPosted=false cance
 ```
 
 怎么读这份数：20 次真点击投递成功、其中 6 次落到了同一节里的按钮上（`click{...}` 就是证据），
-但 Select / Combobox 那几行没有回任何 `open_change`；合成动作派发这条路连动作名都没解析上
-（`ui::Confirm` 返回 false）。另外这一轮只渲染了第 3 节，`step`（数字输入在第 2 节）与
-`resize`（可伸缩面板在第 4 节）**根本没被触发条件覆盖**——这两个 0 是探针自己的漏洞，不是结论。
+但 Select / Combobox 那几行没有回任何 `open_change`。另外这一轮只渲染了第 3 节，
+`step`（数字输入在第 2 节）与 `resize`（可伸缩面板在第 4 节）**根本没被触发条件覆盖**——
+这两个 0 是探针自己的漏洞，不是结论。
+
+内建动作派发这一条已经有了确定的结果（2026-10-13，同一支探针里量的）：
+开着 dialog、焦点陷阱生效之后 `dispatchAction('ui::Cancel')` 会把框关掉——
+读数是 `cancelGate trap=195604379 dispatched=true closed=true`，
+而且它不依赖任何输入，所以已经进 `--selftest` 当硬门（负向对照：把 shim 里那次
+"按原名字再解析一遍"的回退路摘掉，就变 `dispatched=false closed=false`、rc=1）。
+Select 那几行仍然是 0，原因不同：动作派发从**焦点节点**出发，而自动缝没法把焦点放进 Select
+（要焦点就得真点击或 Tab 到位，这一环与 #56 同源）。
 
 所以现在的诚实状态是：这五个名字**在册、op 发得出去、宿主侧尚未量到送达**。
 探针留在仓库里（`runEventProbe`），任何一次改动之后重跑就能刷新这份读数；

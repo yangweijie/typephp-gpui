@@ -384,8 +384,19 @@ int gpui_shim_dispatch_action(void* win, const char* name) {
     auto* box = static_cast<Box2*>(win);
     if (!box || !box->window || !name || !*name) return 0;
     std::string id(name);
-    return gpui::WindowDispatchAction(box->window,
-                                      gpui::shell::ShellActionOf(cppStr(id))) ? 1 : 0;
+    // 两次解析，因为上游有两张名字表：
+    //  · shell 那套（菜单项、脚本声明的动作）由 ShellActionOf intern，它会给名字
+    //    **加 `shell::` 前缀**；
+    //  · 内建动作（`ui::Confirm` / `ui::Cancel` / `ui::SelectUp`…）由 base/actions.cpp 的
+    //    GPUI_ACTION 宏用**不带前缀**的名字 intern。
+    // 只走第一次的话，'ui::Confirm' 会变成 'shell::ui::Confirm' —— 一个谁都没监听的新 id，
+    // 于是 dispatch 返回 false，看起来像"动作派发这条路不通"，实际是查错了表
+    // （#73 里就是这么假阴的）。第一次命中就返回，绝不重复投递。
+    if (gpui::WindowDispatchAction(box->window,
+            gpui::shell::ShellActionOf(cppStr(id)))) {
+        return 1;
+    }
+    return gpui::WindowDispatchAction(box->window, gpui::ActionOf(cppStr(id))) ? 1 : 0;
 }
 
 int gpui_shim_real_key(void* win, int keycode, const char* chars) {

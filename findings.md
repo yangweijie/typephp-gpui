@@ -1493,3 +1493,36 @@ showcase selftest 里加 `$styleSugarOk`：在**编出来的产物**上把 47 �
 `runEventProbe` 留在仓库里当可重跑的读数来源。要往下推得先回答的是：
 Select 的激活到底走不走 `OnAccessibilityDefault`（鼠标点是否触发它），
 以及 `step`/`resize` 在各自那节里能不能被自动缝触发。
+
+## #74 动作派发查错了表：`ui::Confirm` 被 intern 成 `shell::ui::Confirm`
+
+#73 里 `dispatchAction('ui::Confirm')` / `('ui::Cancel')` 都返回 false，我当时写成
+"动作名连解析都没上"。这句只对了症状，原因不是"没解析"，而是**解析到了另一张表**：
+
+- `gpui_shim_dispatch_action` 用 `shell::ShellActionOf(name)`；
+- `ShellActionOf` 先把名字**加上 `shell::` 前缀**再 `ActionOf(...)`，并且**按需登记**
+  （查不到就 VecAppend 进 `table.ids` / `table.scriptIds` 然后返回那个 id）——
+  所以它永不返回 0，`'ui::Cancel'` 变成一个刚被创建、谁都没监听的 id；
+- 而内建动作是 `base/actions.cpp` 的 `GPUI_ACTION(Confirm, "ui::Confirm")`，
+  用**不带前缀**的名字 intern。
+
+`WindowDispatchAction` 拿着那个没人听的 id 自然返回 false。这就是"看起来像路不通、
+其实是查错表"的假阴——而且它假阴得很彻底：返回 false 让人以为 API 没生效，
+差点把"内建动作派发"整格判成不可用。
+
+修法：`gpui_shim_dispatch_action` 两次解析——先按 shell 那套（保住菜单动作现有行为，
+命中就返回、绝不重复投递），再按原名字 `gpui::ActionOf(name)` 试一次。
+
+量的结果（不依赖任何输入）：开一个 dialog、给几帧让焦点陷阱生效（`trap=195604379`），
+派发 `ui::Cancel` ⇒ `dispatched=true closed=true`，**框被关掉**。上游给 popup 挂的
+`OnAction(Cancel)` 在我们宿主里是接得上的。于是 #62 剩下那半更精确了：
+"取消"这件事本身通，只差真按键送达那一环（与 #56 同源）。
+
+门的回归位是摘掉回退路量出来的：把第二次解析改成 `return 0;` 重编 ⇒
+`cancelGate trap=195604379 dispatched=false closed=false`、selftest rc=1。
+还原后连跑两轮都是 `dispatched=true closed=true`（这条门不看前台状态，读数可重复）。
+
+顺带一条流程教训：负向对照的还原命令被打断过一次，而打断后**源码已经是好的、
+产物却是坏的那版**（上一轮成功的构建正是对照版）。所以"文件里 grep 到了"不等于
+"跑的是这份文件"——还原之后必须重新 build 再 measure，这一次是靠重跑 selftest
+看到 `dispatched=true` 才确认产物与源码对齐的。

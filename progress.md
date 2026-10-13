@@ -1564,3 +1564,21 @@ check-build-inputs / doctor / docs:build 全绿。
 - 诚实结论：这一族**在册、发得出、宿主侧未量到送达**，文档 events.md 新增 1b 节按这个说法写，
   并承认本轮探针自己的洞（step 在第 2 节、resize 在第 4 节，那两个 0 是"没测"不是"测到零"）。
 - 门禁：pest 102 passed、showcase selftest rc=0、shotdiff showcase 13 棵全绿。
+
+**修复轮 8（#74 动作派发查错表 + dialog 的无输入关闭路）**：
+- 根因：`gpui_shim_dispatch_action` 只走 `shell::ShellActionOf()`，而它会**按需登记**并且
+  给名字加 `shell::` 前缀；内建动作（`GPUI_ACTION(Confirm, "ui::Confirm")`）是**不带前缀**
+  intern 的。于是 `dispatchAction('ui::Cancel')` 拿到的是一个刚创建、无人监听的新 id，
+  返回 false——症状像"路不通"，实际查错表（#73 就是这么假阴的）。
+  改成两次解析：先 shell 那套（菜单动作行为不变，命中即返回不重复投递），再按原名 `ActionOf`。
+- 效果是**可测的功能**：开框 → 焦点陷阱生效 → `dispatchAction('ui::Cancel')` → 框关掉，
+  全程不需要键盘。`cancelGate` 进 selftest 的 `$ok` 链（`dispatched=true closed=true`，
+  连跑两轮读数一致，不依赖前台状态）。
+- 负向对照：把第二次解析换成 `return 0;` 重编 ⇒ `dispatched=false closed=false`、selftest rc=1；
+  还原后重编重跑 ⇒ rc=0。过程中被一次打断的还原命令提醒了一件事：**文件已经是对的、
+  产物还是坏的那版**——所以"grep 到了"不等于"跑的是这份"，还原后必须重新 build 再 measure。
+- #62 因此更精确：dialog 的"取消"这件事本身在宿主里是通的（同一条 `OnAction(Cancel)`），
+  只剩"真按键送达"那一环，与 #56 同一件事。
+- 文档同步：`App::dispatchAction` 的注释现在写明两类名字都认（含 `ui::Confirm/Cancel/SelectUp`
+  这组内建动作与"返回 false 意味着这一帧没人接"）；events.md 1b 节把"动作派发连名字都没解析上"
+  那句**过期结论**改成本轮量到的事实。

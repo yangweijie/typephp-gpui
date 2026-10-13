@@ -190,6 +190,15 @@ function runEventProbe(): void
     $cancelPosted = $app->dispatchAction('ui::Cancel');
     $app->loop(6);
     $dismissAfterAction = evCount('dismiss');
+    // 顺带量一件更有用的事：内建动作能不能当"不用键盘的取消键"。
+    // 上游把 escape 绑在 dialog 的焦点陷阱上（#62 读到的形状），而 OnAction(Cancel)
+    // 是同一条动作路——派发命中的话框就该关，且这件事完全不依赖真按键送达。
+    $app->openDialog(El::text('探针框：派发 ui::Cancel 该关掉我')->p(10.0));
+    $app->loop(10);
+    $dialogTrap = $app->focusTrap();
+    $cancelOnDialog = $app->dispatchAction('ui::Cancel');
+    $app->loop(8);
+    $closedByAction = $dialogTrap !== 0 && $app->dialogCount() === 0;
     $st = $app->windowState();
     echo 'EVENT-PROBE posted=' . $posted
         . ' open=' . $probed['open_change']
@@ -201,13 +210,17 @@ function runEventProbe(): void
         . ' confirm=' . $confirmAfterAction
         . ' cancelPosted=' . var_export($cancelPosted, true)
         . ' dismiss=' . $dismissAfterAction
+        . ' | dialog trap=' . $dialogTrap
+        . ' cancelPosted=' . var_export($cancelOnDialog, true)
+        . ' closedByAction=' . var_export($closedByAction, true)
         . ' | active=' . var_export($st['active'] ?? null, true)
         . ' key=' . var_export($st['key'] ?? null, true)
         . ' bundled=' . var_export($st['bundled'] ?? null, true)
         . ' evSeen=' . evSeenSummary() . "\n";
     // 退出码只表示"至少有一条到没到"，其余留给读数：这一族还没量通之前，
     // 不能让它当门（#62 的教训：门的红必须对应得上事）。
-    $anyArrived = array_sum($probed) + $confirmAfterAction + $dismissAfterAction > 0;
+    $anyArrived = array_sum($probed) + $confirmAfterAction + $dismissAfterAction
+        + ($closedByAction ? 1 : 0) > 0;
     exit($anyArrived ? 0 : 1);
 }
 
@@ -1255,6 +1268,18 @@ function runSelfTest(bool $expectBundle, bool $startFront = false): void
             $app->loop(6);
         }
     }
+    // 内建动作派发是**不依赖输入**的一条关框路（#62 的另一半）：dispatchAction('ui::Cancel')
+    // 命中上游给 popup 挂的那条 OnAction(Cancel)，框就该关。
+    // 放在这里而不是上面那格中间：上面那格要读 trap/focus 的时序，中途把框关掉会把它弄红
+    // ——上一版就犯过这个错（门的红必须对应得上事，不能对应到探针自己）。
+    // 这条门还只在上次修的那条回退路上成立：gpui_shim_dispatch_action 若只查 shell:: 那张表，
+    // 'ui::Cancel' 会被 intern 成"shell::ui::Cancel"这个谁都没在听的新 id，派发返回 false。
+    $app->openDialog(El::text('cancel-gate 框')->p(10.0));
+    $app->loop(10);
+    $cancelTrap = $app->focusTrap();
+    $cancelDispatched = $cancelTrap !== 0 && $app->dispatchAction('ui::Cancel');
+    $app->loop(8);
+    $cancelClosed = $cancelDispatched && $app->dialogCount() === 0;
     $app->closeDialog();
     $app->toast('st toast', 'desc', 'warning', 100);
     $nid = $app->notify('st 通知', 'body', 'success', 'bottom_left', 0, 'st-note');
@@ -1603,7 +1628,7 @@ function runSelfTest(bool $expectBundle, bool $startFront = false): void
         && $clipBack === 'SHOWCASE-Ω' && $item['text'] === 'SHOWCASE-Ω'
         && $urlRejected === false && $hudOn && $hudVisible
         && $overlayReclaimed && $bdNativeClosed && $bdReclaimed
-        && $sheetN > 0 && $hasSheet && $dialogN >= 0 && $dialogCount >= 1 && $trapOk
+        && $sheetN > 0 && $hasSheet && $dialogN >= 0 && $dialogCount >= 1 && $trapOk && $cancelClosed
                 && $nid > 0 && $notifyCount === 1 && $notifyAfter === 0
         && $menuCount > 0 && $trayId > 0 && $trayCount === 1 && $hk > 0 && $hkFired
         && $theme === ''
@@ -1649,7 +1674,9 @@ function runSelfTest(bool $expectBundle, bool $startFront = false): void
             . ' reclaimed=' . var_export($overlayReclaimed, true),
         'overlay backdrop nativeClosed=' . var_export($bdNativeClosed, true)
             . ' reclaimed=' . var_export($bdReclaimed, true),
-        'dialog=' . $dialogN . '/' . $dialogCount,
+        'dialog=' . $dialogN . '/' . $dialogCount
+            . ' cancelGate trap=' . $cancelTrap . ' dispatched=' . var_export($cancelDispatched, true)
+            . ' closed=' . var_export($cancelClosed, true),
         'escape withControl: open=' . $escProbeOpen . ' trap=' . $escProbeTrap . ' focus=' . $escProbeFocus . ' afterTab=' . $escProbeAfterTab,
         'escape plain: trapOnOpen=' . $plainTrap . ' trapAfterFrames=' . $trapAfterFrames
             . ' focus=' . $focusOnTrap . ' trapOk=' . var_export($trapOk, true)
