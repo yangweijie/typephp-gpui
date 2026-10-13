@@ -602,10 +602,18 @@ function runShot(string $path, int $tree = 0): void
                 ])->gap(12.0),
                 El::popover('open me', El::text('popover content')),
                 El::collapsible('section', El::text('hidden panel')),
-                El::table()->w(300)->children([
-                    El::tableHeader([El::text('H1'), El::text('H2')]),
+                El::table()->w(300)->rowCount(2)->columnCount(2)->children([
+                    El::tableHeader([
+                        El::tableRow([
+                            El::tableHead([El::text('H1')])->columnIndex(0),
+                            El::tableHead([El::text('H2')])->columnIndex(1),
+                        ])->rowIndex(0)->flexRow()->gap(12.0),
+                    ]),
                     El::tableBody([
-                        El::catalogButton('cb', 'cell-btn'),
+                        El::tableRow([
+                            El::tableCell([El::catalogButton('cb', 'cell-btn')])->columnIndex(0),
+                            El::tableCell([El::text('—')])->columnIndex(1),
+                        ])->rowIndex(1)->flexRow()->gap(12.0),
                     ]),
                 ]),
                 El::progress(0.6)->w(200),

@@ -191,7 +191,9 @@ uint32_t emitTree(void* win, Array node) {
     }
 
     // DatePicker：component.handle 需一个 Focus 实体（RetainedFocus 校验 kind==Focus）。
-    // Select/Combobox：trigger/content 各需一个 Focus，经 method op focus/content_focus 传入。
+    // Select/Combobox：trigger/content 各需一个 Focus，经 method op
+    // track_focus / content_focus_handle 传入（名字必须是这两个——写成 focus/content_focus
+    // 时上游查不到，而带参未知 op 是静默丢弃那一格，句柄等于从未交出去）。
     uint64_t selTrigger = 0, selContent = 0;
     if (kind == "date_picker") {
         if (!id.empty()) gpui_shim_retained_focus(win, id.c_str());
@@ -207,6 +209,12 @@ uint32_t emitTree(void* win, Array node) {
     {
         Variant rv = node.get("registered");
         if (rv.isBool()) registered = rv.toBool();
+    }
+    // Element 的 index 槽：TableRow 用它当行号、TableHead/TableCell 当列号。
+    unsigned nodeIndex = 0;
+    {
+        Variant iv = node.get("index");
+        if (iv.isInt() || iv.isFloat()) nodeIndex = (unsigned)iv.toFloat();
     }
     if (kind == "webview") {
         // 不是 spec 里的普通 kind：ChildView 节点要一个 host 注册的 nested-view
@@ -230,7 +238,7 @@ uint32_t emitTree(void* win, Array node) {
                                     (int)args.size());
     } else {
         spec = gpui_shim_push(win, kind.c_str(), text.c_str(), value.c_str(),
-                              id.c_str());
+                              id.c_str(), nodeIndex);
     }
 
     if (selTrigger || selContent) {
@@ -671,8 +679,18 @@ Variant php_gpui_element_value(Variant boxVar, String id) {
     }
 }
 
-void php_gpui_set_timer(Variant boxVar, String id, Int intervalMs) {
+// 回读 spec 里某个元素 id 的 index 槽（TableRow 的行号 / TableHead·TableCell 的列号）。
+// 找不到那个 id 返回 -1 —— 与"找到了且 index 为 0"必须能区分开。
+Int php_gpui_spec_index(Variant boxVar, String id) {
     void* win = winOf(boxVar);
+    if (!win) return (Int)-1;
+    std::string key(id.data(), id.length());
+    unsigned idx = 0;
+    if (!gpui_shim_spec_index_by_id(win, key.c_str(), &idx)) return (Int)-1;
+    return (Int)idx;
+}
+
+void php_gpui_set_timer(Variant boxVar, String id, Int intervalMs) {    void* win = winOf(boxVar);
     std::string i(id.data(), id.length());
     if (win) gpui_shim_set_timer(win, i.c_str(), (int)intervalMs);
 }

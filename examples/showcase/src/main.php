@@ -956,6 +956,17 @@ function runSelfTest(bool $expectBundle, bool $startFront = false): void
         $failuresBefore = (int) $cf['count'];
     }
 
+    // 表格的 aria 序号必须真的进 spec（#69：以前我们从不发 row_count/column_count，
+    // 也没有 table_row/table_cell 工厂，示例里的"表格"其实是 Table 节点塞 text）。
+    // 这里把第 5 节重画一遍，再回读三行的行号。读的是 bridge→shim→arena 那条路，
+    // 不是 PHP 自己那份数组，所以它证明的是"号真的交出去了"；
+    // 查无此 id 必须是 -1，否则"0"与"没找到"就分不开。
+    $app->render(sectionData(ShowcaseState::get()));
+    $app->loop(1);
+    $rowIdx = [$app->specIndex('da-row-0'), $app->specIndex('da-row-1'), $app->specIndex('da-row-2')];
+    $cellIdx = $app->specIndex('no-such-cell');
+    $tableOk = $rowIdx === [0, 1, 2] && $cellIdx === -1;
+
     // 能力真调用（不只看形状）：每一项都断在"结果对"而不是"没崩"。
     $app->setClipboardText('SHOWCASE-Ω');
     $clipBack = $app->clipboardText();
@@ -1332,6 +1343,7 @@ function runSelfTest(bool $expectBundle, bool $startFront = false): void
     $routeGreen = !($bundled && $frontmost) || $nsappDeliveries > 0;
 
     $ok = $badSections === []
+        && $tableOk
         && $clipBack === 'SHOWCASE-Ω' && $item['text'] === 'SHOWCASE-Ω'
         && $urlRejected === false && $hudOn && $hudVisible
         && $overlayReclaimed && $bdNativeClosed && $bdReclaimed
@@ -1362,6 +1374,8 @@ function runSelfTest(bool $expectBundle, bool $startFront = false): void
     // ArgumentCountError，而 selftest 恰恰在最需要输出时炸。改成拼字符串数组，加字段不再有成本。
     $report = [
         'badSections=' . implode('|', $badSections),
+        'table rowIndex=' . implode(',', $rowIdx) . ' miss=' . $cellIdx
+            . '/ok=' . var_export($tableOk, true),
         'clip=' . var_export($clipBack, true),
         'notify=' . $nid . '/' . $notifyCount . '/' . $notifyAfter,
         'sheet=' . $sheetN . '/' . var_export($hasSheet, true),

@@ -570,3 +570,33 @@ test('elementValue/checked read the last value that came in on a change event', 
     FakeBridge::pushEvent(1, 'click', 'slider');
     expect($app->elementValue('slider'))->toBe(37.0);
 });
+
+// 表格的序号槽（Component::index）：TableRow 拿它当行号、TableHead/TableCell 当列号，
+// 上游再喂给 AriaRowIndex/AriaColumnIndex（materialize.cpp:1838-1842）。
+// 这条测的是替身侧的语义，但 -1 与 0 的区分必须一致：否则"这行没编号"会被读成"第 0 行"。
+test('specIndex reads back the aria slot and tells 0 apart from missing', function (): void {
+    $app = sysApp();
+    expect($app->specIndex('r0'))->toBe(-1);   // 还没画过：查无
+
+    $app->render(El::table()->rowCount(2)->columnCount(2)->children([
+        El::tableBody([
+            El::tableRow([El::tableCell([El::text('a')])->columnIndex(0)])->id('r0')->rowIndex(0),
+            El::tableRow([El::tableCell([El::text('b')])->columnIndex(1)])->id('r1')->rowIndex(1),
+        ]),
+    ]));
+    expect($app->specIndex('r0'))->toBe(0)
+        ->and($app->specIndex('r1'))->toBe(1)
+        ->and($app->specIndex('nope'))->toBe(-1);
+});
+
+// 行列数走的是两个 method op（row_count / column_count），不是从子节点数推的。
+test('rowCount/columnCount emit the two ops upstream reads', function (): void {
+    $node = El::table('t')->rowCount(3)->columnCount(4)->toArray();
+    $byName = [];
+    foreach ($node['ops'] as $op) { $byName[$op['name']] = $op['args'] ?? null; }
+    expect($byName)->toHaveKey('row_count')
+        ->and($byName['row_count'])->toBe([3.0])
+        ->and($byName['column_count'])->toBe([4.0]);
+
+    expect(fn () => El::table('t')->rowCount(-1))->toThrow(InvalidArgumentException::class);
+});

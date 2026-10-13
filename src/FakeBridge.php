@@ -196,6 +196,31 @@ namespace TypePHP\Gpui {
         }
 
         /**
+         * 在 renderLog 最后一棵树里按 id 找序号槽（gpui_spec_index 的替身实现）。
+         * 深度优先；查无此 id 返回 -1，以便与"有、且 index 是 0"区分。
+         */
+        public static function findSpecIndex(array $node, string $id): int
+        {
+            if ($id !== '' && ($node['id'] ?? '') === $id) {
+                return (int) ($node['index'] ?? 0);
+            }
+            foreach ((array) ($node['children'] ?? []) as $kid) {
+                if (is_array($kid)) {
+                    $r = self::findSpecIndex($kid, $id);
+                    if ($r >= 0) { return $r; }
+                }
+            }
+            foreach ((array) ($node['ops'] ?? []) as $op) {
+                $child = ($op['kind'] ?? '') === 'slot' ? ($op['child'] ?? null) : null;
+                if (is_array($child)) {
+                    $r = self::findSpecIndex($child, $id);
+                    if ($r >= 0) { return $r; }
+                }
+            }
+            return -1;
+        }
+
+        /**
          * 测试用：模拟"用户点了通知"或"通知消失"。真侧是 gpui 的 Listener 回调，
          * 替身没有可点的卡片，所以由测试自己触发。$type 只认 click / close。
          */
@@ -527,6 +552,15 @@ namespace {
     {
         // 真侧语义：只认"最近一次 change 报上来的值"，从没报过就是 null（不是 false）。
         return FakeBridge::$lastValues[((int) $window) . "\x1f" . $id] ?? null;
+    }
+
+    function gpui_spec_index(mixed $window, string $id): int
+    {
+        // 真侧回读 spec 里的 Component::index；替身读最近一次 render 的那棵树。
+        // 查无此 id 返回 -1（与"有、且 index 是 0"区分开）。
+        $log = FakeBridge::$renderLog[((int) $window)] ?? [];
+        $tree = $log === [] ? [] : $log[count($log) - 1];
+        return FakeBridge::findSpecIndex($tree, $id);
     }
 
     function gpui_set_timer(mixed $window, string $id, int $intervalMs): void

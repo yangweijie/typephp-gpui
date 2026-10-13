@@ -1264,3 +1264,35 @@ kind / op / 槽名 / catalog 四张表，CI 上无需外部树）+ `cmd/check-up
 `--liveclick 逐行=13/13 到达节数=13`——**这条是"catalog Button 的 onClick 真能路由到 PHP"的
 端到端证据**（导航行整排换成了 catalog Button）。`vendor/bin/pest` 85 passed (436 assertions)、
 phpstan OK、parity 门 OK。像素侧：变体行现在应当真的长出五种样式，基线待复看后重录。
+
+## 修复轮 2（2026-10-13）：#69 表格语义 + index 槽位
+
+上游 `base/table.cpp:12-56` 说清了这件事的两半：每个表格部件都只是"一个带 aria role 的 div"
+（**布局一概不管**），而 `Table::New(id, rowCount, columnCount, label)` 与
+`TableRow::New(id, rowIndex)` / `TableHead/TableCell::New(id, columnIndex)` 的号只喂 aria
+（`AriaRowCount/AriaRowIndex/AriaColumnIndex`）。所以缺它们不会花屏，只会让读屏的人拿到
+"这表没有行列、每格都在第 0 列"——正是自录像素基线**看不见**的那类错。
+
+补的东西：
+- ABI：`gpui_shim_push(...)` 多一个 `unsigned index` 槽；新增
+  `gpui_shim_spec_index_by_id(win, id, &out)` 从 arena 里按 `id` op 回读
+  （`SpecArena::Node()` 只有 const，所以写必须在 Push 时做、读可以事后做）。
+  PHP 侧对应 `App::specIndex(id)`，**查无此 id 返回 -1**，否则"没编号"会被读成"第 0 行"。
+- PHP：`El::tableRow()` / `El::tableCell()`（词法表里那两项不再是死条目）、
+  `->rowCount()/->columnCount()`（两个 method op）、`->rowIndex()/->columnIndex()`（写 index 槽）。
+- 示例：hello 与 showcase 的表格改成 Table > Header/Body > Row > Head/Cell 的真结构，
+  行自己 `flexRow()`（布局归样式管这件事得写进文档，不然有人以为换了结构就自动变网格）。
+
+**新自检断言的两半都量了**：故意把第三行写成 `rowIndex(0)` →
+`table rowIndex=0,1,0 miss=-1/ok=false`、`SHOWCASE SELFTEST FAIL` rc=1；改回
+`rowIndex(2)` → `0,1,2/ok=true` rc=0。这条因此是回归位，不是"看着对"。
+
+一次踩坑记在这：`gpui::StrL("id")` 编译不过（`expected unqualified-id`）——`StrL` 是
+上游 shell 内部的宏，不在我们这一侧；本仓的写法是 `gpui::Str("id")`（`gpui_shim.cpp:567`
+就是这么用的）。第一次跑"反向对照"其实红在编译期，那不算测到断言，修好编译才重跑。
+
+另一条**不是我们的错**、但每次看日志都会吓一跳：构建链里
+`Building hello_world (rel, clang++)` 那步固定报
+`Undefined symbols: _main / linker command failed`——那是上游树自带的示例没有 main，
+我们的流水线不依赖它（`cmd/build-shim.sh` 与 tpc 在其后照常跑完）。历史日志
+（t-scene/t2/rec）里同样有这几行，而对应的那些轮门禁全绿。别再把它当成本轮回归。

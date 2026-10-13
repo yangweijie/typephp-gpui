@@ -1435,3 +1435,14 @@ catalog 组件的 `on_click` 真能路由到 PHP）、`HELLO SELFTEST OK`、
 基线重录后 `shotdiff check` 两示例 OK（showcase 13 棵 + hello 5 棵字节数变化，逐条打过新旧字节）、
 pest 85 passed (436 assertions)、phpstan / test-shim / doctor / check-c-abi / check-build-inputs /
 upstream-parity / docs:build 全 rc=0。
+
+**修复轮 2（#69 表格语义）**：`gpui_shim_push` 加 `unsigned index` 槽 +
+`gpui_shim_spec_index_by_id` 回读口（写必须在 Push 时，`SpecArena::Node()` 只有 const）；
+PHP 侧新增 `El::tableRow()/tableCell()`、`->rowCount()/columnCount()`（method op）、
+`->rowIndex()/columnIndex()`（序号槽）与 `App::specIndex(id)`（-1 = 查无，与 0 分得开）。
+hello 与 showcase 的表格改成 Table > Header/Body > Row > Head/Cell。
+新自检断言**两半都量**：故意 `rowIndex(0)` → `table rowIndex=0,1,0/ok=false` rc=1；
+改回 `rowIndex(2)` → `0,1,2/ok=true` rc=0。
+门禁：showcase/hello 的 selftest + 基线重录 + check 六步全 rc=0（表格结构变了，像素必然变），
+pest 87 passed (444 assertions)、phpstan / parity / test-shim / check-c-abi /
+check-build-inputs / doctor / docs:build 全绿。

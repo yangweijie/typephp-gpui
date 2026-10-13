@@ -381,9 +381,17 @@ uint32_t gpui_shim_notification_list(void* win, const char* id);
 void gpui_shim_render_begin(void* win);
 /* 压入一个组件节点，返回其 spec id；kind 是字符串（div/text/button/...）。
  * id 非空时，若该 id 已建 retained handle（见 gpui_shim_retained_input），
- * 则写入 component.handle 供 materialize 取回状态。 */
+ * 则写入 component.handle 供 materialize 取回状态。
+ * index 写进 component.index —— 上游只有三类节点读它，但读得很实：
+ * TableRow 拿它当行号、TableHead/TableCell 拿它当列号（materialize.cpp:1838-1842 →
+ * El::AriaRowIndex/AriaColumnIndex）。没有这个槽位时表格的 aria 行/列号恒 0。 */
 uint32_t gpui_shim_push(void* win, const char* kind, const char* text,
-                        const char* value, const char* id);
+                        const char* value, const char* id, unsigned index);
+/* 按元素 id（即 ->id() 写进去的那个）回读 spec 里的 component.index。
+ * 找到返回 1 并写 *out_index，找不到返回 0。存在的理由只有一个：让自检能证明
+ * "PHP 写的行号/列号真的进了 spec"——上游的 debug_tree 不打 index，而 aria 值
+ * 在物化后的 El 上，PHP 侧拿不到。 */
+int gpui_shim_spec_index_by_id(void* win, const char* id, unsigned* out_index);
 void gpui_shim_nullary_style(void* win, uint32_t spec, const char* name);
 void gpui_shim_param_style(void* win, uint32_t spec, const char* name,
                            const GpuiArg* args, int argc);

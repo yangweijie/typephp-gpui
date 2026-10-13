@@ -56,13 +56,16 @@ PathFill、PathStroke、SliderTrack、SliderIndicator、SliderThumb。
 写出去的树在上游是残缺的。
 另有三项在表里却**全仓无工厂、无示例、无测试**：`scrollbar`、`table_row`、`table_cell`。
 
-## 3. op 面：上游认 101 个名字，我们的糖只发得出 17 个
+## 3. op 面：上游认 101 个名字，我们的糖只发得出其中一小撮
 
 `method()` / `callback()` / `style()` / `paramStyle()` 都是 private，所以可发的 op 名 = 糖的集合。
+（下面这些名字与实时数量由 `php cmd/check-upstream-parity.php --info` 对上游表核过。）
 
 已接：`id` `disabled` `selected` `checked` `value` `size` `tooltip` `href`
+`row_count` `column_count`
 `overflow_scroll` / `overflow_x_scroll` / `overflow_y_scroll`，回调 4 个
 （`on_click` `on_change` `on_hover` `on_key_down`）。
+
 
 **没接的整族**（都在 `materialize.cpp` 的行为链里，上游文档各自有专页）：
 
@@ -76,7 +79,6 @@ PathFill、PathStroke、SliderTrack、SliderIndicator、SliderThumb。
 | 事件 | `on_key_up` `on_mouse_down_*` `on_mouse_up_*` `on_mouse_down_out` `on_mouse_move` `on_scroll_wheel` `on_confirm` `on_dismiss` `on_step` `on_resize` `on_item_click` `on_item_secondary_click` `on_link_click` `token` `on_token_click` `on_token_hover` | event |
 | 动画 | `transition(prop, ms, delay, easing)` `spring(prop, response, damping, epsilon)`，可动画属性只有 `opacity/w/h/left/top` | animation |
 | 自定义绘制 | `move_to` `line_to` `curve_to` `cubic_bezier_to` `arc_to` `close` + `PathFill`/`PathStroke` | paint |
-| 表格结构 | `row_count` `column_count`（另需 `Component.index`，我们的 C ABI 没有这个槽位） | — |
 | 滚动控制 | `mode` `scroll_size` `viewport_from_layout` `overflow_scrollbar` / `_x_` / `_y_` `track_scroll` `with_item_to_measure_index` | — |
 | 杂项 | `pressed` `indeterminate` `start` `controls_right` `panel_visible` `panel_size` `size_range` `set_position` `keep_mounted` `selectable` `scrollable` `mouse_button` `frame_budget` `axis` | — |
 
@@ -95,10 +97,13 @@ PathFill、PathStroke、SliderTrack、SliderIndicator、SliderThumb。
 `"focus"` / `"content_focus"`（正确名字是 `track_focus` / `content_focus_handle`，
 Select 的焦点句柄此前从未真的交出去过）。
 
-`El::table()` 系列不是语义表格：我们从没发 `row_count`/`column_count`，`table_row`/`table_cell`
-没有工厂，且 `TableRow`/`TableHead`/`TableCell` 的构造要读 `component.index`
-（`materialize.cpp:1838-1842`）而 `gpui_shim_push(win, kind, text, value, id)` 没有 index 槽位。
-示例里的"表格"实际是 Table 节点塞文本子元素。像素基线是自录的，所以这条不会红。
+`El::table()` 系列**2026-10-13 已修**（#69）：以前我们从没发 `row_count`/`column_count`，
+`table_row`/`table_cell` 在词表里却没有工厂，且 `TableRow`/`TableHead`/`TableCell` 的构造要读
+`component.index`（`materialize.cpp:1838-1842`）而 `gpui_shim_push` 只有五个槽位。
+现在有了 `El::tableRow()` / `El::tableCell()` / `->rowCount()` / `->columnCount()` /
+`->rowIndex()` / `->columnIndex()`，ABI 也补上了 index 槽与回读口
+（`App::specIndex(id)`，查无此 id 返回 -1），showcase 的 `--selftest` 用它做断言。
+注意这些号只影响 **aria 读数**——上游的表格部件全是"带 role 的 div"，布局依旧归样式管。
 
 ## 5. 为什么"发了没生效"是可能的：静默与响亮的分界
 

@@ -229,12 +229,31 @@ function sectionData(array $s): El
 {
     return El::vFlex([
         El::text('表格、列表与进度')->font(22.0)->semibold(),
-        El::table('da-table')->children([
-            El::tableCaption('table / tableHead / tableHeader / tableBody'),
-            El::tableHead([El::text('表头行')->font(12.0)->semibold()]),
-            El::tableHeader([El::text('名称')->font(12.0), El::text('数量')->font(12.0), El::text('状态')->font(12.0)]),
-            El::tableBody([El::text('alpha'), El::text('3'), El::text('ok')]),
-            El::tableBody([El::text('beta'), El::text('7'), El::text('warn')]),
+        // 语义表格：Table > TableHeader/TableBody > TableRow > TableHead/TableCell。
+        // 每一层在上游都只是"一个带 aria role 的 div"（base/table.cpp:12-56），布局仍归
+        // 样式管（所以行要自己 flexRow）；行列数与序号是 aria 读数——不写就等于对读屏的人
+        // 说"这表没有行列、每格都在第 0 列"。
+        El::table('da-table')->rowCount(3)->columnCount(3)->children([
+            El::tableCaption('table / header / body / row / head / cell（aria 行列号已给）'),
+            El::tableHeader([
+                El::tableRow([
+                    El::tableHead([El::text('名称')->font(12.0)->semibold()])->columnIndex(0),
+                    El::tableHead([El::text('数量')->font(12.0)->semibold()])->columnIndex(1),
+                    El::tableHead([El::text('状态')->font(12.0)->semibold()])->columnIndex(2),
+                ])->id('da-row-0')->rowIndex(0)->flexRow()->gap(18.0),
+            ]),
+            El::tableBody([
+                El::tableRow([
+                    El::tableCell([El::text('alpha')])->columnIndex(0),
+                    El::tableCell([El::text('3')])->columnIndex(1),
+                    El::tableCell([El::text('ok')])->columnIndex(2),
+                ])->id('da-row-1')->rowIndex(1)->flexRow()->gap(18.0),
+                El::tableRow([
+                    El::tableCell([El::text('beta')])->columnIndex(0),
+                    El::tableCell([El::text('7')])->columnIndex(1),
+                    El::tableCell([El::text('warn')])->columnIndex(2),
+                ])->id('da-row-2')->rowIndex(2)->flexRow()->gap(18.0),
+            ]),
         ])->w(340.0),
         // El::list 是 catalog 的 List 组件，内容由 item renderer 决定，直接塞 children 会被
         // 丢掉（gpui 自己在控制台说 "children are dropped on a list"）。桥这边还没接 renderer

@@ -1170,7 +1170,7 @@ int gpui_shim_element_value(void* win, const char* id, double* out_num,
 }
 
 uint32_t gpui_shim_push(void* win, const char* kind, const char* text,
-                        const char* value, const char* id) {
+                        const char* value, const char* id, unsigned index) {
     auto* box = static_cast<Box2*>(win);
     gpui::shell::Component c;
     bool knownKind = true;
@@ -1185,11 +1185,34 @@ uint32_t gpui_shim_push(void* win, const char* kind, const char* text,
     // 安全性来自"这次调用是同步的"：bridge 的 std::string 活到 Push 返回。
     if (text && *text) c.text = cppStr(text);
     if (value && *value) c.value = cppStr(value);
+    c.index = index;
     if (id && *id) {
         auto it = box->inputHandles.find(id);
         if (it != box->inputHandles.end()) c.handle = it->second;
     }
     return box->specs.Push(c);
+}
+
+int gpui_shim_spec_index_by_id(void* win, const char* id, unsigned* out_index) {
+    auto* box = static_cast<Box2*>(win);
+    if (!box || !id || !*id || !out_index) return 0;
+    const gpui::shell::SpecArena& specs = box->specs;
+    const gpui::Str want = cppStr(id);
+    for (gpui::shell::SpecId s = 0, n = (gpui::shell::SpecId)specs.Len(); s < n; ++s) {
+        const gpui::shell::SpecNode* node = specs.Node(s);
+        if (!node) continue;
+        for (const gpui::shell::SpecOp& op : node->ops) {
+            // ->id('x') 的落地形状是一个 Method op，名字 id、一个字符串实参。
+            if (op.kind != gpui::shell::SpecOpKind::Method || !op.args || op.argCount < 1) continue;
+            if (!gpui::StrEq(op.name, gpui::Str("id"))) continue;
+            const gpui::shell::Bridged& a0 = op.args[0];
+            if (a0.kind != gpui::shell::BridgedKind::String) continue;
+            if (!gpui::StrEq(a0.string, want)) continue;
+            *out_index = node->component.index;
+            return 1;
+        }
+    }
+    return 0;
 }
 
 uint64_t gpui_shim_retained_input(void* win, const char* id, int textarea,

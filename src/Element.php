@@ -49,6 +49,16 @@ class Element
     /** @var array<int, mixed> 构造器实参，按 descriptor 声明顺序（字符串/布尔/数字/数组/回调标记） */
     public array $ctorArgs = [];
 
+    /**
+     * @var int 组件的序号槽，最终落到上游 Component::index。
+     *
+     * 只有三类节点读它：TableRow 当行号、TableHead/TableCell 当列号
+     * （materialize.cpp:1838-1842 → El::AriaRowIndex/AriaColumnIndex）。
+     * 也就是说这个数不影响布局，只影响屏幕阅读器报出的位置——但报错位置对
+     * 用读屏的人来说就是"第 1 列念了 13 遍"。用 rowIndex()/columnIndex() 写。
+     */
+    public int $index = 0;
+
     // ── catalog 枚举白名单（严格对齐 component_shell descriptor 的字面量表）──
     // 用途：sugar 方法在 render 前预校验，拼错的枚举立刻抛异常，而非等到 debug_tree。
 
@@ -456,6 +466,29 @@ class Element
         return $e;
     }
 
+    /**
+     * 表格的一行。上游 Table 的 typed children 只收 TableRow
+     * （component_shell/structured/table.cpp:49 `kAllowed[] = {"TableRow"}`），
+     * 所以"Table 里直接塞 text"那种写法拿到的不是表格，只是一个盒子。
+     * 行号用 ->rowIndex(n) 给（aria 用，见 $index）。
+     */
+    public static function tableRow(array $children = []): self
+    {
+        $e = new self();
+        $e->kind = 'table_row';
+        foreach ($children as $c) { $e->child($c); }
+        return $e;
+    }
+
+    /** 数据格：只能挂在 TableRow 下（那里 kAllowed = {TableHead, TableCell}）。 */
+    public static function tableCell(array $children = []): self
+    {
+        $e = new self();
+        $e->kind = 'table_cell';
+        foreach ($children as $c) { $e->child($c); }
+        return $e;
+    }
+
     public static function tableCaption(string $text): self
     {
         $e = new self();
@@ -818,6 +851,49 @@ class Element
         return $this->method('checked', [$v]);
     }
 
+    /**
+     * 表格的行列总数（aria 用）。上游读 `row_count`/`column_count` 两个 op
+     * （materialize.cpp:352-354），不读子节点个数——所以不写就是"表格没有行列数"。
+     */
+    public function rowCount(int $n): self
+    {
+        if ($n < 0) {
+            throw new \InvalidArgumentException('rowCount(): 行数不能为负，收到 ' . $n);
+        }
+        return $this->method('row_count', [(float) $n]);
+    }
+
+    public function columnCount(int $n): self
+    {
+        if ($n < 0) {
+            throw new \InvalidArgumentException('columnCount(): 列数不能为负，收到 ' . $n);
+        }
+        return $this->method('column_count', [(float) $n]);
+    }
+
+    /**
+     * 本节点在表里的序号槽。rowIndex 给 TableRow、columnIndex 给 TableHead/TableCell；
+     * 两者写的是同一个 Component::index（上游按 kind 决定它的含义），所以别在同一颗上
+     * 两个都调 —— 后一个会盖掉前一个。
+     */
+    public function rowIndex(int $i): self
+    {
+        if ($i < 0) {
+            throw new \InvalidArgumentException('rowIndex(): 行号不能为负，收到 ' . $i);
+        }
+        $this->index = $i;
+        return $this;
+    }
+
+    public function columnIndex(int $i): self
+    {
+        if ($i < 0) {
+            throw new \InvalidArgumentException('columnIndex(): 列号不能为负，收到 ' . $i);
+        }
+        $this->index = $i;
+        return $this;
+    }
+
     // primary()/secondary()/danger()/ghost()/outline() 在这里改过一轮：它们原先发
     // method('variant', [...]) 与 method('outline')，上游两个名字都不认（Button 的变体是
     // 零参**方法** primary/ghost/…，`variant(enum)` 属于 DropdownButton/Tag/…），
@@ -970,6 +1046,7 @@ class Element
             'id' => $this->id,
             'registered' => $this->registered,
             'ctorArgs' => $this->ctorArgs,
+            'index' => $this->index,
             'ops' => $ops,
         ];
         $kids = [];

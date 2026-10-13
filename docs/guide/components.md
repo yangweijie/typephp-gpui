@@ -40,9 +40,39 @@ El::avatar(string $src) / El::accordionItem(string $header, El $panel) / El::svg
 El::numberInput($id) / El::otpInput($id)
 El::progressTrack(array $children = []) / El::progressIndicator()
 El::tableHead(array $children) / El::tableCaption(string $text)
+El::tableRow(array $children = []) / El::tableCell(array $children = [])
 El::hResizable(array $children) / El::vResizable(array $children) / El::resizablePanel(?El $child)
 El::popup() / El::radioGroup(array $children) / El::toggleGroup(array $children)
 ```
+
+### 表格要按语义搭
+
+上游每一层表格部件都只是"一个带 aria role 的 div"（`base/table.cpp:12-56`），**布局不管、
+只管语义**：行要自己 `flexRow()`，而 `Table` 的 `row_count`/`column_count` 与
+`TableRow`/`TableHead`/`TableCell` 的序号都要显式给（`materialize.cpp:352-354, 1838-1842`），
+不给就等于对读屏的人说"这表没有行列、每格都在第 0 列"。
+
+```php
+El::table('t')->rowCount(2)->columnCount(2)->children([
+    El::tableHeader([
+        El::tableRow([
+            El::tableHead([El::text('名称')])->columnIndex(0),
+            El::tableHead([El::text('数量')])->columnIndex(1),
+        ])->id('row-0')->rowIndex(0)->flexRow()->gap(18.0),
+    ]),
+    El::tableBody([
+        El::tableRow([
+            El::tableCell([El::text('alpha')])->columnIndex(0),
+            El::tableCell([El::text('3')])->columnIndex(1),
+        ])->id('row-1')->rowIndex(1)->flexRow()->gap(18.0),
+    ]),
+]);
+```
+
+`rowCount()/columnCount()` 发的是上游认的两个 method op；`rowIndex()/columnIndex()` 写的是
+`Component::index` 槽（同一个槽，上游按 kind 决定含义，别在一颗节点上两个都调）。
+自检读数：`App::specIndex('row-1')` 回读 spec 里的号，查无此 id 返回 `-1`
+（与"有、且号是 0"分得开）——showcase 的 `--selftest` 用它盯这件事。
 
 ## 样式与行为（链式）
 

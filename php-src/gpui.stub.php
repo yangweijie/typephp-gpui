@@ -114,6 +114,13 @@ function gpui_state_counts(mixed $window): array {}
 /** 读取 checkbox/switch/slider 等元素的当前值。 */
 function gpui_element_value(mixed $window, string $id): mixed {}
 
+/**
+ * 回读 spec 里该元素 id 的 index 槽：TableRow 用它当行号、TableHead/TableCell 当列号
+ * （上游 materialize 拿它喂 AriaRowIndex/AriaColumnIndex）。没有这个 id 时返回 -1，
+ * 以便与"有、且 index 是 0"区分。存在的意义是让自检能证明行/列号真的进了 spec。
+ */
+function gpui_spec_index(mixed $window, string $id): int {}
+
 /* ─────────────────────── 定时器与主题 ─────────────────────── */
 
 /** 注册周期定时器，到点收到 ['type'=>'timer','id'=>$id] 事件。intervalMs<=0 取消。 */

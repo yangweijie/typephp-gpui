@@ -386,6 +386,18 @@ final class App
         return (bool) \gpui_element_value($this->handle(), $id);
     }
 
+    /**
+     * 回读 spec 里该元素的序号槽（TableRow 的行号 / TableHead·TableCell 的列号）。
+     *
+     * 这是自检用的读数，不是给应用逻辑用的：aria 行/列号最终落在物化后的 El 上，
+     * PHP 侧看不到，能确证的只有"我们写进去的号进了 spec"。查无此 id 返回 -1，
+     * 以便与"有、且号是 0"区分。
+     */
+    public function specIndex(string $id): int
+    {
+        return (int) \gpui_spec_index($this->handle(), $id);
+    }
+
     // ── 定时器 ──
 
     /** 注册周期定时器，到点收到 ['type'=>'timer','id'=>$id] 事件。 */
