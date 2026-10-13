@@ -95,6 +95,12 @@ function gpui_open_dialog(mixed $window, array $tree, bool $escape, bool $backdr
 /** 当前打开的 dialog 数。 */
 function gpui_dialog_count(mixed $window): int {}
 
+/**
+ * 当前生效的焦点陷阱 id（0 = 没有）。dialog/sheet 的键盘行为（Escape 关框、Tab 只在框内走）
+ * 都以"焦点在不在陷阱里"为前提，这个读数比"按 Escape 看关没关"更早说明问题。
+ */
+function gpui_focus_trap(mixed $window): int {}
+
 /** 关闭最上层 dialog；成功返回 true。 */
 function gpui_close_dialog(mixed $window): bool {}
 

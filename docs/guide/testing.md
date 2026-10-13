@@ -19,6 +19,12 @@
 
 一键：`composer test:all`（Pest + PHPStan + 上游词表 parity + shim_test）。
 
+> 在 composer 的脚本里写 shell 命令要用 `bash cmd/xxx.sh`，不能用 `@bash cmd/xxx.sh`：
+> composer 只把 `@php`/`@composer`/`@putenv` 当内置前缀，`@bash` 被解析成"另一个叫 bash 的脚本"，
+> 只打一行 `You made a reference to a non-existent script` 而 **rc 仍为 0**。
+> `test:cpp` / `test:all` 里曾各有一处，于是本地一键门长期根本不编 C++（CI 另有独立步骤所以没漏）。
+> 判据：跑完必须在输出里看到 shim_test 自己的分节名，看不到就是没跑。
+
 ## Pest（PHP 无头）
 
 `tests/ElementTest.php` / `tests/AppTest.php` / `tests/SystemTest.php`，走 `FakeBridge`

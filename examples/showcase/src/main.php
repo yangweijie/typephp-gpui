@@ -60,6 +60,10 @@ function showcaseDispatch(array $argv): void
         runLiveClick();
         return;
     }
+    if (in_array('--escape', $argv, true)) {
+        runEscapeProbe();
+        return;
+    }
     if (in_array('--trace', $argv, true)) {
         // trace 必须作为 boot() 的 over 传进去：boot() 整表重置，先 boot 再置位会被冲掉
         // （第一版就是这么写的，结果 --trace 一条都没落盘，探针误以为"真输入没到"）。
@@ -76,7 +80,7 @@ function showcaseDispatch(array $argv): void
     // 未知开关不能静默落到交互模式：实测 `showcase --debug` 会悄悄起一个阻塞的 GUI，
     // 看上去就像"命令卡住了/没反应"。只查 `--` 前缀的项——`--shot` 的路径与节号是裸参数。
     $known = ['--sections', '--selftest', '--expect-bundle', '--startfront',
-        '--livetyping', '--liveclick', '--trace', '--shot'];
+        '--livetyping', '--liveclick', '--escape', '--trace', '--shot'];
     foreach ($argv as $a) {
         $s = (string) $a;
         if (\strncmp($s, '--', 2) === 0 && !in_array($s, $known, true)) {
@@ -98,6 +102,40 @@ function showcaseDispatch(array $argv): void
  * 之后测到的，不能拿来推断用户。这条模式只推进帧数、不做别的动作，量的就是
  * "跑了 N 帧之后真点击还进不进得来"。
  */
+/**
+ * --escape：#62 的**原始场景**单独隔离——进程里第一个 dialog、纯文本、不去点它，直接按 Escape。
+ *
+ * 为什么要单独一条：selftest 里那段现在测的是"另一个 dialog 周期之后"的状态，
+ * 而且反向对照（把候选修法 FocusTrapApplyPending 摘掉）在 selftest 上照样绿
+ * ——那条断言不覆盖这个 bug。真正的读数得靠这一格。
+ */
+function runEscapeProbe(): void
+{
+    ShowcaseState::boot();
+    $app = new App();
+    wireShowcase($app);
+    $app->create();
+    $app->createWindow('Showcase Escape', 1180, 760);
+    $app->keepTryingForeground(12);
+    // 与交互模式同一形状：每帧重建 view，Escape 面对的是用户面前的节奏。
+    $app->view(static function () use ($app): El { return interactiveFrame($app); });
+    $app->loop(6);
+    $opened = $app->openDialog(El::text('进程里第一个框，纯文本')->p(10.0));
+    $trap = $app->focusTrap();
+    $app->loop(10);
+    // 关键分岔：陷阱是"永远不生效"还是"要几帧后才生效"。前者说明 arm/apply 那条链
+    // 在我们宿主里根本没走通（FocusTrapArm 只在 DrawFrame 的 EntityRender 里被调用，
+    // 而 apply 的条件是 win->focusEls 里有 popup 那颗），后者只是时序。
+    $trapAfterFrames = $app->focusTrap();
+    $app->realKey(53, '');                // kVK_Escape
+    $app->loop(8);
+    $closed = $app->dialogCount() === 0;
+    echo 'ESCAPE-FIRST opened=' . $opened . ' trapAfterOpen=' . $trap
+        . ' trapAfterFrames=' . $trapAfterFrames
+        . ' focus=' . $app->focusedId() . ' closed=' . var_export($closed, true) . "\n";
+    exit($closed ? 0 : 1);
+}
+
 function runLiveClick(): void
 {
     ShowcaseState::boot();
@@ -1019,19 +1057,47 @@ function runSelfTest(bool $expectBundle, bool $startFront = false): void
     $bdCounts = $app->stateCounts();
     $bdReclaimed = (int) ($bdCounts['boxesAlive'] ?? -1) === $boxesBase
         && (int) ($bdCounts['viewsAlive'] ?? -1) === $viewsBase;
+    // #62 的读数。两条断言各管各的，别混：
+    //   $escProbeAfterTab —— 焦点在框内（Tab 进去了）时 Escape 必须关掉它。这条真锁行为。
+    //   $escClosed        —— 前一个 dialog 周期之后，纯文本框的 Escape 也关得掉。
+    // 但**#62 本体**（进程里第一个框、没点过任何东西）不在这里判——反向对照显示摘掉
+    // 候选修法后这两条照样绿，说明它们不覆盖那个场景。那一格由 `--escape` 单独量。
+    // 已排除：注入路不通（同一个派发口上 Tab 会换焦点）、escape/backdrop 四层参数顺序错、
+    // topmost 没置（root.cpp:840-847 每次渲染重算，背板能关就是证据）、
+    // 帧数不够、脏驱动没重画、开框时清焦点（focusWas=0 时 Escape 依然不关）。
+    // 第一格：框里放一颗**可聚焦**的 catalog 按钮，Tab 把焦点带进去再按 Escape。
+    //   关掉 ⇒ 绑定与派发都是好的，缺的只是"开框那一下把焦点带进去"；
+    //   不关 ⇒ 上下文栈这一侧没拿到 DialogContext，得往 win->dispatch/KeyContext 查。
+    $app->openDialog(El::catalogButton('esc-target', '按 Escape 该关掉我')->onClick());
+    $app->loop(6);
+    $escProbeOpen = $app->dialogCount();
+    $escProbeTrap = $app->focusTrap();     // 机制级读数：陷阱生效了没有
+    $app->realKey(48, '');                // kVK_Tab
+    $app->loop(4);
+    $escProbeFocus = $app->focusedId();
+    $app->realKey(53, '');                // kVK_Escape
+    $app->loop(6);
+    $escProbeAfterTab = $app->dialogCount();
+    for ($i = 0; $i < 4 && $app->dialogCount() > 0; $i++) {
+        $app->closeDialog();
+        $app->loop(2);
+    }
+
     $dialogN = $app->openDialog(El::text('st dialog')->p(10.0));
     $dialogCount = $app->dialogCount();
-    // #62 的**读数**（暂时只报不进 $ok，因为断言现在是红的）：dialog 开着、
-    // 不去点它，按 Escape 关不关？实测三种都关不掉：
-    //   esc=false            开框 + 10 帧 + Escape
-    //   invalidate=false     再强制一次 PHP 重画 + Escape
-    //   countAfterPress=0    点窗口中心 (600,380) 之后计数就已经是 0 ——
-    //                        那一下是**背板把它点掉的**，不是 Escape 关的。
-    // 已排除：注入路不通（Tab 会换焦点，同一个派发口）、参数顺序错
-    // （escape/backdrop 四层一致）、topmost 没置（root.cpp:840-847 每次渲染重算）、
-    // 焦点没进框（开框时清焦点后 Escape 依然不关）。
-    // 剩下要查的是绑定这一侧：base/dialog.cpp:127 给 popup 挂的
-    // KeyContext(DialogContext()) 到底有没有被 WindowKeyDownDispatch 的上下文链取到。
+    $plainTrap = $app->focusTrap();
+    // 这一格是**不依赖输入**的机制读数，因此可以当硬门：给几帧之后，
+    // 焦点陷阱必须生效、且焦点必须就落在陷阱的宿主（popup）上。
+    // 实测：trapOnOpen=0（open 当场还没 arm，Arm 发生在 DrawFrame 的渲染里）、
+    // 十帧后 trap==focus==popup 的 id —— 上游那条"开框把焦点带进陷阱"的链是通的。
+    // 反向对照：把 loop(10) 挪到读数之后 ⇒ trapAfterFrames=0 / focus=-1062 / trapOk=false，
+    // selftest rc=1。所以这门量的是"帧把陷阱带起来"这件事本身，不是恒真。
+    // Escape 关不关则依赖真键送达（前台是竞争态），所以只报不判，见 --escape。
+    $app->loop(10);
+    $trapAfterFrames = $app->focusTrap();
+    $focusOnTrap = $app->focusedId();
+    $trapOk = $trapAfterFrames !== 0 && $focusOnTrap === $trapAfterFrames;
+    // 第二格：纯文本框（没有任何可聚焦东西）开着，直接按 Escape。
     $escClosed = false;
     $escAfterInvalidate = false;
     $countAfterPress = -1;
@@ -1382,7 +1448,7 @@ function runSelfTest(bool $expectBundle, bool $startFront = false): void
         && $clipBack === 'SHOWCASE-Ω' && $item['text'] === 'SHOWCASE-Ω'
         && $urlRejected === false && $hudOn && $hudVisible
         && $overlayReclaimed && $bdNativeClosed && $bdReclaimed
-        && $sheetN > 0 && $hasSheet && $dialogN >= 0 && $dialogCount >= 1
+        && $sheetN > 0 && $hasSheet && $dialogN >= 0 && $dialogCount >= 1 && $trapOk
                 && $nid > 0 && $notifyCount === 1 && $notifyAfter === 0
         && $menuCount > 0 && $trayId > 0 && $trayCount === 1 && $hk > 0 && $hkFired
         && $theme === ''
@@ -1421,7 +1487,10 @@ function runSelfTest(bool $expectBundle, bool $startFront = false): void
         'overlay backdrop nativeClosed=' . var_export($bdNativeClosed, true)
             . ' reclaimed=' . var_export($bdReclaimed, true),
         'dialog=' . $dialogN . '/' . $dialogCount,
-        'escape esc=' . var_export($escClosed, true) . ' invalidate=' . var_export($escAfterInvalidate, true)
+        'escape withControl: open=' . $escProbeOpen . ' trap=' . $escProbeTrap . ' focus=' . $escProbeFocus . ' afterTab=' . $escProbeAfterTab,
+        'escape plain: trapOnOpen=' . $plainTrap . ' trapAfterFrames=' . $trapAfterFrames
+            . ' focus=' . $focusOnTrap . ' trapOk=' . var_export($trapOk, true)
+            . ' esc=' . var_export($escClosed, true) . ' invalidate=' . var_export($escAfterInvalidate, true)
             . ' countAfterPress=' . $countAfterPress . ' focusWas=' . $focusBeforeEsc,
         'tray=' . $trayId . '/' . $trayCount,
         'hk=' . $hk . '/' . var_export($hkFired, true),

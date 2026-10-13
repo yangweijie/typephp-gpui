@@ -167,6 +167,8 @@ void* gpui_shim_dialog_begin(void* win);
 int   gpui_shim_dialog_show(void* win, void* dlg, int escape_dismissable,
                             int backdrop_dismissable);
 int   gpui_shim_dialog_count(void* win);
+/* 当前生效的焦点陷阱 id（0 = 没有）。#62 的机制级读数。 */
+int   gpui_shim_focus_trap(void* win);
 int   gpui_shim_dialog_close(void* win);
 
 /* 原生 app 菜单条（macOS 系统菜单栏，非窗口内 → --shot 抓不到，用 count 验证）。

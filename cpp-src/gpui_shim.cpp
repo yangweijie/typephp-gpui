@@ -1469,6 +1469,15 @@ int gpui_shim_dialog_count(void* win) {
     return gpui::ShellRootDialogCount(&cx);
 }
 
+/* 当前生效的焦点陷阱 id（0 = 没有）。#62 的机制级读数：
+ * dialog 的 Escape 绑定挂在 popup 的 KeyContext 上，而按键按"焦点所在的上下文链"解析，
+ * 所以"陷阱有没有生效"比"按 Escape 关没关"更早说明问题。 */
+int gpui_shim_focus_trap(void* win) {
+    auto* box = static_cast<Box2*>(win);
+    if (!box || !box->window) return 0;
+    return gpui::FocusTrapActive(box->window);
+}
+
 int gpui_shim_dialog_close(void* win) {
     auto* box = static_cast<Box2*>(win);
     if (!box || !box->window) return 0;

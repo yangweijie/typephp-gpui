@@ -600,3 +600,15 @@ test('rowCount/columnCount emit the two ops upstream reads', function (): void {
 
     expect(fn () => El::table('t')->rowCount(-1))->toThrow(InvalidArgumentException::class);
 });
+
+// #62 的替身侧语义：dialog 开着 = 焦点陷阱生效；关掉就没了。
+// （真侧的读数是上游按实体算出的 id，测试只判"有没有生效"。）
+test('focusTrap is active while a dialog is open', function (): void {
+    $app = sysApp();
+    expect($app->focusTrap())->toBe(0);
+    $app->openDialog(El::text('带焦点陷阱的框'));
+    expect($app->focusTrap())->not->toBe(0)
+        ->and($app->dialogCount())->toBe(1);
+    $app->closeDialog();
+    expect($app->focusTrap())->toBe(0);
+});

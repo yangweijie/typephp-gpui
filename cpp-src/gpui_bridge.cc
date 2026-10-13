@@ -565,6 +565,11 @@ Int php_gpui_dialog_count(Variant boxVar) {
     return win ? gpui_shim_dialog_count(win) : 0;
 }
 
+Int php_gpui_focus_trap(Variant boxVar) {
+    void* win = winOf(boxVar);
+    return win ? gpui_shim_focus_trap(win) : 0;
+}
+
 Bool php_gpui_close_dialog(Variant boxVar) {
     void* win = winOf(boxVar);
     return win && gpui_shim_dialog_close(win) != 0;

@@ -499,6 +499,13 @@ namespace {
         return FakeBridge::$dialogCount;
     }
 
+    function gpui_focus_trap(mixed $window): int
+    {
+        // 替身语义：dialog 开着就有陷阱（返回一个非 0 的假 id），关掉就是 0。
+        // 真侧那个 id 是上游按实体算出来的哈希，测试里只关心"有没有生效"。
+        return FakeBridge::$dialogCount > 0 ? 1 : 0;
+    }
+
     function gpui_close_dialog(mixed $window): bool
     {
         if (FakeBridge::$dialogCount > 0) {

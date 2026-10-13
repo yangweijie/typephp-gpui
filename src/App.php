@@ -300,6 +300,17 @@ final class App
         return (int) \gpui_dialog_count($this->handle());
     }
 
+    /**
+     * 当前生效的焦点陷阱 id，0 = 没有。
+     *
+     * dialog/sheet 的键盘行为（Escape 关框、Tab 只在框内走）都以"焦点在不在陷阱里"
+     * 为前提，所以这个读数比"按 Escape 看它关不关"更早定位问题（#62 就卡在这）。
+     */
+    public function focusTrap(): int
+    {
+        return (int) \gpui_focus_trap($this->handle());
+    }
+
     public function closeDialog(): bool
     {
         return (bool) \gpui_close_dialog($this->handle());

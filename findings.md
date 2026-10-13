@@ -1324,3 +1324,40 @@ showcase `--selftest` 里加了一段只报不判的读数（`escape esc=… inv
 上游 `Dialog::Popup()` 只 `FocusTrapArm(win,id,id)`（arm，不抢焦点），
 脚本宿主里是"框里第一个可聚焦控件"被 Tab/点击带进去；我们的 dialog 内容常常是纯文本，
 没有可聚焦的东西，而 popup 自己 `TabStop(false)`。
+
+## #62 收口：答案在上游那一侧——链是通的，缺的是"把焦点放进去"这一步由谁做
+
+装了 `focusTrap()` 回读口（shim `gpui::FocusTrapActive(window)` → bridge → stub → `App::focusTrap()`，
+Fake 侧按 dialogCount 模拟），第一次拿到不依赖输入的机制读数：
+
+| 读数时机 | trap | focus | 结论 |
+|---|---|---|---|
+| `openDialog()` 当场 | `0` | — | `FocusTrapArm` 只写 `pendingTrap`，Arm 发生在 DrawFrame 的 `EntityRender` 里，比 open 晚 |
+| 再给 10 帧 | `178826760` | `178826760` | **陷阱生效，且焦点就落在陷阱宿主（popup）上** ⇒ 上游"开框把焦点带进陷阱"的链在我们宿主里是通的 |
+
+`--escape`（进程里第一个框、没点过任何东西）同一形状：`trapAfterOpen=0 trapAfterFrames=1010534090
+focus=1010534090 closed=false`。机制全绿、框仍不关 ⇒ 剩下的唯一变量是**真键送达**：
+selftest 的 `evSeen` 里至今没有任何 `key{...}`（只有 change/click/action），`keyHits=1` 量的是
+`realKey()` 注入被接受，不是 PHP 收到了 key_down。这与 #56 是同一件事，不是 dialog 专属缺陷。
+（先前"在 openDialog 里补调 `FocusTrapApplyPending`"的候选修法已否：负向对照显示 selftest 照绿、
+`--escape` 读数一字不差，因为那时 Arm 还没跑，ApplyPending 拿不到 pendingTrap。）
+
+新硬门 `$trapOk`（`trapAfterFrames != 0 && focusOnTrap === trapAfterFrames`）进了 `$ok` 链，
+**拿到回归位的资格已验证**：把 `loop(10)` 挪到两个读数之后 ⇒ `trapAfterFrames=0 focus=-1062
+trapOk=false`，selftest rc=1。改回原位两次连续运行读数一致。
+
+## 第四条哑路：composer 的 `@bash` 前缀不存在，警告照打、rc 仍为 0
+
+`composer.json` 里 `test:cpp` 与 `test:all` 的最后一步写成 `"@bash cmd/test-shim.sh"`。
+composer 的脚本引用只认 `@php` / `@composer` / `@putenv`；`@bash` 被当成"另一个叫 bash 的脚本名"，
+于是输出一行 `You made a reference to a non-existent script @bash cmd/test-shim.sh`
+**然后照常返回 0**。后果：文档里"一键 composer test:all 含 shim_test"是假的，本地从这条门跑过去时
+根本没编过 C++（本轮 `focusTrap()` 动了 shim，却靠这条门"验过"）。CI 在 ci.yml:165 另有
+独立的 `bash cmd/test-shim.sh` 步骤，所以没漏进产物——也就是说这是"本地门形同虚设"，
+不是"整条链没测"。
+
+与前两条哑路（`materialize.cpp:451-454` 带参未知名静默丢弃、`materialize.cpp:314` 对 kind 节点
+跳过 RegisteredMethod）同一形状：**报告走 stdout、结论走 rc，而 rc 不参与**。
+判据落在观察上而不是 rc 上：这类门的绿灯必须是"看到了被门量者自己的输出"，
+不是"没看到错误"。改法 `@bash` → `bash`，双向验过（绿向出现 shim_test 分节名且警告 0 次；
+红向 `GPUI_DIR=/nonexistent-gpui` rc=1）。

@@ -1446,3 +1446,25 @@ hello 与 showcase 的表格改成 Table > Header/Body > Row > Head/Cell。
 门禁：showcase/hello 的 selftest + 基线重录 + check 六步全 rc=0（表格结构变了，像素必然变），
 pest 87 passed (444 assertions)、phpstan / parity / test-shim / check-c-abi /
 check-build-inputs / doctor / docs:build 全绿。
+
+**修复轮 3（#62 机制侧收口 + 一条门禁哑路）**：
+- 五层装 `focusTrap()` 回读口（shim `gpui::FocusTrapActive` → bridge `php_gpui_focus_trap` →
+  stub → `App::focusTrap()`，Fake 侧按 dialogCount 模拟），SystemTest 补一条"框开着陷阱就在"。
+- showcase selftest 加 `$trapOk` 硬门（不依赖输入）：`loop(10)` 后 `trap != 0 && focus == trap`。
+  连续两次读数一致（`trapOnOpen=0 / trapAfterFrames=focus=178826760`）。
+  **负向对照已做**：把 `loop(10)` 挪到两个读数之后 ⇒ `trapAfterFrames=0 focus=-1062 trapOk=false`、
+  selftest rc=1；这门因此拿到回归位，不是恒真。
+- 新 `--escape` 独立探针（进程里第一个框、没点过任何东西）：`trapAfterOpen=0
+  trapAfterFrames=focus=1010534090 closed=false` ⇒ 陷阱链在宿主里是通的，剩下只差真键送达，
+  与 #56 同一件事。先前"在 openDialog 里补 `FocusTrapApplyPending`"的候选修法已否并回退。
+- **抓到一条门禁哑路**：`composer.json` 里 `test:cpp` 与 `test:all` 用的是 `@bash cmd/test-shim.sh`，
+  而 composer 只认 `@php/@composer/@putenv`，`@bash` 被当成"另一个脚本名叫 bash"，
+  打一行 `You made a reference to a non-existent script` 后 **rc 仍为 0** ——
+  也就是说文档里那句"一键 composer test:all 含 shim_test"一直是假的，本地跑 test:all 从不编 C++。
+  CI 有独立的 `bash cmd/test-shim.sh` 步骤（ci.yml:165）所以没漏进产物，但本地门形同虚设。
+  改成 `bash cmd/test-shim.sh` 后双向验过：绿向 rc=0 且输出是 shim_test 自己的分节名、
+  那条 reference 警告 0 次；红向（`GPUI_DIR=/nonexistent-gpui`）rc=1 且 composer 明报
+  `Script bash cmd/test-shim.sh handling the test:cpp event returned with error code 1`。
+- 本轮全门禁：test:all rc=0（四道都真跑）、check-build-inputs / check-c-abi / doctor rc=0、
+  hello selftest rc=0、shotdiff check rc=0（tree 0..32 全 gdfrac=0.00000，探针改动不触像素，
+  这本身也是一条旁证）。
