@@ -311,6 +311,20 @@ $app->onAny('action', function (array $e): void {
 
 ## 真输入还差一步：应用得是"前台应用"
 
+```bash
+php bin/gpui run showcase --wait-key 150     # 人按一下，命令自己给结论
+```
+
+`--wait-key [秒]` 是给 #56/#62 那一格用的：屏幕上写明"先点窗口、再按字母键、然后 Escape"，
+每帧把 `key_down / key_up / click / 焦点 id / active / key` 画出来，按到键就多收 8 秒让
+Escape 与连续按键都进读数，最后打印一行 `WAIT-KEY …` 并以退出码给结论（0=按到了，1=没按到）。
+为什么要人做：前台归属是跟 IDE/终端**竞争**来的，自动化拿不到——用 Qoder computer use
+（无障碍层）量过一轮，`click(elementIndex)` 能穿过 AppKit → gpui → 补丁 → PHP
+（trace 里 `click id=nav-2`），但 `pressKey`/`typeText` 之后 HUD 仍是"按键 0"，
+因为 AX 元素点击不改变系统的激活归属，窗口不是 key window 就没有 firstResponder。
+所以这一格既不能当硬门（OS 竞争态），也不该让人去猜"我这一下到没到"——命令自己说。
+
+
 上面讲的都是"事件怎么路由"，但从 WindowServer 进来的真鼠标/真键盘在此之前先过一道系统门：
 `NSApp.isActive` 与 `window.isKeyWindow`。这两个数不成立时——第一次点击被系统当成"激活这扇
 窗口"的点击吃掉，`keyDown` 根本没有 firstResponder 可去——现象是**代码全绿而手里点不动**。

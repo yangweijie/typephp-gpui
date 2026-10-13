@@ -37,6 +37,19 @@ php bin/gpui shot hello /tmp/x.png      # 内部 --shot，默认 tree 0
 php bin/gpui selftest hello             # rc=0 即通过
 ```
 
+showcase 还带几个把"人来做的那一步"变成有结论的命令的开关：
+
+```bash
+php bin/gpui run showcase --trace                # 每个事件写 /tmp/showcase-events.log
+php bin/gpui run showcase --probe-events         # 部件级事件送达探针（rc=0 才算量到）
+php bin/gpui run showcase --escape               # 进程里第一个 dialog 的 Escape 探针
+php bin/gpui run showcase --wait-key 150         # 真人手按验收：按到 → rc=0
+```
+
+`--wait-key` 是给"窗口不是 key window 就没有 firstResponder"那一格用的：前台归属是跟
+IDE/终端竞争来的，自动化拿不到（详见[事件与回调](./events)），所以让命令自己把读数与
+结论打出来，而不是让人猜"我这一下到没到"。
+
 ## shotdiff
 
 视觉回归基线（需已构建）：

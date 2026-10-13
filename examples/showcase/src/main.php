@@ -68,6 +68,12 @@ function showcaseDispatch(array $argv): void
         runEventProbe();
         return;
     }
+    $keyIdx = array_search('--wait-key', $argv, true);
+    if ($keyIdx !== false) {
+        $secs = isset($argv[$keyIdx + 1]) ? max(5, min(600, (int) $argv[$keyIdx + 1])) : 60;
+        runWaitKey($secs);
+        return;
+    }
     if (in_array('--trace', $argv, true)) {
         // trace 必须作为 boot() 的 over 传进去：boot() 整表重置，先 boot 再置位会被冲掉
         // （第一版就是这么写的，结果 --trace 一条都没落盘，探针误以为"真输入没到"）。
@@ -84,7 +90,8 @@ function showcaseDispatch(array $argv): void
     // 未知开关不能静默落到交互模式：实测 `showcase --debug` 会悄悄起一个阻塞的 GUI，
     // 看上去就像"命令卡住了/没反应"。只查 `--` 前缀的项——`--shot` 的路径与节号是裸参数。
     $known = ['--sections', '--selftest', '--expect-bundle', '--startfront',
-        '--livetyping', '--liveclick', '--escape', '--probe-events', '--trace', '--shot'];
+        '--livetyping', '--liveclick', '--escape', '--probe-events', '--wait-key',
+        '--trace', '--shot'];
     foreach ($argv as $a) {
         $s = (string) $a;
         if (\strncmp($s, '--', 2) === 0 && !in_array($s, $known, true)) {
@@ -222,6 +229,61 @@ function runEventProbe(): void
     $anyArrived = array_sum($probed) + $confirmAfterAction + $dismissAfterAction
         + ($closedByAction ? 1 : 0) > 0;
     exit($anyArrived ? 0 : 1);
+}
+
+/**
+ * `--wait-key [秒]`：把"等真人手按一下"这件事做成一条有判决的命令。
+ *
+ * 为什么要它：#56（真 OS 按键下 key_down 到不到 PHP）与 #62 的后半（Escape 关框）
+ * 卡在同一个前提上——窗口得是 key window，而前台归属是跟 IDE/终端**竞争**来的，
+ * 自动化拿不到（电脑操控那轮量过：AX 点击能产生 click 事件，却不改变激活归属）。
+ * 既然只有人能给它，就别让人去猜"我这一下到没到"：屏幕上写清楚要按什么，
+ * 到了就把读数打出来并以退出码给结论，人不需要去翻日志。
+ */
+function runWaitKey(int $seconds): void
+{
+    ShowcaseState::boot();
+    $app = new App();
+    wireShowcase($app);
+    $app->create();
+    $app->createWindow('Showcase WaitKey', 900, 520);
+    $app->keepTryingForeground(20);
+    $app->view(static function () use ($app, $seconds): El {
+        $kd = evCount('key_down');
+        $ku = evCount('key_up');
+        $cl = evCount('click');
+        $st = $app->windowState();
+        return El::vFlex([
+            El::text('键盘人工验收：请先点一下这扇窗口（把它带到前台），再按几个字母键，然后按 Escape')->font(18.0)->semibold()->p(16.0),
+            El::text('按键 key_down=' . $kd . ' · key_up=' . $ku . ' · 点击 click=' . $cl)->font(16.0)->px(16.0),
+            El::text('active=' . var_export($st['active'] ?? null, true)
+                . ' key=' . var_export($st['key'] ?? null, true)
+                . ' 焦点 id=' . $app->focusedId()
+                . ' 陷阱 id=' . $app->focusTrap())->font(13.0)->px(16.0)->pt(8.0),
+            El::text('窗口会在按到键或计时结束后自己退出；结论也写在终端里。')->font(12.0)->px(16.0)->pt(8.0),
+        ])->sizeFull()->gap(6.0);
+    });
+    $deadline = microtime(true) + $seconds;
+    $frames = 0;
+    $sawKey = false;
+    while (microtime(true) < $deadline) {
+        $app->loop(1);
+        $frames++;
+        if (evCount('key_down') > 0 || evCount('key_up') > 0) {
+            $sawKey = true;
+            // 按到了再多收几帧，让 Escape / 连续按键都进读数，再多等一会儿给人时间。
+            $deadline = min($deadline, microtime(true) + 8);
+        }
+    }
+    $kd = evCount('key_down');
+    $ku = evCount('key_up');
+    echo 'WAIT-KEY seconds=' . $seconds . ' frames=' . $frames
+        . ' key_down=' . $kd . ' key_up=' . $ku
+        . ' click=' . evCount('click') . ' change=' . evCount('change')
+        . ' focus=' . $app->focusedId()
+        . ' seen=' . ($sawKey ? 'yes' : 'no')
+        . ' evSeen=' . evSeenSummary() . "\n";
+    exit($sawKey ? 0 : 1);
 }
 
 function runLiveClick(): void
