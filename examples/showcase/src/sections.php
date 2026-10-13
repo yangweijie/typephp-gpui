@@ -40,49 +40,8 @@ function showcaseSections(): array
     ];
 }
 
-/** 每节的初始状态（main.php 建状态表时合并）。 */
-function showcaseState(): array
-{
-    return [
-        'count' => 0, 'name' => '', 'vol' => 30, 'agree' => false, 'lastBtn' => '—',
-        'lastDd' => '—', 'sidebarCollapsed' => false, 'dialogCount' => 0,
-        'hasSheet' => false, 'sheetAnchor' => '—', 'notifyCount' => 0, 'clip' => '',
-        'picked' => '', 'sysLog' => [], 'http' => '', 'watchId' => 0, 'watchHits' => 0,
-        'inflate' => '', 'sysInfo' => ['（还没采样）'], 'hud' => false, 'theme' => 'light',
-        'probe' => '', 'note' => '', 'hover' => '—', 'key' => '—',
-        'size' => '—', 'collapse' => 'icon', 'align' => 'start', 'placement' => '—',
-        'fpsAnchor' => '—', 'booted' => false,
-        'trayId' => 0, 'hotkeyId' => 0, 'hotkeyHits' => 0, 'hotkeyMods' => '—',
-        'dock' => '', 'osNotify' => '—', 'menuCount' => 0, 'trace' => false,
-        'front' => true, 'frontTries' => 0, 'evSeen' => [],
-    ];
-}
-
-/**
- * 全部可变状态的唯一住所。
- *
- * 为什么不是"main() 里的一个数组 + 到处 use (&$state)"：nano 编译下，把固定类型变量
- * （php::Array）按引用交给一个动态调用会得到 RefWrap<php::Array>，它在 commit() 时
- * 直接 abort（typephp_helper.h:124）。事件处理器都是动态调用，所以引用式状态在
- * 这条路上走不通；静态表既能被处理器写，又能被每帧的 view 读到，不需要任何引用。
- */
-final class ShowcaseState
-{
-    /** @var array<string, mixed> */
-    public static array $v = [];
-
-    public static function boot(array $over = []): void
-    {
-        self::$v = array_merge(showcaseState(), ['section' => 1], $over);
-    }
-
-    /** 当前状态快照，给 builder 当参数用。 */
-    public static function get(): array
-    {
-        return self::$v;
-    }
-
-}
+// 状态表（exampleState() + ExampleState）在 examples/_shared/state.php：
+// 按功能域拆出去的独立示例要共用它，所以它不属于 showcase。
 
 // ── 1. 基础原语 ─────────────────────────────────────────────────────────────
 function sectionPrimitives(array $s): El
@@ -128,35 +87,8 @@ function sectionPrimitives(array $s): El
     ])->sizeFull()->gap(8.0)->p(16.0)->overflowYScroll();
 }
 
-// ── 2. 输入与保留态取值 ─────────────────────────────────────────────────────
-function sectionInputs(array $s): El
-{
-    return El::vFlex([
-        El::text('输入与保留态取值')->font(22.0)->semibold(),
-        El::text('input / textarea / numberInput / otpInput：值由 gpui 持有，PHP 用 text(id) 取回')->font(12.0),
-        El::input('in-name')->placeholder('你的名字')->onChange(),
-        El::text($s['name'] !== '' ? "Hello, {$s['name']}!" : '还没输入')->font(13.0)->italic(),
-        // onKeyDown：回调 op 名是 on_key_down，bridge 剥掉 "on_" 前缀后事件类型是 key_down
-        // （cpp-src/gpui_bridge.cc:49），所以 handler 注册用 $app->on(id, 'key_down')。
-        El::input('in-key')->placeholder('在这里按键（onKeyDown）')->onKeyDown()->onKeyUp(),
-        El::text("keyDown={$s['key']}")->font(11.0),
-        El::textarea('in-note')->value('多行文本：textarea 也是保留态的')->onChange(),
-        El::text($s['note'] !== '' ? "备注 {$s['note']} 个字符" : '备注还没改')->font(11.0),
-        El::hFlex([
-            El::numberInput('in-num')->value('42')->placeholder('数字')->onChange()->onStep(),
-            El::otpInput('in-otp')->placeholder('4 位')->onChange(),
-        ])->gap(12.0),
-        El::hFlex([
-            El::slider(0.0, 100.0, (float) $s['vol'])->id('in-vol')->onChange(),
-            El::text("vol={$s['vol']}")->font(12.0)->textRight(),
-        ])->gap(10.0)->itemsCenter(),
-        El::hFlex([
-            El::checkbox('同意', false)->id('in-agree')->onChange(),
-            El::switchBox('深色开关', false)->id('in-dark')->onChange(),
-            El::text($s['agree'] ? 'checkbox 已勾选' : 'checkbox 未勾选')->font(12.0),
-        ])->gap(12.0),
-    ])->sizeFull()->gap(10.0)->p(16.0)->overflowYScroll();
-}
+// ── 2. 输入与保留态取值 ──> 已搬到 examples/_shared/features/inputs.php
+//    （sectionInputs + wireInputs + inputsTrees），独立示例 examples/input 与画廊共用那一份。
 
 // ── 3. 选择、开关与按钮变体 ─────────────────────────────────────────────────
 function sectionChoices(array $s): El

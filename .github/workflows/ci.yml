@@ -191,6 +191,24 @@ jobs:
       - name: Live-typing gate（每颗输入框都打得进字）
         run: ./examples/showcase/build/showcase --livetyping
 
+      # 按功能域拆出来的独立示例（examples/<域>，hello 与 showcase 之外）：一支一个二进制，
+      # yml 只列本域那一份源，所以它红的时候知道就是这一域的问题。
+      # 上面的 build hello / build showcase 已经把共用产物（补丁后的沙箱、gpui.o、
+      # libgpui_shim.a）建好了，所以这里用 --no-native 只跑 tpc 那一步——不加的话每支都会
+      # 把沙箱 rsync --delete 掉再重编一遍 amalgam（几分钟），十几支直接超 45 分钟预算。
+      # 新拆一支示例不用改这里：循环按 examples/*/project.macos.yml 自己找到它。
+      - name: Domain examples（逐支编译 + --selftest）
+        run: |
+          set -e
+          for yml in examples/*/project.macos.yml; do
+            ex=$(basename "$(dirname "$yml")")
+            case "$ex" in hello|showcase) continue ;; esac
+            php bin/gpui build "$ex" --no-native
+            echo "::group::$ex --selftest"
+            "./examples/$ex/build/$ex" --selftest
+            echo "::endgroup::"
+          done
+
       # 边界（不装）：这里跑的是**裸二进制**，所以 selftest 读数里 bundled=false，
       # bundleGreen/routeGreen 两道门在 CI 记为"未验"而不是"通过"——它们要的是
       # "有 .app 身份 → NSApp.isActive 起得来 → 事件缝走真 NSApp 路由"，而托管 runner

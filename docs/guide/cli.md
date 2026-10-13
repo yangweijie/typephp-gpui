@@ -37,6 +37,19 @@ php bin/gpui shot hello /tmp/x.png      # 内部 --shot，默认 tree 0
 php bin/gpui selftest hello             # rc=0 即通过
 ```
 
+`<example>` 是 `examples/` 下的目录名，除 hello/showcase 外还有按功能域拆出来的独立示例
+（`input` 等，见 `ls examples/`）。它们的开关是同一套：`--sections` 自报像素树号、
+`--shot <path> [tree]` 出图、`--selftest` 跑本域的门。与 showcase 的差别只在**范围**：
+一支只装一域，所以编译只花这一域的源，自检也边跑边打（一步一行，崩在哪行停在哪行）。
+
+```bash
+php bin/gpui build input --no-native    # 只跑 tpc，复用已建好的 gpui.o + libgpui_shim.a
+```
+
+`gpui build` 默认每次都要重编 amalgam（`cmd/sync-upstream.sh` 的 `rsync --delete` 会连
+沙箱里的 `.work/` 与 `out/` 一起清掉），而那份产物是所有示例共用的。所以**一轮里只第一支
+走完整链，其余加 `--no-native`**；那两个前置产物不在时它会直接拒绝，不会静默链到陈旧产物上。
+
 showcase 还带几个把"人来做的那一步"变成有结论的命令的开关：
 
 ```bash

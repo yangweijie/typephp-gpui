@@ -123,7 +123,7 @@ function showcaseDispatch(array $argv): void
  */
 function runEscapeProbe(): void
 {
-    ShowcaseState::boot();
+    ExampleState::boot();
     $app = new App();
     wireShowcase($app);
     $app->create();
@@ -164,13 +164,13 @@ function runEscapeProbe(): void
 /// 矩形，点它 AppKit 的 _mouseHysteresisCheck: 会等下一个事件而不返回），所以这里用网格。
 function runEventProbe(): void
 {
-    ShowcaseState::boot();
+    ExampleState::boot();
     $app = new App();
     wireShowcase($app);
     $app->create();
     $app->createWindow('Showcase EventProbe', 1180, 760);
     $app->keepTryingForeground(12);
-    ShowcaseState::$v['section'] = 3;
+    ExampleState::$v['section'] = 3;
     $app->view(static function () use ($app): El { return interactiveFrame($app); });
     $app->loop(8);
     $posted = 0;
@@ -242,7 +242,7 @@ function runEventProbe(): void
  */
 function runWaitKey(int $seconds): void
 {
-    ShowcaseState::boot();
+    ExampleState::boot();
     $app = new App();
     wireShowcase($app);
     $app->create();
@@ -288,7 +288,7 @@ function runWaitKey(int $seconds): void
 
 function runLiveClick(): void
 {
-    ShowcaseState::boot();
+    ExampleState::boot();
     $app = new App();
     wireShowcase($app);
     $app->create();
@@ -307,7 +307,7 @@ function runLiveClick(): void
         for ($i = 0; $i < $frames; $i++) {
             $app->loop(1);
         }
-        ShowcaseState::$v['evSeen']['click'] = [];
+        ExampleState::$v['evSeen']['click'] = [];
         $sent = 0;
         for ($y = 60; $y <= 430; $y += 10) {
             if ($app->realClick(100, $y)) {
@@ -315,7 +315,7 @@ function runLiveClick(): void
             }
         }
         $app->loop(3);
-        $ids = array_keys(ShowcaseState::$v['evSeen']['click'] ?? []);
+        $ids = array_keys(ExampleState::$v['evSeen']['click'] ?? []);
         if ($firstFrameSent < 0) {
             $firstFrameSent = $sent;
         }
@@ -347,7 +347,7 @@ function runLiveType(): void
 {
     // trace 打开：这一步在本模式里不是可选项。段错误时 stdout 一行都没落（echo 全被缓冲吃掉），
     // 只有落盘的进度行能告诉我们死在哪一步——每条动作前先写一行，最后一行就是崩点。
-    ShowcaseState::boot(['trace' => true]);
+    ExampleState::boot(['trace' => true]);
     $app = new App();
     wireShowcase($app);
     $app->create();
@@ -391,7 +391,7 @@ function runLiveType(): void
             $b = $app->inputProbe($i);
             $cx = (int) ((int) $b['x'] + (int) $b['w'] / 2);
             $cy = (int) ((int) $b['y'] + (int) $b['h'] / 2);
-            ShowcaseState::$v['evSeen']['change'] = [];
+            ExampleState::$v['evSeen']['change'] = [];
             if ((int) $b['w'] <= 0 || !$app->realClick($cx, $cy)) {
                 continue;
             }
@@ -401,18 +401,18 @@ function runLiveType(): void
             showcaseTrace('lt tree=' . $tree . ' key i=' . $i);
             $app->realKey(18, '1');
             $app->loop(2);
-            if (count(ShowcaseState::$v['evSeen']['change'] ?? []) > 0) {
+            if (count(ExampleState::$v['evSeen']['change'] ?? []) > 0) {
                 $typed++;
             }
             // 真实按键也要真的成为 key_down 事件（不只是 change）：下面按 id 收着，
             // 最后要求 in-key 在里面——那是这轮修复的正题。
-            foreach (array_keys(ShowcaseState::$v['evSeen']['key_down'] ?? []) as $kid) {
+            foreach (array_keys(ExampleState::$v['evSeen']['key_down'] ?? []) as $kid) {
                 $sawKeyDown[(string) $kid] = true;
             }
             // value 也断言：key_down 带的是键名（KeyName(vk)），字符事件带的是码点
             //（KeyEvent 的 vk/ch 互斥，见 gpui.h 的注释）。合成这颗 keycode 18 → "1"。
-            $keyValueSeen .= (string) ShowcaseState::$v['key'];
-            ShowcaseState::$v['key'] = '';
+            $keyValueSeen .= (string) ExampleState::$v['key'];
+            ExampleState::$v['key'] = '';
         }
         $rows[] = 'tree' . $tree . ':' . $typed . '/' . $tried . '(of ' . $n . ')';
         $totalIn += $tried;
@@ -437,7 +437,7 @@ function runLiveType(): void
     }
     $rtNav = $embedTree > 0 && navClickTo($app, $embedTree);
     if ($rtNav && $embedBuilder !== '') {
-        $app->render($embedBuilder(ShowcaseState::get()));
+        $app->render($embedBuilder(ExampleState::get()));
         $app->loop(2);
         $rtNav = navClickTo($app, 2);
     }
@@ -450,7 +450,7 @@ function runLiveType(): void
             if ((int) $b['w'] <= 0) {
                 continue;
             }
-            ShowcaseState::$v['evSeen']['change'] = [];
+            ExampleState::$v['evSeen']['change'] = [];
             if (!$app->realClick((int) $b['x'] + (int) $b['w'] / 2, (int) $b['y'] + (int) $b['h'] / 2)) {
                 continue;
             }
@@ -458,7 +458,7 @@ function runLiveType(): void
             $app->loop(2);
             $app->realKey(18, '1');
             $app->loop(2);
-            if (count(ShowcaseState::$v['evSeen']['change'] ?? []) > 0) {
+            if (count(ExampleState::$v['evSeen']['change'] ?? []) > 0) {
                 $rtTyped++;
             }
         }
@@ -480,7 +480,7 @@ function runLiveType(): void
         && $rtNav && $rtTried >= 4 && $rtTyped === $rtTried ? 0 : 1);
 }
 
-/** 节导航条 + 当前节内容（当前节号从 ShowcaseState::$v 读）。 */
+/** 节导航条 + 当前节内容（当前节号从 ExampleState::$v 读）。 */
 function showcaseShell(): El
 {
     // 节表每帧只建一次：原来下面 `$sections = showcaseSections()` 又建一遍，
@@ -497,12 +497,12 @@ function showcaseShell(): El
         // 上游的 primary/ghost 变体属于 catalog Button，打在 kind 节点上现在会抛（见 #66）。
         $btn = El::button($title)->id('nav-' . $tree)->onClick()->w(194.0)
             ->onMouseDownLeft()->onMouseUpLeft();
-        if (ShowcaseState::$v['section'] === $tree) {
+        if (ExampleState::$v['section'] === $tree) {
             $btn->bold();
         }
         $nav[] = $btn;
     }
-    [$title, $builder] = $sections[ShowcaseState::$v['section']] ?? $sections[1];
+    [$title, $builder] = $sections[ExampleState::$v['section']] ?? $sections[1];
 
     // "点了没反应"最常见的成因不在我们的代码里，而在系统：进程没有 bundle 身份时
     // NSApp.isActive 永远是 false，第一次点击被当成"激活这扇窗口"的点击吃掉，keyDown
@@ -518,9 +518,9 @@ function showcaseShell(): El
         . ' · 输入 ' . evCount('change')
         . ' · 按键 ' . evCount('key_down')
         . ' · 悬停 ' . evCount('hover')
-        . ' · 焦点 ' . (ShowcaseState::$v['front'] ? '前台' : '非前台'))
+        . ' · 焦点 ' . (ExampleState::$v['front'] ? '前台' : '非前台'))
         ->font(12.0)->px(16.0)->pb(6.0);
-    if (!ShowcaseState::$v['front']) {
+    if (!ExampleState::$v['front']) {
         $head[] = El::text('!! 当前不是前台应用：真实点击会被系统当激活点击吃掉，键盘也没有 firstResponder。请用 php bin/gpui run showcase（它会把二进制包进 .app bundle），或先点一下窗口标题栏。')
             ->font(13.0)->px(16.0)->py(6.0);
     }
@@ -532,7 +532,7 @@ function showcaseShell(): El
             $nav
         ))->w(210.0)->gap(2.0)->p(8.0)->bg(0xF4F1EC)->itemsStart()->overflowYScroll()
             ->role('navigation')->ariaLabel('示例节导航'),
-        El::vFlex(array_merge($head, [$builder(ShowcaseState::get())]))
+        El::vFlex(array_merge($head, [$builder(ExampleState::get())]))
             ->flex1()->gap(4.0)->role('main'),
     ])->sizeFull();
 }
@@ -547,7 +547,7 @@ function showcaseShell(): El
  */
 function showcaseTrace(string $line): void
 {
-    if (!ShowcaseState::$v['trace']) {
+    if (!ExampleState::$v['trace']) {
         return;
     }
     file_put_contents('/tmp/showcase-events.log', $line . "\n", FILE_APPEND);
@@ -555,7 +555,7 @@ function showcaseTrace(string $line): void
 
 // ── 事件接线：每节用到的 id 都在这里，一处不漏 ──────────────────────────────
 //
-// 状态一律走 ShowcaseState::$v：形参与闭包捕获都不取引用。nano 下把固定类型变量按引用
+// 状态一律走 ExampleState::$v：形参与闭包捕获都不取引用。nano 下把固定类型变量按引用
 // 传进函数会得到 RefWrap<php::Array>，它在动态调用里 commit() 直接 abort
 // （"A temporary typed reference cannot escape a dynamic call"，
 // vendor/swoole/phpx/include/typephp_helper.h:124）；把形参声明成 array 引参则更早，
@@ -565,7 +565,7 @@ function wireShowcase(App $app): void
     // 导航
     foreach (array_keys(showcaseSections()) as $tree) {
         $app->on('nav-' . $tree, 'click', function () use ($tree): void {
-            ShowcaseState::$v['section'] = $tree;
+            ExampleState::$v['section'] = $tree;
         });
     }
     // 每条通道都记一行：真输入的可观测证明（见 showcaseTrace）
@@ -575,16 +575,16 @@ function wireShowcase(App $app): void
         'open_change', 'confirm', 'dismiss', 'step', 'resize'] as $t) {
         $app->onAny($t, function (array $e) use ($t): void {
             $id = (string) ($e['id'] ?? '');
-            ShowcaseState::$v['evSeen'][$t][$id] = $e['value'] ?? true;
+            ExampleState::$v['evSeen'][$t][$id] = $e['value'] ?? true;
             showcaseTrace($t . ' id=' . $id . ' value=' . var_export($e['value'] ?? null, true));
         });
     }
     // 交互模式第一帧挂上的 1s 计时器（见 runInteractive）
     $app->on('tick', 'timer', function () use ($app): void {
-        ShowcaseState::$v['count']++;
-        if (ShowcaseState::$v['trace']) {
+        ExampleState::$v['count']++;
+        if (ExampleState::$v['trace']) {
             $st = $app->windowState();
-            showcaseTrace('tick#' . ShowcaseState::$v['count']
+            showcaseTrace('tick#' . ExampleState::$v['count']
                 . ' active=' . var_export($st['active'], true)
                 . ' key=' . var_export($st['key'], true));
         }
@@ -593,48 +593,35 @@ function wireShowcase(App $app): void
     // 3 节：按钮变体
     foreach (['plain', 'p', 's', 'd', 'g', 'o'] as $k) {
         $app->on('btn-' . $k, 'click', function () use ($k): void {
-            ShowcaseState::$v['lastBtn'] = $k;
+            ExampleState::$v['lastBtn'] = $k;
         });
     }
 
-    // 2 节：保留态取值
-    $app->on('in-name', 'change', function (array $e) use ($app): void {
-        ShowcaseState::$v['name'] = (string) ($e['value'] ?? '');
-    });
-    $app->on('in-note', 'change', function (array $e): void {
-        ShowcaseState::$v['note'] = (string) strlen((string) ($e['value'] ?? ''));
-    });
-    $app->on('in-vol', 'change', function (array $e): void {
-        ShowcaseState::$v['vol'] = (int) ($e['value'] ?? 0);
-    });
-    $app->on('in-agree', 'change', function () use ($app): void {
-        ShowcaseState::$v['agree'] = $app->checked('in-agree');
-    });
-    $app->on('in-dark', 'change', function () use ($app): void {
-        ShowcaseState::$v['theme'] = $app->checked('in-dark') ? 'dark' : 'light';
-    });
+    // 2 节：保留态取值——线在 examples/_shared/features/inputs.php 里，
+    // 与独立示例 examples/input 共用同一份。
+    wireInputs($app);
 
     // 6 节：catalog 回调（registered 旁路）
     $app->on('ca-dd-1', 'click', function (): void {
-        ShowcaseState::$v['lastDd'] = '第一项';
+        ExampleState::$v['lastDd'] = '第一项';
     });
     $app->on('ca-dd-2', 'click', function (): void {
-        ShowcaseState::$v['lastDd'] = '第二项';
+        ExampleState::$v['lastDd'] = '第二项';
     });
 
     // 7 节：菜单项（catalog 菜单的动作也走同一条 id/type 路由）
     foreach (['new' => '新建', 'a' => 'a.txt', 'b' => 'b.txt', 'ro' => '只读项'] as $k => $label) {
         $app->on('cr-m-' . $k, 'click', function () use ($label): void {
-            ShowcaseState::$v['lastBtn'] = 'menu:' . $label;
+            ExampleState::$v['lastBtn'] = 'menu:' . $label;
         });
     }
     $app->on('cr-sidebar', 'click', function (): void {
-        ShowcaseState::$v['sidebarCollapsed'] = !ShowcaseState::$v['sidebarCollapsed'];
+        ExampleState::$v['sidebarCollapsed'] = !ExampleState::$v['sidebarCollapsed'];
     });
 
     // 8 节：浮层
     $app->on('ov-dialog', 'click', function () use ($app): void {
-        ShowcaseState::$v['dialogCount'] = $app->openDialog(
+        ExampleState::$v['dialogCount'] = $app->openDialog(
             El::vFlex([
                 El::text('Showcase dialog')->font(18.0)->semibold(),
                 El::text('dialog 内容是一棵独立的 Element 树（自己的 Box2）。')->font(13.0),
@@ -644,7 +631,7 @@ function wireShowcase(App $app): void
     });
     $app->on('ov-dialog-close', 'click', function () use ($app): void {
         $app->closeDialog();
-        ShowcaseState::$v['dialogCount'] = $app->dialogCount();
+        ExampleState::$v['dialogCount'] = $app->dialogCount();
     });
     $app->on('ov-toast', 'click', function () use ($app): void {
         $app->toast('Toast', 'title + description + level', 'success');
@@ -658,37 +645,37 @@ function wireShowcase(App $app): void
                 ])->p(20.0)->gap(8.0),
                 $a
             );
-            ShowcaseState::$v['hasSheet'] = $app->hasSheet();
-            ShowcaseState::$v['sheetAnchor'] = $a;
+            ExampleState::$v['hasSheet'] = $app->hasSheet();
+            ExampleState::$v['sheetAnchor'] = $a;
         });
     }
     foreach (App::NOTICE_TYPES as $t) {
         $app->on('ov-notify-' . $t, 'click', function () use ($app, $t): void {
             $app->notify('通知·' . $t, 'type 决定图标与配色', $t, 'top_right', 5000, 'ov-note');
-            ShowcaseState::$v['notifyCount'] = $app->notificationCount();
+            ExampleState::$v['notifyCount'] = $app->notificationCount();
         });
     }
     $app->on('ov-notify-click', 'click', function () use ($app): void {
         $app->notify('带 id 的通知', '点它或等它退场，都会打回 PHP', 'info', 'top_right', 8000, 'ov-note');
-        ShowcaseState::$v['notifyCount'] = $app->notificationCount();
+        ExampleState::$v['notifyCount'] = $app->notificationCount();
     });
     $app->on('ov-notify-clear', 'click', function () use ($app): void {
         $app->clearNotifications();
-        ShowcaseState::$v['notifyCount'] = $app->notificationCount();
+        ExampleState::$v['notifyCount'] = $app->notificationCount();
     });
     foreach (App::NOTICE_PLACEMENTS as $p) {
         // placement 是这几种绿里唯一能钉在像素上的：8 个锚点各一条真通知。
         $app->on('ov-place-' . $p, 'click', function () use ($app, $p): void {
             $app->notify('换角', 'placement=' . $p, 'warning', $p, 0, 'ov-note');
-            ShowcaseState::$v['placement'] = $p;
-            ShowcaseState::$v['notifyCount'] = $app->notificationCount();
+            ExampleState::$v['placement'] = $p;
+            ExampleState::$v['notifyCount'] = $app->notificationCount();
         });
     }
     $app->on('ov-note', 'click', function (): void {
-        ShowcaseState::$v['clip'] = '通知卡被点了';
+        ExampleState::$v['clip'] = '通知卡被点了';
     });
     $app->on('ov-note', 'close', function () use ($app): void {
-        ShowcaseState::$v['notifyCount'] = $app->notificationCount();
+        ExampleState::$v['notifyCount'] = $app->notificationCount();
     });
 
     // 9 节：系统能力
@@ -697,11 +684,11 @@ function wireShowcase(App $app): void
     });
     $app->on('sy-clip-get', 'click', function () use ($app): void {
         $t = $app->clipboardText();
-        ShowcaseState::$v['clip'] = $t === null ? '空' : 'text=' . strlen($t);
+        ExampleState::$v['clip'] = $t === null ? '空' : 'text=' . strlen($t);
     });
     $app->on('sy-clip-item', 'click', function () use ($app): void {
         $item = $app->clipboardItem();
-        ShowcaseState::$v['clip'] = sprintf(
+        ExampleState::$v['clip'] = sprintf(
             'text=%s image=%s paths=%d',
             $item['text'] === null ? '-' : strlen($item['text']),
             $item['image'] === null ? '-' : strlen($item['image']),
@@ -711,12 +698,12 @@ function wireShowcase(App $app): void
     $app->on('sy-url', 'click', function () use ($app): void {
         $ok = $app->openUrl('https://example.com');
         $rej = $app->openUrl('javascript:alert(1)');
-        ShowcaseState::$v['clip'] = 'openUrl 放行=' . var_export($ok, true) . ' 拒绝=' . var_export($rej, true);
+        ExampleState::$v['clip'] = 'openUrl 放行=' . var_export($ok, true) . ' 拒绝=' . var_export($rej, true);
     });
     $app->on('sy-pick', 'click', function () use ($app): void {
         $p = $app->promptForPath(false, '选一个文件');
         if ($p !== null) {
-            ShowcaseState::$v['picked'] = $p;
+            ExampleState::$v['picked'] = $p;
         }
     });
     $app->on('sy-fs', 'click', function (): void {
@@ -740,13 +727,13 @@ function wireShowcase(App $app): void
         $log[] = 'list=' . implode(',', $names) . ' truncated=' . var_export($truncated, true);
         $log[] = 'outside=' . var_export(App::fsRead('/etc/hosts'), true) . '（' . App::fsError() . '）';
         $log[] = 'remove=' . var_export(App::fsRemove($work, true, true), true);
-        ShowcaseState::$v['sysLog'] = $log;
+        ExampleState::$v['sysLog'] = $log;
     });
     $app->on('sy-proc', 'click', function (): void {
         App::grantExecute(['/bin/echo']);
         $r = App::processRun('/bin/echo', ['showcase 的输出']);
         $denied = App::processRun('/bin/cat', ['/etc/passwd']);
-        ShowcaseState::$v['sysLog'] = array_merge(ShowcaseState::$v['sysLog'], [
+        ExampleState::$v['sysLog'] = array_merge(ExampleState::$v['sysLog'], [
             'echo=' . ($r === null ? 'null' : 'code=' . $r['code'] . ' out=' . trim($r['out'])),
             'cat(未授权)=' . var_export($denied, true) . '（' . App::fsError() . '）',
         ]);
@@ -756,7 +743,7 @@ function wireShowcase(App $app): void
         App::grantStorage(true);
         App::storagePath('/tmp/gpui-showcase-store.json');
         $set = App::storageSet('theme', 'dark');
-        ShowcaseState::$v['sysLog'] = array_merge(ShowcaseState::$v['sysLog'], [
+        ExampleState::$v['sysLog'] = array_merge(ExampleState::$v['sysLog'], [
             '未授权 set=' . var_export($before, true),
             '授权后 set=' . var_export($set, true) . ' get=' . var_export(App::storageGet('theme'), true)
                 . ' len=' . App::storageLen(),
@@ -767,23 +754,23 @@ function wireShowcase(App $app): void
     // 10 节：服务
     $app->on('sv-http', 'click', function () use ($app): void {
         // 127.0.0.1 上一个必然没人听的端口：验整条异步路而不碰外网
-        ShowcaseState::$v['http'] = 'queued=' . var_export($app->httpGet('http://127.0.0.1:1/probe', 'sv-api'), true);
+        ExampleState::$v['http'] = 'queued=' . var_export($app->httpGet('http://127.0.0.1:1/probe', 'sv-api'), true);
     });
     $app->on('sv-api', 'http', function () use ($app): void {
         $r = $app->httpResponse('sv-api');
-        ShowcaseState::$v['http'] = $r === null ? '应答已被读过' : 'ok=' . var_export($r['ok'], true) . ' status=' . $r['status'];
+        ExampleState::$v['http'] = $r === null ? '应答已被读过' : 'ok=' . var_export($r['ok'], true) . ' status=' . $r['status'];
     });
     $app->on('sv-watch', 'click', function () use ($app): void {
-        ShowcaseState::$v['watchId'] = $app->watchDir('/tmp', 'sv-themes', false);
+        ExampleState::$v['watchId'] = $app->watchDir('/tmp', 'sv-themes', false);
     });
     $app->on('sv-unwatch', 'click', function () use ($app): void {
-        if (ShowcaseState::$v['watchId'] > 0) {
-            $app->unwatchDir(ShowcaseState::$v['watchId']);
-            ShowcaseState::$v['watchId'] = 0;
+        if (ExampleState::$v['watchId'] > 0) {
+            $app->unwatchDir(ExampleState::$v['watchId']);
+            ExampleState::$v['watchId'] = 0;
         }
     });
     $app->on('sv-themes', 'dirChange', function () use ($app): void {
-        ShowcaseState::$v['watchHits']++;
+        ExampleState::$v['watchHits']++;
         $app->toast('目录变了', '/tmp 有写动作为真');
     });
     $app->on('sv-inflate', 'click', function (): void {
@@ -794,7 +781,7 @@ function wireShowcase(App $app): void
         $gzip = "\x1F\x8B\x08\x00\x00\x00\x00\x00\x00\x13\xCB\x48\xCD\xC9\xC9\x57\x48"
             . "\x2F\x28\xCD\x04\x00\x52\x1A\x59\x50\x0A\x00\x00\x00";
         $out = App::inflate($gzip, true);
-        ShowcaseState::$v['inflate'] = $out === null ? '失败' : '解出 ' . strlen($out) . ' 字节：' . $out;
+        ExampleState::$v['inflate'] = $out === null ? '失败' : '解出 ' . strlen($out) . ' 字节：' . $out;
     });
     $app->on('sv-sysinfo', 'click', function (): void {
         $info = App::sysInfo(3);
@@ -808,24 +795,24 @@ function wireShowcase(App $app): void
         foreach ($info['procs'] as $p) {
             $rows[] = sprintf('  pid=%d %s cpu=%.1f%% mem=%s', $p['pid'], $p['name'], $p['cpu'], fmtBytes((int) $p['memoryBytes']));
         }
-        ShowcaseState::$v['sysInfo'] = $rows;
+        ExampleState::$v['sysInfo'] = $rows;
     });
     foreach (App::FPS_ANCHORS as $a) {
         $app->on('sv-fps-' . $a, 'click', function () use ($app, $a): void {
-            ShowcaseState::$v['hud'] = $app->showFpsHud($a);
-            ShowcaseState::$v['fpsAnchor'] = $a;
+            ExampleState::$v['hud'] = $app->showFpsHud($a);
+            ExampleState::$v['fpsAnchor'] = $a;
         });
     }
     $app->on('sv-fps-off', 'click', function () use ($app): void {
         $app->hideFpsHud();
-        ShowcaseState::$v['hud'] = $app->fpsHudVisible();
+        ExampleState::$v['hud'] = $app->fpsHudVisible();
     });
     $app->on('sv-insp', 'click', function () use ($app): void {
         $app->toggleInspector();
     });
     $app->on('sv-theme', 'click', function () use ($app): void {
-        ShowcaseState::$v['theme'] = ShowcaseState::$v['theme'] === 'dark' ? 'light' : 'dark';
-        $app->setTheme(ShowcaseState::$v['theme']);
+        ExampleState::$v['theme'] = ExampleState::$v['theme'] === 'dark' ? 'light' : 'dark';
+        $app->setTheme(ExampleState::$v['theme']);
     });
 
     // 11 节：内嵌
@@ -837,73 +824,73 @@ function wireShowcase(App $app): void
     });
     $app->on('em-probe', 'click', function () use ($app): void {
         $p = $app->webviewProbe('em-url');
-        ShowcaseState::$v['probe'] = sprintf('ok=%s url=%s box=%.0fx%.0f',
+        ExampleState::$v['probe'] = sprintf('ok=%s url=%s box=%.0fx%.0f',
             var_export($p['ok'] ?? false, true), (string) ($p['url'] ?? ''),
             (float) ($p['w'] ?? 0), (float) ($p['h'] ?? 0));
     });
 
     // 13 节：mac 系统集成
     $app->on('mc-tray', 'click', function () use ($app): void {
-        ShowcaseState::$v['trayId'] = $app->tray(['新建', '打开…', '退出'], 'mc-tray-item', 'Showcase 托盘');
+        ExampleState::$v['trayId'] = $app->tray(['新建', '打开…', '退出'], 'mc-tray-item', 'Showcase 托盘');
     });
     $app->on('mc-tray-off', 'click', function () use ($app): void {
-        if (ShowcaseState::$v['trayId'] > 0) {
-            $app->removeTray(ShowcaseState::$v['trayId']);
-            ShowcaseState::$v['trayId'] = 0;
+        if (ExampleState::$v['trayId'] > 0) {
+            $app->removeTray(ExampleState::$v['trayId']);
+            ExampleState::$v['trayId'] = 0;
         }
     });
     $app->on('mc-tray-item', 'tray', function (array $e): void {
-        ShowcaseState::$v['lastBtn'] = 'tray:' . (string) ($e['value'] ?? '');
+        ExampleState::$v['lastBtn'] = 'tray:' . (string) ($e['value'] ?? '');
     });
     $app->on('mc-hk-1', 'click', function () use ($app): void {
         // keycode 105 = F7（Carbon kVK_F7）， mods 走 App::HOTKEY_MODS 的位掩码表。
-        ShowcaseState::$v['hotkeyId'] = $app->onHotkey('mc-hk-cmdshift', 105, ['cmd', 'shift']);
-        ShowcaseState::$v['hotkeyMods'] = 'cmd+shift';
+        ExampleState::$v['hotkeyId'] = $app->onHotkey('mc-hk-cmdshift', 105, ['cmd', 'shift']);
+        ExampleState::$v['hotkeyMods'] = 'cmd+shift';
     });
     $app->on('mc-hk-2', 'click', function () use ($app): void {
-        ShowcaseState::$v['hotkeyId'] = $app->onHotkey('mc-hk-opt', 100, ['option']);
-        ShowcaseState::$v['hotkeyMods'] = 'option';
+        ExampleState::$v['hotkeyId'] = $app->onHotkey('mc-hk-opt', 100, ['option']);
+        ExampleState::$v['hotkeyMods'] = 'option';
     });
     $app->on('mc-hk-3', 'click', function () use ($app): void {
-        ShowcaseState::$v['hotkeyId'] = $app->onHotkey('mc-hk-ctrl', 101, ['control']);
-        ShowcaseState::$v['hotkeyMods'] = 'control';
+        ExampleState::$v['hotkeyId'] = $app->onHotkey('mc-hk-ctrl', 101, ['control']);
+        ExampleState::$v['hotkeyMods'] = 'control';
     });
     foreach (array_keys(App::HOTKEY_MODS) as $mod) {
         $app->on('mc-hk-' . $mod, 'click', function () use ($app, $mod): void {
-            ShowcaseState::$v['hotkeyId'] = $app->onHotkey('mc-hk-' . $mod, 110, [$mod]);
-            ShowcaseState::$v['hotkeyMods'] = $mod;
+            ExampleState::$v['hotkeyId'] = $app->onHotkey('mc-hk-' . $mod, 110, [$mod]);
+            ExampleState::$v['hotkeyMods'] = $mod;
         });
     }
     $app->on('mc-hk-cmdshift', 'hotkey', function (): void {
-        ShowcaseState::$v['hotkeyHits']++;
+        ExampleState::$v['hotkeyHits']++;
     });
     foreach (array_keys(App::HOTKEY_MODS) as $mod) {
         $app->on('mc-hk-' . $mod, 'hotkey', function () use ($mod): void {
-            ShowcaseState::$v['hotkeyHits']++;
-            ShowcaseState::$v['hotkeyMods'] = '命中:' . $mod;
+            ExampleState::$v['hotkeyHits']++;
+            ExampleState::$v['hotkeyMods'] = '命中:' . $mod;
         });
     }
     $app->on('mc-hk-off', 'click', function () use ($app): void {
-        if (ShowcaseState::$v['hotkeyId'] > 0) {
-            $app->removeHotkey(ShowcaseState::$v['hotkeyId']);
-            ShowcaseState::$v['hotkeyId'] = 0;
+        if (ExampleState::$v['hotkeyId'] > 0) {
+            $app->removeHotkey(ExampleState::$v['hotkeyId']);
+            ExampleState::$v['hotkeyId'] = 0;
         }
     });
     $app->on('mc-dock-7', 'click', function (): void {
         App::dockBadge('7');
-        ShowcaseState::$v['dock'] = '7';
+        ExampleState::$v['dock'] = '7';
     });
     $app->on('mc-dock-off', 'click', function (): void {
         App::dockBadge('');
-        ShowcaseState::$v['dock'] = '（清空）';
+        ExampleState::$v['dock'] = '（清空）';
     });
     $app->on('mc-osn', 'click', function (): void {
-        ShowcaseState::$v['osNotify'] = var_export(App::osNotify('Showcase', '这是操作系统通知中心的一条'), true);
+        ExampleState::$v['osNotify'] = var_export(App::osNotify('Showcase', '这是操作系统通知中心的一条'), true);
     });
     $app->on('mc-menus', 'click', function () use ($app): void {
         // 键名要跟 bridge 对齐：菜单条用 name（不是 label），行用 action（不是 id）。
         // 写错不报错，只是那一行的动作永远是 0——点了没有任何回音。
-        ShowcaseState::$v['menuCount'] = $app->setAppMenus([
+        ExampleState::$v['menuCount'] = $app->setAppMenus([
             ['name' => 'Showcase', 'items' => [
                 ['label' => '关于', 'action' => 'menu-about'],
                 ['separator' => true],
@@ -916,34 +903,31 @@ function wireShowcase(App $app): void
     // 1/2 节：hover 与 key_down 两条独立事件通道
     foreach (El::SIZES as $sz) {
         $app->on('st-size-' . $sz, 'click', function () use ($sz): void {
-            ShowcaseState::$v['size'] = $sz;
+            ExampleState::$v['size'] = $sz;
         });
     }
     foreach (El::COLLAPSE_MODES as $mode) {
         $app->on('cr-collapse-' . $mode, 'click', function () use ($mode): void {
-            ShowcaseState::$v['collapse'] = $mode;
+            ExampleState::$v['collapse'] = $mode;
         });
     }
     foreach (El::FIELD_ALIGN as $a) {
         $app->on('cr-align-' . $a, 'click', function () use ($a): void {
-            ShowcaseState::$v['align'] = $a;
+            ExampleState::$v['align'] = $a;
         });
     }
     // 具体 id 的 hover handler 与 onAny('hover') 两条都注册：前者证明精确路由，后者证明通配。
     $app->on('pr-hover', 'hover', function (): void {
-        ShowcaseState::$v['hover'] = 'pr-hover';
-    });
-    $app->on('in-key', 'key_down', function (array $e): void {
-        ShowcaseState::$v['key'] = (string) ($e['value'] ?? '?');
+        ExampleState::$v['hover'] = 'pr-hover';
     });
     $app->onAny('hover', function (array $e): void {
-        ShowcaseState::$v['note'] = 'hover:' . (string) ($e['id'] ?? '');
+        ExampleState::$v['note'] = 'hover:' . (string) ($e['id'] ?? '');
     });
     // 菜单行的动作以 `action` 事件回来，id 就是 El::menuItem($label, $action) 里那个
     // action 名（shim 用 ShellActionScriptId 反查回来的），所以这里与按钮点击同一套写法。
     $app->onAny('action', function (array $e): void {
         $id = (string) ($e['id'] ?? '');
-        ShowcaseState::$v['evSeen']['action'][$id] = true;
+        ExampleState::$v['evSeen']['action'][$id] = true;
         showcaseTrace('action id=' . $id);
     });
 }
@@ -952,13 +936,13 @@ function wireShowcase(App $app): void
 /** 某类事件收到过几颗（按不同 id 计）——窗口内 HUD 用，和报告同源，不另开计数。 */
 function evCount(string $type): int
 {
-    return count(ShowcaseState::$v['evSeen'][$type] ?? []);
+    return count(ExampleState::$v['evSeen'][$type] ?? []);
 }
 
 function evSeenSummary(): string
 {
     $parts = [];
-    foreach (ShowcaseState::$v['evSeen'] as $type => $ids) {
+    foreach (ExampleState::$v['evSeen'] as $type => $ids) {
         $parts[] = $type . '{' . implode(',', array_keys($ids)) . '}';
     }
     return implode(' ', $parts);
@@ -987,9 +971,9 @@ function fmtBytes(int $n): string
  */
 function interactiveFrame(App $app): El
 {
-    if (!ShowcaseState::$v['booted']) {
-        ShowcaseState::$v['booted'] = true;
-        ShowcaseState::$v['menuCount'] = $app->setAppMenus([
+    if (!ExampleState::$v['booted']) {
+        ExampleState::$v['booted'] = true;
+        ExampleState::$v['menuCount'] = $app->setAppMenus([
             ['name' => 'Showcase', 'items' => [
                 ['label' => '关于', 'action' => 'menu-about'],
                 ['label' => '退出', 'action' => 'menu-quit'],
@@ -1009,13 +993,13 @@ function interactiveFrame(App $app): El
     // 抢前台本身已经交给框架（keepTryingForeground）：帧可能被脏门跳过，
     // 放在这里就会变成"没画→没尝试→永远不是前台"的死结。
     $live = $app->windowState();
-    ShowcaseState::$v['front'] = (bool) $live['active'] && (bool) $live['key'];
+    ExampleState::$v['front'] = (bool) $live['active'] && (bool) $live['key'];
     return showcaseShell();
 }
 
 function runInteractive(bool $trace = false): void
 {
-    ShowcaseState::boot($trace ? ['trace' => true] : []);
+    ExampleState::boot($trace ? ['trace' => true] : []);
     $app = new App();
     // 处理器注册不碰原生，先接线再进 run()。
     wireShowcase($app);
@@ -1039,7 +1023,7 @@ function runInteractive(bool $trace = false): void
  */
 function navProbe(App $app): array
 {
-    ShowcaseState::$v['section'] = 1;
+    ExampleState::$v['section'] = 1;
     $app->render(showcaseShell());
     $app->loop(2);
     $total = (int) ($app->hitProbe()['n'] ?? 0);
@@ -1054,7 +1038,7 @@ function navProbe(App $app): array
     $sections = [];
     foreach ($navRects as $r) {
         // 每次点击前退回第 1 节重画：几何钉住，量到的矩形才仍然指向同一行。
-        ShowcaseState::$v['section'] = 1;
+        ExampleState::$v['section'] = 1;
         $app->render(showcaseShell());
         $app->loop(2);
         $cx = (int) $r['x'] + (int) $r['w'] / 2;
@@ -1064,7 +1048,7 @@ function navProbe(App $app): array
         if ($got) {
             $clicked++;
             $app->loop(2);
-            $sec = (int) ShowcaseState::$v['section'];
+            $sec = (int) ExampleState::$v['section'];
             $sections[$sec] = true;
         }
     }
@@ -1078,7 +1062,7 @@ function navProbe(App $app): array
  */
 /**
  * 真点某一节的导航行：从命中表里取第 $tree 条导航矩形（paint 顺序就是节顺序），点它的中心，
- * 再看状态有没有真的换成这一节。用它而不是 `ShowcaseState::$v['section'] = N`：直接改状态
+ * 再看状态有没有真的换成这一节。用它而不是 `ExampleState::$v['section'] = N`：直接改状态
  * 等于绕过 hit-test 假装"点过了"，而那正是用户报"左侧点不了"时唯一没被照到的那段路。
  */
 function navClickTo(App $app, int $tree): bool
@@ -1098,14 +1082,14 @@ function navClickTo(App $app, int $tree): bool
             return false;
         }
         $app->loop(2);
-        return (int) ShowcaseState::$v['section'] === $tree;
+        return (int) ExampleState::$v['section'] === $tree;
     }
     return false;
 }
 
 function runSelfTest(bool $expectBundle, bool $startFront = false): void
 {
-    ShowcaseState::boot();
+    ExampleState::boot();
     $app = new App();
     $app->create();
     $app->createWindow('Showcase Selftest', 1000, 700);
@@ -1133,7 +1117,7 @@ function runSelfTest(bool $expectBundle, bool $startFront = false): void
     $failuresBefore = (int) App::componentFailure()['count'];
     $badSections = [];
     foreach (showcaseSections() as $tree => [$title, $builder]) {
-        $app->render($builder(ShowcaseState::get()));
+        $app->render($builder(ExampleState::get()));
         $app->loop(2);
         $err = $app->registeredError();
         if ($err !== '') {
@@ -1156,7 +1140,7 @@ function runSelfTest(bool $expectBundle, bool $startFront = false): void
     // 这里把第 5 节重画一遍，再回读三行的行号。读的是 bridge→shim→arena 那条路，
     // 不是 PHP 自己那份数组，所以它证明的是"号真的交出去了"；
     // 查无此 id 必须是 -1，否则"0"与"没找到"就分不开。
-    $app->render(sectionData(ShowcaseState::get()));
+    $app->render(sectionData(ExampleState::get()));
     $app->loop(1);
     $rowIdx = [$app->specIndex('da-row-0'), $app->specIndex('da-row-1'), $app->specIndex('da-row-2')];
     $cellIdx = $app->specIndex('no-such-cell');
@@ -1495,7 +1479,7 @@ function runSelfTest(bool $expectBundle, bool $startFront = false): void
     // 命中判据只用 realClick 的返回值（它本身就是"这一下有没有让 gpui 队列增长"）。
     $bandHits = [];
     $hitsBefore = (int) ($app->inputProbe()['hits'] ?? 0);
-    ShowcaseState::$v['section'] = 1;
+    ExampleState::$v['section'] = 1;
     $app->render(showcaseShell());
     $app->loop(2);
     $hitsAfter = (int) ($app->inputProbe()['hits'] ?? 0);
@@ -1527,7 +1511,7 @@ function runSelfTest(bool $expectBundle, bool $startFront = false): void
     // （rc=139，没有 .ips 可解析，具体帧未能命名）—— 与 #53 的 key_down 现场同形：
     // ScriptView::OnScriptMouseDown → DispatchMouseButton → QuickJS。
     $mouseSample = '';
-    foreach ((array) (ShowcaseState::$v['evSeen']['mouse_down_left'] ?? []) as $v) {
+    foreach ((array) (ExampleState::$v['evSeen']['mouse_down_left'] ?? []) as $v) {
         $mouseSample = (string) $v;
         break;
     }
@@ -1537,9 +1521,9 @@ function runSelfTest(bool $expectBundle, bool $startFront = false): void
     $hoverMoves = 0;
     $hoverAtY = 0;
     $hoverAtX = 0;
-    ShowcaseState::$v['section'] = 1;
-    ShowcaseState::$v['hover'] = '—';
-    ShowcaseState::$v['evSeen'] = [];
+    ExampleState::$v['section'] = 1;
+    ExampleState::$v['hover'] = '—';
+    ExampleState::$v['evSeen'] = [];
     $app->render(showcaseShell());
     // 两列 x：pr-hover 那颗胶囊在内容区左侧，600 可能已经越过它
     foreach ([300, 600] as $hx) {
@@ -1550,7 +1534,7 @@ function runSelfTest(bool $expectBundle, bool $startFront = false): void
                 $hoverAtX = $hx;
                 $hoverAtY = $y;
             }
-            $hoverRouted = ShowcaseState::$v['hover'] === 'pr-hover';
+            $hoverRouted = ExampleState::$v['hover'] === 'pr-hover';
         }
     }
 
@@ -1562,9 +1546,9 @@ function runSelfTest(bool $expectBundle, bool $startFront = false): void
     $typedIn = false;
     $keyHits = 0;
     $focus = 0;
-    ShowcaseState::$v['section'] = 2;
-    ShowcaseState::$v['name'] = '';
-    ShowcaseState::$v['evSeen'] = [];
+    ExampleState::$v['section'] = 2;
+    ExampleState::$v['name'] = '';
+    ExampleState::$v['evSeen'] = [];
     $app->render(showcaseShell());
     // 关键断言：inputProbe()['n'] > 0。gpui 在 paint 里给每颗真 Input 登记
     // inputBounds（gpui.cpp:7815），点击靠它找可聚焦的框。n==0 说明这颗节点根本没被
@@ -1583,7 +1567,7 @@ function runSelfTest(bool $expectBundle, bool $startFront = false): void
             $keyHits++;
         }
         $app->loop(2);
-        $typedIn = ShowcaseState::$v['name'] !== '';
+        $typedIn = ExampleState::$v['name'] !== '';
     }
     // 兜底：inputProbe 只报最后一颗的框，多输入框时按列扫。
     // 这里**不拿 focusedId() 当门**：它读的是 win->focusId（WindowFocusedId），而 shell 里
@@ -1597,7 +1581,7 @@ function runSelfTest(bool $expectBundle, bool $startFront = false): void
             $keyHits++;
         }
         $app->loop(2);
-        $typedIn = ShowcaseState::$v['name'] !== '';
+        $typedIn = ExampleState::$v['name'] !== '';
     }
 
     // 值回读门（审核 P0-4 的回归位）：App::checked()/elementValue() 过去是恒 false 的空壳
@@ -1612,11 +1596,11 @@ function runSelfTest(bool $expectBundle, bool $startFront = false): void
     // 用户看到的"点了没反应"是这两件事里的后者。
     // 顺手给 HUD 一条断言：窗口顶部那行事件计数不能只是"存在"，它得反映真收到的事件，
     // 否则它对用户就是个装饰。先塞一条 click，再要求树上出现"点击 1"。
-    ShowcaseState::$v['evSeen']['click'] = ['nav-5' => true];
+    ExampleState::$v['evSeen']['click'] = ['nav-5' => true];
     // 与交互模式同一颗每帧回调（含 paint 途中的 activate 抢前台），不是只画 shell 的简化版：
     // 用户面前的节奏里就有那一步，探针必须跑在同一形状上。
     $app->view(static function () use ($app): El { return interactiveFrame($app); });
-    ShowcaseState::$v['section'] = 5;
+    ExampleState::$v['section'] = 5;
     // 直接改状态、没有事件：脏门会跳过空帧，所以必须显式标脏，否则下一帧还是旧节。
     $app->invalidate();
     $app->loop(2);
@@ -1628,7 +1612,7 @@ function runSelfTest(bool $expectBundle, bool $startFront = false): void
     // action 名，都要能以 `action` 事件回到 PHP。真点原生菜单行那一跳够不到（NSMenu 属于
     // 系统菜单条那个窗口，进程内注入的 NSEvent 只 Deliver 给自己的窗口），所以拆成两段取证：
     // ① 菜单条那张表里装的确实是这些 id（menuRows）；② 该 id 的动作会回到 PHP（dispatchAction）。
-    ShowcaseState::$v['menuCount'] = $app->setAppMenus([
+    ExampleState::$v['menuCount'] = $app->setAppMenus([
         ['name' => 'Selftest', 'items' => [
             ['label' => '带动作', 'action' => 'st-new'],
             ['separator' => true],
@@ -1638,12 +1622,12 @@ function runSelfTest(bool $expectBundle, bool $startFront = false): void
     $menuRows = $app->menuRows();
     // 表里只该有带动作的那一行：分隔符/无动作行混进来说明读表读歪了。
     $menuRowsOk = in_array('st-new', $menuRows, true) && count($menuRows) === 1;
-    ShowcaseState::$v['evSeen']['action'] = [];
+    ExampleState::$v['evSeen']['action'] = [];
     $actDispatched = $app->dispatchAction('cr-m-new') && $app->dispatchAction('st-new');
     $app->loop(2);
     $actionRouted = $actDispatched
-        && isset(ShowcaseState::$v['evSeen']['action']['cr-m-new'])
-        && isset(ShowcaseState::$v['evSeen']['action']['st-new']);
+        && isset(ExampleState::$v['evSeen']['action']['cr-m-new'])
+        && isset(ExampleState::$v['evSeen']['action']['st-new']);
 
     // 生命周期与只读计数器：这几个没有副作用可验，验的是"读数自洽"。
     $granted = App::storageGranted();
@@ -1809,7 +1793,7 @@ function runShot(string $path, int $tree): void
     $sections = showcaseSections();
     $tree = $tree <= 0 ? 1 : (isset($sections[$tree]) ? $tree : 1);
     [$title, $builder] = $sections[$tree];
-    ShowcaseState::boot(['section' => $tree]);
+    ExampleState::boot(['section' => $tree]);
 
     $app = new App();
     $app->create();

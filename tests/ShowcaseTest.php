@@ -6,26 +6,51 @@ use TypePHP\Gpui\App;
 use TypePHP\Gpui\Element as El;
 use TypePHP\Gpui\FakeBridge;
 
-// 只 require 两份示例源码的**声明**部分：它们顶层只有函数定义，不调用任何 gpui_* 原生函数，
+// 只 require 示例源码的**声明**部分：它们顶层只有函数定义，不调用任何 gpui_* 原生函数，
 // 所以在无头 PHP 里加载是安全的，能直接反射节表与状态表。
+//
+// 为什么不 require 全部示例的 main.php：nano 的入口约定是每支示例都定义一个
+// `main(int $argc, array $argv)`，一起加载就是 redeclare fatal。它们只参与下面的
+// 文本/AST 扫描（覆盖率与 arity 两条门），不需要被执行。
+require_once __DIR__ . '/../examples/_shared/state.php';
+foreach (glob(__DIR__ . '/../examples/_shared/features/*.php') ?: [] as $feature) {
+    require_once $feature;
+}
 require_once __DIR__ . '/../examples/showcase/src/sections.php';
 require_once __DIR__ . '/../examples/showcase/src/main.php';
 
 /*
- * examples/showcase 的覆盖率门禁（wrap-green，纯 PHP + 反射，CI 的 php job 跑）。
+ * 示例集的覆盖率门禁（wrap-green，纯 PHP + 反射，CI 的 php job 跑）。
  *
  * "展示了所有特性"里的"所有"不能靠形容词。这里从 src/Element.php 与 src/App.php 反射出
- * 每一个公开成员，逐个断言它在 showcase 源码里被**调用过**（不是被提到过——注释先剥掉），
+ * 每一个公开成员，逐个断言它在**任一示例**源码里被**调用过**（不是被提到过——注释先剥掉），
  * 再断言每个枚举常量的每个取值都真被传过（字面量或 foreach 整表遍历）。缺一个就红。
  *
  * 于是示例每加一个组件、框架每长一个 API，这个测试都会立刻知道谁掉队了；
  * 想跳过必须在下面的白名单里写理由，白名单本身就是债务的账本。
+ *
+ * 扫描范围从"showcase 两份文件"改成"examples 下全部 PHP"，是因为 showcase 正在按功能域拆成
+ * 独立示例（task_plan.md Phase 15）：域源搬到 examples/_shared/features/ 之后，
+ * 若还只扫 showcase 目录，搬家本身就会把这条门弄红——它认的是"整个示例集"，不是某一个目录。
  */
 
-const SHOWCASE_SRC = [
-    __DIR__ . '/../examples/showcase/src/main.php',
-    __DIR__ . '/../examples/showcase/src/sections.php',
-];
+/** 参与静态扫描的示例源：examples/ 下所有 PHP，构建产物目录除外。 */
+function exampleSources(): array
+{
+    $out = [];
+    $it = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator(__DIR__ . '/../examples', FilesystemIterator::SKIP_DOTS)
+    );
+    foreach ($it as $f) {
+        $path = (string) $f;
+        if (!str_ends_with($path, '.php') || str_contains($path, '/build/')) {
+            continue;
+        }
+        $out[] = $path;
+    }
+    sort($out);
+    return $out;
+}
 
 /**
  * 不要求示例出现的公开成员 → 理由。
@@ -42,11 +67,11 @@ const SHOWCASE_EXEMPT = [
     'fireHotkeyForTest' => '快捷键的测试注入点，不是产品能力',
 ];
 
-/** showcase 两份源码去掉注释与空白后的纯代码文本。 */
+/** 全部示例源码去掉注释与空白后的纯代码文本。 */
 function showcaseCode(): string
 {
     $out = '';
-    foreach (SHOWCASE_SRC as $file) {
+    foreach (exampleSources() as $file) {
         $code = (string) file_get_contents($file);
         foreach (token_get_all($code) as $tok) {
             if (is_array($tok)) {
@@ -110,7 +135,7 @@ function isIteratedConst(string $code, string $constName): bool
     );
 }
 
-test('showcase 覆盖 Element 的全部公开工厂', function (): void {
+test('示例集覆盖 Element 的全部公开工厂', function (): void {
     $code = showcaseCode();
     $missing = [];
     foreach (publicMembers(El::class)['static'] as $name) {
@@ -118,10 +143,10 @@ test('showcase 覆盖 Element 的全部公开工厂', function (): void {
             $missing[] = 'El::' . $name . '()';
         }
     }
-    expect($missing)->toBe([], '这些 Element 工厂没在 examples/showcase 里被调用过');
+    expect($missing)->toBe([], '这些 Element 工厂没在任何示例源码里被调用过');
 });
 
-test('showcase 覆盖 Element 的全部链式方法', function (): void {
+test('示例集覆盖 Element 的全部链式方法', function (): void {
     $code = showcaseCode();
     $missing = [];
     foreach (publicMembers(El::class)['instance'] as $name) {
@@ -129,10 +154,10 @@ test('showcase 覆盖 Element 的全部链式方法', function (): void {
             $missing[] = '->' . $name . '()';
         }
     }
-    expect($missing)->toBe([], '这些 Element 链式方法没在 examples/showcase 里被调用过');
+    expect($missing)->toBe([], '这些 Element 链式方法没在任何示例源码里被调用过');
 });
 
-test('showcase 覆盖 App 的全部公开 API', function (): void {
+test('示例集覆盖 App 的全部公开 API', function (): void {
     $code = showcaseCode();
     $missing = [];
     $members = publicMembers(App::class);
@@ -141,10 +166,10 @@ test('showcase 覆盖 App 的全部公开 API', function (): void {
             $missing[] = $name . '()';
         }
     }
-    expect($missing)->toBe([], '这些 App 能力没在 examples/showcase 里被调用过');
+    expect($missing)->toBe([], '这些 App 能力没在任何示例源码里被调用过');
 });
 
-test('showcase 用过每个枚举常量的每个取值', function (): void {
+test('示例集用过每个枚举常量的每个取值', function (): void {
     $code = showcaseCode();
     $missing = [];
     foreach ([El::class, App::class] as $class) {
@@ -178,14 +203,14 @@ test('showcase 的节表自洽：树号连续、构造器可调用', function ()
 });
 
 test('showcase 状态表自洽：boot 出的表 = 默认值 + section', function (): void {
-    $defaults = showcaseState();
-    ShowcaseState::boot();
-    $booted = ShowcaseState::get();
+    $defaults = exampleState();
+    ExampleState::boot();
+    $booted = ExampleState::get();
     // boot() 走的是无引用路径：处理器写它、每帧 view 读它（nano 下引用式状态会 abort）。
     expect(array_key_exists('section', $booted))->toBeTrue('状态表必须带当前节号')
         ->and(array_diff(array_keys($defaults), array_keys($booted)))->toBe([], 'boot() 必须涵盖默认值的每个键');
-    ShowcaseState::boot(['section' => 7]);
-    expect(ShowcaseState::get()['section'])->toBe(7);
+    ExampleState::boot(['section' => 7]);
+    expect(ExampleState::get()['section'])->toBe(7);
     foreach (showcaseSections() as $tree => [$title, $fn]) {
         expect($fn)->toBeCallable();
     }
@@ -218,7 +243,7 @@ test('showcase 的每一节在无头 FakeBridge 下都建得出非空树', funct
     // 这一层证明的是 PHP 侧建树与接线不炸（wrap-green）；原生侧的"没有错误节点"由
     // showcase --selftest 的 registeredError() 断言负责。它跑在 Linux CI 上，
     // 所以示例改坏了不用等一次 90 秒的原生构建才知道。
-    ShowcaseState::boot();
+    ExampleState::boot();
     $app = new App();
     $app->create();
     $window = $app->createWindow('T', 800, 600);
@@ -226,8 +251,8 @@ test('showcase 的每一节在无头 FakeBridge 下都建得出非空树', funct
 
     $empty = [];
     foreach (showcaseSections() as $tree => [$title, $fn]) {
-        $node = $fn(ShowcaseState::get())->toArray();
-        $app->render($fn(ShowcaseState::get()));
+        $node = $fn(ExampleState::get())->toArray();
+        $app->render($fn(ExampleState::get()));
         if ($node['children'] === [] && treeIds($node) === []) {
             $empty[] = $tree;
         }
@@ -237,7 +262,7 @@ test('showcase 的每一节在无头 FakeBridge 下都建得出非空树', funct
 });
 
 test('showcase 注册到元素的 handler，id 必须真出现在某一节的树里', function (): void {
-    ShowcaseState::boot();
+    ExampleState::boot();
     $app = new App();
     $app->create();
     $app->createWindow('T', 800, 600);
@@ -245,8 +270,8 @@ test('showcase 注册到元素的 handler，id 必须真出现在某一节的树
 
     $seen = [];
     foreach (showcaseSections() as $tree => [, $fn]) {
-        ShowcaseState::$v['section'] = $tree;
-        foreach (treeStrings($fn(ShowcaseState::get())->toArray()) as $id) {
+        ExampleState::$v['section'] = $tree;
+        foreach (treeStrings($fn(ExampleState::get())->toArray()) as $id) {
             $seen[$id] = true;
         }
         foreach (treeStrings(showcaseShell()->toArray()) as $id) {
@@ -308,7 +333,7 @@ function showcaseCallArities(): array
     };
 
     $out = [];
-    foreach (SHOWCASE_SRC as $src) {
+    foreach (exampleSources() as $src) {
         $traverser = new PhpParser\NodeTraverser();
         $traverser->addVisitor($visitor);
         $traverser->traverse($parser->parse((string) file_get_contents($src)));
@@ -321,7 +346,7 @@ function showcaseCallArities(): array
     return $out;
 }
 
-test('showcase 里每个 Element/App 调用的实参个数都在签名容许范围内', function (): void {
+test('示例集里每个 Element/App 调用的实参个数都在签名容许范围内', function (): void {
     // PHP 容忍"传多了"的实参（只在 nano 里抛 ArgumentCountError），所以无头 php -l
     // 与 FakeBridge 都是绿的、原生构建才炸。arity 只能静态核。
     // 名字可能同时存在于 Element 与 App（如 text/checked），所以只有当**所有**同名
@@ -358,4 +383,70 @@ test('showcase 里每个 Element/App 调用的实参个数都在签名容许范�
         }
     }
     expect($bad)->toBe([], '这些调用的实参个数在原生产物里会抛 ArgumentCountError');
+});
+
+/** 读一份示例 yml 的 sources: 列表，解析成绝对路径（realpath 归一，`../_shared` 才比得上）。 */
+function ymlSources(string $yml): array
+{
+    $dir = dirname($yml);
+    $out = [];
+    foreach (explode("\n", (string) file_get_contents($yml)) as $line) {
+        if (!preg_match('/^\s+-\s+(\S+\.php)\s*$/', $line, $m)) {
+            continue;
+        }
+        $abs = realpath($dir . '/' . $m[1]);
+        $out[] = $abs === false ? $dir . '/' . $m[1] : $abs;
+    }
+    return $out;
+}
+
+/**
+ * 拆分（task_plan.md Phase 15）自己引入的那条漂移门。
+ *
+ * 把一域的 builder 从 sections.php 搬进 examples/_shared/features/ 之后，只要忘记在画廊的
+ * yml 里补这一行，`showcaseSections()` 仍然点得到那个函数名——**无头 PHP 是绿的**（测试
+ * require 了 features 目录），只有跑 `bin/gpui build showcase` 才在产物里炸。
+ * 所以这里静态核三件事：每支示例都有 yml、画廊每一节的 builder 定义在画廊 yml 列出的某份源里、
+ * _shared/features 下每份源都被画廊收录（域可以拆出去单独测，但不许从画廊里悄悄消失）。
+ */
+test('拆出去的域不会从画廊的编译清单里悄悄消失', function (): void {
+    $examplesDir = (string) realpath(__DIR__ . '/../examples');
+    $missingYml = [];
+    foreach (array_filter(array_merge(glob($examplesDir . '/*', GLOB_ONLYDIR) ?: []),
+        static fn (string $d): bool => !str_ends_with($d, '/_shared')) as $dir) {
+        if (!is_file($dir . '/project.macos.yml')) {
+            $missingYml[] = basename($dir);
+        }
+    }
+    expect($missingYml)->toBe([], '这些示例目录没有 project.macos.yml，bin/gpui build 找不到它');
+
+    $gallery = $examplesDir . '/showcase/project.macos.yml';
+    $sources = array_values(array_filter(ymlSources($gallery), 'is_file'));
+    expect($sources)->not->toBeEmpty('画廊 yml 的 sources 一个都读不到，这条门自己失效了');
+
+    // 每节 builder 的定义在哪份源里
+    $definedIn = [];
+    foreach ($sources as $src) {
+        if (preg_match_all('/^function\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(/m',
+            (string) file_get_contents($src), $mm)) {
+            foreach ($mm[1] as $fn) {
+                $definedIn[$fn] = true;
+            }
+        }
+    }
+    $dangling = [];
+    foreach (showcaseSections() as $tree => [, $builder]) {
+        if (!isset($definedIn[$builder])) {
+            $dangling[] = $tree . ':' . $builder;
+        }
+    }
+    expect($dangling)->toBe([], '这些节的 builder 没在画廊 yml 列出的任何一份源里定义（产物会缺函数）');
+
+    $notListed = [];
+    foreach (glob($examplesDir . '/_shared/features/*.php') ?: [] as $feature) {
+        if (!in_array($feature, $sources, true)) {
+            $notListed[] = basename($feature);
+        }
+    }
+    expect($notListed)->toBe([], '这些功能域源没被画廊的 sources 收录，画廊里就看不到这一域');
 });

@@ -4,7 +4,10 @@
 用 TypePHP (AOT) 参考 gpui-kit-cpp（本地源码 `/Volumes/data/git/c/gpui-kit-cpp`）重新实现一套 PHP 原生桌面 GUI 框架，让 PHP 开发者能用声明式 API 构建跨平台 GPU 加速桌面应用。
 
 ## Current Phase
-Phase 1–5、7 完成（含 P0 加固、P1 门禁、P2 文档/基石）；Phase 6 只剩"独立示例应用集"一项。
+**当前 = Phase 15**：把 `examples/showcase` 按功能域拆成独立示例（用户令，参考上游
+`/Volumes/data/git/c/gpui-kit-cpp` 的 `examples/*.cpp` 布局），目的是让单域测试能各自出声。
+Phase 1–5、7 完成（含 P0 加固、P1 门禁、P2 文档/基石）；Phase 6 只剩"独立示例应用集"一项
+——Phase 15 正是把它做完。
 Phase 8「系统能力桥接 Wave 1–2」于
 2026-10-11 完成：剪贴板三通道、原生对话框、OpenUrl 白名单、Inspector、帧率 HUD、Sheet、
 WebView、Inspector 面板、http/dirChange/inflate、`App::sysInfo()`、应用内通知中心。
@@ -343,4 +346,67 @@ Phase 9（三个真 bug）/ Phase 10（mac 集成）/ Phase 11（Capabilities �
       bundle 启动后不自提升为前台应用 ⇒ 非前台窗口的鼠标键盘全不派发（Phase 14c-17，
       `activateIgnoringOtherApps:` 在 macOS 26 已失效，改用无参 `-[NSApp activate]`）。
       另订正一条我自己下错的结论：`acceptsFirstMouse:` 返回 YES 并不等于非前台能收到第一下。
+
+### Phase 15: 把 showcase 拆成独立示例（进行中，2026-10-14）
+
+> 用户令：「参考 `/Volumes/data/git/c/gpui-kit-cpp` 将 showcase 拆分为独立的 example，这样方便测试」。
+> 拆之前先量成本，因为拆分粒度完全由它决定：**一次 showcase 的 tpc nano 编译 = 41 秒**
+> （热缓存，`php vendor/bin/tpc.php examples/showcase/project.macos.gen.yml --nano`，rc=0）。
+> 之前"每支示例 1.5–2 分钟"的估计是把整条 `bin/gpui build`（sync→13 补丁→amalgam→shim→tpc）
+> 都算进去了；那四步是**所有示例共用的**，不随示例数增长。所以多支示例的边际成本只有 tpc 那一段，
+> 拆十几支在本地和 CI 上都负担得起。
+
+**为什么现在要拆**（不是审美问题，是测试问题）：
+`--selftest` 只在**跑完**时打印，所以任何一处崩都表现为"无声退非零"——上一轮 `focusElement`
+的 rc=11 就是这么消失的，二分一次要花一整轮重编。13 节 + 全部断言挤在 1833 行 `main.php` 里，
+量一个域要等整个画廊跑完，而且 `$ok` 链尾没有余量（`#73` 的部件级事件探针正因如此被移出 selftest）。
+
+**拆分轴（我的取舍，上游就是这两种并存）**：按**功能域**拆，名字对齐上游
+`examples/*.cpp`（`input.cpp` / `dialog_overlay.cpp` / `focus_trap.cpp` / `table_in_scrollable.cpp`
+/ `system_monitor.cpp` / `webview.cpp` / `sidebar.cpp` / `motion.cpp`）；
+`showcase` **保留为画廊**——上游同样同时有 41 页的 `examples/showcase/` 和这些独立示例。
+
+| 新示例 | 来自 | 迁过去的门 |
+|---|---|---|
+| `input` | §2 sectionInputs | retained 取值回环、`--livetyping` |
+| `overlay` | §8 sectionOverlays | focus trap、Escape、`ui::Cancel` 派发、dialogCount |
+| `text` | §1 | registeredError 逐原语、icon 名查表 |
+| `choices` | §3 | select/combobox/datePicker 弹层与取值 |
+| `layout` | §4 | 容器/滚动 |
+| `table` | §5 | row/column 语义、进度 |
+| `catalog` | §6 | registered_method 描述符 |
+| `sidebar` | §7 | 侧栏/表单/菜单 |
+| `system` | §9+§10 | 剪贴板·url·fs·进程·存储·http·watch·inflate·sysInfo |
+| `webview` | §11 | WebView/Inspector 挂载 |
+| `style` | §12 | 47 个零参样式糖 → `nullary_style` op |
+| `mac` | §13 | 托盘/全局快捷键/Dock/OS 通知 |
+| `showcase`（留） | 壳 + 13 节像素 | 导航命中扫描、`--liveclick`、通配记录器、生命周期/析构门 |
+
+**单一真源怎么保**：builder 与接线搬进 `examples/_shared/features/<域>.php`
+（含各自的状态表 `examples/_shared/state.php`），showcase 的 yml 把 13 份全列进 `sources`，
+独立示例的 yml 只列自己那份——**不复制代码**，所以覆盖率门禁不会因为搬家而漏项。
+nano 不支持 require/include，全靠 yml 列源文件；全局函数名必须跨文件唯一，
+`sectionX()` / `wireX()` 本来就按节名唯一，够用。
+
+- [x] **15-A** 抽公共骨架 + 打通第一支独立示例 `input`，六道门禁全绿。**这一支的目的只是证明管道，不是搬完。**
+      实测：完整链 `bin/gpui selftest input` = 351 秒（含被 rsync 清掉后重编的 amalgam），
+      加 `--no-native` 的那一段 = 140 秒（tpc 41 秒 + 起 bundle 跑自检）；
+      画廊 `SHOWCASE SELFTEST OK`（13/13 可达）且 `shotdiff check showcase` 13 张 gdfrac=0
+      ⇒ **搬家没有改变像素**；`tests/baseline/input/tree1.png` 三次截图 md5 相同（确定性）；
+      Pest 103 / PHPStan 0 / 上游 parity / shim cpp / c-abi / doctor / docs:build 全绿；
+      新第 10 条门做过反向锚点（删掉画廊 yml 那行立刻红）。
+      **首轮就跑出三条画廊报不出的结论**（详见 findings.md「Phase 15 拆分第一支独立示例」），
+      其中 OTP 取值口那条已修（commit `0278c0f`）——这就是"方便测试"要的东西。
+- [ ] **15-B** `overlay`：把 focus trap / Escape / `ui::Cancel` 三条门迁过去，
+      验证"断言也能搬"——并给 `#73`/`stash@{0}` 的 `focusElement` 一个能出声的落点。
+- [ ] **15-C** 其余 10 域按同一模板铺，每铺一支录一支基线。模板 = `examples/_shared/features/<域>.php`
+      （builder + `wire<域>` + `<域>Trees()`）→ 域 yml 只列自己那份 → `--selftest` 用 `step()` 边跑边打
+      → `bin/gpui build <域> --no-native`（改了 cpp-src/ 则第一支必须走完整链）
+      → `shotdiff record <域>` 并做两次截图 md5 对拍 → CI 的 Domain examples 步骤自动发现它。
+- [ ] **15-D** CI native job 的域循环已就位（15-A 就加了）；剩下的是一轮全量本地跑与文档里的
+      示例清单页。`shotdiff` 保持不进 CI（托管 runner 无窗口会话）。
+
+**明确不做**：不给每支示例配独立 `.app` bundle 逻辑（`bin/gpui` 的 `appBundle()` 已按名字生成，
+天然可用）；不动 `cmd/shotdiff.php` 的 hello 固定表（它自报 `--sections` 的路径已经存在）；
+不在这一轮删 showcase 的任何节。
 

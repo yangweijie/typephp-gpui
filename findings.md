@@ -1603,3 +1603,42 @@ key window——只是当下焦点被我这边占着，属于前台竞争，不�
 顺带记一条已经被这次探索否掉的猜想：`--probe-events` 那轮 `pressKey` 没反应，
 **不是**因为 `in-key` 的 `on_key_down` 挂错（它挂在 `El::input('in-key')` 上，
 `onKeyDown()` 与 `onKeyUp()` 都在），而是因为窗口不是 key window。
+
+---
+
+## Phase 15 拆分第一支独立示例（2026-10-14）：三条只有"范围缩小"才浮出来的事实
+
+拆 `examples/input` 的直接收益不是"文件变多"，是**第一次跑就报出三条画廊永远报不出的东西**
+（画廊把那 13 节全渲染了，却只有一处验输入，且验的是最后一颗）：
+
+### 1. `bin/gpui build` 每调一次就重编整个 amalgam
+`cmd/sync-upstream.sh` 是 `rsync -a --delete upstream/gpui-kit-cpp/ build/gpui-kit-cpp/`，
+而 `.work/` 与 `out/` 都不在源里 ⇒ **被 --delete 一起清掉**。所以"build.ts 按内容哈希判缓存"
+那句注释只在全集内成立，跨两次 `bin/gpui build` 不成立：实测第二次仍然完整重编 gpui.o（几分钟）。
+推论：拆十几支示例如果每支都跑完整链，本地与 CI 都会超预算。
+做法 = 给 `bin/gpui build` 加 `--no-native`（跳过同步/补丁/amalgam/shim 四步，只跑 tpc），
+并且**先验 `gpui.o` 与 `libgpui_shim.a` 在不在**，不在就拒绝——宁可停下，也不要静默
+链接到陈旧产物上量出一个假绿。单支 tpc 段实测 **41 秒**（热缓存），这才是"每支示例"的真实边际成本。
+注意顺序：**改了 cpp-src/ 之后第一支必须跑完整链**，否则 libgpui_shim.a 是旧的。
+
+### 2. 合成事件缝只有三类，且 change 带的是 `true`
+`gpui_shim_selftest_fire`（`cpp-src/gpui_shim.cpp:1302`）只有 `click` / `change` / `hover`
+三个分支，其余**直接 return 0**——我按"它也认 key_down"写的门于是拿到 `fired=false`。
+而它 fire change 时是 `gpuiEnqueueChange(self, nullptr, cbid, true)`，值槽带的是**布尔 true**，
+不是控件自己的值：`in-vol` 的 handler 把默认 30 写成了 1。
+教训：给一条缝写断言之前先读它的分派表，别按"名字看起来是通用注入"排门。
+`key_down` 的真路只有一条——`realClick` 到那颗的矩形 + `realKey`。
+
+### 3. OTP 的取值口一直是死的（已修 shim）
+`RetainedStore::CreateOtp` 填的是 `entry->otp`（`Entity<OtpState>`），**不是** `entry->input`
+（`build/gpui-kit-cpp/src/shell/retained.cpp:91-112`、`retained.h:102-113`）。
+而 shim 的 `gpui_shim_input_value` / `gpui_shim_set_input_value` 两句都是
+`if (!e || !e->input) return 0;` ⇒ 对 OTP 一律当"没有值可读"：
+`setInput('in-otp')` 回 `false`、`text('in-otp')` 回 `''`，而 `registeredError()` 是空的、
+`componentFailure` 是 0——三层门禁全都不会报。修法 = 按 `e->kind == RetainedKind::Otp`
+分支走 `gpui::OtpValue/OtpSetValue`。
+顺带量到但**别过度解读**：`inputProbe()['n']=4`，而这一页挂 retained 的控件有 6 颗
+（input×2、textarea、number_input、otp、slider）——那张表是 gpui 在 paint 里登记的
+inputBounds，**少的是哪两颗这条探针答不出**（它只给矩形不给 id）。所以这里只能说
+"inputBounds 不覆盖全部 retained"，不能说"OTP 不在表里"。
+（OTP 的取值口坏了是另一件事，已由 setInput/text 直接证出。）

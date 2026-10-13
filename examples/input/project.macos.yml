@@ -1,0 +1,49 @@
+name: gpui-input
+mode: bin
+output: build/input
+
+# TypePHP GPUI — macOS arm64，nano 模式。功能域独立示例：输入与保留态取值。
+#
+# 与 showcase 的差别只在 sources：这里只列本域那一份 feature 源
+# （../_shared/features/inputs.php）+ 共用状态表，所以改输入相关的东西只编译这一支，
+# 而且 selftest 只跑输入相关的门——一处崩了报告停在那一行，不用把 13 节重跑一遍。
+#
+# nano 强制 c++17，gpui amalgam 与 shim 是 c++20，已预编译成 cpp-src/build/libgpui_shim.a。
+# 构建前须先跑 cmd/build-shim.sh（或直接 php bin/gpui build input，它会按序把四步都跑掉）。
+
+sources:
+  - src/main.php
+  - ../_shared/state.php
+  - ../_shared/features/inputs.php
+  - ../../src/App.php
+  - ../../src/Element.php
+  - ../../src/El.php
+  - ../../php-src/gpui.stub.php
+  - ../../cpp-src/gpui_bridge.cc
+
+build-dir: build
+
+cxx-std: c++17
+optimize: 2
+
+include-paths:
+  - ../../cpp-src
+  - ../../php-src
+
+# 静态库绝对路径：tpc 不解析相对 ld-flags，故用 @ROOT@ 占位，由 `bin/gpui build`
+# 在编译期替换为仓库绝对根并写到 project.macos.gen.yml。
+ld-flags:
+  - "@ROOT@/cpp-src/build/libgpui_shim.a"
+  - -framework Cocoa
+  - -framework CoreServices
+  - -framework CoreText
+  - -framework CoreGraphics
+  - -framework ImageIO
+  - -framework IOKit
+  - -framework WebKit
+  - -framework AudioToolbox
+  - -framework AVFoundation
+  - -framework Speech
+  - -framework Metal
+  - -framework QuartzCore
+  - -framework Carbon

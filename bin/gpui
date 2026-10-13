@@ -187,25 +187,50 @@ switch ($cmd) {
 
         // 1a) 先把 vendored 的 upstream/ 复制成构建沙箱：补丁、amalgam、out 全落沙箱，
         //     跟踪的源码树不被弄脏。顺序要紧——补丁要在沙箱存在之后才找得到文件。
-        $rc = run("bash $root/cmd/sync-upstream.sh");
-        if ($rc !== 0) { err('同步 upstream 失败'); exit($rc); }
-
-        // 1) 补丁（幂等）——含 Stage D 的 registered-cb。
-        foreach (patchScripts() as $p) {
-            $rc = run("bash $root/cmd/$p");
-            if ($rc !== 0) { err("补丁失败：$p"); exit($rc); }
-        }
-        // 1b) 校验全部补丁落位，缺则中止（防半补丁 amalgam）。
-        if (!verifyPatches()) { err('补丁未全部落位，中止'); exit(1); }
-        // 2) 生成 amalgam + 编译对象（gpui-kit-cpp 自带构建）
+        //
+        // --no-native 跳过共用的前三步（同步→补丁→amalgam→shim 库），只跑 tpc 那一步。
+        // 为什么要这个开关：cmd/sync-upstream.sh 的 rsync --delete 会把沙箱里的 .work/ 与
+        // out/ 一起清掉，所以"同步→补丁→amalgam→shim"每调一次 build 就整个重来一次——
+        // 实测一次完整 amalgam 编译要好几分钟，而那几分钟建出来的 gpui.o 与
+        // libgpui_shim.a 是**所有示例共用**的。按功能域拆出独立示例之后
+        // （task_plan.md Phase 15），"每支都重编一遍 gpui.o"会让本地全量与 CI 都超预算。
+        // 用法：第一支跑完整链，其余支 --no-native。它只在"本轮已经建过共享产物"时成立，
+        // 所以下面先验那两个文件在不在——宁可拒绝，也不要静默链接到陈旧产物上量出一个假绿。
+        $noNative = in_array('--no-native', $args, true);
         $gpui = gpuiDir();
-        $rc = run("cd " . escapeshellarg($gpui) . " && bun cmd/build.ts -rel hello_world");
-        // hello_world 的链接会因入口 main 被改名而失败（预期），只要 gpui.o 新即可。
         $gpuiO = "$gpui/out/mac/rel/obj/gpui/gpui.o";
-        if (!is_file($gpuiO)) { err('amalgam 对象未生成：' . $gpuiO); exit(1); }
-        // 3) 建 shim 静态库
-        $rc = run("bash $root/cmd/build-shim.sh");
-        if ($rc !== 0) { err('build-shim 失败'); exit($rc); }
+        $shimA = "$root/cpp-src/build/libgpui_shim.a";
+        if (!$noNative) {
+            $rc = run("bash $root/cmd/sync-upstream.sh");
+            if ($rc !== 0) { err('同步 upstream 失败'); exit($rc); }
+
+            // 1) 补丁（幂等）——含 Stage D 的 registered-cb。
+            foreach (patchScripts() as $p) {
+                $rc = run("bash $root/cmd/$p");
+                if ($rc !== 0) { err("补丁失败：$p"); exit($rc); }
+            }
+            // 1b) 校验全部补丁落位，缺则中止（防半补丁 amalgam）。
+            if (!verifyPatches()) { err('补丁未全部落位，中止'); exit(1); }
+            // 2) 生成 amalgam + 编译对象（gpui-kit-cpp 自带构建）
+            $rc = run("cd " . escapeshellarg($gpui) . " && bun cmd/build.ts -rel hello_world");
+            // hello_world 的链接会因入口 main 被改名而失败（预期），只要 gpui.o 新即可。
+            if (!is_file($gpuiO)) { err('amalgam 对象未生成：' . $gpuiO); exit(1); }
+            // 3) 建 shim 静态库
+            $rc = run("bash $root/cmd/build-shim.sh");
+            if ($rc !== 0) { err('build-shim 失败'); exit($rc); }
+        } else {
+            $miss = [];
+            foreach ([$gpuiO, $shimA] as $need) {
+                if (!is_file($need)) { $miss[] = $need; }
+            }
+            if ($miss !== []) {
+                err("--no-native 要的前置产物不在：" . implode(' ', $miss)
+                    . '（先用不带该开关的 gpui build 跑一遍完整链）');
+                exit(1);
+            }
+            out('--no-native：沿用已建好的共享产物（' . basename($gpuiO) . ' + '
+                . basename($shimA) . '），只编译本示例');
+        }
         // 4) tpc nano 编译示例。yml 里 @ROOT@ → 绝对仓库根（shim .a 需绝对路径，
         //    tpc 不解析相对 ld-flags）；解析后的副本落在同目录，相对 sources 路径不受影响。
         $resolved = str_replace('@ROOT@', $root, (string) file_get_contents($yml));
@@ -222,7 +247,8 @@ switch ($cmd) {
             // 把示例自己的开关（--trace / --sections / --selftest）原样转给 bundle 里的
             // 二进制：没有这条转发，"php bin/gpui run showcase --trace" 会静默丢掉 trace，
             // 而那正是量"手点有没有到"的唯一外部手段。
-            $extra = array_slice($args, 1);
+            $extra = array_values(array_filter(array_slice($args, 1),
+                static fn ($a): bool => $a !== '--no-native'));
             $quoted = [];
             foreach ($extra as $a) {
                 $quoted[] = escapeshellarg((string) $a);
@@ -304,7 +330,7 @@ PHP);
 gpui — TypePHP-GPUI 打包 CLI
 
   gpui doctor              检查工具链
-  gpui build [example]     补丁→amalgam→shim 库→tpc nano 编译
+  gpui build [example]     补丁→amalgam→shim 库→tpc nano 编译（加 --no-native 只跑 tpc）
   gpui run [example]       编译并运行（默认 hello）
   gpui shot [example]      编译并截图出 PNG
   gpui selftest [example]  编译并跑 --selftest

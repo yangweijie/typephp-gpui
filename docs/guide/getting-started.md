@@ -49,9 +49,14 @@ php bin/gpui build hello
 想看**全部**特性不必翻 API 表：`php bin/gpui run showcase` 起一个 13 节的目录 app
 （基础原语 / 输入 / 选择与开关 / 布局 / 表格列表 / catalog 富组件 / 侧栏表单菜单 /
 浮层 / 系统能力 / 服务 / WebView·Inspector / 样式图标 / mac 集成）。
-`examples/showcase/src/sections.php` 里每一节都是真调用，而"有没有漏掉某个 API"
-由 `tests/ShowcaseTest.php` 反射 `src/Element.php` 与 `src/App.php` 逐名核对——
-少写一个 CI 就红，所以"展示了所有特性"是可断言的，不是自述。
+每一节都是真调用，而"有没有漏掉某个 API"由 `tests/ShowcaseTest.php` 反射 `src/Element.php`
+与 `src/App.php` 逐名核对——少写一个 CI 就红，所以"展示了所有特性"是可断言的，不是自述。
+
+想只测**一个功能域**（改输入、改浮层这类）就跑按域拆出来的独立示例，比如
+`php bin/gpui selftest input`：它的 sources 只列 `examples/_shared/features/inputs.php`
+加共用状态表 `examples/_shared/state.php`，所以编译快、报告短，而且自检是**边跑边打**的
+（每步一行，崩在哪行就停在哪行）。同一份域源也被画廊的 yml 收录，所以不存在两份实现——
+拆分的粒度是"编译单元"，不是"代码副本"。
 
 ## 4. 运行 / 自检 / 截图
 

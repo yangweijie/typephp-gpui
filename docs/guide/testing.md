@@ -16,6 +16,7 @@
 | 9 | 构建输入在册 | `php cmd/check-build-inputs.php` | 「克隆出来能不能构建」：bin/gpui 点名的每支补丁脚本都已跟踪、cmd/ 下每支 `patch-*.sh` 都在清单里、每个示例 yml 的 `sources:` 都在版本控制里。审核 P0-1 量到这三类输入当时全未跟踪，而本地跑起来一切正常 | 否 |
 | 10 | 三层契约 parity | `composer test`（`tests/ContractTest.php`） | stub ↔ FakeBridge ↔ `gpui_bridge.cc` 的名字与元数一一对齐；`src/App.php` 里调用的 `gpui_*` 必须在 stub 里声明过；Element 能发出的每个 kind 都必须在 shim 的 `kKindNames` 表里在册（静态解析表的 `{...}` 体内，不越界读后面的代码；三个走 bridge 的伪 kind 豁免）。`setAppMenus` 键名那族错就是四层各自"看着对"，编译期没人查 | 否 |
 | 11 | 上游词表 parity | `composer parity:upstream` / `php cmd/check-upstream-parity.php` | 我们发出的每个"上游按名字查表"的符号都必须在册：kind ↔ `ComponentKind` 枚举、method/callback/槽名 ↔ `materialize.cpp` 的 101 个 op 名与 prelude 槽表、catalog 导出名与方法名 ↔ descriptor 表（含 bridge 里硬编码的那两个）。上游对**带参未知名**是静默丢弃（`materialize.cpp:451-454` 链尾无 else），五层门禁都不报，这条是唯一的哨兵。取数端 `cmd/upstream-vocab.php` 读的是 vendored 的 `upstream/gpui-kit-cpp`，克隆即可跑 | 否 |
+| 12 | 示例覆盖率与拆分漂移 | `composer test`（`tests/ShowcaseTest.php`） | 反射出 `Element`/`App` 的每个公开成员与每个枚举取值，断言**任一示例**（`examples/**/*.php`）里真调用过，再静态核每次调用的实参个数。同一支文件里还有一条拆分自己引入的门：画廊节表里每个 builder 必须定义在画廊 yml 的 `sources:` 列出的某份源里，且 `examples/_shared/features/*.php` 每份都要被画廊收录——把一域搬去独立示例却忘记补 yml，无头 PHP 全绿、只有编译产物缺那个函数 | 否 |
 
 一键：`composer test:all`（Pest + PHPStan + 上游词表 parity + shim_test）。
 
@@ -178,7 +179,7 @@ behavior 解析、focus 迁移全部真的走一遍；`inputProbe()` 再证明 p
 所以 `on_` 前缀失配（真实鼠标一个事件都进不来）时它照样全绿。
 
 `--livetyping` 的换节也走真点击（`navClickTo()` 从命中表取那一行的矩形再点它），不再用
-`ShowcaseState::$v['section'] = N` 直接改状态——改状态等于绕过 hit-test 假装"点过了"。
+`ExampleState::$v['section'] = N` 直接改状态——改状态等于绕过 hit-test 假装"点过了"。
 那条常驻原生视图吃点击的**回归位是 `--selftest` 的 navProbe**：反向对照实测过，把
 "这帧没渲染到就隐藏"掐掉之后它红成 `afterAll=7/13`，而 `--livetyping` 的
 `ROUNDTRIP`（点进挂原生视图那节再点回来打字）在同样条件下仍然绿——

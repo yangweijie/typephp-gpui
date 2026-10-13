@@ -1596,3 +1596,55 @@ check-build-inputs / doctor / docs:build 全绿。
   （与 #74 查错表那次同类）。
 - 收尾：rc=124 那次的 selftest 留下一个仍带窗口的孤儿进程（pid 74337，跑了 45 分钟），已 `kill`；
   看门狗掐的是 perl 包装而不是 GUI 子进程，这条也记进 findings。
+
+## 修复轮 9：showcase 按功能域拆出第一支独立示例 `input`（Phase 15-A，2026-10-14）
+
+**拆之前先量成本**（粒度取舍取决于它，不靠估）：`php vendor/bin/tpc.php examples/showcase/project.macos.gen.yml --nano`
+= **41 秒**、rc=0。之前"每支示例 1.5–2 分钟"是把整条 `bin/gpui build` 算进去了，而那四步是共用的——
+但共用那四步**每次 build 都重跑**（`rsync --delete` 清掉了 `.work/` 与 `out/`），所以给 `bin/gpui build`
+加了 `--no-native`（只跑 tpc，并先验 `gpui.o` + `libgpui_shim.a` 在不在，不在就拒绝）。
+
+**搬家（单一真源，不复制）**：`examples/_shared/state.php`（状态表，类名 `ShowcaseState`→`ExampleState`、
+函数 `showcaseState`→`exampleState`，源码里 135+1+10+1 处一次改齐并 grep -c 验过落点）；
+`examples/_shared/features/inputs.php`（`sectionInputs` + `wireInputs` + `inputsTrees`）。
+showcase 的 yml 把这两份列进 `sources`，`wireShowcase` 里那 6 个 `in-*` handler 换成一句 `wireInputs($app)`。
+
+**新建 `examples/input`**：自带 `--sections` / `--shot` / `--selftest`，自检是**边跑边打**的
+（`step()` 一步一行）。这条设计第一次跑就兑现了：140 秒内报出三条画廊报不出的结论——
+`retainedRoundtrip` FAIL（`in-otp=''/set=false`）、`changeRoute` FAIL（`vol:30→1`）、
+`keyDownRoute` FAIL（`fired=false`）。三条分别对应上面 findings 的 OTP / 合成缝值 / 合成缝类型。
+
+**顺手修掉一个真 bug**：OTP 的取值口。`CreateRetainedOtp` 填 `entry->otp`（`OtpState`），
+而 `gpui_shim_input_value` / `gpui_shim_set_input_value` 都写死 `if (!e || !e->input) return 0;`
+⇒ OTP 的 `setInput` 恒 false、`text` 恒空，而 `registeredError()` 空、`componentFailure` 0，三层门禁全不报。
+改成按 `e->kind == RetainedKind::Otp` 走 `gpui::OtpValue/OtpSetValue`。
+
+**门禁泛化**：`tests/ShowcaseTest.php` 的扫描集从"showcase 两份文件"改成 `examples/**/*.php`
+（`exampleSources()` 递归遍历，排除 `/build/`；只 require `_shared` + 画廊声明，不 require 各示例
+`main.php`——nano 入口约定每支都定义 `main()`，一起加载就 redeclare fatal），
+并加第 10 条测试"拆出去的域不会从画廊的编译清单里悄悄消失"（画廊节表 builder 必须定义在画廊 yml
+列出的某份源里 + `_shared/features/*.php` 每份都被画廊收录）。
+**反向锚点已做**：把 `- ../_shared/features/inputs.php` 从画廊 yml 删掉 → 该测试立刻红
+（`Failed at tests/ShowcaseTest.php:443`），还原后绿。
+
+**改完 shim 之后的完整链（351 秒，含被 rsync 清掉后重编的 amalgam）**：
+```
+INPUT SELFTEST
+  ok   registeredError — 空
+  ok   componentFailure — count=0 last=
+  ok   inputBounds — n=4 有效框=4 越界读数零=true
+  ok   retainedRoundtrip — 四颗各自回环一致          ← OTP 修好了（改前这行是 in-otp=''/set=false）
+  ok   changeRoute — fired=true vol:30→1             ← 合成 change 的 value 就是 true，不是控件值
+  ok   realTyping — index→keyPressed=0:true 1:true 2:true 3:false 打进字的索引=0 name='甲g'
+  ok   valuePull — elementValue(in-name)='甲g'
+  ok   keyDownRoute — key_down 落点索引=1 key='g' focus=-1004
+INPUT SELFTEST OK                                    rc=0
+```
+读数里两条值得记下：`inputProbe()['n']=4` 而本域挂 retained 的有 6 颗，**探针说不出少的是哪两颗**
+（只给矩形不给 id），所以这条门只声明"表里每颗都有非零矩形且互不重叠"；索引 3 的 `realKey` 回 false
+（那一颗点了但不吃键），因为门只要求"某个索引打进字"，它没被伪装成"每颗都打得进"。
+
+**其余门禁**：`shotdiff check showcase` 13 张 `gdfrac=0.00000` ⇒ 搬家没改像素；
+`tests/baseline/input/tree1.png` 三次截图 md5 全同（`4dd48935e02fae6b44966662e30f6dd4`）；
+`composer test:all`（Pest 103 + PHPStan 0 + parity + SHIM CPP TESTS OK）、`check-c-abi`、`doctor`、
+`docs:build` 全绿。`check-build-inputs` 只剩"新文件未跟踪"这 5 条，提交即消。
