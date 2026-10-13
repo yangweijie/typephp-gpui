@@ -357,7 +357,8 @@ function showcaseShell(): El
     // NSApp.isActive 永远是 false，第一次点击被当成"激活这扇窗口"的点击吃掉，keyDown
     // 也没有 firstResponder 可去。这个判断只有 app 自己看得见，所以直接画在画面上——
     // 比让人猜"是框架坏了还是我没被激活"省事。默认 front=true，基线截图不受影响。
-    $head = [El::text($title)->font(16.0)->semibold()->px(16.0)->pt(12.0)];
+    $head = [El::text($title)->font(16.0)->semibold()->px(16.0)->pt(12.0)
+        ->role('heading')->ariaLevel(2)->ariaLabel('当前示例：' . $title)];
     // 事件计数常驻标题下方：手点的人一眼就能看到"我这一下到没到"。日志在 /tmp 里，
     // 不是每个人都愿意为了一次点击去开终端——数字不动就是硬证据，比事后翻日志快得多。
     // 取值全部来自 evSeen（与 selftest 报告同一份数据），没事件时是稳定的 0，
@@ -375,11 +376,13 @@ function showcaseShell(): El
 
     return El::hFlex([
         El::vFlex(array_merge(
-            [El::text('TypePHP GPUI showcase')->font(14.0)->semibold()->px(8.0)->py(4.0)],
+            [El::text('TypePHP GPUI showcase')->font(14.0)->semibold()->px(8.0)->py(4.0)
+                ->role('heading')->ariaLevel(1)],
             $nav
-        ))->w(210.0)->gap(2.0)->p(8.0)->bg(0xF4F1EC)->itemsStart()->overflowYScroll(),
+        ))->w(210.0)->gap(2.0)->p(8.0)->bg(0xF4F1EC)->itemsStart()->overflowYScroll()
+            ->role('navigation')->ariaLabel('示例节导航'),
         El::vFlex(array_merge($head, [$builder(ShowcaseState::get())]))
-            ->flex1()->gap(4.0),
+            ->flex1()->gap(4.0)->role('main'),
     ])->sizeFull();
 }
 
@@ -1004,6 +1007,24 @@ function runSelfTest(bool $expectBundle, bool $startFront = false): void
     $rowIdx = [$app->specIndex('da-row-0'), $app->specIndex('da-row-1'), $app->specIndex('da-row-2')];
     $cellIdx = $app->specIndex('no-such-cell');
     $tableOk = $rowIdx === [0, 1, 2] && $cellIdx === -1;
+    // 角色白名单两头都要在**编出来的产物**里验：上游对未知角色是
+    // `if (role != None) element->Role(role)`（静默不加），所以 role() 的当场抛
+    // 是这条哑路唯一的哨兵；而 181 个常量名 in_array 在 nano 里的行为，只有跑产物才排得掉。
+    $roleAllOk = true;
+    foreach (El::ROLES as $r) {
+        try {
+            El::div()->role($r);
+        } catch (\Throwable $t) {
+            $roleAllOk = false;
+            break;
+        }
+    }
+    $roleThrows = false;
+    try {
+        El::div()->role('Heading');   // 上游表里就是这么拼的，但匹配只按 snake_case
+    } catch (\Throwable $t) {
+        $roleThrows = true;
+    }
 
     // 能力真调用（不只看形状）：每一项都断在"结果对"而不是"没崩"。
     $app->setClipboardText('SHOWCASE-Ω');
@@ -1444,7 +1465,7 @@ function runSelfTest(bool $expectBundle, bool $startFront = false): void
     $routeGreen = !($bundled && $frontmost) || $nsappDeliveries > 0;
 
     $ok = $badSections === []
-        && $tableOk
+        && $tableOk && $roleAllOk && $roleThrows
         && $clipBack === 'SHOWCASE-Ω' && $item['text'] === 'SHOWCASE-Ω'
         && $urlRejected === false && $hudOn && $hudVisible
         && $overlayReclaimed && $bdNativeClosed && $bdReclaimed
@@ -1475,7 +1496,7 @@ function runSelfTest(bool $expectBundle, bool $startFront = false): void
     // ArgumentCountError，而 selftest 恰恰在最需要输出时炸。改成拼字符串数组，加字段不再有成本。
     $report = [
         'badSections=' . implode('|', $badSections),
-        'table rowIndex=' . implode(',', $rowIdx) . ' miss=' . $cellIdx
+        'roles=' . count(El::ROLES) . '/allOk=' . var_export($roleAllOk, true) . ' unknownThrows=' . var_export($roleThrows, true) . ' · table rowIndex=' . implode(',', $rowIdx) . ' miss=' . $cellIdx
             . '/ok=' . var_export($tableOk, true),
         'clip=' . var_export($clipBack, true),
         'notify=' . $nid . '/' . $notifyCount . '/' . $notifyAfter,

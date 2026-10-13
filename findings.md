@@ -1361,3 +1361,31 @@ composer 的脚本引用只认 `@php` / `@composer` / `@putenv`；`@bash` 被当
 判据落在观察上而不是 rc 上：这类门的绿灯必须是"看到了被门量者自己的输出"，
 不是"没看到错误"。改法 `@bash` → `bash`，双向验过（绿向出现 shim_test 分节名且警告 0 次；
 红向 `GPUI_DIR=/nonexistent-gpui` rc=1）。
+
+## #70：角色名只认 snake_case，而未知名字是第五条哑路（比 #66 更安静）
+
+`shell/a11y.cpp` 的 `kRoleNames` 有 **181** 个 PascalCase 项（表里跨行拼接，
+`"DescriptionLis" "t\0"` 这种，取数时必须先按相邻字面量整体接回来再按 `\0` 切），
+`RoleNameMatches` 把每一项**按下划线拆开小写**后与传入名逐字符比 —— 也就是说上游只收
+`heading` / `list_item` / `doc_biblio_entry`，`'Heading'`、`'descriptionList'` 一律不认。
+而消费端是 `materialize.cpp:2619-2622`：
+
+```cpp
+if (behavior.role) {
+    AccessibilityRole role = shell::AccessibilityRoleFromName(behavior.role);
+    if (role != AccessibilityRole::None) element->Role(role);
+}
+```
+
+没有 else、没有错误、也没有像素差别 —— 比 #66 那五个糖还安静（那几个至少在 catalog 路径上
+有"查无此方法"的痕迹，这一条连痕迹都没有）。所以 `El::role()` 必须自己拒。
+
+**取数端与白名单不能各写一套**：`Element::ROLES`（181 项）由 `cmd/upstream-vocab.php --dump-roles`
+从上游表生成，`cmd/check-upstream-parity.php` 再**双向**对齐 —— 只查"我们多写的"会留一个洞：
+把表删瘦（少 40 个名字）表现为"上游有而我们没有"，单向门就永远绿着让糖覆盖不到新角色。
+双向各做过一次负向对照，且每次改动都用 `grep -c` 证明补丁真落到了文件上
+（第一轮对照因为 perl 没匹配上而两头都"绿"，那次无效： `'list_grid', 'terminal',` 实际跨在两行）。
+
+这一族的验收只能量到"发对了"：a11y 不画像素，所以 33 棵树 `gdfrac=0.00000` **本身就是证据**
+（"只改读屏树"= 像素一位没变 + op 断言齐全），而 VoiceOver 实际读出什么仍需人工确认，
+这一格在文档里写成了缺口而不是通过。

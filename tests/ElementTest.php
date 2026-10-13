@@ -375,3 +375,51 @@ test('every factory that takes an $id puts it where its kind routes events', fun
     expect($base)->toBeGreaterThanOrEqual(8);
     expect($registered)->toBeGreaterThanOrEqual(2);
 });
+
+/*
+ * #70：无障碍与焦点 op 族。
+ * 上游对未知角色是 `if (role != AccessibilityRole::None) element->Role(role)`
+ * （materialize.cpp:2619-2622）—— 名字错了不响、不变像素，所以这族糖的
+ * "名字在册"与"写错就抛"两头都得钉住。
+ */
+test('a11y sugars emit exactly the op names upstream parses', function (): void {
+    $node = El::div()
+        ->role('heading')->ariaLabel('段落标题')->ariaLevel(2)
+        ->ariaSelected()->ariaActiveDescendant()
+        ->tabIndex(3)->tabStop(false)->keyContext('DialogContext')->selectable(false)
+        ->toArray();
+    $byName = [];
+    foreach ($node['ops'] as $op) { $byName[$op['name']] = $op['args'] ?? null; }
+    expect(array_keys($byName))->toBe([
+        'role', 'aria_label', 'aria_level', 'aria_selected', 'aria_active_descendant',
+        'tab_index', 'tab_stop', 'key_context', 'selectable',
+    ]);
+    // 实参形状要对得上上游的取法：AsString / AsNumber / AsBool。
+    expect($byName['role'])->toBe(['heading'])
+        ->and($byName['aria_label'])->toBe(['段落标题'])
+        ->and($byName['aria_level'])->toBe([2.0])
+        ->and($byName['aria_selected'])->toBe([true])
+        ->and($byName['aria_active_descendant'])->toBe([])
+        ->and($byName['tab_index'])->toBe([3.0])
+        ->and($byName['tab_stop'])->toBe([false])
+        ->and($byName['key_context'])->toBe(['DialogContext'])
+        ->and($byName['selectable'])->toBe([false]);
+});
+
+test('role() rejects names upstream would silently drop, and accepts every whitelisted one', function (): void {
+    // 'Heading' 是上游表里的写法，但 RoleNameMatches 只按 snake 比，传 Pascal 一样静默不加。
+    expect(fn () => El::div()->role('Heading'))->toThrow(InvalidArgumentException::class)
+        ->and(fn () => El::div()->role('headng'))->toThrow(InvalidArgumentException::class);
+    foreach (El::ROLES as $r) {
+        El::div()->role($r);   // 白名单必须整表可用，不能自己跟自己不一致
+    }
+    expect(count(El::ROLES))->toBeGreaterThanOrEqual(150);
+});
+
+test('ariaLevel refuses what upstream would clamp away', function (): void {
+    // 上游把 <1 夹成 1（`level < 1 ? 1 : level`），静默改值不等于报错，所以在这里拒。
+    expect(fn () => El::div()->ariaLevel(0))->toThrow(InvalidArgumentException::class)
+        ->and(fn () => El::div()->ariaLevel(-2))->toThrow(InvalidArgumentException::class);
+    expect(El::div()->ariaLevel(1)->toArray()['ops'][0]['args'])->toBe([1.0]);
+});
+

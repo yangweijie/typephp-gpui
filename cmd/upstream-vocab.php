@@ -19,7 +19,7 @@ declare(strict_types=1);
 
 final class UpstreamVocab
 {
-    /** @return array{kinds: list<string>, ops: list<string>, slots: list<string>, stateStyles: list<string>, catalog: array<string,array{ctors:array<string,list<array{0:?string,1:string,2:list<string>>}>,methods:array<string,list<array{0:?string,1:string,2:list<string>>}>,file:string}>} */
+    /** @return array{kinds: list<string>, ops: list<string>, slots: list<string>, stateStyles: list<string>, roles: list<string>, catalog: array<string,array{ctors:array<string,list<array{0:?string,1:string,2:list<string>>}>,methods:array<string,list<array{0:?string,1:string,2:list<string>>}>,file:string}>} */
     public static function load(string $treeDir): array
     {
         [$slots, $states] = self::slotTables($treeDir . '/src/shell/runtime.cpp');
@@ -28,6 +28,7 @@ final class UpstreamVocab
             'ops' => self::ops($treeDir . '/src/shell/materialize.cpp'),
             'slots' => $slots,
             'stateStyles' => $states,
+            'roles' => self::roles($treeDir . '/src/shell/a11y.cpp'),
             'catalog' => self::catalog($treeDir . '/src/component_shell'),
         ];
     }
@@ -174,6 +175,43 @@ final class UpstreamVocab
     }
 
     /**
+     * `role()` 能认的角色名（上游权威表 a11y.cpp 的 kRoleNames）。
+     *
+     * 上游只收 snake_case：RoleNameMatches 把表里的 PascalCase 逐项按下划线拆开再比，
+     * 认不出 'Button' / 'listItem' 这类写法，而 materialize 那边是
+     * `if (role != AccessibilityRole::None) element->Role(role)` —— 名字错了就静默不加，
+     * 与 #66 那五个糖同一形状（错名不报，只是这里连像素都不变）。
+     * 所以这张表必须取到、并且和 PHP 侧白名单对齐。
+     *
+     * @return list<string>
+     */
+    public static function roles(string $a11yCpp): array
+    {
+        $text = is_file($a11yCpp) ? (string) file_get_contents($a11yCpp) : '';
+        // 字面量是跨行相邻拼接的（"DescriptionLis" "t\0"），所以先按相邻串接整体取出。
+        if (!preg_match('/const char kRoleNames\[\]\s*=\s*([^;]*);/s', $text, $m)) { return []; }
+        preg_match_all('/"([^"]*)"/', $m[1], $sm);
+        $blob = '';
+        foreach ($sm[1] as $seg) { $blob .= str_replace('\0', "\0", $seg); }
+        $out = [];
+        foreach (explode("\0", $blob) as $name) {
+            if ($name === '') { continue; }
+            $snake = '';
+            $len = strlen($name);
+            for ($i = 0; $i < $len; $i++) {
+                $c = $name[$i];
+                if ($c >= 'A' && $c <= 'Z') {
+                    if ($i > 0) { $snake .= '_'; }
+                    $c = chr(ord($c) + 32);
+                }
+                $snake .= $c;
+            }
+            $out[] = $snake;
+        }
+        return $out;
+    }
+
+    /**
      * 一份描述能用的槽名与状态样式名。
      *
      * 权威源是 runtime.cpp 的 prelude 字面量表（`for (const name of [...])` 那两张），
@@ -260,7 +298,10 @@ final class UpstreamVocab
 
 /** 供 php -r / CLI 直接看一眼规模。 */
 if (PHP_SAPI === 'cli' && isset($argv[0]) && realpath($argv[0]) === realpath(__FILE__)) {
-    $dir = $argv[1] ?? dirname(__DIR__) . '/upstream/gpui-kit-cpp';
+    $dir = dirname(__DIR__) . '/upstream/gpui-kit-cpp';
+    foreach (array_slice($argv, 1) as $a) {
+        if (strncmp($a, '--', 2) !== 0) { $dir = $a; break; }
+    }
     $v = UpstreamVocab::load($dir);
     $exports = 0;
     $methods = 0;
@@ -268,6 +309,13 @@ if (PHP_SAPI === 'cli' && isset($argv[0]) && realpath($argv[0]) === realpath(__F
         $exports += count($rec['ctors']);
         $methods += count($rec['methods']);
     }
-    printf("kinds=%d ops=%d catalog=%d 组件 / %d 导出名 / %d 方法名（树：%s）\n",
-        count($v['kinds']), count($v['ops']), count($v['catalog']), $exports, $methods, $dir);
+    printf("kinds=%d ops=%d roles=%d catalog=%d 组件 / %d 导出名 / %d 方法名（树：%s）\n",
+        count($v['kinds']), count($v['ops']), count($v['roles']),
+        count($v['catalog']), $exports, $methods, $dir);
+    if (in_array('--dump-roles', $argv, true)) {
+        echo "    " . implode(",\n    ", array_map(
+            static fn (string $r): string => "'" . $r . "'",
+            $v['roles']
+        )) . ",\n";
+    }
 }

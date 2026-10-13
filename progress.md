@@ -1468,3 +1468,36 @@ check-build-inputs / doctor / docs:build 全绿。
 - 本轮全门禁：test:all rc=0（四道都真跑）、check-build-inputs / check-c-abi / doctor rc=0、
   hello selftest rc=0、shotdiff check rc=0（tree 0..32 全 gdfrac=0.00000，探针改动不触像素，
   这本身也是一条旁证）。
+  **订正**：那句"tree 0..32"数错了对象——`bin/gpui shotdiff check` 不带示例时默认跑 **hello**，
+  而 hello 的在册集是硬编码的 18 棵（`cmd/shotdiff.php:40`，实测 18 张基线 md5 各不相同）；
+  showcase 的 13 棵要显式 `shotdiff check showcase`（下一轮已补跑，13 棵全 gdfrac=0.00000）。
+
+**修复轮 4（#70 无障碍与焦点 op 族）**：
+- `El::role()/ariaLabel()/ariaLevel()/ariaSelected()/ariaActiveDescendant()/tabIndex()/
+  tabStop()/keyContext()/selectable()` 九个糖，全部走行为链的 method op；
+  `role()` 的名字必须落在 `Element::ROLES`（上游 `kRoleNames` 的 snake 形，**181** 个）里，
+  否则当场抛 —— 上游那句 `if (role != None) element->Role(role)` 对未知名字完全静默。
+- 取数端 `cmd/upstream-vocab.php` 新增 `roles()`（跨行相邻字面量先接回整体再按 `\0` 切，
+  `DescriptionLis" "t` 这种不会漏），并加 `--dump-roles` 直接生成 PHP 字面量；
+  `cmd/check-upstream-parity.php` 新增 2b 段把 `Element::ROLES` 与上游表**双向**对齐。
+  **两个方向都做过负向对照**：删掉 `terminal` → "上游有 1 个没进白名单" rc=1；
+  加 `not_a_role` → "上游 kRoleNames 里没有" rc=1；还原 rc=0。
+  （第一轮对照两头都"绿"，是 perl 模式没匹配上——`'list_grid', 'terminal',` 实际跨两行——
+  所以这轮每次改动都先 `grep -c` 证明补丁落到文件上再跑门。）
+- 三层验收：Pest 3 条（op 名与实参形状逐条钉、整表 181 名可用 + 未知名抛、ariaLevel 拒 <1）；
+  showcase selftest 新增 `$roleAllOk && $roleThrows` 硬门（在**编出来的产物**里跑整表，
+  `roles=181/allOk=true unknownThrows=true`）；shotdiff 两示例在册基线全 0.00000 —— 
+  对这一族来说"像素一位没变"就是"只改读屏树"的证据。
+- 示例真用法：main.php 侧栏 `navigation` + 标题 `heading/aria_level 1/2` + 内容区 `main`；
+  sections.php 数据节的列表 `list` / `list_item` / `aria_selected` / `tab_index` / `tab_stop` /
+  `key_context` / `aria_active_descendant` / `selectable`。仓库原有的两条覆盖率门
+  （"showcase 覆盖 Element 的全部链式方法"、"每个枚举常量的每个取值都被用过或整体遍历"）
+  第一时间把我只接了一半的状态抓红了，这两条门是本轮真正的兜网。
+- `track_focus` / `content_focus_handle` **不给 PHP 糖**：实参是 `Bridged` 焦点句柄，
+  只有 bridge 造得出，从 PHP 传进去只能是假的 —— 造一条假糖就是再造一条哑路。
+- 文档：components.md 新增"读屏与键盘"节；upstream-coverage.md 把该族从"没接的整族"移到已接、
+  修好那张被插话打断的 markdown 表、`focus`/`accessibility` 两行 ❌→🟡
+  （顺带纠正"dialog 焦点陷阱从未成立"那句 —— 上一轮实测它是通的）。
+- 门禁：pest 91 passed (465 assertions)、phpstan / parity / test:all(含真跑的 shim) /
+  check-c-abi / check-build-inputs / doctor / docs:build 全 rc=0，
+  showcase selftest rc=0、hello selftest rc=0、shotdiff check（hello 18 棵 + showcase 13 棵）rc=0。

@@ -64,29 +64,41 @@ PathFill、PathStroke、SliderTrack、SliderIndicator、SliderThumb。
 已接：`id` `disabled` `selected` `checked` `value` `size` `tooltip` `href`
 `row_count` `column_count`
 `overflow_scroll` / `overflow_x_scroll` / `overflow_y_scroll`，回调 4 个
-（`on_click` `on_change` `on_hover` `on_key_down`）。
+（`on_click` `on_change` `on_hover` `on_key_down`），以及无障碍与焦点一族
+`role` `aria_label` `aria_selected` `aria_level` `aria_active_descendant`
+`tab_index` `tab_stop` `key_context` `selectable`（2026-10-13，见下）。
 
 
 **没接的整族**（都在 `materialize.cpp` 的行为链里，上游文档各自有专页）：
 
 | 族 | 名字 | 上游文档页 |
 |---|---|---|
-| 焦点与无障碍 | `track_focus` `content_focus_handle` `tab_stop` `tab_index` `role` `aria_label` `aria_selected` `aria_level` `aria_active_descendant` `key_context` | focus / accessibility |
-
-（`track_focus` / `content_focus_handle` 这两个自 2026-10-13 起由 bridge 为 Select 发出；
-**元素级的 PHP 侧还没有糖**，其余九个也还没接。）
 | 浮层行为 | `open` `default_open` `overlay_closable` `open_delay` `close_delay` `on_open_change` | — |
 | 事件 | `on_key_up` `on_mouse_down_*` `on_mouse_up_*` `on_mouse_down_out` `on_mouse_move` `on_scroll_wheel` `on_confirm` `on_dismiss` `on_step` `on_resize` `on_item_click` `on_item_secondary_click` `on_link_click` `token` `on_token_click` `on_token_hover` | event |
 | 动画 | `transition(prop, ms, delay, easing)` `spring(prop, response, damping, epsilon)`，可动画属性只有 `opacity/w/h/left/top` | animation |
 | 自定义绘制 | `move_to` `line_to` `curve_to` `cubic_bezier_to` `arc_to` `close` + `PathFill`/`PathStroke` | paint |
 | 滚动控制 | `mode` `scroll_size` `viewport_from_layout` `overflow_scrollbar` / `_x_` / `_y_` `track_scroll` `with_item_to_measure_index` | — |
-| 杂项 | `pressed` `indeterminate` `start` `controls_right` `panel_visible` `panel_size` `size_range` `set_position` `keep_mounted` `selectable` `scrollable` `mouse_button` `frame_budget` `axis` | — |
+| 杂项 | `pressed` `indeterminate` `start` `controls_right` `panel_visible` `panel_size` `size_range` `set_position` `keep_mounted` `scrollable` `mouse_button` `frame_budget` `axis` | — |
+
+（`track_focus` / `content_focus_handle` 自 2026-10-13 起由 bridge 为 Select 发出，
+但**没有**元素级的 PHP 糖：这两个 op 的实参是一个 `Bridged` 焦点句柄，
+只有 bridge 那侧能造出来，从 PHP 传不进去。给它造个假糖只会再产一条哑路。）
 
 样式词表：上游 `style.cpp` 的 nullary 关键字有 **137** 个，我们发了 **25** 个且**全部在册**
 （0 个拼错）；`grid`、`self_*`、`content_*`、`whitespace_nowrap`、`text_ellipsis`、`line_through`、
 `aspect_square`、`border_dashed`、`text_xs…3xl`、`font_thin…black`、`cursor_*`、`debug*` 没有糖。
 
 ## 4. 当前已知不生效的 API（文档写了但别当能用）
+
+无障碍与焦点一族**2026-10-13 已接**（#70）：`El::role()` / `ariaLabel()` / `ariaLevel()` /
+`ariaSelected()` / `ariaActiveDescendant()` / `tabIndex()` / `tabStop()` / `keyContext()` /
+`selectable()` 发的是行为链上的 method op。这一族的特殊之处是**它不画任何像素**，
+所以 shotdiff 看不见它——showcase 的数据节给列表打了 `list` / `list_item` / `aria_selected`，
+侧栏打了 `navigation`，标题打了 `heading` + `aria_level`，而两个示例的全部在册基线
+（showcase 13 棵 + hello 18 棵）逐张 `gdfrac=0.00000`；
+"只改读屏树"这件事本身就是由这条不变证明的。`role()` 的名字必须在上游那 181 个里
+（`Element::ROLES`，与 `shell/a11y.cpp` 的 `kRoleNames` 双向对齐，由
+`cmd/check-upstream-parity.php` 钉住），因为上游那句 `if (role != None)` 对未知名字完全静默。
 
 `El::primary()` / `secondary()` / `danger()` / `ghost()` / `outline()` —— **2026-10-13 已修**。
 它们以前发的是 `method('variant', [...])` / `method('outline')`：上游行为链两个名字都不认，
@@ -127,13 +139,13 @@ Select 的焦点句柄此前从未真的交出去过）。
 | window / multi-window | 🟡 | 有 `App::createWindow()`、`windowState()`，文档此前没写 |
 | entity / context / render / render-once / task / global / element-id / view-cache | ⛔ 概念不对应 | Rust 侧写视图的抽象；我们换成"PHP 数组 + 每帧重算 + 脏驱动"，见 [架构](./architecture) |
 | style | 🟡 | 参数化样式覆盖较全；nullary 关键字 25/137，见第 3 节 |
-| focus | ❌ | 焦点 op 一个没发 ⇒ dialog 的焦点陷阱从未成立（已知 bug #62 的根因） |
+| focus | 🟡 | `tab_index` `tab_stop` `key_context` 已接（2026-10-13）；`track_focus` / `content_focus_handle` 的实参是 `Bridged` 句柄，只有 bridge 造得出，故无 PHP 糖。dialog 的焦点陷阱**实测是通的**（`focusTrap()` 读到 `trap == focus == popup`），#62 剩下的只差真键送达 |
 | action | 🟡 | `App::dispatchAction()` + 菜单动作路由已通；无 `bind_keys` 式键位表 |
 | keybinding | ❌ | 只有系统级全局快捷键（`onHotkey`），没有应用内键位/和弦 |
 | event | 🟡 | 24 个回调接了 4 个 |
 | animation | ❌ | `transition`/`spring` 整族未接 |
 | paint / geometry / text-system | 🟡 | 布局与文本可用；无路径绘制（PathFill/PathStroke 未接） |
-| accessibility | ❌ | `role`/`aria_*`/`tab_stop` 未接 |
+| accessibility | 🟡 | `role`（上游 181 个名字全表白名单，写错当场抛）+ `aria_label` `aria_selected` `aria_level` `aria_active_descendant` `selectable` 已接。缺口：没有读屏侧回读口，验收只能是"op 发对了 + 像素一位没变"，VoiceOver 里到底读出什么得人工确认 |
 | image / assets / fonts | 🟡 | 内嵌图标表可用（`El::icon`，路径写错静默不画）；无字体装载、无 http 图片策略 |
 | i18n | ❌ | 无 locale 机制 |
 | system-notification | ✅ | `App::notify()` + OS 通知（见 [系统能力](./system-capabilities)） |

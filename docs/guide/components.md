@@ -115,6 +115,32 @@ El::catalog('Accordion', ['acc-1'])->child(El::catalog('AccordionItem', ['i1']))
 已有糖拼出来，拼不出来就是没有。
 
 
+### 读屏与键盘：`role()` / `aria_*` / `tab_*`
+
+这一族全是 behavior op，**不改变像素**，只改变读屏软件和键盘轮询看到的树。
+给一颗原本没有语义的 `div` / `text` 打标：
+
+```php
+El::vFlex($items)->role('list')->ariaLabel('可滚动列表')
+    ->tabIndex(0)->tabStop()->keyContext('ShowcaseDataList');
+El::text('列表项 3')->role('list_item')->ariaSelected(true);
+El::text('表格、列表与进度')->role('heading')->ariaLevel(2);
+```
+
+三条容易踩的：
+
+1. `role()` 的名字**只认 snake_case**，且必须在上游那 181 个里（`Element::ROLES`）。
+   写 `'Heading'` 会当场抛 `InvalidArgumentException` —— 这不是苛刻，是上游那句
+   `if (role != AccessibilityRole::None) element->Role(role)` 对未知名字**完全静默**，
+   既不变像素也不报错，与 `variant` 那五个糖同一形状（见[上游覆盖](./upstream-coverage)）。
+2. `ariaLevel(0)` 也抛：上游把它夹成 1（`level < 1 ? 1 : level`），静默改值不如拒绝。
+3. 上游的表格部件（`tableRow` / `tableHead` / `tableCell`）**自己就带 role**
+   （`base/table.cpp:12-56` 全是"带 AccessibilityRole 的 div"），别再手动 `role('row')`
+   叠一遍；`keyContext()` 的字符串要与你实际绑定的按键上下文一致，否则键位解析走不到那格。
+
+`track_focus` / `content_focus_handle` 没有 PHP 糖：它们的实参是 `Bridged` 焦点句柄，
+只有 bridge 那侧造得出来（retained 输入与 Select 由 bridge 自动发）。
+
 ## catalog 富组件（Registered 机制）
 
 经 `component_shell` catalog 按导出名分发。工厂设 `registered=true`、`kind=导出名`、`ctorArgs`。

@@ -27,8 +27,8 @@ require_once __DIR__ . '/upstream-vocab.php';
 function upstreamParityProblems(string $repo, string $tree): array
 {
     $v = UpstreamVocab::load($tree);
-    if ($v['kinds'] === [] || $v['ops'] === [] || $v['catalog'] === []) {
-        return [['抽表失败：上游树里没有 spec.h/materialize.cpp/component_shell（路径：' . $tree . '）'], []];
+    if ($v['kinds'] === [] || $v['ops'] === [] || $v['catalog'] === [] || $v['roles'] === []) {
+        return [['抽表失败：上游树里没有 spec.h/materialize.cpp/a11y.cpp/component_shell（路径：' . $tree . '）'], []];
     }
 
     $problems = [];
@@ -100,6 +100,32 @@ function upstreamParityProblems(string $repo, string $tree): array
     if ($badSlot !== []) {
         $problems[] = '这些槽名不在上游 prelude 的槽表里：' . implode(', ', $badSlot)
             . '（可用槽名：' . implode(', ', $v['slots']) . '）';
+    }
+
+    // ── 2b. 角色名：Element::ROLES 必须与上游 kRoleNames **双向**相等 ─────────
+    // 单向只查"我们多写的"会留一个洞：谁把这张表删瘦了（少 40 个名字）只表现为
+    // "上游有而我们没有"，那是能力缺口而不是错，门就永远绿着让糖覆盖不到新角色。
+    if (!preg_match('/public const ROLES = \[(.*?)\];/s', $src, $rm2)) {
+        $problems[] = 'src/Element.php 里找不到 public const ROLES 表';
+    } else {
+        preg_match_all("/'([a-z0-9_]+)'/", $rm2[1], $rn);
+        $phpRoles = $rn[1];
+        $extraRoles = array_values(array_diff($phpRoles, $v['roles']));
+        $missRoles = array_values(array_diff($v['roles'], $phpRoles));
+        if (count(array_unique($phpRoles)) !== count($phpRoles)) {
+            $problems[] = 'Element::ROLES 里有重复名';
+        }
+        if ($extraRoles !== []) {
+            $problems[] = '这些角色名上游 kRoleNames 里没有，role() 会放行但 materialize 静默不加：'
+                . implode(', ', $extraRoles);
+        }
+        if ($missRoles !== []) {
+            $problems[] = '上游有 ' . count($missRoles) . ' 个角色名没进 Element::ROLES（白名单落后于上游）：'
+                . implode(', ', $missRoles) . ' —— 跑 `php cmd/upstream-vocab.php --dump-roles` 重新对齐';
+        }
+        if ($extraRoles === [] && $missRoles === []) {
+            $info[] = '角色名：Element::ROLES 与上游 kRoleNames 双向相等（' . count($phpRoles) . ' 个）';
+        }
     }
 
     // ── 3. catalog：导出名与方法名都要在 descriptor 表里 ────────────────────

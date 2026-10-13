@@ -81,6 +81,45 @@ class Element
         'error' => 'ErrorAlert',
     ];
 
+    /**
+     * 上游无障碍角色名（shell/a11y.cpp 的 kRoleNames，snake 化后共 181 个）。
+     * 权威源在上游：cmd/check-upstream-parity.php 把这张表与树里重解析的结果**双向**对齐，
+     * 上游加名/删名而这里没跟上，门就红。role() 只认这些写法（'heading'，不是 'Heading'）。
+     */
+    public const ROLES = [
+        'unknown', 'text_run', 'cell', 'label', 'image', 'link',
+        'row', 'list_item', 'list_marker', 'tree_item', 'list_box_option', 'menu_item',
+        'menu_list_option', 'paragraph', 'check_box', 'radio_button', 'text_input', 'button',
+        'default_button', 'pane', 'row_header', 'column_header', 'row_group', 'list',
+        'table', 'layout_table_cell', 'layout_table_row', 'layout_table', 'switch', 'menu',
+        'multiline_text_input', 'search_input', 'date_input', 'date_time_input', 'week_input', 'month_input',
+        'time_input', 'email_input', 'number_input', 'password_input', 'phone_number_input', 'url_input',
+        'abbr', 'alert', 'alert_dialog', 'application', 'article', 'audio',
+        'banner', 'blockquote', 'canvas', 'caption', 'caret', 'code',
+        'color_well', 'combo_box', 'editable_combo_box', 'complementary', 'comment', 'content_deletion',
+        'content_insertion', 'content_info', 'definition', 'description_list', 'details', 'dialog',
+        'disclosure_triangle', 'document', 'embedded_object', 'emphasis', 'feed', 'figure_caption',
+        'figure', 'footer', 'form', 'grid', 'grid_cell', 'group',
+        'header', 'heading', 'iframe', 'iframe_presentational', 'ime_candidate', 'keyboard',
+        'legend', 'line_break', 'list_box', 'log', 'main', 'mark',
+        'marquee', 'math', 'menu_bar', 'menu_item_check_box', 'menu_item_radio', 'menu_list_popup',
+        'meter', 'navigation', 'note', 'plugin_object', 'progress_indicator', 'radio_group',
+        'region', 'root_web_area', 'ruby', 'ruby_annotation', 'scroll_bar', 'scroll_view',
+        'search', 'section', 'section_footer', 'section_header', 'slider', 'spin_button',
+        'splitter', 'status', 'strong', 'suggestion', 'svg_root', 'tab',
+        'tab_list', 'tab_panel', 'term', 'time', 'timer', 'title_bar',
+        'toolbar', 'tooltip', 'tree', 'tree_grid', 'video', 'web_view',
+        'window', 'pdf_actionable_highlight', 'pdf_root', 'graphics_document', 'graphics_object', 'graphics_symbol',
+        'doc_abstract', 'doc_acknowledgements', 'doc_afterword', 'doc_appendix', 'doc_back_link', 'doc_biblio_entry',
+        'doc_bibliography', 'doc_biblio_ref', 'doc_chapter', 'doc_colophon', 'doc_conclusion', 'doc_cover',
+        'doc_credit', 'doc_credits', 'doc_dedication', 'doc_endnote', 'doc_endnotes', 'doc_epigraph',
+        'doc_epilogue', 'doc_errata', 'doc_example', 'doc_footnote', 'doc_foreword', 'doc_glossary',
+        'doc_gloss_ref', 'doc_index', 'doc_introduction', 'doc_note_ref', 'doc_notice', 'doc_page_break',
+        'doc_page_footer', 'doc_page_header', 'doc_page_list', 'doc_part', 'doc_preface', 'doc_prologue',
+        'doc_pullquote', 'doc_qna', 'doc_subtitle', 'doc_tip', 'doc_toc', 'list_grid',
+        'terminal',
+    ];
+
     /** 枚举预校验：不在白名单即抛 InvalidArgumentException（含允许集）。 */
     private static function enumCheck(string $method, string $value, array $allowed): void
     {
@@ -849,6 +888,74 @@ class Element
     public function checked(bool $v = true): self
     {
         return $this->method('checked', [$v]);
+    }
+
+    // ── 无障碍与焦点（都在行为链上，materialize.cpp:420 附近那一段）──
+
+    /**
+     * ARIA 角色。上游是 `if (role != None) element->Role(role)`：名字不在 ROLES 里就
+     * 静默不加（连像素都不变），所以在这里当场拒。写法只认 snake_case——
+     * RoleNameMatches 把上游表逐项拆下划线再比，'Heading' / 'heading_' 都不认。
+     */
+    public function role(string $role): self
+    {
+        if (!in_array($role, self::ROLES, true)) {
+            throw new \InvalidArgumentException(
+                'Element::role(): \'' . $role . '\' 不在上游 ' . count(self::ROLES)
+                . ' 个角色名里（shell/a11y.cpp kRoleNames 的 snake_case 写法：'
+                . "'heading'、'list_item'、'tab_panel'…）"
+            );
+        }
+        return $this->method('role', [$role]);
+    }
+
+    /** 读屏时替代可见文本的标签（accessibility_label 是同一个槽的上游别名）。 */
+    public function ariaLabel(string $label): self
+    {
+        return $this->method('aria_label', [$label]);
+    }
+
+    /** aria_level：上游 base 默认 3 且把 <1 夹成 1（materialize.cpp aria_level），这里直接拒。 */
+    public function ariaLevel(int $level): self
+    {
+        if ($level < 1) {
+            throw new \InvalidArgumentException('ariaLevel(): 层级从 1 起，收到 ' . $level);
+        }
+        return $this->method('aria_level', [(float) $level]);
+    }
+
+    public function ariaSelected(bool $on = true): self
+    {
+        return $this->method('aria_selected', [$on]);
+    }
+
+    /** 零参旗子：只声明"本节点的子树里有 active descendant"，值由上游自己算。 */
+    public function ariaActiveDescendant(): self
+    {
+        return $this->method('aria_active_descendant', []);
+    }
+
+    /** Tab 序。上游取 AsNumber 后转 int（负数=可聚焦但不进 Tab 序，是合法写法）。 */
+    public function tabIndex(int $index): self
+    {
+        return $this->method('tab_index', [(float) $index]);
+    }
+
+    /** 是否参与 Tab 轮询。dialog 的 popup 自己就是 TabStop(false)，别照抄到内容上。 */
+    public function tabStop(bool $on = true): self
+    {
+        return $this->method('tab_stop', [$on]);
+    }
+
+    /** 命名按键上下文：Escape/Enter 这类动作按上下文解析，不是按焦点元素解析。 */
+    public function keyContext(string $context): self
+    {
+        return $this->method('key_context', [$context]);
+    }
+
+    public function selectable(bool $on = true): self
+    {
+        return $this->method('selectable', [$on]);
     }
 
     /**
