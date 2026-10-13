@@ -11,20 +11,58 @@
 PHP 侧注册 handler：
 
 ```php
-$app->on('go', 'click', function (mixed $value): void {
-    // 改外部状态；下一帧 view 闭包读到新值自动重渲染
+$app->on('go', 'click', function (array $e): void {
+    // $e 有 type / id / value 三个键；值随事件走（点击是连击数，指针是 CSV）
+    // 改外部状态即可，下一帧 view 闭包读到新值自动重渲染
     $count++;
 });
 ```
 
 主循环每帧 `pump` + `poll` 取事件，`dispatch` 按 `(id, type)` 找 handler 调用。
-`App::onAny($fn)` 收所有事件。arity 自适应（handler 可省 `$value` 参数）。
+`App::onAny($fn)` 收所有事件。arity 自适应：写 `function ()` 就不传参，
+写 `function (array $e)` 传的是**整个事件数组**（不是 `value` 本身）。
 
 支持类型：`click` / `change`（input/textarea/slider）/ `hover` / `key_down` 等。
 链式标记与事件名的对应关系是 `on_hover` → `hover`、`on_key_down` → `key_down`：
 bridge 剥掉 `on_` 前缀后作为 `(id, type)` 的路由键（`gpui_bridge.cc:49`），而交给
 materialize 的 op 名**必须保留 `on_` 前缀**（它逐字比较 `"on_click"`，`materialize.cpp:233`）。
 这两套名字曾经被混用成一整套短名，结果是真实鼠标/键盘一个事件都进不来。
+
+## 1a. 指针与滚轮（`on_mouse_*` / `on_scroll_wheel` / `on_key_up`）
+
+上游一共认 24 个 `on_*` 回调名，我们发出并**实测送达**的是这 14 个：
+`on_click` `on_change` `on_hover` `on_key_down`（原有四个）加下面这十个。
+
+| 糖 | 事件 type | `value` |
+|---|---|---|
+| `onMouseDownLeft/Right/Middle()` | `mouse_down_left` / `_right` / `_middle` | `"x,y,button,clicks,mods"` |
+| `onMouseUpLeft/Right/Middle()` | `mouse_up_left` / `_right` / `_middle` | 同上（`clicks` 恒 1） |
+| `onMouseDownOut()` | `mouse_down_out` | `"x,y,button,clicks,mods"` |
+| `onMouseMove()` | `mouse_move` | `"x,y,pressed,button,mods"` |
+| `onScrollWheel()` | `scroll_wheel` | `"dx,dy,x,y,mods"`（DIP，一格 48） |
+| `onKeyUp()` | `key_up` | 键名或字符（与 `key_down` 同一条钩子） |
+
+`button` 是上游 `gpui.h` 里 `MouseButton` 的序号（Left=0 / Right=1 / Middle=2 /
+NavigateBack=3 / NavigateForward=4）；`mods` 是位掩码
+`control=1 alt=2 shift=4 platform(Command)=8 function(Fn)=16`。
+GpuiEvent 只有一个 value 槽，所以这里定的是**字段顺序**而不是类型。
+
+这三类 handler 的投递**依赖 `cmd/patch-mouse-view.sh`**：materialize 给它们挂的是
+`Listen(cx, &ScriptView::OnScriptMouse*, cbid)`（`materialize.cpp:2701-2735`），
+而未打补丁的函数体会走 `DispatchMouseButton` / `DispatchScrollWheel` / `DispatchMouseMove`
+→ QuickJS。PHP 宿主没有脚本引擎，实测的现场是：**摘掉补丁重编（amalgam 里钩子名 0 处），
+真按下那一刻进程 SIGSEGV（rc=139）** —— 与 #53 的 `key_down` 现场同形。
+所以这一族不是"没接就不生效"，而是"接了但没补丁会崩"；补丁已进 `bin/gpui` 的清单单一来源，
+`gpui doctor` / `verifyPatches()` 缺位即中止构建。
+与 click/key 一样的已知代价：脚本端那对 `propagate` / `stopPropagation` 语义在这里没有，
+事件是否继续向外由宿主决定。
+
+还**没接**的十个（`on_confirm` `on_dismiss` `on_step` `on_resize` `on_open_change`
+`on_item_click` `on_item_secondary_click` `on_link_click` `on_token_click` `on_token_hover`）
+不是缺糖：它们的 callbackId 被存进各部件自己的 binding（如 `binding->onConfirm`），
+触发方在 base 组件里，走的是另一条尚未验证的投递路。没量到送达之前不给糖——
+那是 #66 那类"看起来能用、实际一个像素都不动"的假接口。`token` 更不是事件，
+它是**要返回内容**的渲染回调，与 `El::list` 的 renderer 同一类（见 #29/#35）。
 
 ## 1b. 真输入的验收缝（`realClick` / `realMouseMove` / `realKey`）
 

@@ -1386,6 +1386,52 @@ if (behavior.role) {
 双向各做过一次负向对照，且每次改动都用 `grep -c` 证明补丁真落到了文件上
 （第一轮对照因为 perl 没匹配上而两头都"绿"，那次无效： `'list_grid', 'terminal',` 实际跨在两行）。
 
-这一族的验收只能量到"发对了"：a11y 不画像素，所以 33 棵树 `gdfrac=0.00000` **本身就是证据**
+这一族的验收只能量到"发对了"：a11y 不画像素，所以两示例的在册基线（showcase 13 棵 +
+hello 18 棵）`gdfrac=0.00000` **本身就是证据**
 （"只改读屏树"= 像素一位没变 + op 断言齐全），而 VoiceOver 实际读出什么仍需人工确认，
 这一格在文档里写成了缺口而不是通过。
+
+## #71：指针事件不是"缺糖"，是"没补丁会崩"
+
+上游 24 个 `on_*` 回调名里我们只发得出 4 个。先按"缺糖"理解就错了：materialize 给
+`onMouseMove` / `on_mouse_down_*` / `on_mouse_up_*` / `on_scroll_wheel` 挂的全是
+`Listen(cx, &ScriptView::OnScript*, cbid)`（`materialize.cpp:2701-2735`），而这些 handler
+的函数体原本调 `DispatchMouseMove` / `DispatchMouseButton` / `DispatchScrollWheel` → QuickJS。
+`on_click` 之所以一直能用，是因为它走的是另一个 helper（`ClickListener(cx, cbid)`，
+`materialize.cpp:2696`），根本不碰脚本引擎 —— 这就是"点击能到 PHP、按键曾经段错误"（#53）
+的同一处分岔。所以正确顺序是**先补投递路，再发糖**；反过来做会得到一条比 #66 更糟的假接口。
+
+`cmd/patch-mouse-view.sh` 按 patch-view / patch-key-view 的既有形状把五个 body 换成
+`gpuiEnqueueMouse/Scroll/Move` 弱钩子（强符号在 `cpp-src/gpui_shim_events.inc`）。
+GpuiEvent 只有一个 value 槽，而指针事件一次要给坐标 + 按钮 + 连击 + 修饰键，
+所以定的是 CSV **字段顺序**而不是类型：mouse `"x,y,button,clicks,mods"`、
+move `"x,y,pressed,button,mods"`、scroll `"dx,dy,x,y,mods"`。
+
+三个测量结论：
+
+| 量什么 | 读数 | 结论 |
+|---|---|---|
+| 真点击后宿主队列里的指针事件 | `down=13 up=13 move=1`（13 颗导航行各一次按下与抬起） | 投递是真的，不是合成缝 |
+| 值的形状 | `downVal=105.00,226.00,0,1,0` | 这个格式只有 `gpuiEnqueueMouse` 会产出 ⇒ 生产者可指认 |
+| 反向对照：把补丁从树里摘掉、amalgam 钩子名 0 处、重编 gpui.o | 真按下那一刻 `rc=139`（SIGSEGV） | 补丁是承重的；没补丁时不是"不生效"而是崩 |
+
+对照过程本身踩了两次"量到陈旧产物"：
+第一次 `php bin/gpui selftest` 在跑测试前会**先执行补丁流水线**，于是我刚 `cp` 回来的
+未打补丁 view.cpp 被当场又打上了；第二次 `bun cmd/build.ts` 打印了 `compile 0, skip 4`，
+即 amalgam 与 gpui.o 都没重生成。有效的做法是：绕过 `bin/gpui`（它一定会补），
+手工 `cp <pre-patch .bak> view.cpp` → **立刻 `grep -c` 确认标记为 0** →
+`rm .work/gpui.cpp out/mac/rel/obj/gpui/gpui.o` → `bun cmd/build.ts` → 断言
+`strings .work/gpui.cpp | grep -c 钩子名` 也是 0，再编译示例。这一串里任何一步没落，
+读到的就是上一轮的结论（这次两处都是靠重新 grep 才发现的）。
+
+另外两条本轮的副产品：
+
+1. **文档教的 handler 签名是错的**：`docs/guide/events.md` 第 1 节写的是
+   `function (mixed $value)`，而 `App::safely()`（App.php:1127-1140）在 arity===1 时传的是
+   **整个事件数组** `{type, id, value}`，只有 arity===0 才不传参。照文档抄的人会拿到数组当值用。
+   新加的替身级路由测试（`FakeBridge::pushEvent(..., 'mouse_down_left', ...)`）第一次跑就把它抓红 ——
+   这条测试的价值不在覆盖率，而在它是一面能反过来说话的镜子。
+2. **一次不可复现的 shotdiff 红**：紧接在 `selftest hello` 之后的那轮 `shotdiff check hello`
+   报 tree 29/31 `gdfrac=1.00000`；重跑整轮 18 棵全绿，再对这两棵树各连拍两次，
+   两次互为同一张且与基线 md5 相同 ⇒ 不是"这两棵基线带活数字"（HUD / Inspector），
+   是那一次捕获的一次性异常。记在这里，免得下次当成回归追。

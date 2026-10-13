@@ -108,7 +108,16 @@ function sectionPrimitives(array $s): El
         // onHover 只是"声明此元素有 hover 事件"的回调标记；handler 在 App->on(id,'hover') 注册。
         El::hFlex([
             // onHover 要求元素有 hit-testable 几何体（bg/border/明确尺寸），纯 text 节点不参与 hover 检测。
-            El::text('把鼠标放上来（onHover）')->id('pr-hover')->onHover()->font(12.0)
+            El::text('把鼠标放上来（onHover）')->id('pr-hover')->onHover()
+                // 指针事件族（onMouseMove / 按下 / 抬起）挂在同一颗有几何体的探针上：
+                // selftest 的 hover 扫描正好在这列做真移动，down/up 由 navProbe 的真点击覆盖。
+                ->onMouseMove()->onMouseDownLeft()->onMouseUpLeft()
+                // 右/中键这两对只是把 API 摆出来：selftest 的真点击只发左键，
+                // 所以它们的送达要靠人手动一下（同 #56 那格），这里不当门。
+                ->onMouseDownRight()->onMouseUpRight()
+                ->onMouseDownMiddle()->onMouseUpMiddle()
+                ->onMouseDownOut()->onScrollWheel()
+                ->font(12.0)
                 ->p(6.0)->bg(0xF4F1EC)->roundedMd()->cursorPointer(),
             El::text("hover={$s['hover']}")->font(12.0),
         ])->gap(10.0)->itemsCenter(),
@@ -129,7 +138,7 @@ function sectionInputs(array $s): El
         El::text($s['name'] !== '' ? "Hello, {$s['name']}!" : '还没输入')->font(13.0)->italic(),
         // onKeyDown：回调 op 名是 on_key_down，bridge 剥掉 "on_" 前缀后事件类型是 key_down
         // （cpp-src/gpui_bridge.cc:49），所以 handler 注册用 $app->on(id, 'key_down')。
-        El::input('in-key')->placeholder('在这里按键（onKeyDown）')->onKeyDown(),
+        El::input('in-key')->placeholder('在这里按键（onKeyDown）')->onKeyDown()->onKeyUp(),
         El::text("keyDown={$s['key']}")->font(11.0),
         El::textarea('in-note')->value('多行文本：textarea 也是保留态的')->onChange(),
         El::text($s['note'] !== '' ? "备注 {$s['note']} 个字符" : '备注还没改')->font(11.0),

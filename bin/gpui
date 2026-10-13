@@ -69,6 +69,7 @@ function patchManifest(): array {
         ['patch-concepts.sh',      "$gpui/src/gpui/gpui.h",          'EmitsEventV'],
         ['patch-hover-always.sh',  "$gpui/src/gpui/window_mac.cpp",  'NSTrackingActiveAlways'],
         ['patch-key-view.sh',      "$gpui/src/shell/view.cpp",       'typephp-gpui: gpuiEnqueueKey'],
+        ['patch-mouse-view.sh',    "$gpui/src/shell/view.cpp",       'typephp-gpui: gpuiEnqueueMouse'],
     ];
 }
 

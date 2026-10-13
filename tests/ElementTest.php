@@ -423,3 +423,28 @@ test('ariaLevel refuses what upstream would clamp away', function (): void {
     expect(El::div()->ariaLevel(1)->toArray()['ops'][0]['args'])->toBe([1.0]);
 });
 
+/**
+ * #71：指针/滚轮/键抬起这一族回调。糖本身只发标记，真正的投递靠
+ * cmd/patch-mouse-view.sh 把 ScriptView 的 OnScriptMouseDown、OnScriptMouseUp、
+ * OnScriptMouseDownOut、OnScriptScrollWheel、OnMouseMove 从 QuickJS 那条路改接到
+ * 宿主队列（反向对照：摘掉补丁重编，真按下那一刻 rc=139）。
+ * 这里量的是"名字发对了"，名字必须逐字等于上游行为链里的 op 名。
+ */
+test('pointer and key-up sugars emit callback markers under the exact upstream op names', function (string $method, string $opName): void {
+    $node = El::div()->$method()->toArray();
+    expect($node['ops'])->toBe([
+        ['kind' => 'callback', 'name' => $opName, 'args' => []],
+    ]);
+})->with([
+    ['onMouseDownLeft', 'on_mouse_down_left'],
+    ['onMouseDownRight', 'on_mouse_down_right'],
+    ['onMouseDownMiddle', 'on_mouse_down_middle'],
+    ['onMouseUpLeft', 'on_mouse_up_left'],
+    ['onMouseUpRight', 'on_mouse_up_right'],
+    ['onMouseUpMiddle', 'on_mouse_up_middle'],
+    ['onMouseDownOut', 'on_mouse_down_out'],
+    ['onMouseMove', 'on_mouse_move'],
+    ['onScrollWheel', 'on_scroll_wheel'],
+    ['onKeyUp', 'on_key_up'],
+]);
+

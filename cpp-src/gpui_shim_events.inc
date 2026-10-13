@@ -53,6 +53,38 @@ void gpuiEnqueueKey(ScriptView* self, Ctx*, uint64_t callbackId, unsigned rune,
     box->enqueue(callbackId, GPUI_ARG_STR, 0, 0, buf);
 }
 
+// cmd/patch-mouse-view.sh 的三个宿主入口。值统一编成一串 CSV 交给 PHP：
+// GpuiEvent 只有一个 value 槽（NUM/BOOL/STR 三选一），而指针事件天然要一次给
+// 坐标 + 按钮 + 连击 + 修饰键，所以这里定的是**字段顺序**而不是类型：
+//   mouse → "x,y,button,clicks,mods"   move → "x,y,pressed,button,mods"
+//   scroll → "dx,dy,x,y,mods"
+// mods 是位掩码：control=1 alt=2 shift=4 platform(Command)=8 function(Fn)=16，
+// button 是 gpui MouseButton 的序号（Left=0 Right=1 Middle=2 …），
+// 这两个枚举值都在上游 gpui.h 里，不在这个仓库里，所以文档必须写清含义。
+void gpuiEnqueueMouse(ScriptView* self, Ctx*, uint64_t callbackId, int button,
+                      float x, float y, int clicks, int mods) {
+    char buf[64];
+    std::snprintf(buf, sizeof(buf), "%.2f,%.2f,%d,%d,%d", x, y, button, clicks, mods);
+    if (Box2* box = boxForView((void*)self))
+        box->enqueue(callbackId, GPUI_ARG_STR, 0, 0, buf);
+}
+
+void gpuiEnqueueScroll(ScriptView* self, Ctx*, uint64_t callbackId, float dx,
+                       float dy, float x, float y, int mods) {
+    char buf[64];
+    std::snprintf(buf, sizeof(buf), "%.2f,%.2f,%.2f,%.2f,%d", dx, dy, x, y, mods);
+    if (Box2* box = boxForView((void*)self))
+        box->enqueue(callbackId, GPUI_ARG_STR, 0, 0, buf);
+}
+
+void gpuiEnqueueMove(ScriptView* self, Ctx*, uint64_t callbackId, float x, float y,
+                     int pressed, int button, int mods) {
+    char buf[64];
+    std::snprintf(buf, sizeof(buf), "%.2f,%.2f,%d,%d,%d", x, y, pressed, button, mods);
+    if (Box2* box = boxForView((void*)self))
+        box->enqueue(callbackId, GPUI_ARG_STR, 0, 0, buf);
+}
+
 void gpuiEnqueueChange(ScriptView* self, Ctx*, uint64_t callbackId, bool checked) {
     if (Box2* box = boxForView((void*)self))
         box->enqueue(callbackId, GPUI_ARG_BOOL, 0, checked ? 1 : 0, nullptr);

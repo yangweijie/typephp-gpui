@@ -20,6 +20,15 @@ void gpuiEnqueueChange(ScriptView* self, Ctx* cx, uint64_t callbackId, bool chec
 void gpuiEnqueueHover(ScriptView* self, Ctx* cx, uint64_t callbackId, bool hovered);
 void gpuiEnqueueInput(ScriptView* self, Ctx* cx, uint64_t handle, int eventKind);
 void gpuiEnqueueSlider(ScriptView* self, Ctx* cx, uint64_t handle, float value);
+// cmd/patch-mouse-view.sh 的三个指针事件入口（强符号在 cpp-src/gpui_shim_events.inc，
+// 值的 CSV 字段顺序也在那里定义）。button/pressed 是上游 gpui.h 的 MouseButton 序号，
+// mods 是位掩码 control=1 alt=2 shift=4 platform=8 function=16。
+void gpuiEnqueueMouse(ScriptView* self, Ctx* cx, uint64_t callbackId, int button,
+                      float x, float y, int clicks, int mods);
+void gpuiEnqueueScroll(ScriptView* self, Ctx* cx, uint64_t callbackId, float dx,
+                       float dy, float x, float y, int mods);
+void gpuiEnqueueMove(ScriptView* self, Ctx* cx, uint64_t callbackId, float x,
+                     float y, int pressed, int button, int mods);
 
 } // namespace gpui
 #endif // GPUI_BRIDGE_EVENTS_H_

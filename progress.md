@@ -1501,3 +1501,29 @@ check-build-inputs / doctor / docs:build 全绿。
 - 门禁：pest 91 passed (465 assertions)、phpstan / parity / test:all(含真跑的 shim) /
   check-c-abi / check-build-inputs / doctor / docs:build 全 rc=0，
   showcase selftest rc=0、hello selftest rc=0、shotdiff check（hello 18 棵 + showcase 13 棵）rc=0。
+
+**修复轮 5（#71 指针/滚轮/键抬起事件族）**：
+- 定性纠正：这一族不是"缺 PHP 糖"。materialize 给它们挂的是
+  `Listen(cx, &ScriptView::OnScriptMouse*, cbid)`，而未打补丁的 handler 函数体走
+  `DispatchMouseButton` / `DispatchScrollWheel` / `DispatchMouseMove` → QuickJS
+  （`on_click` 能用是因为它走 `ClickListener`，压根不碰脚本引擎）。
+- 新增 `cmd/patch-mouse-view.sh`（弱钩子 + 强符号在 `cpp-src/gpui_shim_events.inc`），
+  五个 body 换成 `gpuiEnqueueMouse/Scroll/Move`；已进 `bin/gpui` 的补丁清单单一来源，
+  doctor 认它（`verifyPatches()` 缺位即中止构建），逐符号幂等 + 自检"Dispatch* 三路必须已断"。
+- 10 个糖：`onMouseDownLeft/Right/Middle` `onMouseUpLeft/Right/Middle` `onMouseDownOut`
+  `onMouseMove` `onScrollWheel` `onKeyUp`；value 是 CSV（GpuiEvent 只有一个 value 槽），
+  字段顺序写进 docs/guide/events.md 的 1a 节。
+- 验收三层，各量各的：Pest 数据表钉 10 个 op 名（37 passed）；showcase selftest 的
+  `$mouseOk` 用**真输入**量送达（`down=13 up=13 move=1`，13 颗导航行各一次按下与抬起），
+  并用 `downVal=105.00,226.00,0,1,0` 的形状断言**生产者可指认**（只有那条钩子会编这个格式）；
+  反向对照（绕过 bin/gpui 的自动补补丁、手工还原 + 删 `.work/gpui.cpp` 与 `gpui.o` 强制重编、
+  并断言 amalgam 里钩子名 0 处）→ 真按下那一刻 **rc=139 SIGSEGV**，证明补丁是承重的。
+  两次对照失败都是"量到陈旧产物"（bin/gpui 会先补补丁；build.ts 打印 `compile 0, skip 4`），
+  已把有效流程写进 findings。
+- 明确不做的：剩下 10 个 `on_*`（confirm/dismiss/step/resize/open_change/item_click/
+  item_secondary_click/link_click/token_click/token_hover）的 callbackId 存在各部件自己的
+  binding 里、触发方在 base 组件，投递路未验证 —— 未量到送达就不发糖，避免又一条 #66 式假接口。
+  `token` 是要返回内容的渲染回调，与 `El::list` renderer 同类（#29/#35）。
+- 右/中键那四对只在示例里声明、不当门：selftest 的真点击只发左键。
+- 顺手把 evSeen 的叶子从 `true` 改成事件 value 本身（`$e['value'] ?? true`），
+  这样同一条真输入缝里既能数"到了几条"也能看到"带的是什么值"。

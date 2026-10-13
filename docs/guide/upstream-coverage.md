@@ -74,7 +74,7 @@ PathFill、PathStroke、SliderTrack、SliderIndicator、SliderThumb。
 | 族 | 名字 | 上游文档页 |
 |---|---|---|
 | 浮层行为 | `open` `default_open` `overlay_closable` `open_delay` `close_delay` `on_open_change` | — |
-| 事件 | `on_key_up` `on_mouse_down_*` `on_mouse_up_*` `on_mouse_down_out` `on_mouse_move` `on_scroll_wheel` `on_confirm` `on_dismiss` `on_step` `on_resize` `on_item_click` `on_item_secondary_click` `on_link_click` `token` `on_token_click` `on_token_hover` | event |
+| 事件 | `on_confirm` `on_dismiss` `on_step` `on_resize` `on_open_change` `on_item_click` `on_item_secondary_click` `on_link_click` `on_token_click` `on_token_hover` `token`（指针/滚轮/键抬起那 10 个已于 2026-10-13 接通，见 [事件与回调](./events) 1a：它们的 callbackId 存在各部件自己的 binding 里，触发路未量到之前不发糖） | event |
 | 动画 | `transition(prop, ms, delay, easing)` `spring(prop, response, damping, epsilon)`，可动画属性只有 `opacity/w/h/left/top` | animation |
 | 自定义绘制 | `move_to` `line_to` `curve_to` `cubic_bezier_to` `arc_to` `close` + `PathFill`/`PathStroke` | paint |
 | 滚动控制 | `mode` `scroll_size` `viewport_from_layout` `overflow_scrollbar` / `_x_` / `_y_` `track_scroll` `with_item_to_measure_index` | — |
@@ -142,7 +142,7 @@ Select 的焦点句柄此前从未真的交出去过）。
 | focus | 🟡 | `tab_index` `tab_stop` `key_context` 已接（2026-10-13）；`track_focus` / `content_focus_handle` 的实参是 `Bridged` 句柄，只有 bridge 造得出，故无 PHP 糖。dialog 的焦点陷阱**实测是通的**（`focusTrap()` 读到 `trap == focus == popup`），#62 剩下的只差真键送达 |
 | action | 🟡 | `App::dispatchAction()` + 菜单动作路由已通；无 `bind_keys` 式键位表 |
 | keybinding | ❌ | 只有系统级全局快捷键（`onHotkey`），没有应用内键位/和弦 |
-| event | 🟡 | 24 个回调接了 4 个 |
+| event | 🟡 | 24 个 `on_*` 名接了 14 个（原有 4 + #71 的指针/滚轮/键抬起 10）；余下 10 个的投递路未验证，见 [事件与回调](./events) 1a |
 | animation | ❌ | `transition`/`spring` 整族未接 |
 | paint / geometry / text-system | 🟡 | 布局与文本可用；无路径绘制（PathFill/PathStroke 未接） |
 | accessibility | 🟡 | `role`（上游 181 个名字全表白名单，写错当场抛）+ `aria_label` `aria_selected` `aria_level` `aria_active_descendant` `selectable` 已接。缺口：没有读屏侧回读口，验收只能是"op 发对了 + 像素一位没变"，VoiceOver 里到底读出什么得人工确认 |

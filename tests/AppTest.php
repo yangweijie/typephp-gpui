@@ -113,3 +113,21 @@ test('渲染是脏驱动的：预热 1 帧 + 每轮 loop 的首帧 + 事件/inva
 
     expect(FakeBridge::$renderLog[(int) $win])->toHaveCount(4);
 });
+
+// #71：指针事件在 PHP 侧的路由。类型是**短名**（bridge 剥掉 on_ 前缀，gpui_bridge.cc:49-51），
+// 值是一段 CSV —— 这条门量的是"到了 PHP 之后怎么发"，投递本身由 showcase 的真输入门量。
+test('pointer events route by the short type and carry the CSV value', function (): void {
+    $app = new App();
+    $app->create();
+    $win = $app->createWindow('T', 400, 300);
+    $seen = null;
+    $app->on('row', 'mouse_down_left', function (array $e) use (&$seen): void {
+        $seen = $e['value'] ?? null;
+    });
+    FakeBridge::pushEvent((int) $win, 'mouse_down_left', 'row', '105.00,226.00,0,1,0');
+    $app->loop(2);
+    expect($seen)->toBe('105.00,226.00,0,1,0');
+    // 值槽是共享的：真侧 enqueue 也走 rememberValue，所以鼠标值会覆盖同元素的"最近上报值"。
+    // 这不是 bug 而是既定语义，钉在这里免得哪天被当成回归。
+    expect($app->elementValue('row'))->toBe('105.00,226.00,0,1,0');
+});

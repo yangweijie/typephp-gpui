@@ -1056,6 +1056,25 @@ class Element
         return $this->callback('on_key_down');
     }
 
+    /** 按下鼠标键。事件 value 是 "x,y,button,clicks,mods"（button：Left=0/Right=1/Middle=2，
+     *  mods 位掩码 control=1 alt=2 shift=4 Command=8 Fn=16）。投递需要 cmd/patch-mouse-view.sh。 */
+    public function onMouseDownLeft(): self { return $this->callback('on_mouse_down_left'); }
+    public function onMouseDownRight(): self { return $this->callback('on_mouse_down_right'); }
+    public function onMouseDownMiddle(): self { return $this->callback('on_mouse_down_middle'); }
+    /** 抬起鼠标键，value 同 onMouseDownLeft（clicks 恒为 1，与上游一致）。 */
+    public function onMouseUpLeft(): self { return $this->callback('on_mouse_up_left'); }
+    public function onMouseUpRight(): self { return $this->callback('on_mouse_up_right'); }
+    public function onMouseUpMiddle(): self { return $this->callback('on_mouse_up_middle'); }
+    /** 在盒子内移动。value 是 "x,y,pressed,button,mods"。 */
+    public function onMouseMove(): self { return $this->callback('on_mouse_move'); }
+    /** 按下发生在盒子**之外**（拖拽起手在别处时才有）。value 同 onMouseDownLeft。 */
+    public function onMouseDownOut(): self { return $this->callback('on_mouse_down_out'); }
+    /** 滚轮。value 是 "dx,dy,x,y,mods"，dx/dy 是 DIP（上游注释：一格滚轮 48）。 */
+    public function onScrollWheel(): self { return $this->callback('on_scroll_wheel'); }
+    /** 抬起键。与 onKeyDown 同一条宿主路（cmd/patch-key-view.sh），value 是键名或字符。
+     *  注意真键送达本身仍受前台竞争影响，见 #56。 */
+    public function onKeyUp(): self { return $this->callback('on_key_up'); }
+
     /** 命名槽：把 child 作为本元素的具名 slot（Popover trigger/content、Avatar image/fallback…）。 */
     public function slot(string $name, self $child): self
     {

@@ -345,7 +345,8 @@ function showcaseShell(): El
         // 而这里的标题最长有「系统能力：剪贴板 · url · 文件系统 · 进程」，194px 装不下
         // （实测新图左右各被切掉几个字）。选中态改用 bold 表达——它不依赖组件库的盒子。
         // 上游的 primary/ghost 变体属于 catalog Button，打在 kind 节点上现在会抛（见 #66）。
-        $btn = El::button($title)->id('nav-' . $tree)->onClick()->w(194.0);
+        $btn = El::button($title)->id('nav-' . $tree)->onClick()->w(194.0)
+            ->onMouseDownLeft()->onMouseUpLeft();
         if (ShowcaseState::$v['section'] === $tree) {
             $btn->bold();
         }
@@ -418,10 +419,12 @@ function wireShowcase(App $app): void
         });
     }
     // 每条通道都记一行：真输入的可观测证明（见 showcaseTrace）
-    foreach (['click', 'change', 'hover', 'key_down', 'timer', 'tray', 'hotkey', 'close'] as $t) {
+    foreach (['click', 'change', 'hover', 'key_down', 'timer', 'tray', 'hotkey', 'close',
+        'mouse_down_left', 'mouse_up_left', 'mouse_move',
+        'mouse_down_out', 'scroll_wheel', 'key_up'] as $t) {
         $app->onAny($t, function (array $e) use ($t): void {
             $id = (string) ($e['id'] ?? '');
-            ShowcaseState::$v['evSeen'][$t][$id] = true;
+            ShowcaseState::$v['evSeen'][$t][$id] = $e['value'] ?? true;
             showcaseTrace($t . ' id=' . $id . ' value=' . var_export($e['value'] ?? null, true));
         });
     }
@@ -1316,6 +1319,23 @@ function runSelfTest(bool $expectBundle, bool $startFront = false): void
     // 整行都得可点：侧栏 w(210) 减去左右 p(8)，按钮可用宽 194，从 x≈8 起。x 每 8px 采一次，
     // 所以容差留到一档。没做满宽之前这里量到的是 12..132（只有文字那段能点）。
     $navBandWide = count($bandHits) >= 22 && $bandMin <= 12 && $bandMax >= 196;
+    // 上面那些**真点击**同时该产出按下与抬起：这是"鼠标事件真的进了宿主队列"的
+    // 可观测证明（cmd/patch-mouse-view.sh 把 ScriptView::OnScriptMouse* 从 QuickJS
+    // 那条路改接到 gpuiEnqueueMouse）。注意这里必须在 1328 那行清空 evSeen 之前读，
+    // 否则读到的是下一次扫描的数据。
+    $mouseDownBand = evCount('mouse_down_left');
+    $mouseUpBand = evCount('mouse_up_left');
+    // 值的形状是"谁 produced 这条事件"的指纹：只有 cmd/patch-mouse-view.sh 那条
+    // gpuiEnqueueMouse 会把坐标编成 "x,y,button,clicks,mods"（两个 %.2f + 三个整数）。
+    // 反向对照（把补丁从树里摘掉、amalgam 钩子数=0 重编）里进程在真按下那一刻 SIGSEGV
+    // （rc=139，没有 .ips 可解析，具体帧未能命名）—— 与 #53 的 key_down 现场同形：
+    // ScriptView::OnScriptMouseDown → DispatchMouseButton → QuickJS。
+    $mouseSample = '';
+    foreach ((array) (ShowcaseState::$v['evSeen']['mouse_down_left'] ?? []) as $v) {
+        $mouseSample = (string) $v;
+        break;
+    }
+    $mouseShape = (bool) preg_match('/^-?\d+\.\d\d,-?\d+\.\d\d,0,\d,\d+$/', $mouseSample);
 
     $hoverRouted = false;
     $hoverMoves = 0;
@@ -1337,6 +1357,11 @@ function runSelfTest(bool $expectBundle, bool $startFront = false): void
             $hoverRouted = ShowcaseState::$v['hover'] === 'pr-hover';
         }
     }
+
+    // pr-hover 那颗胶囊同时挂了 onMouseMove：上面这串真移动应当产出 mouse_move，
+    // 值形如 "x,y,pressed,button,mods"（trace 里能看到具体数字）。
+    $moveHits = evCount('mouse_move');
+    $mouseOk = $mouseDownBand > 0 && $mouseUpBand > 0 && $moveHits > 0 && $mouseShape;
 
     $typedIn = false;
     $keyHits = 0;
@@ -1485,7 +1510,7 @@ function runSelfTest(bool $expectBundle, bool $startFront = false): void
         && $httpQueued && $resp !== null && $resp['ok'] === false
         && $navRouted && $hoverRouted && $typedIn && $inputsReal && $windowUsable && $valuePull
         && $actionRouted && $menuRowsOk && $timerNoGrow && $dirtyGate
-        && $bundleGreen && $routeGreen && $navBandWide
+        && $bundleGreen && $routeGreen && $navBandWide && $mouseOk
         && $viewRerenders
         && $granted && $menuCnt > 0 && $openBefore && $frames3 === 3
         && $stoppedAfterOneFrame && $lastErr === ''
@@ -1561,6 +1586,9 @@ function runSelfTest(bool $expectBundle, bool $startFront = false): void
             . ' sectionsReachable=' . $sectionsReachable . '/' . $navRows
             . ' navBand=y' . $bandY . ':' . $bandMin . '..' . $bandMax . '/' . count($bandHits)
             . '/hits=' . $hitsBefore . '→' . $hitsAfter
+            . ' mouseProbe down=' . $mouseDownBand . ' up=' . $mouseUpBand
+            . ' move=' . $moveHits . '/ok=' . var_export($mouseOk, true)
+            . ' downVal=' . $mouseSample
             . ' hoverAt=' . $hoverAtX . ',' . $hoverAtY . ' probe=' . $probe['n'] . '@' . $probe['x'] . ',' . $probe['y'] . ' ' . $probe['w'] . 'x' . $probe['h'] . ' hit=' . $px . ',' . $py,
     ];
     echo ($ok ? 'SHOWCASE SELFTEST OK (' : 'SHOWCASE SELFTEST FAIL (') . implode(' · ', $report) . ")\n";
