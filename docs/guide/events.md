@@ -64,7 +64,45 @@ GpuiEvent 只有一个 value 槽，所以这里定的是**字段顺序**而不�
 那是 #66 那类"看起来能用、实际一个像素都不动"的假接口。`token` 更不是事件，
 它是**要返回内容**的渲染回调，与 `El::list` 的 renderer 同一类（见 #29/#35）。
 
-## 1b. 真输入的验收缝（`realClick` / `realMouseMove` / `realKey`）
+## 1b. 部件自己发出的事件（`on_confirm` / `on_dismiss` / `on_open_change` / `on_step` / `on_resize` …）
+
+这批与上面两族不同的地方是：callbackId 不挂在元素监听器上，而是**存进部件自己的 binding**
+（`ShellSelectBinding` 等），由部件在合适的时刻调 `runtime->DispatchSignal/Change/String()` 发出来。
+好消息是这条路**不需要新补丁**：打过补丁的 `ShellRuntime::Dispatch` 开头就有 shim 那条路
+（`entry->shimId` 非零 ⇒ `gpuiEnqueueShimCallback` 入本窗口事件队列，完全不碰 QuickJS）。
+
+坏消息是**送达至今没量到**。探针是 showcase 的独立模式：
+
+```bash
+php bin/gpui run showcase --probe-events
+```
+
+它的读数（2026-10-13，隔离进程、前台已确认 `active=true key=true bundled=true`）：
+
+```
+posted=20 open=0 confirm=0 dismiss=0 step=0 resize=0 | confirmPosted=false cancelPosted=false | evSeen=timer{tick} click{btn-plain,btn-p,…}
+```
+
+怎么读这份数：20 次真点击投递成功、其中 6 次落到了同一节里的按钮上（`click{...}` 就是证据），
+但 Select / Combobox 那几行没有回任何 `open_change`；合成动作派发这条路连动作名都没解析上
+（`ui::Confirm` 返回 false）。另外这一轮只渲染了第 3 节，`step`（数字输入在第 2 节）与
+`resize`（可伸缩面板在第 4 节）**根本没被触发条件覆盖**——这两个 0 是探针自己的漏洞，不是结论。
+
+所以现在的诚实状态是：这五个名字**在册、op 发得出去、宿主侧尚未量到送达**。
+探针留在仓库里（`runEventProbe`），任何一次改动之后重跑就能刷新这份读数；
+在它报非零之前，别把这一族当"能用"写进代码里。
+
+三条踩过的坑，写在源头免得再踩：
+
+1. 探针**不能塞进 `--selftest` 的中途**：真点击会点开弹层，弹层一开 gpui 就持续重画，
+   于是"空转 40 帧只画 1 次"那条脏驱动门会红——红的原因与被量的事无关。
+2. 也不能放到所有门**之后**：那时进程已经不在前台，整段只投递成功 1 次，
+   报出来的 0 是"没有余量"而不是"不通"。
+3. 不要用命中表当点击靶子（`hitProbe(i)` 逐个点矩形中心）：表里含窗口 resize 边那一类矩形，
+   点它会让 AppKit 的 `-[NSWindow _mouseHysteresisCheck:]` 等下一个事件而不返回，整轮挂死
+   （实测 rc=124 被看门狗掐掉）。
+
+## 1c. 真输入的验收缝（`realClick` / `realMouseMove` / `realKey`）
 
 自检里的合成事件走 `gpui_test_event`：按 callbackId 直接入队，**绕过 gpui 的 hit-test 与
 behavior 解析**——也就是说"监听器根本没挂到元素上"这类错，在合成事件下永远是绿的。

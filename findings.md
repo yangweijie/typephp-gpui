@@ -1466,3 +1466,30 @@ showcase selftest 里加 `$styleSugarOk`：在**编出来的产物**上把 47 �
 逐张 `gdfrac=0.00000` 就是"这批糖没偷改像素"的证据。
 门的回归位也是量过的：删掉链上一个 `->invisible()` → `styleSugar=46/ok=false` rc=1；
 更早一次 `styleSugar=0/ok=false` 则是门自己抓到我 op 种类写错（真名 `nullary_style`）。
+
+## #73 部件级事件：五个糖发得出，送达在自动缝上量了四次都没量到
+
+`on_confirm`/`on_dismiss`/`on_open_change`/`on_step`/`on_resize` 这一族的 callbackId 不挂在元素
+监听器上，而是存进部件自己的 binding（`ShellSelectBinding` 等），由部件调
+`runtime->DispatchSignal/Change/String()` 发出。读代码时以为捡便宜：打过补丁的
+`ShellRuntime::Dispatch` 开头就有 shim 那条路（`entry->shimId` 非零 ⇒ 入本窗口事件队列，
+完全不碰 QuickJS，见 patch-dispatch-cb.sh），所以这族**不需要新补丁**。名字也全部在册
+（parity 门 2c 之外还另有 op 名那条），`cbEmit=5/ok=true`。
+
+然后四次测量都没量到一条事件：
+
+| 试过的 | 读数 | 说明什么 |
+|---|---|---|
+| selftest 中途真点击扫 Select 那一行 | `open=0 clicks=14 landed=6`，同时 **$dirtyGate 红** | 探针自己把弹层点开 → gpui 持续重画 → 脏驱动门被探针弄红；红与被量的事无关 |
+| 同一探针挪到所有门之后 | `open=0 clicks=1 landed=0`、`confirmDispatched=false` | 那时进程已不在前台 ⇒ **没有余量的读数**，0 不能读成"不通" |
+| 按命中表 `hitProbe(i)` 逐个点矩形中心（更讲究的 forcing function） | 整轮挂死，`rc=124` 被看门狗掐掉 | 命中表含窗口 resize 边那一类矩形，点它 AppKit 的 `_mouseHysteresisCheck:` 会等下一个事件而不返回（仓库更早记过，我又踩一遍） |
+| 独立模式 `--probe-events`，前台确认 `active=true key=true bundled=true` | `posted=20 open=0 confirm=0 dismiss=0 step=0 resize=0` 且 `click{btn-p,…}` | 投递真成功、也真落到同节的按钮上，那几行却什么都没回 ⇒ 这族在宿主侧**仍未量到送达** |
+
+外加一条合成动作派发：`ui::Confirm` / `ui::Cancel` 两处都 `Posted=false` —— 动作名连解析都没上。
+还有一个**探针自己的洞**必须承认：那一轮只渲染第 3 节，而 `step` 的触发者在第 2 节、
+`resize` 的在第 4 节，这两个 0 是"没测"，不是"测到零"。
+
+所以对外说法钉在"未量到"而不是"能用"（#66 的教训正是反过来讲会误导人），
+`runEventProbe` 留在仓库里当可重跑的读数来源。要往下推得先回答的是：
+Select 的激活到底走不走 `OnAccessibilityDefault`（鼠标点是否触发它），
+以及 `step`/`resize` 在各自那节里能不能被自动缝触发。

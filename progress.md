@@ -1548,3 +1548,19 @@ check-build-inputs / doctor / docs:build 全绿。
   这就是"补样式没偷改像素"的证据；hello/showcase selftest 均 rc=0。
 - 门禁：pest 102 passed、phpstan / parity（样式 72+27 全在册）/ test:all 含真跑的 shim /
   check-c-abi / check-build-inputs / doctor / docs:build 全 rc=0。
+
+**修复轮 7（#73 部件级事件：接通性查证，未量到）**：
+- 加了 5 个糖（`onOpenChange/onConfirm/onDismiss/onStep/onResize`）与另外 5 个
+  （`onLinkClick/onItemClick/onItemSecondaryClick/onTokenClick/onTokenHover`，只发 op 不宣称送达）；
+  Select/Combobox/DatePicker 三颗探针元素挂了 open_change/confirm/dismiss，
+  numberInput 挂 step，resizablePanel 挂 resize。`cbEmit=5/ok=true` 进 $ok 链。
+- 新增独立模式 `--probe-events`（`runEventProbe`）：干净前台 + 只干这一件事。
+  读数：`posted=20 open=0 confirm=0 dismiss=0 step=0 resize=0`、`click{btn-*}` 证明点击确实落地，
+  合成动作派发 `ui::Confirm/ui::Cancel` 都 `Posted=false`。
+- 排查换来三条方法学事实（都写进 findings）：探针放在 selftest 中途会点开弹层、
+  把"空转 40 帧只画 1 次"的 `$dirtyGate` 弄红（红与被量的事无关）；放到所有门之后又只剩
+  1 次投递 = **没有余量的读数**；按 `hitProbe(i)` 逐个点矩形中心会整轮挂死 rc=124
+  （命中表含窗口 resize 边，AppKit `_mouseHysteresisCheck:` 等下一个事件不返回）。
+- 诚实结论：这一族**在册、发得出、宿主侧未量到送达**，文档 events.md 新增 1b 节按这个说法写，
+  并承认本轮探针自己的洞（step 在第 2 节、resize 在第 4 节，那两个 0 是"没测"不是"测到零"）。
+- 门禁：pest 102 passed、showcase selftest rc=0、shotdiff showcase 13 棵全绿。

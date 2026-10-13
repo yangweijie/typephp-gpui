@@ -64,6 +64,10 @@ function showcaseDispatch(array $argv): void
         runEscapeProbe();
         return;
     }
+    if (in_array('--probe-events', $argv, true)) {
+        runEventProbe();
+        return;
+    }
     if (in_array('--trace', $argv, true)) {
         // trace 必须作为 boot() 的 over 传进去：boot() 整表重置，先 boot 再置位会被冲掉
         // （第一版就是这么写的，结果 --trace 一条都没落盘，探针误以为"真输入没到"）。
@@ -80,13 +84,14 @@ function showcaseDispatch(array $argv): void
     // 未知开关不能静默落到交互模式：实测 `showcase --debug` 会悄悄起一个阻塞的 GUI，
     // 看上去就像"命令卡住了/没反应"。只查 `--` 前缀的项——`--shot` 的路径与节号是裸参数。
     $known = ['--sections', '--selftest', '--expect-bundle', '--startfront',
-        '--livetyping', '--liveclick', '--escape', '--trace', '--shot'];
+        '--livetyping', '--liveclick', '--escape', '--probe-events', '--trace', '--shot'];
     foreach ($argv as $a) {
         $s = (string) $a;
         if (\strncmp($s, '--', 2) === 0 && !in_array($s, $known, true)) {
             echo "未知开关: {$s}\n"
                 . "用法: showcase [--sections | --selftest [--expect-bundle] [--startfront]"
-                . " | --liveclick | --livetyping | --trace | --shot <路径> <节号>]\n";
+                . " | --liveclick | --livetyping | --escape | --probe-events"
+                . " | --trace | --shot <路径> <节号>]\n";
             exit(2);
         }
     }
@@ -134,6 +139,76 @@ function runEscapeProbe(): void
         . ' trapAfterFrames=' . $trapAfterFrames
         . ' focus=' . $app->focusedId() . ' closed=' . var_export($closed, true) . "\n";
     exit($closed ? 0 : 1);
+}
+
+/// 部件级事件的独立送达探针（`--probe-events`）。
+///
+/// 要量的是这一族：open_change / confirm / dismiss / step / resize。它们的 callbackId
+/// 存在部件自己的 binding 里（ShellSelectBinding 等），由部件在合适时刻调
+/// runtime->Dispatch*() 发出，而打过补丁的 ShellRuntime::Dispatch 开头就有 shim 那条路
+/// （entry->shimId 非零 ⇒ gpuiEnqueueShimCallback 入本窗口队列，完全不碰 QuickJS），
+/// 所以**不需要新补丁**就该到 PHP——这一族此前一次都没量过。
+///
+/// 为什么要独立模式而不是塞进 selftest：见 runSelfTest 里那段注释——放在中途会点开
+/// 弹层把 $dirtyGate 弄红，放到最后又没有投递余量。这里给它的是一次干净的前台申请 +
+/// 一整段只干这件事的时间。
+///
+/// 已知的坑（都踩过）：按命中表逐个点中心会整轮挂死（命中表含窗口 resize 边那一类
+/// 矩形，点它 AppKit 的 _mouseHysteresisCheck: 会等下一个事件而不返回），所以这里用网格。
+function runEventProbe(): void
+{
+    ShowcaseState::boot();
+    $app = new App();
+    wireShowcase($app);
+    $app->create();
+    $app->createWindow('Showcase EventProbe', 1180, 760);
+    $app->keepTryingForeground(12);
+    ShowcaseState::$v['section'] = 3;
+    $app->view(static function () use ($app): El { return interactiveFrame($app); });
+    $app->loop(8);
+    $posted = 0;
+    $probed = [];
+    foreach (['open_change', 'confirm', 'dismiss', 'step', 'resize'] as $t) {
+        $probed[$t] = 0;
+    }
+    for ($y = 150; $y <= 620 && $probed['open_change'] === 0; $y += 16) {
+        for ($x = 230; $x <= 760 && $probed['open_change'] === 0; $x += 40) {
+            if ($app->realClick($x, $y)) {
+                $posted++;
+            }
+            $app->loop(2);
+            foreach ($probed as $t => $n) {
+                $probed[$t] = max($n, evCount($t));
+            }
+        }
+    }
+    // 真点击之后再补一条不依赖输入的路：合成 ShellAction 派发。
+    // Select 把 action::Confirm()/Cancel() 绑在 Listen(cx, &ScriptView::OnSelectAction, binding) 上。
+    $confirmPosted = $app->dispatchAction('ui::Confirm');
+    $app->loop(6);
+    $confirmAfterAction = evCount('confirm');
+    $cancelPosted = $app->dispatchAction('ui::Cancel');
+    $app->loop(6);
+    $dismissAfterAction = evCount('dismiss');
+    $st = $app->windowState();
+    echo 'EVENT-PROBE posted=' . $posted
+        . ' open=' . $probed['open_change']
+        . ' confirm=' . $probed['confirm']
+        . ' dismiss=' . $probed['dismiss']
+        . ' step=' . $probed['step']
+        . ' resize=' . $probed['resize']
+        . ' | action confirmPosted=' . var_export($confirmPosted, true)
+        . ' confirm=' . $confirmAfterAction
+        . ' cancelPosted=' . var_export($cancelPosted, true)
+        . ' dismiss=' . $dismissAfterAction
+        . ' | active=' . var_export($st['active'] ?? null, true)
+        . ' key=' . var_export($st['key'] ?? null, true)
+        . ' bundled=' . var_export($st['bundled'] ?? null, true)
+        . ' evSeen=' . evSeenSummary() . "\n";
+    // 退出码只表示"至少有一条到没到"，其余留给读数：这一族还没量通之前，
+    // 不能让它当门（#62 的教训：门的红必须对应得上事）。
+    $anyArrived = array_sum($probed) + $confirmAfterAction + $dismissAfterAction > 0;
+    exit($anyArrived ? 0 : 1);
 }
 
 function runLiveClick(): void
@@ -421,7 +496,8 @@ function wireShowcase(App $app): void
     // 每条通道都记一行：真输入的可观测证明（见 showcaseTrace）
     foreach (['click', 'change', 'hover', 'key_down', 'timer', 'tray', 'hotkey', 'close',
         'mouse_down_left', 'mouse_up_left', 'mouse_move',
-        'mouse_down_out', 'scroll_wheel', 'key_up'] as $t) {
+        'mouse_down_out', 'scroll_wheel', 'key_up',
+        'open_change', 'confirm', 'dismiss', 'step', 'resize'] as $t) {
         $app->onAny($t, function (array $e) use ($t): void {
             $id = (string) ($e['id'] ?? '');
             ShowcaseState::$v['evSeen'][$t][$id] = $e['value'] ?? true;
@@ -1050,6 +1126,17 @@ function runSelfTest(bool $expectBundle, bool $startFront = false): void
     // 47 = 这批糖的数量；名字逐个等于上游 kKeywords（拼错由 parity 门 2c 静态拦），
     // 而"47 个不重复"防的是链上少写一个 / 同一个调两遍这种手滑。
     $styleSugarOk = count($styleNames) === 47 && count(array_unique($styleNames)) === 47;
+    // 剩下五个部件级回调名：会发它们的那几颗组件我们还点不到——link_click 要 markdown 里
+    // 的链接真被点，item_click / item_secondary_click 要 list 的 renderer（#29/#35 那格活），
+    // token_* 要 TokenInput。这里只确认 op 名发得出去、名字对得上上游；
+    // "送达"没量到就不写成能用，文档里标的是"名字在册、送达未量"。
+    $cbEl = El::div()->onLinkClick()->onItemClick()->onItemSecondaryClick()
+        ->onTokenClick()->onTokenHover();
+    $cbNames = [];
+    foreach ($cbEl->ops as $op) {
+        if ($op['kind'] === 'callback') { $cbNames[] = $op['name']; }
+    }
+    $cbEmitOk = count($cbNames) === 5 && count(array_unique($cbNames)) === 5;
 
     // 能力真调用（不只看形状）：每一项都断在"结果对"而不是"没崩"。
     $app->setClipboardText('SHOWCASE-Ω');
@@ -1512,7 +1599,7 @@ function runSelfTest(bool $expectBundle, bool $startFront = false): void
     $routeGreen = !($bundled && $frontmost) || $nsappDeliveries > 0;
 
     $ok = $badSections === []
-        && $tableOk && $roleAllOk && $roleThrows && $styleSugarOk
+        && $tableOk && $roleAllOk && $roleThrows && $styleSugarOk && $cbEmitOk
         && $clipBack === 'SHOWCASE-Ω' && $item['text'] === 'SHOWCASE-Ω'
         && $urlRejected === false && $hudOn && $hudVisible
         && $overlayReclaimed && $bdNativeClosed && $bdReclaimed
@@ -1541,6 +1628,11 @@ function runSelfTest(bool $expectBundle, bool $startFront = false): void
 
     // 一次巨型 sprintf 报 45 个字段：nano 把格式串也算进 arity，占位符与实参差一个就
     // ArgumentCountError，而 selftest 恰恰在最需要输出时炸。改成拼字符串数组，加字段不再有成本。
+    // 部件级事件（open_change / confirm / dismiss / step / resize…）的送达探针不在这里跑，
+    // 已挪成独立模式 `--probe-events`（见 runEventProbe）：放在 selftest 中途会点开 Select
+    // 的弹层，而弹层一开 gpui 就持续重画，把"空转 40 帧只画 1 次"那条 $dirtyGate 弄红
+    // ——红的原因与被量的事无关；挪到所有门之后，进程这会儿已不在前台，整段只投递成功 1 次，
+    // 变成一个**没有余量的读数**，报出来的 0 会被误读成"路不通"。两个位置都不成立。
     $report = [
         'badSections=' . implode('|', $badSections),
         'roles=' . count(El::ROLES) . '/allOk=' . var_export($roleAllOk, true)
@@ -1614,6 +1706,7 @@ function runSelfTest(bool $expectBundle, bool $startFront = false): void
             . ' mouseProbe down=' . $mouseDownBand . ' up=' . $mouseUpBand
             . ' move=' . $moveHits . '/ok=' . var_export($mouseOk, true)
             . ' downVal=' . $mouseSample
+            . ' cbEmit=' . count($cbNames) . '/ok=' . var_export($cbEmitOk, true)
             . ' hoverAt=' . $hoverAtX . ',' . $hoverAtY . ' probe=' . $probe['n'] . '@' . $probe['x'] . ',' . $probe['y'] . ' ' . $probe['w'] . 'x' . $probe['h'] . ' hit=' . $px . ',' . $py,
     ];
     echo ($ok ? 'SHOWCASE SELFTEST OK (' : 'SHOWCASE SELFTEST FAIL (') . implode(' · ', $report) . ")\n";

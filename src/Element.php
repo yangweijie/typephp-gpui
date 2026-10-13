@@ -1149,6 +1149,42 @@ class Element
      *  注意真键送达本身仍受前台竞争影响，见 #56。 */
     public function onKeyUp(): self { return $this->callback('on_key_up'); }
 
+    // ── 部件自己发出的那批事件 ──
+    //
+    // 这一族的共同点：callbackId 不是直接挂在元素监听器上（像 on_click 那样走
+    // ClickListener），而是存进部件自己的 binding（ShellSelectBinding / ShellBoolBinding /
+    // …），由部件在合适的时刻调 runtime->Dispatch*() 把它发出去。而我们打过补丁的
+    // ShellRuntime::Dispatch 在入口就有 shim 那条路（patch-dispatch-cb.sh：entry->shimId
+    // 非零 ⇒ gpuiEnqueueShimCallback 入本窗口事件队列，完全不碰 QuickJS），
+    // 所以这些名字**不需要新补丁**就能到 PHP。
+    // 代价：那条 shim 路目前**丢载荷**（注释原话 "Payload is dropped"），
+    // 于是带值的 open_change / step / bound_bool 只会到一条"有事件"而看不到 true/false。
+    // 各自的送达状态见 docs/guide/events.md。
+
+    /** Select / Combobox / DatePicker 的开合变化。上游带 bool，现经 shim 路丢值。 */
+    public function onOpenChange(): self { return $this->callback('on_open_change'); }
+    /** 选中确认（Select / Combobox 的 Confirm 动作）。无载荷（DispatchSignal）。 */
+    public function onConfirm(): self { return $this->callback('on_confirm'); }
+    /** 弹层被收回（Esc / 再点一次 / 选中后关闭）。无载荷。 */
+    public function onDismiss(): self { return $this->callback('on_dismiss'); }
+    /** 数字输入的 ± 步进。上游带 "increment"/"decrement"，现经 shim 路丢值。 */
+    public function onStep(): self { return $this->callback('on_step'); }
+    /** 尺寸变化（可伸缩面板）。带宽高，现经 shim 路丢值。 */
+    public function onResize(): self { return $this->callback('on_resize'); }
+    /** Markdown 里的链接被点。上游带 url。 */
+    public function onLinkClick(): self { return $this->callback('on_link_click'); }
+    /** 列表/网格的某一行被点。上游带行号。 */
+    public function onItemClick(): self { return $this->callback('on_item_click'); }
+    /** 列表/网格某一行被辅助键（右键）点。 */
+    public function onItemSecondaryClick(): self
+    {
+        return $this->callback('on_item_secondary_click');
+    }
+    /** TokenInput 的某个 token 被点。 */
+    public function onTokenClick(): self { return $this->callback('on_token_click'); }
+    /** TokenInput 的某个 token 被悬停。 */
+    public function onTokenHover(): self { return $this->callback('on_token_hover'); }
+
     /** 命名槽：把 child 作为本元素的具名 slot（Popover trigger/content、Avatar image/fallback…）。 */
     public function slot(string $name, self $child): self
     {

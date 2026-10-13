@@ -143,7 +143,7 @@ function sectionInputs(array $s): El
         El::textarea('in-note')->value('多行文本：textarea 也是保留态的')->onChange(),
         El::text($s['note'] !== '' ? "备注 {$s['note']} 个字符" : '备注还没改')->font(11.0),
         El::hFlex([
-            El::numberInput('in-num')->value('42')->placeholder('数字')->onChange(),
+            El::numberInput('in-num')->value('42')->placeholder('数字')->onChange()->onStep(),
             El::otpInput('in-otp')->placeholder('4 位')->onChange(),
         ])->gap(12.0),
         El::hFlex([
@@ -184,9 +184,15 @@ function sectionChoices(array $s): El
             El::catalogButton('btn-o', 'outline')->onClick()->outline(),
         ])->gap(8.0)->itemsCenter()->flexWrap(),
         El::hFlex([
-            El::select('ch-select', ['Apple', 'Banana', 'Cherry'])->w(180),
-            El::combobox('ch-combo', ['Red', 'Green', 'Blue'])->w(180),
-            El::datePicker('ch-date')->w(180),
+            // 部件自己发出的那批事件（open_change / confirm / dismiss）挂在这三颗上。
+            // 它们的 callbackId 存在 ShellSelectBinding 里，由部件调 runtime->Dispatch*()
+            // 发出，而打过补丁的 Dispatch 开头就有 shim 那条路（entry->shimId 非零 ⇒
+            // 入本窗口事件队列，不碰 QuickJS），所以不需要新补丁就能到 PHP。
+            El::select('ch-select', ['Apple', 'Banana', 'Cherry'])->w(180)
+                ->onOpenChange()->onConfirm()->onDismiss(),
+            El::combobox('ch-combo', ['Red', 'Green', 'Blue'])->w(180)
+                ->onOpenChange()->onConfirm()->onDismiss(),
+            El::datePicker('ch-date')->w(180)->onOpenChange(),
         ])->gap(10.0),
         El::text("最近点的按钮：{$s['lastBtn']}")->font(12.0),
     ])->sizeFull()->gap(12.0)->p(16.0)->overflowYScroll();
@@ -219,7 +225,7 @@ function sectionLayout(array $s): El
             range(1, 40)
         ))->h(120.0)->overflowYScroll()->overflowXScroll()->overflowScroll()->bg(0xFAF8F5)->roundedMd(),
         El::hResizable([
-            El::resizablePanel(El::text('左栏（可拖）')->font(13.0)->p(8.0))->size('30%'),
+            El::resizablePanel(El::text('左栏（可拖）')->font(13.0)->p(8.0))->size('30%')->onResize(),
             El::resizablePanel(El::text('右栏')->font(13.0)->p(8.0))->size('70%'),
         ])->h(80.0)->gap(4.0),
         El::vResizable([
