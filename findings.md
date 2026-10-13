@@ -1526,3 +1526,51 @@ Select 的激活到底走不走 `OnAccessibilityDefault`（鼠标点是否触发
 产物却是坏的那版**（上一轮成功的构建正是对照版）。所以"文件里 grep 到了"不等于
 "跑的是这份文件"——还原之后必须重新 build 再 measure，这一次是靠重跑 selftest
 看到 `dispatched=true` 才确认产物与源码对齐的。
+
+## 看门狗掐的是包装进程，不是 GUI 子进程：一个卡死的 selftest 会在桌面上留一扇窗口
+
+`perl -e 'alarm 560; exec @ARGV' -- php bin/gpui selftest showcase` 超时那次（rc=124，
+命中表实验把进程卡死时），**GUI 子进程没跟着死**：45 分钟之后 `ps` 还在，
+pid 74337 带 `--selftest --expect-bundle`，窗口仍摆在屏幕上，内容是它卡住那一刻的画面
+（第 3 节 + 事件计数全 0）。
+
+这件事的危险不在"多一个进程"，在于它**长得就像被测对象**：我用电脑操控去读无障碍树时，
+先读到的正是这扇僵尸窗口（标题还是 `Showcase Selftest`），要是照着它点下去、再拿
+`/tmp/showcase-events.log` 对答案，量到的会是"新实例还没起来 + 旧实例卡死"的混合体，
+读出来的 0 毫无意义。
+
+流程上因此加两条：
+1. 电脑操控之前先 `ps -eo pid,etime,stat,command | grep [s]howcase` 看有几颗、分别什么开关，
+   并确认 `--trace` 日志文件存在（新实例起来才会创建它）；
+2. 看门狗要掐就掐整棵进程树（`kill` 掉记录下来的 GUI pid），或者干脆让自测退出路径自己收干净。
+   这次的孤儿是我自己 `kill 74337` 收掉的。
+
+顺带一条：`bin/gpui run` 会先跑完整构建，所以我"启动探针"的那条命令在前一次改动 shim 之后
+还要再等一轮 amalgam + gpui.o + shim + tpc（约 3 分钟），不是立刻起窗口。
+
+## 电脑操控量 #56：AX 点击能进 PHP，但按键进不去——差的是"这扇窗口是不是 key window"
+
+用 Qoder 的 computer use（`node_repl` + `@qoder-space/computer-use-sdk`，不是 CGEvent 那条
+自家注入路）对着 `showcase --trace` 的窗口做了一轮：
+
+| 动作 | 结果 |
+|---|---|
+| `click({elementIndex: 4})`（导航行"输入与保留态取值"） | **成功**：`/tmp/showcase-events.log` 里出现 `click id=nav-2`，HUD 变成"点击 1"，画面切到第 2 节 |
+| `pressKey('g')`、`pressKey('p')`、`typeText('gp7')` | **全部无痕迹**：HUD 一直"按键 0 · 输入 0"，trace 里 `key_down` 计数 0，`in-key` 那颗的 `keyDown=—` 没变 |
+| 窗口自身状态 | 应用把前提直接画在界面上：`!! 当前不是前台应用…键盘也没有 firstResponder`，HUD 的焦点位显示"非前台" |
+
+所以 #56 的"真按键到底通不通"这一格**没有被这次测量回答**——不是我们的路断了，而是
+按键压根没有 firstResponder 可去。补一步"点标题栏把它带成 key window"没做成：
+坐标点击被 SDK 拒了三次（`Screenshot coordinates require a current screenshot whose target
+window still belongs to the app and has unchanged geometry`），而 AX 的元素点击虽然能产生
+click 事件，却不改变系统的激活归属。
+
+能确定的两件事：**(a)** AX 层的真实鼠标点击确实能穿过 AppKit → gpui → 我们的补丁 → PHP
+（`click id=nav-2` 就是终点证据，这条与 #54/#71 的绿是同一级）；**(b)** 键盘那一半仍然只有
+真人手按一下才能判。之前 `--selftest` 里出现过 `active=true key=true`，说明窗口*能*成为
+key window——只是当下焦点被我这边占着，属于前台竞争，不能当硬门（既有纪律）。
+
+**流程教训（值得单独记）**：AX 的 `click(elementIndex)` 成功 ≠ 应用被激活。
+以后用电脑操控量输入类事件，第一步应该读应用自己画的那行状态（showcase 把
+`active/key/visible/main` 与"非前台"警告直接渲染在标题下方），确认前提成立再按键盘；
+否则得到的是一个"看起来不通"的假阴——和 #74 那条查错表的假阴同一类。

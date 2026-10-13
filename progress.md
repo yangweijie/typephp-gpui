@@ -1582,3 +1582,17 @@ check-build-inputs / doctor / docs:build 全绿。
 - 文档同步：`App::dispatchAction` 的注释现在写明两类名字都认（含 `ui::Confirm/Cancel/SelectUp`
   这组内建动作与"返回 false 意味着这一帧没人接"）；events.md 1b 节把"动作派发连名字都没解析上"
   那句**过期结论**改成本轮量到的事实。
+
+**电脑操控量 #56（这一格仍未答，但前提查清了）**：
+- 用 Qoder computer use（AX 层，不是自家 CGEvent 注入路）对 `showcase --trace` 的窗口做了一轮：
+  `click(elementIndex)` **能进 PHP**（trace 里 `click id=nav-2`，HUD 点击 1，画面切节），
+  但 `pressKey('g'/'p')` 与 `typeText('gp7')` 全无私迹（HUD 一直"按键 0 · 输入 0"，
+  `key_down` 计数 0，`in-key` 的 `keyDown=—` 没变）。
+- 原因不在我们的代码：应用自己把那行前提画在界面上——"当前不是前台应用…键盘也没有
+  firstResponder"，HUD 焦点位是"非前台"。AX 元素点击能产生 click 事件却**不改变系统激活归属**；
+  补点标题栏那一步被 SDK 连拒三次（要求截图与窗口几何一致）。
+- 所以 #56/#62 的键盘那一半只剩真人手按这一条路。流程教训进 findings：用电脑操控量输入类事件，
+  第一步先读应用自己打的 active/key 状态，前提不成立就别按键盘——否则拿到的"不通"是假阴
+  （与 #74 查错表那次同类）。
+- 收尾：rc=124 那次的 selftest 留下一个仍带窗口的孤儿进程（pid 74337，跑了 45 分钟），已 `kill`；
+  看门狗掐的是 perl 包装而不是 GUI 子进程，这条也记进 findings。
