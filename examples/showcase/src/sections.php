@@ -425,62 +425,8 @@ function sectionEmbedded(array $s): El
 }
 
 // ── 12. 样式与图标 ──────────────────────────────────────────────────────────
-function sectionStyling(array $s): El
-{
-    return El::vFlex([
-        El::text('样式、图标与弹层原语')->font(22.0)->semibold(),
-        El::text('rounded / roundedMd / roundedLg / roundedFull / border / borderWidth / shadowSm / shadowMd / opacity / bg / textColor / borderColor')->font(11.0)->truncate(),
-        El::hFlex([
-            El::text('roundedFull + shadowMd')->font(12.0)->p(12.0)->bg(0xFFFFFF)->textColor(0x2F2F2F)->borderWidth(1)->borderColor(0xE0DAD1)->roundedFull()->shadowMd(),
-            El::text('roundedLg + shadowSm')->font(12.0)->p(12.0)->bg(0xF3EFE8)->roundedLg()->shadowSm()->opacity(0.9),
-            El::text('rounded(8) + roundedMd')->font(12.0)->p(12.0)->bg(0xE8F0E4)->rounded(8.0)->roundedMd(),
-        ])->gap(14.0)->itemsCenter(),
-        El::hFlex([
-            El::text('underline')->font(13.0)->underline(),
-            El::text('textCenter')->font(13.0)->textCenter()->w(120.0)->bg(0xF7F4EF),
-            El::text('textRight')->font(13.0)->textRight()->w(120.0)->bg(0xF7F4EF),
-            El::text('这是一段会被 truncate 截断的很长很长的文本，用来验证单行省略')->font(13.0)->truncate()->w(180.0),
-        ])->gap(8.0)->itemsCenter(),
-        El::hFlex([
-            El::catalogButton('st-tooltip', '悬停有 tooltip')->onClick()->tooltip('这是 tooltip')->ghost(),
-            // progress 是 kind 原语：value/size 走 method op。rm('size') 打在 kind 节点上
-            // 是**没用的**（上游 RegisteredMethod op 只被 registered 节点读），所以这里不演。
-            El::progress(0.5)->w(120.0)->value('0.5')->size('small'),
-            // popup 是无 catalog 名的浮层原语，内容走 child。
-            El::popup()->child(El::text('popup 内容')->font(12.0)->p(6.0)),
-            El::vFlex([El::text('children 数组形式')->font(12.0)])->children([
-                El::text('child 单个形式')->font(12.0),
-            ])->gap(2.0),
-        ])->gap(10.0)->itemsCenter(),
-        El::text('图标名必须在编译进去的 111 个表里，错了静默什么都不画：')->font(11.0),
-        El::hFlex(array_map(
-            static fn (string $n): El => El::icon('icons/' . $n . '.svg')->sizeEnum('medium'),
-            ['circle-check', 'triangle-alert', 'circle-x', 'info', 'star', 'heart', 'save', 'search']
-        ))->gap(10.0)->itemsCenter(),
-        // SIZES 全枚举：整条列表 foreach 一遍，每个取值都真传进 size()/sizeEnum()。
-        // size() 是 method op（原语吃），sizeEnum() 是 catalog 组件的 registered_method。
-        // 这一行演后者：catalog Button 的 size 是它自己声明的方法（xsmall/small/medium/large）。
-        El::hFlex(array_map(
-            static fn (string $sz): El => El::catalogButton('st-size-' . $sz, $sz)->onClick()->sizeEnum($sz),
-            El::SIZES
-        ))->gap(8.0)->itemsCenter(),
-        // 通用 catalog 工厂 El::catalog(导出名, 构造实参) 开的是上游剩下那 100+ 个组件的门；
-        // 这四颗演 Button 剩下的方法：label(string)、success/warning/compact() 零参、loading(bool)。
-        // ->id() 与构造器里的 id 必须一致：事件按元素 id 路由，只给构造器不给 ->id()
-        // 的话点击会落到空 id 上（El::catalogButton 把这两件事一起做掉，这里手工对齐一次）。
-        El::hFlex([
-            El::catalog('Button', ['st-success'])->id('st-success')->label('success')->onClick()->success(),
-            El::catalog('Button', ['st-warning'])->id('st-warning')->label('warning')->onClick()->warning(),
-            El::catalog('Button', ['st-compact'])->id('st-compact')->label('compact')->onClick()->compact(),
-            El::catalog('Button', ['st-loading'])->id('st-loading')->label('loading')->onClick()->loading(true),
-        ])->gap(8.0)->itemsCenter(),
-        El::hFlex(array_map(
-            static fn (string $sz): El => El::icon('icons/star.svg')->sizeEnum($sz),
-            El::SIZES
-        ))->gap(10.0)->itemsCenter(),
-        El::text("size={$s['size']}")->font(11.0),
-    ])->sizeFull()->gap(12.0)->p(16.0)->overflowYScroll();
-}
+// ── 12. 样式、图标与弹层原语 ──> 已搬到 examples/_shared/features/styling.php
+//    （sectionStyling + wireStyling + stylingTrees），独立示例 examples/style 与画廊共用那一份。
 
 // ── 13. mac 系统集成 ────────────────────────────────────────────────────────
 function sectionMac(array $s): El

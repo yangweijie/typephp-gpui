@@ -1684,3 +1684,24 @@ OVERLAY SELFTEST OK                                       rc=0（--no-native，3
 **其余门禁**：`SHOWCASE SELFTEST OK`（rc=0，搬家后）· `shotdiff check showcase` 13 张 gdfrac=0
 · `tests/baseline/overlay/tree1.png` 三次截图 md5 相同（`f8c975d1…`）且 `check overlay` OK
 · Pest 103 / PHPStan 0 / parity / docs:build 绿。
+
+## 修复轮 11：第三支独立示例 `style`（Phase 15-C 起头，2026-10-14）
+
+§12 的 builder + 那四条 `st-size-*` 接线搬到 `examples/_shared/features/styling.php`，
+画廊 yml 收录；**同时把"47 个零参样式糖在产物里逐个调一遍"那条门从画廊 selftest 里连根搬走**
+（`$styleSugarOk`、报告里那一段、`$ok` 链上的那一项一起删），新支 `examples/style` 接手它，
+外加两条它本来没有的门：`iconPathGuard`（`El::icon` 的形状守卫，坏路径抛 + 正例也建得出，
+两头都在）、`sizesEnum`（`El::SIZES` 遍历出来的 `registered_method('size')` 条数 = 4）。
+
+```
+STYLE SELFTEST
+  ok   registeredError — 空
+  ok   componentFailure — count=0 last=
+  ok   nullaryStyles — 发出=47/47 去重后=47
+  ok   iconPathGuard — 坏路径抛=true 正例建成=true
+  ok   sizesEnum — size op 条数=4/4
+STYLE SELFTEST OK          rc=0（--no-native 32 秒）
+```
+
+`SHOWCASE SELFTEST OK`（rc=0，删门之后）· `shotdiff check showcase` 13 张 gdfrac=0 ·
+`tests/baseline/style/tree1.png` 三次截图 md5 相同（`ba427963…`）· Pest 103 / PHPStan 0 绿。

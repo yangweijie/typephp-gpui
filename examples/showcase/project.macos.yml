@@ -19,6 +19,7 @@ sources:
   - ../_shared/state.php
   - ../_shared/features/inputs.php
   - ../_shared/features/overlays.php
+  - ../_shared/features/styling.php
   - ../../src/App.php
   - ../../src/Element.php
   - ../../src/El.php

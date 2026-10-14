@@ -844,12 +844,9 @@ function wireShowcase(App $app): void
         ]);
     });
 
+    // 12 节：样式域的接线在 examples/_shared/features/styling.php 里
+    wireStyling($app);
     // 1/2 节：hover 与 key_down 两条独立事件通道
-    foreach (El::SIZES as $sz) {
-        $app->on('st-size-' . $sz, 'click', function () use ($sz): void {
-            ExampleState::$v['size'] = $sz;
-        });
-    }
     foreach (El::COLLAPSE_MODES as $mode) {
         $app->on('cr-collapse-' . $mode, 'click', function () use ($mode): void {
             ExampleState::$v['collapse'] = $mode;
@@ -1107,28 +1104,9 @@ function runSelfTest(bool $expectBundle, bool $startFront = false): void
     } catch (\Throwable $t) {
         $roleThrows = true;
     }
-    // 2026-10-13 补的 47 个零参样式关键字，在**编出来的产物**里逐个调用一遍。
-    // 这一格量两件事：nano 那边每个方法都真编进去了（未编进去的动态调用是 SIGABRT 而不是异常，
-    // 只有跑产物能排掉），以及每个方法确实发出一条 style:<上游名字>。
-    // 元素是 detached 的——不喂给 render，所以像素一位不动；shotdiff 仍全绿就是这条断言的证据。
-    $styleEl = El::div()
-        ->block()->grid()->visible()->invisible()
-        ->flexRowReverse()->flexColReverse()->flexWrapReverse()->flexNowrap()->flexAuto()->flexInitial()
-        ->itemsBaseline()->itemsStretch()->selfStart()->selfCenter()->selfEnd()->selfStretch()
-        ->justifyAround()->justifyEvenly()
-        ->contentCenter()->contentBetween()->contentAround()->contentEvenly()->contentStretch()
-        ->overflowHidden()->aspectSquare()->whitespaceNowrap()->textEllipsis()
-        ->lineThrough()->borderDashed()->shadowNone()->shadowLg()
-        ->cursorText()->cursorMove()->cursorNotAllowed()->cursorGrab()
-        ->fontThin()->fontLight()->fontNormal()->fontMedium()->fontBlack()
-        ->textXs()->textSm()->textBase()->textLg()->textXl()->text2xl()->text3xl();
-    $styleNames = [];
-    foreach ($styleEl->ops as $op) {
-        if ($op['kind'] === 'nullary_style') { $styleNames[] = $op['name']; }
-    }
-    // 47 = 这批糖的数量；名字逐个等于上游 kKeywords（拼错由 parity 门 2c 静态拦），
-    // 而"47 个不重复"防的是链上少写一个 / 同一个调两遍这种手滑。
-    $styleSugarOk = count($styleNames) === 47 && count(array_unique($styleNames)) === 47;
+    // 47 个零参样式糖在产物里逐个调一遍那条门，2026-10-14 起搬到 examples/style
+    // （同一份源也在画廊 yml 里，画廊仍会把整棵 §12 树渲染一遍，只是"数 op"这件事
+    // 不需要画廊的壳，独立一支崩了能停在自己那一行）。
     // 剩下五个部件级回调名：会发它们的那几颗组件我们还点不到——link_click 要 markdown 里
     // 的链接真被点，item_click / item_secondary_click 要 list 的 renderer（#29/#35 那格活），
     // token_* 要 TokenInput。这里只确认 op 名发得出去、名字对得上上游；
@@ -1614,7 +1592,7 @@ function runSelfTest(bool $expectBundle, bool $startFront = false): void
     $routeGreen = !($bundled && $frontmost) || $nsappDeliveries > 0;
 
     $ok = $badSections === []
-        && $tableOk && $roleAllOk && $roleThrows && $styleSugarOk && $cbEmitOk
+        && $tableOk && $roleAllOk && $roleThrows && $cbEmitOk
         && $clipBack === 'SHOWCASE-Ω' && $item['text'] === 'SHOWCASE-Ω'
         && $urlRejected === false && $hudOn && $hudVisible
         && $overlayReclaimed && $bdNativeClosed && $bdReclaimed
@@ -1652,7 +1630,6 @@ function runSelfTest(bool $expectBundle, bool $startFront = false): void
         'badSections=' . implode('|', $badSections),
         'roles=' . count(El::ROLES) . '/allOk=' . var_export($roleAllOk, true)
             . ' unknownThrows=' . var_export($roleThrows, true)
-            . ' styleSugar=' . count($styleNames) . '/ok=' . var_export($styleSugarOk, true)
             . ' · table rowIndex=' . implode(',', $rowIdx) . ' miss=' . $cellIdx
             . '/ok=' . var_export($tableOk, true),
         'clip=' . var_export($clipBack, true),

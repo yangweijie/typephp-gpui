@@ -143,6 +143,10 @@ El::text('…')->textXs()->textSm()->textBase()->textLg()->textXl()->text2xl()->
 2. `text_*` 那七档与 `paramStyle('text_size', [px])`（即 `El::font(16.0)`）**互斥**，
    后调用者覆盖前一个；它们也是零参样式里唯一动到被追踪字段的（`transition()`/`spring()`
    只对这一族有字号可动画），细节见[上游覆盖](./upstream-coverage)。
+3. 这 47 个糖在**编出来的产物**里逐个调一遍的门住在 `php bin/gpui selftest style`
+   （`nullaryStyles — 发出=47/47 去重后=47`）。放这里是有意为之：nano 里调用一个没编进去的
+   方法是 SIGABRT 而不是异常，只有跑产物排得掉，而它一崩需要看见的是"崩在哪一个糖上"，
+   不是画廊那份只在末尾打印一次的总报告。
 
 ### 读屏与键盘：`role()` / `aria_*` / `tab_*`
 这一族全是 behavior op，**不改变像素**，只改变读屏软件和键盘轮询看到的树。
