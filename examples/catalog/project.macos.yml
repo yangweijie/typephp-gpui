@@ -1,0 +1,52 @@
+name: gpui-catalog
+mode: bin
+output: build/catalog
+
+# TypePHP GPUI — macOS arm64，nano 模式。功能域独立示例：catalog 富组件（Registered 机制）。
+#
+# 这一支是 registered 分发那条路最密的一页（alert / breadcrumb / icon / avatar / collapsible /
+# popover / hoverCard / accordionItem / dropdownMenu 各吃一份 catalog descriptor），
+# "哪一颗组件建不出来"值得有一支只渲染它自己的二进制来回答。
+# 它接手 #73 的"op 发得出"那一半（五个部件级回调名），送达那一半仍未量到。
+#
+# sources 只列本域那份 feature 源（../_shared/features/catalog.php）+ 共用状态表；
+# 同一份文件也被画廊的 yml 收录，所以不存在第二份实现。
+#
+# nano 强制 c++17，shim 是 c++20 预编译库。一轮里第二支起用 --no-native。
+
+sources:
+  - src/main.php
+  - ../_shared/state.php
+  - ../_shared/features/catalog.php
+  - ../../src/App.php
+  - ../../src/Element.php
+  - ../../src/El.php
+  - ../../php-src/gpui.stub.php
+  - ../../cpp-src/gpui_bridge.cc
+
+build-dir: build
+
+cxx-std: c++17
+optimize: 2
+
+include-paths:
+  - ../../cpp-src
+  - ../../php-src
+
+# 静态库绝对路径：tpc 不解析相对 ld-flags，故用 @ROOT@ 占位，由 `bin/gpui build`
+# 在编译期替换为仓库绝对根并写到 project.macos.gen.yml。
+ld-flags:
+  - "@ROOT@/cpp-src/build/libgpui_shim.a"
+  - -framework Cocoa
+  - -framework CoreServices
+  - -framework CoreText
+  - -framework CoreGraphics
+  - -framework ImageIO
+  - -framework IOKit
+  - -framework WebKit
+  - -framework AudioToolbox
+  - -framework AVFoundation
+  - -framework Speech
+  - -framework Metal
+  - -framework QuartzCore
+  - -framework Carbon

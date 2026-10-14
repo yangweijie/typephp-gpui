@@ -20,6 +20,8 @@ sources:
   - ../_shared/features/inputs.php
   - ../_shared/features/overlays.php
   - ../_shared/features/styling.php
+  - ../_shared/features/data.php
+  - ../_shared/features/catalog.php
   - ../../src/App.php
   - ../../src/Element.php
   - ../../src/El.php

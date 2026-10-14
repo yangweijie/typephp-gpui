@@ -1705,3 +1705,31 @@ STYLE SELFTEST OK          rc=0（--no-native 32 秒）
 
 `SHOWCASE SELFTEST OK`（rc=0，删门之后）· `shotdiff check showcase` 13 张 gdfrac=0 ·
 `tests/baseline/style/tree1.png` 三次截图 md5 相同（`ba427963…`）· Pest 103 / PHPStan 0 绿。
+
+## 修复轮 12：`table` 与 `catalog` 两支（Phase 15-C 批量，2026-10-14）
+
+一次搬两域（§5 data / §6 catalog），共用一轮画廊重编与一次像素核对。
+**这一轮第一次出现"搬完立刻红"**：`pest` 报 2 条失败——
+`->onLinkClick()` 等五个糖与 `specIndex()` 在画廊里唯一的调用点就是那两条被搬走的门，
+所以覆盖率门当场指出"这六个 API 现在没人展示了"。新支把六处都接上之后回到 103 全绿。
+这条门是活的，不是摆设。
+
+```
+TABLE SELFTEST            CATALOG SELFTEST
+  ok registeredError        ok registeredError
+  ok componentFailure        ok componentFailure
+  ok specIndex 0,1,2/-1      ok componentCallbackOps 发出=5 去重后=5
+  ok tableCountOps           ok dropdownItemOps item=2/2
+  ok indexGuard              ok emptyIdIsLoud 原因=InfoAlert: Alert id must not be empty
+```
+
+- `indexGuard` / `tableCountOps` / `dropdownItemOps` / `emptyIdIsLoud` 是这一轮**新加**的门，
+  画廊里没有对应物：前三条数 detached 元素发出来的 op 名与条数，
+  最后一条是故意的失败路径（空 id 的 registered 组件必须把原因回给 PHP，
+  而不是只在 debug_tree 里画一句占位文本），所以它排在这支自检的最末尾——它会弄脏 `registeredError()`。
+- `docs/guide/events.md` 里那句"还没接的十个…没量到送达之前不给糖"与代码不符（糖 2026-10-13
+  就加了），订正成"糖有、送达未量"，并把这条门的位置指到 `selftest catalog`。
+- `upstream-coverage.md` / `components.md` 里"showcase 的 --selftest 用它盯这件事"两句改指 `selftest table`。
+
+验证：showcase/table/catalog 三支 selftest 全 rc=0 · `shotdiff check showcase` 13 张 gdfrac=0 ·
+两支新基线各三次截图 md5 相同 · Pest 103 · PHPStan 0 · parity · shim cpp · docs:build。

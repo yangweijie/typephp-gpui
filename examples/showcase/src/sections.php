@@ -171,95 +171,11 @@ function sectionLayout(array $s): El
     ])->sizeFull()->gap(10.0)->p(16.0)->overflowYScroll();
 }
 
-// ── 5. 表格、列表与进度 ─────────────────────────────────────────────────────
-function sectionData(array $s): El
-{
-    return El::vFlex([
-        El::text('表格、列表与进度')->font(22.0)->semibold(),
-        // 语义表格：Table > TableHeader/TableBody > TableRow > TableHead/TableCell。
-        // 每一层在上游都只是"一个带 aria role 的 div"（base/table.cpp:12-56），布局仍归
-        // 样式管（所以行要自己 flexRow）；行列数与序号是 aria 读数——不写就等于对读屏的人
-        // 说"这表没有行列、每格都在第 0 列"。
-        El::table('da-table')->rowCount(3)->columnCount(3)->children([
-            El::tableCaption('table / header / body / row / head / cell（aria 行列号已给）'),
-            El::tableHeader([
-                El::tableRow([
-                    El::tableHead([El::text('名称')->font(12.0)->semibold()])->columnIndex(0),
-                    El::tableHead([El::text('数量')->font(12.0)->semibold()])->columnIndex(1),
-                    El::tableHead([El::text('状态')->font(12.0)->semibold()])->columnIndex(2),
-                ])->id('da-row-0')->rowIndex(0)->flexRow()->gap(18.0),
-            ]),
-            El::tableBody([
-                El::tableRow([
-                    El::tableCell([El::text('alpha')])->columnIndex(0),
-                    El::tableCell([El::text('3')])->columnIndex(1),
-                    El::tableCell([El::text('ok')])->columnIndex(2),
-                ])->id('da-row-1')->rowIndex(1)->flexRow()->gap(18.0),
-                El::tableRow([
-                    El::tableCell([El::text('beta')])->columnIndex(0),
-                    El::tableCell([El::text('7')])->columnIndex(1),
-                    El::tableCell([El::text('warn')])->columnIndex(2),
-                ])->id('da-row-2')->rowIndex(2)->flexRow()->gap(18.0),
-            ]),
-        ])->w(340.0),
-        // El::list 是 catalog 的 List 组件，内容由 item renderer 决定，直接塞 children 会被
-        // 丢掉（gpui 自己在控制台说 "children are dropped on a list"）。桥这边还没接 renderer
-        // （task #29/#35 VirtualList），所以这里留一颗 List 证明 API 在，
-        // 真正能滚的列表用 vFlex + overflowYScroll 画。
-        El::list('da-list')->w(240.0)->h(16.0),
-        El::text('List 的 children 被上游丢弃（renderer 未接）；下面这排是 vFlex 近似的可滚动列表：')->font(11.0)->truncate(),
-        // 读屏侧的语义：容器是 list、每项是 list_item，第 3 项标 aria-selected。
-        // 这一族全是 behavior op（materialize 认 role / aria_* / tab_* / key_context / selectable），
-        // 不画像素——所以 shotdiff 逐字节不变本身就是"只改读屏树"的证据。
-        // role 名写错会当场抛（Element::ROLES 白名单），因为上游那句
-        // `if (role != None) element->Role(role)` 对未知名字是完全静默的。
-        El::vFlex(array_map(
-            static fn (int $i): El => El::text("列表项 {$i}")->font(12.0)->px(8.0)->py(2.0)
-                ->role('list_item')->ariaSelected($i === 3),
-            range(1, 12)
-        ))->h(110.0)->overflowYScroll()
-            ->role('list')->ariaLabel('可滚动列表')
-            ->tabIndex(0)->tabStop()->keyContext('ShowcaseDataList')
-            ->ariaActiveDescendant()->selectable(false),
-        El::text('progress / progressTrack + progressIndicator')->font(12.0),
-        El::progress(0.65)->w(240.0),
-        El::progressTrack([El::progressIndicator()])->w(240.0)->h(8.0)->bg(0xE6E1D9)->roundedFull(),
-    ])->sizeFull()->gap(10.0)->p(16.0)->overflowYScroll();
-}
+// ── 5. 表格、列表与进度 ──> 已搬到 examples/_shared/features/data.php
+//    （sectionData + dataTrees；这一域没有点击接线），独立示例 examples/table 与画廊共用那一份。
 
-// ── 6. catalog 富组件（Registered 机制）────────────────────────────────────
-function sectionCatalog(array $s): El
-{
-    return El::vFlex([
-        El::text('catalog 富组件')->font(22.0)->semibold(),
-        El::text('经 component_shell catalog 按导出名分发；枚举在 render 前预校验')->font(11.0)->truncate(),
-        // Alert 只暴露 title / banner / visible / size（alert.cpp:140 的 kMethods），
-        // description 是 Field 的方法——硬挂上去就是 "no such registered method"。
-        El::alert('ca-alert', 'default 变体', 'default')->title('Alert 标题')->sizeEnum('small'),
-        El::alert('ca-alert-ok', 'success 变体', 'success')->banner(),
-        El::alert('ca-alert-info', 'info 变体', 'info'),
-        El::alert('ca-alert-warn', 'warning 变体', 'warning'),
-        El::alert('ca-alert-err', 'error 变体', 'error'),
-        El::breadcrumb(['Home', 'Library', 'Data']),
-        El::hFlex([
-            El::icon('icons/square-terminal.svg')->sizeEnum('large')->color('#e07b39')->rotate(0.0),
-            El::icon('icons/settings.svg')->rm('rotate', [1.57]),
-            El::avatar('assets/missing.png'),
-        ])->gap(12.0)->itemsCenter(),
-        El::hFlex([
-            // collapsed() 只在 Sidebar 上有注册（sidebar.cpp:473），Collapsible 没有这个方法，
-            // 硬塞会产出 "no such registered method 'collapsed'" 的错误节点。
-            El::collapsible('折叠区', El::text('折叠里的内容')->font(12.0)->p(8.0)),
-            El::popover('popover', El::text('popover 内容')->font(12.0)),
-            El::hoverCard('hoverCard', El::text('悬停出现的卡片')->font(12.0)),
-        ])->gap(12.0)->itemsCenter(),
-        El::accordionItem('手风琴一节', El::text('手风琴内容')->font(12.0)->p(8.0)),
-        El::dropdownMenu('ca-dd', 'DropdownMenu')
-            ->item('第一项', 'ca-dd-1')
-            ->item('第二项', 'ca-dd-2', 'click'),
-        El::text("最近点的下拉项：{$s['lastDd']}")->font(12.0),
-    ])->sizeFull()->gap(10.0)->p(16.0)->overflowYScroll();
-}
+// ── 6. catalog 富组件（Registered 机制）──> 已搬到 examples/_shared/features/catalog.php
+//    （sectionCatalog + wireCatalog + catalogTrees），独立示例 examples/catalog 与画廊共用那一份。
 
 // ── 7. 侧栏、表单与菜单 ─────────────────────────────────────────────────────
 function sectionChrome(array $s): El

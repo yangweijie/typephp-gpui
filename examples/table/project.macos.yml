@@ -1,0 +1,51 @@
+name: gpui-table
+mode: bin
+output: build/table
+
+# TypePHP GPUI — macOS arm64，nano 模式。功能域独立示例：表格、列表与进度。
+#
+# 这一支接手的是 #69 那条门：表格的 aria 行/列序号必须真的过到原生侧
+# （specIndex 读的是 bridge→shim→arena 那条路，不是 PHP 自己那份数组）。
+# 它在画廊里时崩一次要等整轮画廊跑完才知道，现在报告停在它自己那一行。
+#
+# sources 只列本域那份 feature 源（../_shared/features/data.php）+ 共用状态表；
+# 同一份文件也被画廊的 yml 收录，所以不存在第二份实现。
+#
+# nano 强制 c++17，shim 是 c++20 预编译库。一轮里第二支起用 --no-native。
+
+sources:
+  - src/main.php
+  - ../_shared/state.php
+  - ../_shared/features/data.php
+  - ../../src/App.php
+  - ../../src/Element.php
+  - ../../src/El.php
+  - ../../php-src/gpui.stub.php
+  - ../../cpp-src/gpui_bridge.cc
+
+build-dir: build
+
+cxx-std: c++17
+optimize: 2
+
+include-paths:
+  - ../../cpp-src
+  - ../../php-src
+
+# 静态库绝对路径：tpc 不解析相对 ld-flags，故用 @ROOT@ 占位，由 `bin/gpui build`
+# 在编译期替换为仓库绝对根并写到 project.macos.gen.yml。
+ld-flags:
+  - "@ROOT@/cpp-src/build/libgpui_shim.a"
+  - -framework Cocoa
+  - -framework CoreServices
+  - -framework CoreText
+  - -framework CoreGraphics
+  - -framework ImageIO
+  - -framework IOKit
+  - -framework WebKit
+  - -framework AudioToolbox
+  - -framework AVFoundation
+  - -framework Speech
+  - -framework Metal
+  - -framework QuartzCore
+  - -framework Carbon

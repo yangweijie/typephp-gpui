@@ -57,12 +57,15 @@ GpuiEvent 只有一个 value 槽，所以这里定的是**字段顺序**而不�
 与 click/key 一样的已知代价：脚本端那对 `propagate` / `stopPropagation` 语义在这里没有，
 事件是否继续向外由宿主决定。
 
-还**没接**的十个（`on_confirm` `on_dismiss` `on_step` `on_resize` `on_open_change`
-`on_item_click` `on_item_secondary_click` `on_link_click` `on_token_click` `on_token_hover`）
-不是缺糖：它们的 callbackId 被存进各部件自己的 binding（如 `binding->onConfirm`），
-触发方在 base 组件里，走的是另一条尚未验证的投递路。没量到送达之前不给糖——
-那是 #66 那类"看起来能用、实际一个像素都不动"的假接口。`token` 更不是事件，
-它是**要返回内容**的渲染回调，与 `El::list` 的 renderer 同一类（见 #29/#35）。
+上面那句"还**没接**的十个"订正于 2026-10-13：糖现在有了（`onConfirm()` `onDismiss()` `onStep()`
+`onResize()` `onOpenChange()` `onItemClick()` `onItemSecondaryClick()` `onLinkClick()`
+`onTokenClick()` `onTokenHover()`，见下面 1b），**但送达仍未量到**，所以标题与状态列里它们
+仍记在"名字在册、送达未量"。为什么先发糖不算错：callbackId 走的是部件自己的 binding
+（`ShellSelectBinding` 等），触发方在 base 组件里，我们这边能确证的只有"名字发得出去、
+对得上上游词表"——那条门现在住在 `php bin/gpui selftest catalog`
+（`componentCallbackOps — 发出=5 去重后=5`）。
+`token` 那两个更不是事件，它是**要返回内容**的渲染回调，与 `El::list` 的 renderer 同一类
+（见 #29/#35），发了糖也不会有任何东西回到 PHP。
 
 ## 1b. 部件自己发出的事件（`on_confirm` / `on_dismiss` / `on_open_change` / `on_step` / `on_resize` …）
 

@@ -72,7 +72,7 @@ El::table('t')->rowCount(2)->columnCount(2)->children([
 `rowCount()/columnCount()` 发的是上游认的两个 method op；`rowIndex()/columnIndex()` 写的是
 `Component::index` 槽（同一个槽，上游按 kind 决定含义，别在一颗节点上两个都调）。
 自检读数：`App::specIndex('row-1')` 回读 spec 里的号，查无此 id 返回 `-1`
-（与"有、且号是 0"分得开）——showcase 的 `--selftest` 用它盯这件事。
+（与"有、且号是 0"分得开）——用它盯这件事的门在 `php bin/gpui selftest table`。
 
 ## 样式与行为（链式）
 

@@ -601,13 +601,8 @@ function wireShowcase(App $app): void
     // 与独立示例 examples/input 共用同一份。
     wireInputs($app);
 
-    // 6 节：catalog 回调（registered 旁路）
-    $app->on('ca-dd-1', 'click', function (): void {
-        ExampleState::$v['lastDd'] = '第一项';
-    });
-    $app->on('ca-dd-2', 'click', function (): void {
-        ExampleState::$v['lastDd'] = '第二项';
-    });
+    // 6 节：catalog 回调（registered 旁路）——线在 examples/_shared/features/catalog.php 里
+    wireCatalog($app);
 
     // 7 节：菜单项（catalog 菜单的动作也走同一条 id/type 路由）
     foreach (['new' => '新建', 'a' => 'a.txt', 'b' => 'b.txt', 'ro' => '只读项'] as $k => $label) {
@@ -1076,16 +1071,8 @@ function runSelfTest(bool $expectBundle, bool $startFront = false): void
         $failuresBefore = (int) $cf['count'];
     }
 
-    // 表格的 aria 序号必须真的进 spec（#69：以前我们从不发 row_count/column_count，
-    // 也没有 table_row/table_cell 工厂，示例里的"表格"其实是 Table 节点塞 text）。
-    // 这里把第 5 节重画一遍，再回读三行的行号。读的是 bridge→shim→arena 那条路，
-    // 不是 PHP 自己那份数组，所以它证明的是"号真的交出去了"；
-    // 查无此 id 必须是 -1，否则"0"与"没找到"就分不开。
-    $app->render(sectionData(ExampleState::get()));
-    $app->loop(1);
-    $rowIdx = [$app->specIndex('da-row-0'), $app->specIndex('da-row-1'), $app->specIndex('da-row-2')];
-    $cellIdx = $app->specIndex('no-such-cell');
-    $tableOk = $rowIdx === [0, 1, 2] && $cellIdx === -1;
+    // 表格 aria 序号那条门（#69 的回归位）2026-10-14 起住在 examples/table：
+    // 它要的是"把 §5 重画一遍再回读 specIndex"，不需要画廊的壳，独立一支崩了能停在自己那一行。
     // 角色白名单两头都要在**编出来的产物**里验：上游对未知角色是
     // `if (role != None) element->Role(role)`（静默不加），所以 role() 的当场抛
     // 是这条哑路唯一的哨兵；而 181 个常量名 in_array 在 nano 里的行为，只有跑产物才排得掉。
@@ -1107,17 +1094,10 @@ function runSelfTest(bool $expectBundle, bool $startFront = false): void
     // 47 个零参样式糖在产物里逐个调一遍那条门，2026-10-14 起搬到 examples/style
     // （同一份源也在画廊 yml 里，画廊仍会把整棵 §12 树渲染一遍，只是"数 op"这件事
     // 不需要画廊的壳，独立一支崩了能停在自己那一行）。
-    // 剩下五个部件级回调名：会发它们的那几颗组件我们还点不到——link_click 要 markdown 里
-    // 的链接真被点，item_click / item_secondary_click 要 list 的 renderer（#29/#35 那格活），
-    // token_* 要 TokenInput。这里只确认 op 名发得出去、名字对得上上游；
-    // "送达"没量到就不写成能用，文档里标的是"名字在册、送达未量"。
-    $cbEl = El::div()->onLinkClick()->onItemClick()->onItemSecondaryClick()
-        ->onTokenClick()->onTokenHover();
-    $cbNames = [];
-    foreach ($cbEl->ops as $op) {
-        if ($op['kind'] === 'callback') { $cbNames[] = $op['name']; }
-    }
-    $cbEmitOk = count($cbNames) === 5 && count(array_unique($cbNames)) === 5;
+    // 五个部件级回调名那条门（#73 的"op 发得出"那一半）2026-10-14 起住在 examples/catalog。
+    // 送达那一半仍未量到：link_click 要 markdown 里的链接真被点，item_click /
+    // item_secondary_click 要 list 的 renderer（#29/#35 那格活），token_* 要 TokenInput。
+    // 文档里标的仍是"名字在册、送达未量"。
 
     // 能力真调用（不只看形状）：每一项都断在"结果对"而不是"没崩"。
     $app->setClipboardText('SHOWCASE-Ω');
@@ -1592,7 +1572,7 @@ function runSelfTest(bool $expectBundle, bool $startFront = false): void
     $routeGreen = !($bundled && $frontmost) || $nsappDeliveries > 0;
 
     $ok = $badSections === []
-        && $tableOk && $roleAllOk && $roleThrows && $cbEmitOk
+        && $roleAllOk && $roleThrows
         && $clipBack === 'SHOWCASE-Ω' && $item['text'] === 'SHOWCASE-Ω'
         && $urlRejected === false && $hudOn && $hudVisible
         && $overlayReclaimed && $bdNativeClosed && $bdReclaimed
@@ -1629,9 +1609,7 @@ function runSelfTest(bool $expectBundle, bool $startFront = false): void
     $report = [
         'badSections=' . implode('|', $badSections),
         'roles=' . count(El::ROLES) . '/allOk=' . var_export($roleAllOk, true)
-            . ' unknownThrows=' . var_export($roleThrows, true)
-            . ' · table rowIndex=' . implode(',', $rowIdx) . ' miss=' . $cellIdx
-            . '/ok=' . var_export($tableOk, true),
+            . ' unknownThrows=' . var_export($roleThrows, true),
         'clip=' . var_export($clipBack, true),
         'notify=' . $nid . '/' . $notifyCount . '/' . $notifyAfter,
         'sheet=' . $sheetN . '/' . var_export($hasSheet, true),
@@ -1700,7 +1678,6 @@ function runSelfTest(bool $expectBundle, bool $startFront = false): void
             . ' mouseProbe down=' . $mouseDownBand . ' up=' . $mouseUpBand
             . ' move=' . $moveHits . '/ok=' . var_export($mouseOk, true)
             . ' downVal=' . $mouseSample
-            . ' cbEmit=' . count($cbNames) . '/ok=' . var_export($cbEmitOk, true)
             . ' hoverAt=' . $hoverAtX . ',' . $hoverAtY . ' probe=' . $probe['n'] . '@' . $probe['x'] . ',' . $probe['y'] . ' ' . $probe['w'] . 'x' . $probe['h'] . ' hit=' . $px . ',' . $py,
     ];
     echo ($ok ? 'SHOWCASE SELFTEST OK (' : 'SHOWCASE SELFTEST FAIL (') . implode(' · ', $report) . ")\n";

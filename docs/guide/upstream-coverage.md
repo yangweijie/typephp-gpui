@@ -133,7 +133,7 @@ Select 的焦点句柄此前从未真的交出去过）。
 `component.index`（`materialize.cpp:1838-1842`）而 `gpui_shim_push` 只有五个槽位。
 现在有了 `El::tableRow()` / `El::tableCell()` / `->rowCount()` / `->columnCount()` /
 `->rowIndex()` / `->columnIndex()`，ABI 也补上了 index 槽与回读口
-（`App::specIndex(id)`，查无此 id 返回 -1），showcase 的 `--selftest` 用它做断言。
+（`App::specIndex(id)`，查无此 id 返回 -1），这条断言现在住在 `php bin/gpui selftest table`。
 注意这些号只影响 **aria 读数**——上游的表格部件全是"带 role 的 div"，布局依旧归样式管。
 
 ## 5. 为什么"发了没生效"是可能的：静默与响亮的分界
