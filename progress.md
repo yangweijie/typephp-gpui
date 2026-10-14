@@ -1832,3 +1832,25 @@ Pest 103 · PHPStan · parity · shim cpp · docs:build · README/cli/testing �
 CI 自动发现（`Domain examples` 步骤按 yml 循环）。
 拆的过程里另修掉 3 条真 bug + 结 1 条旧案（OTP 取值口 / sysInfo 键名 / 两棵树同一张图 / #62 Escape 结案），
 并把 #73 收窄成"三颗 catalog 触发器在 paint.hits 里没有矩形"。
+
+## 拆分收口：`cmd/all-examples.sh` + 全量跑总账（2026-10-14）
+
+`bash cmd/all-examples.sh`（composer 别名 `examples:all`）= 逐支 `build --no-native` + `--selftest`，
+`shotdiff` / `both` / `first-native`（改了 cpp-src/ 时第一支走完整链）各一个模式。
+清单不在脚本里维护，就是 `examples/*/project.macos.yml`——新拆一支两边都不用改。
+
+**总账（一次跑完）**：14 支 selftest 全 rc=0（hello、showcase + 12 支域示例）·
+43 棵像素树全绿（hello 18 + showcase 13 + system 2 + 其余各 1）· **全量用时 86 秒**。
+对照拆分前：验一个域也要跑整条画廊一轮（≥140 秒）外加"崩了不告诉你崩在哪"。
+
+## 修复轮 17：`cmd/all-examples.sh` 与一次自我破坏（2026-10-14）
+
+脚本自己跑通了全量：**14 支 selftest rc=0、ALL EXAMPLES OK**；`shotdiff` 模式 43 棵树全绿。
+`composer.json` 加了对应别名 `examples:all`（脚本=14 条，name 完好）。
+
+这一轮我把 `composer.json` **写坏过一次**：python 里我序列化的是 `d['scripts']` 那张子表而不是
+整个文档，于是清单文件被自己的 scripts 覆盖（diffstat 18+/76−）。它安静了很久，直到
+`composer test:all` 报 "There are no commands defined in the test namespace" 才露出来——
+而我上一条命令打印的 `rc=0` 是 **grep 的**退出码，不是 composer 的（`cmd | grep; echo rc=$?` 的坑）。
+两条教训都记进了 findings 与用户记忆：程序化改写已跟踪文件之后**立刻**读 `git diff --stat`；
+报告的退出码必须来自被测那一步。修法本身是 `git checkout --` 一行，因为它在基线里。

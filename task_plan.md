@@ -436,8 +436,13 @@ nano 不支持 require/include，全靠 yml 列源文件；全局函数名必须
       ⇒ `Cannot assign value to variable $id of type php::Int with type php::Var`，rc=255 且没跑到自检。
       待搬：无——13 节已全部拆完；跨域还剩 `a11y`
       （`$roleAllOk`/`$roleThrows`）与 `pointer`（`$mouseOk`，它要画廊的壳，最后判要不要搬）。
-- [ ] **15-D** CI native job 的域循环已就位（15-A 就加了）；剩下的是一轮全量本地跑与文档里的
-      示例清单页。`shotdiff` 保持不进 CI（托管 runner 无窗口会话）。
+- [x] **15-D** 收口：CI native job 的 `Domain examples` 循环（15-A 就加了，按 yml 自动发现）+
+      `cmd/all-examples.sh`（composer `examples:all`；模式 selftest/shotdiff/both/first-native）。
+      全量本地实测：**14 支 selftest 全 rc=0 · 43 棵像素树全绿 · 86 秒**。
+      文档同步：cli.md / testing.md / getting-started.md / README 的示例段；
+      清单不再枚举名字（`ls examples/` 即清单），省掉每拆一支改一遍文档。
+      未做的收口：画廊 selftest 里与 overlay 重复的那三条旧门（trapOk/cancelClosed/escape 读数）
+      仍在，删它们要再重编画廊一轮——留给下次动画廊自检时顺手做。`shotdiff` 保持不进 CI。
 
 **明确不做**：不给每支示例配独立 `.app` bundle 逻辑（`bin/gpui` 的 `appBundle()` 已按名字生成，
 天然可用）；不动 `cmd/shotdiff.php` 的 hello 固定表（它自报 `--sections` 的路径已经存在）；

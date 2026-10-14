@@ -19,6 +19,10 @@
 | 12 | 示例覆盖率与拆分漂移 | `composer test`（`tests/ShowcaseTest.php`） | 反射出 `Element`/`App` 的每个公开成员与每个枚举取值，断言**任一示例**（`examples/**/*.php`）里真调用过，再静态核每次调用的实参个数。同一支文件里还有一条拆分自己引入的门：画廊节表里每个 builder 必须定义在画廊 yml 的 `sources:` 列出的某份源里，且 `examples/_shared/features/*.php` 每份都要被画廊收录——把一域搬去独立示例却忘记补 yml，无头 PHP 全绿、只有编译产物缺那个函数 | 否 |
 
 一键：`composer test:all`（Pest + PHPStan + 上游词表 parity + shim_test）。
+全量示例跑一遍：`composer examples:all` = `bash cmd/all-examples.sh`
+（清单就是 `examples/*/project.macos.yml`，新拆一支不用改脚本或 CI）。
+共享产物已建好时实测 **14 支自检 + 43 棵像素树 = 86 秒**；改了 `cpp-src/` 之后第一遍要
+用 `bash cmd/all-examples.sh first-native`（第一支走完整链，其余仍 `--no-native`）。
 
 > 在 composer 的脚本里写 shell 命令要用 `bash cmd/xxx.sh`，不能用 `@bash cmd/xxx.sh`：
 > composer 只把 `@php`/`@composer`/`@putenv` 当内置前缀，`@bash` 被解析成"另一个叫 bash 的脚本"，
@@ -185,7 +189,7 @@ behavior 解析、focus 迁移全部真的走一遍；`inputProbe()` 再证明 p
 `ROUNDTRIP`（点进挂原生视图那节再点回来打字）在同样条件下仍然绿——
 一条门能不能抓住房 bug，只看它被否掉时会不会红，不看它长得像不像。
 
-按功能域拆出去的独立示例（`ls examples/` 里除 hello/showcase 之外的那些，名字就是域）
+按功能域拆出去的独立示例（`ls examples/` 里除 hello/showcase 之外的那十二支，名字就是域）
 各带一支自己的 `--selftest`，CI 里由 `Domain examples`
 那一步按 `examples/*/project.macos.yml` 自动发现并逐支编译（`--no-native`，只跑 tpc 那一段）+ 跑门。
 它们与画廊的分工是：**同一份 UI 源**（`examples/_shared/features/*.php`）两边都编译，

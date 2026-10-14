@@ -55,6 +55,7 @@
         "doctor": "@php bin/gpui doctor",
         "shot:check": "@php bin/gpui shotdiff check",
         "shot:record": "@php bin/gpui shotdiff record",
+        "examples:all": "bash cmd/all-examples.sh",
         "demo:build": "@php bin/gpui build hello"
     },
     "bin": [

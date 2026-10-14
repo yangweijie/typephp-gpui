@@ -1677,3 +1677,18 @@ catalog `Select`/`Combobox`/`DatePicker` 在 `paint.hits` 里**没有自己的�
 点遍 16 条矩形，每条之后 20 帧重画增量都等于空转基线（1），没有任何弹层被打开过。
 所以"confirm/dismiss/open_change 回不到 PHP"不是 Dispatch 那条链的事，
 是**先没人能点开它们**。教训：一次"送达为 0"的读数，先证明被投递的对象真的可点，再谈链路。
+
+### 我自己弄坏过一次 `composer.json`（2026-10-14，拆分收口时）——两条通用教训
+
+用 python 往 composer.json 里加一条脚本别名，写的是 `json.dumps(new)`，而 `new` 是我从
+`d['scripts']` 拷出来的**子表**——于是整个清单文件被 scripts 那 20 行覆盖掉
+（`git diff --stat` 显示 `18 insertions, 76 deletions`）。两个独立失误叠在一起：
+
+1. **程序化改写已跟踪文件之后必须立刻读 `git diff --stat`。**"我只是加一行"与"我删了 76 行"
+   在这一步就能分开；我当时没看，直到 `composer test:all` 报
+   `There are no commands defined in the "test" namespace` 才发现。
+2. **`cmd | grep …; echo rc=$?` 量的是 grep 的退出码。**我当时写的是
+   `composer test:all 2>&1 | grep ... ; echo "composer test:all rc=$?"`，
+   于是打印出 `rc=0`——而 composer 其实已经失败。管道之后要拿
+   `${pipestatus[1]}`（zsh）或先把输出重定向到文件再分别取码。
+   这与记忆里"`grep -c` 在 `&&` 链里 0 命中会吞掉后半条链"是同一族错：**报告的退出码必须来自被测的那一步**。
