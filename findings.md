@@ -1774,3 +1774,32 @@ stdout 重定向到文件时是全缓冲的，进程被 SIGSEGV 打死时缓冲�
 同样可以"在元素树里、但既没有可点矩形也不落字"。所以 `step` 的送达仍然未量，
 而 `stepDelivered` 在自检里**只报数不判红**——判红的会是"点不到"，不是"没接通"。
 教训同 #66/#73 那一族：一次"送达为 0"，先证明被投递的对象在屏幕上真的占了一块地方。
+
+## 修复轮 24：`resize` 与 `item_secondary_click` 为什么"没接"——两处原因不同，都不是补丁漏了（2026-10-14）
+
+上一轮我在补丁头注释里把这两处并成一句"同形状未接"。逐条查下来这句话是**不准确的**，
+而且不准确的方向是"把阻塞写成偷懒"：
+
+| 名字 | 发信方在哪 | 挡着它的是哪一格 |
+|---|---|---|
+| `on_item_secondary_click` | `ScriptView::OnItemSecondaryPress`（view.cpp:258-266，且只认 `MouseButton::Right`） | 它的 `Listen` 只出现在 `ShellRuntime::RenderVirtualItems`（runtime.cpp:12503-12528）造的 `gpui-shell-virtual-item:` 行包装里。我们走的是 PHP 窗口化列表（#35 的 B 方案），那个函数从来没跑过 ⇒ **没有发信方**，路由了也是空 |
+| `on_resize` | `ScriptView::OnResize`（view.cpp:213-218）→ `DispatchNumbers(sizes, count)` | 三格各缺一半：①糖挂错节点（下面）②宿主没有带 float 数组的钩子 ③自检缝不能"按住再拖" |
+
+### ①是一颗静默失效的糖，和 #66 同形状
+
+`materialize.cpp:2349-2352` 从**组**（`h_resizable`/`v_resizable`）的 behavior 读 `on_resize` 才挂监听器；
+panel 分支（`:2361-2371`）只取 `size`/`size_range`/`visible`，**不看 on_resize**。
+而 `examples/_shared/features/layout.php` 写的是 `El::resizablePanel(...)->size('30%')->onResize()`
+——挂在 panel 上。所以那颗糖发得出去、没人读，`resize=0` 一直量的都是这里。
+已挪到组上；挪完 `layout` 与 `showcase` 的像素一位没动（`SHOTDIFF OK`），
+这正说明改的只是"挂不挂监听器"，不是布局。
+
+### ②③是两套基建，各自都能单独做完
+
+`DispatchNumbers` 给的是 `const float* + count`，鼠标那族已经有 CSV 约定（#71），照抄就行；
+真正没做过的是"拖"：`gpui_shim_real_mouse`（gpui_shim_services.inc:370-381）只有
+type 1 = 同点按下+抬起、type 0 = 移动，没有分离的按下/抬起，所以分隔条拖不动。
+拆成 #80 单独跟。
+
+**教训**：写"未接"之前要先说清是哪一格——"补丁没打"与"上游没有发信方"与"我们的糖挂错节点"
+在报表里长得一模一样，但只有第三种当场可修，而且不修就会一直报 0。

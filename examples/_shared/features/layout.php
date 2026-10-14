@@ -5,7 +5,8 @@ declare(strict_types=1);
 /**
  * examples/_shared/features/layout.php — 功能域「容器、布局与滚动」。
  *
- * 从 showcase 的 §4 搬来。这一域没有事件接线（tabs/resizable 的回调另有归属），
+ * 从 showcase 的 §4 搬来。这一域目前没有 PHP 侧 handler：`on_resize` 的 op 挂在组上
+ * （见下面那段的注释），但送达仍未量到——宿主钩子与"按住再拖"的自检缝都还缺。
  * 所以只有 builder 与自报的像素树号。
  */
 
@@ -42,10 +43,16 @@ function sectionLayout(array $s): El
             static fn (int $i): El => El::text("可滚动第 {$i} 行")->font(12.0)->px(8.0)->py(2.0),
             range(1, 40)
         ))->h(120.0)->overflowYScroll()->overflowXScroll()->overflowScroll()->bg(0xFAF8F5)->roundedMd(),
+        // on_resize 挂在**组**上，不挂在 panel 上：materialize 只从 h_resizable/v_resizable
+        // 自己的 behavior 读它（materialize.cpp:2349-2352），panel 分支只取 size/range/visible
+        // （:2361-2371）——挂在 resizablePanel 上是颗静默失效的糖（2026-10-14 查清，
+        // 见 docs/guide/events.md 1b）。仍然**没量到送达**，还差两条：宿主侧没有带 float 数组的
+        // 钩子（上游发的是 DispatchNumbers），自检缝里也没有"按住再拖"（real_mouse 只有
+        // 同点按下+抬起与移动），所以拖不动分隔条。
         El::hResizable([
-            El::resizablePanel(El::text('左栏（可拖）')->font(13.0)->p(8.0))->size('30%')->onResize(),
+            El::resizablePanel(El::text('左栏（可拖）')->font(13.0)->p(8.0))->size('30%'),
             El::resizablePanel(El::text('右栏')->font(13.0)->p(8.0))->size('70%'),
-        ])->h(80.0)->gap(4.0),
+        ])->h(80.0)->gap(4.0)->onResize(),
         El::vResizable([
             El::resizablePanel(El::text('上')->font(12.0)->p(6.0))->size('50%'),
             El::resizablePanel(El::text('下')->font(12.0)->p(6.0))->size('50%'),

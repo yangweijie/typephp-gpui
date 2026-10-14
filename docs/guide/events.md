@@ -114,8 +114,19 @@ PHP 侧声明。补上 `El::open(bool)`（`method('open', [$v])`）之后，`exa
 `confirm 到 PHP=false dismiss 到 PHP=false open_change 收尾=true`、rc=1——
 `open_change 收尾=true` 正是"Confirm 被读成再开一次"的样子。
 
-同形状还没接的两处：`on_resize`（一串 float）与 `on_item_secondary_click`——
-`cmd/patch-select-view.sh` 的头注释里点名了它们，别再当成已通。
+同形状**没接**的两处，2026-10-14 逐条查过，原因不一样，别再笼统写成"补丁没打"：
+
+- `on_item_secondary_click`：**不是投递缺口，是没人挂监听器**。它的 `Listen` 只出现在
+  `ShellRuntime::RenderVirtualItems`（`runtime.cpp:12503-12528`）里那颗
+  `gpui-shell-virtual-item:` 行包装上——也就是"渲染回调返回 Element"的 JS 列表那条路（#29/#35）。
+  我们的列表是 PHP 侧窗口化，根本不经过那个函数，所以路由了也没有发信方。
+- `on_resize`：三格各缺一半。① 上游从**组**的 behavior 挂监听器
+  （`materialize.cpp:2349-2352` 读 `h_resizable`/`v_resizable` 自己的 op），而 panel 分支
+  只取 size/range/visible（`:2361-2371`）——我们示例里 `->onResize()` 挂在
+  `El::resizablePanel(...)` 上，**这颗糖现在是静默失效的**（#66 那个形状）。
+  ② 载荷是 `DispatchNumbers(const float*, int)`，宿主钩子得新增一条带数组的（鼠标那族用 CSV，可以照抄）。
+  ③ 触发只能靠拖：`gpui_shim_real_mouse` 的 type 1 是"同点按下+抬起"、type 0 是"移动"，
+  **没有"按住再移动"**，所以自检里拖不动分隔条；`App` 也没有改窗口尺寸的口子能让面板被动重算。
 `on_step` 同日也量到了，但它多一个前提：**那颗按钮得由宿主填内容**。
 `NumberStepButton`（`materialize.cpp:960-983`）造的是 `Button::New(cx, id, …)`——
 第二个参数是 **id 不是标签**，样式与内容一律从 `decrement_button`/`increment_button`

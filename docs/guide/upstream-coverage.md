@@ -161,7 +161,10 @@ Select 的焦点句柄此前从未真的交出去过）。
 | focus | 🟡 | `tab_index` `tab_stop` `key_context` 已接（2026-10-13）；`track_focus` / `content_focus_handle` 的实参是 `Bridged` 句柄，只有 bridge 造得出，故无 PHP 糖——但 2026-10-14 起 PHP 侧能用 `App::focusElement(id)` **按元素 id 把焦点放进**这些句柄（shim 按 `:t`/`:c` 命名规矩去找），dialog 的焦点陷阱**实测是通的**（`focusTrap()` 读到 `trap == focus == popup`），#62 剩下的只差真键送达 |
 | action | 🟡 | `App::dispatchAction()` + 菜单动作路由已通；无 `bind_keys` 式键位表 |
 | keybinding | ❌ | 只有系统级全局快捷键（`onHotkey`），没有应用内键位/和弦 |
-| event | 🟡 | PHP 侧现在发得出 **24 个** `on_*` 名（原有 4 + #71 的指针/滚轮/键抬起 10 + #73 的部件级 10；`grep -c "callback('on_" src/Element.php` 量的就是这个数，别凭印象改）。24 个名字全部在上游词表里在册（parity 门 11 静态核），**实测量到送达的是 18 个**：前 14 个 + 部件级的 `open_change`/`confirm`/`dismiss`/`step`（2026-10-14：`cmd/patch-select-view.sh` 把这一族从 `CallbackArena::Get(Box2 id)` 那条扫不到也扫得崩的路挪进宿主队列，`El::open(bool)` 补上 binding 读的那个 open 位，`examples/_shared/features/inputs.php` 把 NumberInput 的两颗装饰槽填上——空槽的按钮 0x0 且不落字，"送达为 0"量的就不是链路。三条硬门 `openChangeDelivered`/`confirmDismissDelivered`/`stepDelivered`，前一条做过摘补丁对照、第二条做过摘糖对照）。剩下的：`resize`（一串 float）与 `item_secondary_click` 是同形状未接的两处，见 `cmd/patch-select-view.sh` 头注释 |
+| event | 🟡 | PHP 侧现在发得出 **24 个** `on_*` 名（原有 4 + #71 的指针/滚轮/键抬起 10 + #73 的部件级 10；`grep -c "callback('on_" src/Element.php` 量的就是这个数，别凭印象改）。24 个名字全部在上游词表里在册（parity 门 11 静态核），**实测量到送达的是 18 个**：前 14 个 + 部件级的 `open_change`/`confirm`/`dismiss`/`step`（2026-10-14：`cmd/patch-select-view.sh` 把这一族从 `CallbackArena::Get(Box2 id)` 那条扫不到也扫得崩的路挪进宿主队列，`El::open(bool)` 补上 binding 读的那个 open 位，`examples/_shared/features/inputs.php` 把 NumberInput 的两颗装饰槽填上——空槽的按钮 0x0 且不落字，"送达为 0"量的就不是链路。三条硬门 `openChangeDelivered`/`confirmDismissDelivered`/`stepDelivered`，前一条做过摘补丁对照、第二条做过摘糖对照）。剩下的两个名字原因各不相同，不是"补丁没打"：`item_secondary_click` 的监听器只挂在
+`ShellRuntime::RenderVirtualItems` 的虚拟列表行包装上（那条路要"渲染回调返回 Element"，见 #29/#35），
+路由了也没有发信方；`resize` 缺三格——上游从**组**读 `on_resize` 而我们挂在 panel 上（糖静默失效）、
+宿主钩子要新增一条带 float 数组的、自检缝里没有"按住再拖"。逐条见 `docs/guide/events.md` 1b |
 | animation | ❌ | `transition`/`spring` 整族未接 |
 | paint / geometry / text-system | 🟡 | 布局与文本可用；无路径绘制（PathFill/PathStroke 未接） |
 | accessibility | 🟡 | `role`（上游 181 个名字全表白名单，写错当场抛）+ `aria_label` `aria_selected` `aria_level` `aria_active_descendant` `selectable` 已接。缺口：没有读屏侧回读口，验收只能是"op 发对了 + 像素一位没变"，VoiceOver 里到底读出什么得人工确认 |

@@ -1970,3 +1970,19 @@ trigger 与弹层归宿主组合，而上游自己的 `js_story` 里 Select/Comb
 
 送达名 17 → **18**。门禁：pest 104 · phpstan 0 · build-inputs OK ·
 全量 14 支 selftest rc=0 · 44 棵像素树全绿。
+
+## 修复轮 24：查 resize / item_secondary_click——顺手逮到一颗挂错节点的糖（2026-10-14）
+
+`item_secondary_click` 的监听器只挂在 `ShellRuntime::RenderVirtualItems` 造的虚拟列表行包装上
+（runtime.cpp:12503-12528），我们走 PHP 窗口化列表，那个函数不跑 ⇒ 没有发信方，不是投递缺口
+（依赖记进 #35）。
+
+`resize` 是三格：①我们的 `->onResize()` 挂在 `El::resizablePanel(...)` 上，而上游只从**组**读它
+（materialize.cpp:2349-2352；panel 分支 2361-2371 不看 on_resize）⇒ 一颗静默失效的糖，#66 同形状；
+②宿主缺带 float 数组的钩子（上游发 `DispatchNumbers`）；③自检缝不能"按住再拖"
+（`gpui_shim_real_mouse` 只有同点按下+抬起与移动）。①当场挪到组上，挪完 layout/showcase
+像素一位没动，说明改的确实只是挂载；②③拆成 #80。
+
+文档里那句"同形状未接的两处"逐条改成了各自的原因（events.md 1b、补丁头注释、upstream-coverage 行、
+layout 域注释）——"补丁没打""上游没有发信方""我们的糖挂错节点"在报表里都是同一个 0，
+只有第三种当场可修，不修就会一直报 0。

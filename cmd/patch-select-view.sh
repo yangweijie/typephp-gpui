@@ -27,8 +27,14 @@
 #     不再是"shim 路丢载荷"那一格。
 #   * `gpuiEnqueueSignal` 无载荷（上游 DispatchSignal 本来也不带）。
 #   * 与 click/key 同一取舍：不再回写 event->propagate，是否继续向外由宿主决定。
-#   * **没覆盖**的两处同形状缺口：`OnResize`（DispatchNumbers，一串 float）与
-#     `OnItemSecondaryClick`（DispatchString 带 value）——见 docs/guide/events.md。
+#   * **没覆盖**的两处，2026-10-14 查过原因不同（细节见 docs/guide/events.md 1b）：
+#     - `OnItemSecondaryPress`：路由了也没用——它的 Listen 只存在于
+#       `ShellRuntime::RenderVirtualItems`（runtime.cpp:12503-12528）那颗虚拟列表行包装里，
+#       而那条路要"渲染回调返回 Element"（#29/#35），我们的 PHP 侧列表不经过它。
+#     - `OnResize`：要先补一条带数组的宿主钩子（DispatchNumbers 给的是 const float*/count，
+#       可照鼠标那族的 CSV 约定），并且自检里得能"按住再拖"——gpui_shim_real_mouse 现在
+#       只有同点按下+抬起(1)与移动(0)，没有拖。另有一格是我们自己的错：上游从**组**读
+#       on_resize（materialize.cpp:2349-2352），示例却挂在 resizable_panel 上，糖静默失效。
 #
 # 前置：cmd/patch-view.sh（弱钩子声明区）与 cmd/patch-mouse-view.sh
 #       （本脚本以它落下的 gpuiEnqueueMove 声明行当插入锚点）。
