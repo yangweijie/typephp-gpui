@@ -91,6 +91,8 @@ class Box2 {
     std::unordered_map<std::string, uint64_t> stateHandles;
     // 最近一次 registered 构造/方法失败的原因（每帧 render_begin 清空，供 gpui_last_error 回传）
     std::string lastError;
+    // 这一帧已经接进 lastError 的"第二条及以后"有几条（见 noteError，上限防撑爆）。
+    int extraErrors = 0;
     // elementId → 最近一次上报的值（App::checked()/elementValue() 的读源，见 rememberValue）。
     // 只在事件里带值时写，所以条目数 ≤ 声明过回调的元素数，不随帧数增长。
     struct ElemValue {
@@ -684,10 +686,25 @@ int buildComponentArgs(gpui::Arena* a,
     return schemaN;
 }
 
+// 一帧里的多条错：**接上去**而不是盖掉。#84 的现场是"state 工厂拒了 → 那颗组件的实参
+// 跟着拒"——两条错同一帧，盖掉之后读数里只剩后果（"Diff: at argument 'state'"），
+// 真正的原因（补丁文本没解析过）一个字都看不见。上限是防画廊那种一帧几十错的页面把
+// 回传缓冲撑爆：第一条永远在，后面最多再接两条、总长不过 ~600 字节。
+void noteError(Box2* box, const std::string& msg) {
+    if (msg.empty()) return;
+    if (box->lastError.empty()) {
+        box->lastError = msg;
+        return;
+    }
+    if (box->extraErrors >= 2 || box->lastError.size() > 600) return;
+    box->extraErrors++;
+    box->lastError += " | " + msg;
+}
+
 // registered 失败时的可见占位：一个 Text 节点承载错误文本（on-screen + debug_tree 都可见）。
 // 同时把原因记进 box->lastError，供 gpui_last_error 回传 PHP 断言。
 uint32_t pushErrorNode(Box2* box, gpui::Arena* a, const std::string& msg) {
-    box->lastError = msg;
+    noteError(box, msg);
     gpui::shell::Component c;
     c.kind = gpui::shell::ComponentKind::Text;
     c.text = AStr(a, msg.c_str());
@@ -1131,6 +1148,7 @@ void gpui_shim_render_begin(void* win) {
     if (box) {
         box->specs.Reset();
         box->lastError.clear();  // 每帧只报本帧的 registered 失败
+        box->extraErrors = 0;    // 配套 noteError 的"本帧已接了几条"计数
     }
 }
 
@@ -1413,6 +1431,25 @@ int gpui_shim_snapshot(void* win, const char* path, int dip_w, int dip_h) {
             }
         }
         if (!nswin) return 0;
+        // 指针归位：拍的是在屏窗口的当前绘制结果，而悬停态与 Inspector 拾取高亮读的是
+        // 窗口记下的指针坐标——不归位，基线就取决于物理鼠标那一刻在哪（实测：embedded 整片
+        // 蓝/白翻转、hello tree31 整张不同、Inspector 头偶尔被高亮）。顺序有讲究：
+        //   ① 先让窗口忽略真实鼠标——窗口常常就开在物理光标底下，OS 的 mouseMoved/entered
+        //      会在我们停好之后把坐标改回去（只停不挡时 4 次里仍有 1 次被盖）；
+        //      Deliver 走 sendEvent，不经窗口服务器命中测试，所以合成事件不受这一步影响；
+        //   ② 排空已经入队的真实事件；③ 停到窗口外固定点；④ 泵几帧让它真的画上屏。
+        //   ③ 直接走 WindowDispatchInput（同步写 win->mouseX，那是它唯一的写入点，
+        //      window_common.cpp:1920），不经 NSEvent 路由——经路由的版本实测 6 次出 3 种图。
+        BOOL wasIgnoring = nswin.ignoresMouseEvents;
+        nswin.ignoresMouseEvents = YES;
+        gpui::GpuiAppRunStep(g_app, 0);
+        if (box->window) {
+            gpui::PlatformInput park = gpui::InputMouseMove(
+                -40.f, -40.f, false, gpui::MouseButton::Left, gpui::Modifiers{});
+            gpui::WindowDispatchInput(box->window, &park);
+        }
+        for (int i = 0; i < 4; i++) gpui::GpuiAppRunStep(g_app, 0.03);
+        nswin.ignoresMouseEvents = wasIgnoring;
         NSView* view = [nswin contentView];
         if (!view) return 0;
         NSRect bounds = [view bounds];

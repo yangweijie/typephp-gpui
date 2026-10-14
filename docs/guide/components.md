@@ -308,6 +308,14 @@ El::state($kind, $key, $args);   // 实参标记；$args 按该 state 描述符�
 `inputHandles` 表，catalog 那颗不在里面（要它的值得走 `change` 事件那条线，见
 [事件与回调](/guide/events)）。
 
+第二族（`examples/catalog` 的 tree 2）是同一条入口上的另一批：`catalogTextarea` /
+`catalogEditor`（`language` 只认 `rust`/`json`）/ `catalogDiff`（补丁文本必须是真的 unified
+diff——`DiffFile::Parse` 要 hunk 头 `@@ -1 +1 @@`，缺了就实体建不出来）/ `catalogCommand`
+（子节点契约是硬的：只收 `CommandItem`/`CommandGroup`/`CommandSeparator`）/ Carousel 六件套。
+Carousel 那一组把**共享 key** 的意义摆在明面上：根、Content、三张 Item、Prev/Next 一共七处写的
+都是 `El::state('CarouselState', 'ca-car', …)`，缓存按 `(kind,key)` 命中同一颗实体——
+各写各的 key 就是六个互不相干的轮播，而画面上看不出任何区别（只有实体颗数会红）。
+
 三条必须知道的语义：
 
 - **`$key` 是复用的身份**：PHP 每帧重建整棵树，宿主按 `(kind, key)` 缓存实体——用元素 id 就够。

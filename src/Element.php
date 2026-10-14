@@ -1322,6 +1322,45 @@ class Element
         return self::reg('TimeField', [self::state('TimeFieldState', $id)])->id($id);
     }
 
+    /** catalog `Textarea`：多行编辑，state 只有一个 optional 初值。 */
+    public static function catalogTextarea(string $id, string $initial = ''): self
+    {
+        return self::reg('Textarea', [
+            self::state('TextareaState', $id, [$initial === '' ? null : $initial]),
+        ])->id($id);
+    }
+
+    /** catalog `Editor`：源码编辑器，`language` 是 optional 语法名（空 = 不传）。 */
+    public static function catalogEditor(string $id, string $initial, string $language = ''): self
+    {
+        return self::reg('Editor', [
+            self::state('EditorState', $id, [
+                $initial,
+                $language === '' ? null : $language,
+            ]),
+        ])->id($id);
+    }
+
+    /** catalog `Diff`：只读补丁视图，`mode` 是 optional 枚举（unified/split）。 */
+    public static function catalogDiff(string $id, string $patch, string $mode = ''): self
+    {
+        return self::reg('Diff', [
+            self::state('DiffState', $id, [
+                $patch,
+                $mode === '' ? null : $mode,
+            ]),
+        ])->id($id);
+    }
+
+    /**
+     * catalog `Command`：命令面板。子节点契约是硬的（command.cpp:258-262 逐字校验）——
+     * 只收 `CommandItem` / `CommandGroup` / `CommandSeparator`，挂错就是每帧错误节点。
+     */
+    public static function catalogCommand(string $id, array $children = []): self
+    {
+        return self::reg('Command', [self::state('CommandState', $id)], $children)->id($id);
+    }
+
     // ── 子节点 ──
 
     public function child(self $element): self

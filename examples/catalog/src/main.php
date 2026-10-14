@@ -19,6 +19,14 @@ use TypePHP\Gpui\Element as El;
 const CATALOG_W = 900;
 const CATALOG_H = 620;
 
+/**
+ * 第二棵树（sectionCatalogStates）该有的宿主 state 实体颗数。
+ * ca-ta(TextareaState) / ca-ed(EditorState) / ca-diff(DiffState) / ca-cmd(CommandState)
+ * / ca-car(CarouselState，Carousel 那五处共用同一颗)。
+ * 改那一棵树时同步改这里——不同步就红，正是要的红。
+ */
+const CATALOG_STATE_ENTITIES = 5;
+
 function main(int $argc, array $argv): void
 {
     try {
@@ -59,19 +67,24 @@ function step(string $name, bool $ok, string $detail): void
     echo ($ok ? '  ok   ' : '  FAIL ') . $name . ' — ' . $detail . "\n";
 }
 
-function catalogTree(): El
+function catalogTree(int $tree = 1): El
 {
-    return El::vFlex([sectionCatalog(ExampleState::get())])->sizeFull()->bg(0xF6F3EE);
+    // 按**树号**选 builder。写死一棵的话，两棵"不同的树"会拍出逐字节相同的帧——
+    // 这一族栽过两次（system 第一次、catalog 加第二棵时又一次），现在 cmd/shotdiff.php
+    // 有一条门直接拦重复帧，所以这里漏选会被当场报出来而不是悄悄进基线。
+    $builder = $tree === 2 ? 'sectionCatalogStates' : 'sectionCatalog';
+    return El::vFlex([$builder(ExampleState::get())])->sizeFull()->bg(0xF6F3EE);
 }
 
 function runCatalogShot(string $path, int $tree): void
 {
+    $tree = isset(catalogTrees()[$tree]) ? $tree : 1;
     ExampleState::boot(['section' => 6]);
     $app = new App();
     $app->create();
     $app->createWindow('Catalog Shot', CATALOG_W, CATALOG_H);
     wireCatalog($app);
-    $app->render(catalogTree());
+    $app->render(catalogTree($tree));
     $app->loop(20);
     echo '--- debug tree (catalog ' . (int) $tree . ') ---'
         . "\n" . \gpui_debug_tree($app->handle()) . "\n---\n";
@@ -140,7 +153,28 @@ function runCatalogSelfTest(): void
     step('dropdownItemOps', $ddOk, 'item 条数=' . $itemOps . '/2');
     $ok = $ok && $ddOk;
 
-    // 4) 最后一条是**故意的失败路径**（所以要放在所有读数之后——它会把 registeredError 弄脏）：
+    // 4) 要 state 实体的那一族（#84）：渲染第二棵树，量"建得出来 + 实体数对 + 跨帧不涨"。
+    //    为什么三条一起看：registered 组件建不出来时 gpui 只把那一颗画成
+    //    "Failed to render X"，而实体建不出来时 bridge 下发 NIL 实参（#81 的修法）——
+    //    两种都会同时动 registeredError 与 componentFailure，但**只有实体颗数**能抓到
+    //    "共享 key 写成了各自 key"（Carousel 五处该是一颗，写错就变五颗）。
+    $app->render(catalogTree(2));
+    $app->loop(3);
+    $sc = $app->stateCounts();
+    $states = (int) ($sc['componentStates'] ?? -1);
+    $famErr = $app->registeredError();
+    $famCf = (int) (App::componentFailure()['count'] ?? -1);
+    $app->loop(6);
+    $sc2 = $app->stateCounts();
+    $states2 = (int) ($sc2['componentStates'] ?? -1);
+    $famOk = $states === CATALOG_STATE_ENTITIES && $states2 === CATALOG_STATE_ENTITIES
+        && $famErr === '' && $famCf === 0;
+    step('catalogStateFamily', $famOk, '实体 首帧后=' . $states . ' 多帧后=' . $states2
+        . '（应为 ' . CATALOG_STATE_ENTITIES . '） registeredError='
+        . ($famErr === '' ? '空' : $famErr) . ' componentFailure=' . $famCf);
+    $ok = $ok && $famOk;
+
+    // 5) 最后一条是**故意的失败路径**（所以要放在所有读数之后——它会把 registeredError 弄脏）：
     //    空 id 的 registered 组件被 factory 拒（NonEmptyId），shim 记 lastError，
     //    PHP 经 registeredError() 取回。曾经这类错只藏在 debug_tree 里，三层门禁都不报。
     $app->render(El::alert('', '空 id 应当被拒', 'info'));

@@ -582,7 +582,7 @@ int gpui_shim_state(void* win, const char* kind, const char* key,
         return 0;
     const gpui::shell::FrozenComponentRegistry* comps = g_runtime->Components();
     if (!comps) {
-        box->lastError = "runtime ships no component catalog";
+        noteError(box, "runtime ships no component catalog");
         return 0;
     }
     std::string cacheKey(kind);
@@ -597,7 +597,7 @@ int gpui_shim_state(void* win, const char* kind, const char* key,
     const gpui::shell::StateDescriptor* desc =
         comps->StateOfKind(gpui::Str(kind, (int)std::strlen(kind)));
     if (!desc) {
-        box->lastError = std::string("unknown component state '") + kind + "'";
+        noteError(box, std::string("unknown component state '") + kind + "'");
         return 0;
     }
     gpui::Arena* a = box->specs.Storage();
@@ -605,7 +605,7 @@ int gpui_shim_state(void* win, const char* kind, const char* key,
     gpui::shell::ComponentArgument* arguments = nullptr;
     int n = buildComponentArgs(a, desc->arguments, args, argc, &arguments, &err);
     if (n < 0) {
-        box->lastError = std::string(kind) + ": " + err;
+        noteError(box, std::string(kind) + ": " + err);
         return 0;
     }
     gpui::Str error;
@@ -614,8 +614,8 @@ int gpui_shim_state(void* win, const char* kind, const char* key,
     uint64_t created = 0;
     if (!g_runtime->NewHostState(desc->kind, box->window, g_app, hostAppToken(),
                                  arguments, n, &created, &error, a)) {
-        box->lastError = error.s ? std::string(error.s, (size_t)(error.len > 0 ? error.len : 0))
-                                 : std::string(kind) + ": state creation failed";
+        noteError(box, error.s ? std::string(error.s, (size_t)(error.len > 0 ? error.len : 0))
+                               : std::string(kind) + ": state creation failed");
         return 0;
     }
     box->stateHandles[cacheKey] = created;

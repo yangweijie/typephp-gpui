@@ -17,7 +17,10 @@ use TypePHP\Gpui\Element as El;
 /** 本域的像素树清单：树号 → [标题, builder]。 */
 function catalogTrees(): array
 {
-    return [1 => ['catalog 富组件', 'sectionCatalog']];
+    return [
+        1 => ['catalog 富组件', 'sectionCatalog'],
+        2 => ['catalog 带 state 实体的组件', 'sectionCatalogStates'],
+    ];
 }
 
 function sectionCatalog(array $s): El
@@ -62,4 +65,49 @@ function wireCatalog(App $app): void
     $app->on('ca-dd-2', 'click', function (): void {
         ExampleState::$v['lastDd'] = '第二项';
     });
+}
+
+
+/**
+ * 第二棵：构造里要**一颗宿主造的 state 实体**的那一族（#84；入口是 #81 的 El::state）。
+ *
+ * 为什么单独一棵：第一棵的基线是"catalog 不需要实体的那批"，混在一起之后任何一颗实体
+ * 出问题都会连带改动那张图。颗数由 examples/catalog 的 catalogStateFamily 门钉着。
+ *
+ * Carousel 六件套**共用同一颗** CarouselState：El::state 按 (kind,key) 缓存，所以下面
+ * 五处写的是同一个 key。各写各的 key 就是五颗实体、五个互不相干的轮播——那正是这一族
+ * 唯一"看着画得出来但行为不对"的错法。
+ */
+function sectionCatalogStates(array $s): El
+{
+    $car = El::state('CarouselState', 'ca-car', [3, 0, 'horizontal', true]);
+    return El::vFlex([
+        El::text('catalog 带 state 实体的组件')->font(22.0)->semibold(),
+        El::text('每颗的构造只吃一个 state；实体由宿主经 El::state 造（#81 的入口）')->font(11.0)->truncate(),
+        El::catalogTextarea('ca-ta', 'catalog Textarea：多行、带初值'),
+        El::catalogEditor('ca-ed', "fn main() {\n    println!(\"hi\");\n}", 'rust')->h(120.0),
+        // 补丁文本得是**真** unified diff：DiffFile::Parse 要 hunk 头（@@ -1 +1 @@），
+        // 少了它就报解析错（第一次这里写的是单引号串，\n 还是字面量——两个错叠在一起）。
+        El::catalogDiff('ca-diff',
+                        "--- a/x.txt\n+++ b/x.txt\n@@ -1 +1 @@\n-old line\n+new line",
+                        'unified')->h(120.0),
+        El::catalogCommand('ca-cmd', [
+            El::catalog('CommandItem', ['新建文件'])->rm('action', ['cmd-new']),
+            El::catalog('CommandSeparator', []),
+            El::catalog('CommandGroup', ['最近'])->child(
+                El::catalog('CommandItem', ['x.txt'])->rm('action', ['cmd-x'])
+            ),
+        ])->h(160.0),
+        // Carousel 的根构造是 (id, state)（carousel.cpp:501 kIdStateArgs），Content/Previous/
+        // Next 只要 (state)，Item 是 (id, index, state)——少写一颗就是 "missing argument 'state'"。
+        El::catalog('Carousel', ['ca-carousel', $car], [
+            El::catalog('CarouselContent', [$car], [
+                El::catalog('CarouselItem', ['ca-slide-0', 0, $car], [El::text('第一张')->font(14.0)])->w(180.0),
+                El::catalog('CarouselItem', ['ca-slide-1', 1, $car], [El::text('第二张')->font(14.0)])->w(180.0),
+                El::catalog('CarouselItem', ['ca-slide-2', 2, $car], [El::text('第三张')->font(14.0)])->w(180.0),
+            ]),
+            El::catalog('CarouselPrevious', [$car]),
+            El::catalog('CarouselNext', [$car]),
+        ])->h(100.0),
+    ])->sizeFull()->gap(10.0)->p(16.0)->overflowYScroll();
 }

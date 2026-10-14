@@ -2134,3 +2134,19 @@ Calendar/ColorPicker/DatePicker/TimeField 不吃实参），页面上一族八�
 
 教训（记进用户记忆的形状）：`gdfrac` 的量级本身就是证据——0.68/0.84 不是抗锯齿漂一点的形状，
 它一直在说"这不是同一页内容"；只看百分比不看图，就会把一次真缺陷记成仪表噪声。
+
+## 修复轮 33：#84 catalog 第二族 + 快照前指针归位（2026-10-15）
+
+#84：`catalogTextarea`/`catalogEditor`/`catalogDiff`/`catalogCommand` 四颗糖 + Carousel 六件套
+（七处共用同一颗 `CarouselState`），`examples/catalog` 新增 tree 2 与 `catalogStateFamily` 门
+（实体 首帧后=5、多帧后=5、registeredError 空、componentFailure 0）。路上两件事：
+① `lastError` 一帧多错会互相覆盖，读数里只剩后果（"Diff: at argument 'state'"）、看不见原因
+（补丁文本缺 hunk 头）⇒ 新增 `noteError()`：接上去而不是盖掉，上限两条附加、~600 字节；
+② catalog 的 `--shot` 写死了第一棵 builder，tree2 与 tree1 逐字节相同 ⇒ 修了分派，并在
+`cmd/shotdiff.php` 加"两棵树拍出同一帧即红"的门（record 也拦），这一族栽过两次（system、catalog）。
+
+快照抖动：`embedded` 0.67751、`hello` tree31 1.0、画廊 0.002 级——**全是悬停/拾取态**：拍的是在屏
+窗口，而 `win->mouseX` 取决于物理鼠标。修在 `gpui_shim_snapshot`：忽略真实鼠标 → 排空 → 同步
+`WindowDispatchInput` 停到 (-40,-40) → 泵四帧。NSEvent 路由版 6 次 3 种图；同步版 8/8 相同；
+重录 embedded/hello29-31/showcase2 后三支 × 三遍 check 9/9 绿。hello tree30 的 WebView 本地页
+从此真的进图（旧基线是白的）。

@@ -332,7 +332,7 @@ Phase 9（三个真 bug）/ Phase 10（mac 集成）/ Phase 11（Capabilities �
       0→-1001 1→-1002 2→-1003 3→-1004，每颗各自一个非零实体 id 且互不相同），
       那句旧注释连同它「不能当门」的推论一起作废，改成 `examples/input` 的硬门
       `focusFollowsClick`（断的是关系：非零 + 逐颗互不相同，不断具体数字）。
-- [ ] 遗留"输入框外观无框（主题层）"**标签是错的**，2026-10-14 查清：shell 的 `input` kind
+- [x] 遗留"输入框外观无框（主题层）"**标签是错的**（**已结**：#81 补宿主 state 入口、#82 铺满八颗、#84 第二族五颗，见 16-K/16-L/16-N），2026-10-14 查清：shell 的 `input` kind
       走的是不带样式那个重载（`InputBase::New(cx,id,interactive,role)`，base/input.cpp:34-39），
       带 `InputStyles` 的那个重载（:41-49）materialize 根本不用 ⇒ 裸框是上游 shell 层的行为。
       真正有样式的是 catalog 的 `Input`（`component_shell/retained_forms/mod.cpp:624`），
@@ -491,7 +491,7 @@ SIGSEGV 报成了它自己那一行，而它在画廊里时只是"某轮 rc=11�
 来自同一支在本次补丁之前的构建，我没有为了对照再把补丁摘一次（那要再付一轮完整链）。
 写进 commit 与文档时按这个口径，不冒充"摘掉补丁复现红"。
 
-- [ ] **待办**（已开任务，不在这轮做）：
+- [x] **待办**（逐条已结：①→16-E `El::open(bool)`；②→`on_resize` 16-H 接通路由、送达归 #56 物理按键墙，`on_item_secondary_click` 归 #29 VirtualList 渲染委托；③→16-G #73 结案（shell Select 本就是容器）；④→16-J enqueue 守卫）：
       ①`confirm`/`dismiss` 还缺 PHP 侧那颗"这颗 select 现在是开着的"糖（`behavior.open` 无人能设）；
       ②`on_resize`（float 数组）与 `on_item_secondary_click` 是同形状未接的两处；
       ③catalog 触发器在 `paint.hits` 里没有矩形（#73 剩下的那一半）；
@@ -570,3 +570,7 @@ SIGSEGV 报成了它自己那一行，而它在画廊里时只是"某轮 rc=11�
       修法：像素/自检路径离线（`ExampleState.offline` → 那颗盒子换同 id 同几何的本地页），
       真地址只在交互模式加载；改完 5/5 逐字节相同。testing.md 补一条规矩：
       **复跑变绿只够推迟定罪，不够结案**，量级（0.68/0.84）本身就是"不是同一页内容"的证据。
+- [x] **16-N** #84 catalog 第二族：Textarea/Editor/Diff/Command + Carousel 六件套（七处共用一颗
+      `CarouselState`），`examples/catalog` tree 2 + `catalogStateFamily` 门（实体 5→5）。附带：
+      `noteError()` 让一帧多错接上而不互盖（原因与后果同时可见）；`shotdiff` 加"两棵树同一帧即红"门；
+      快照前指针归位（`gpui_shim_snapshot` 同步停指针 + 忽略真实鼠标），悬停/拾取类抖动 8/8 → 确定。

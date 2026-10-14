@@ -142,6 +142,11 @@ function gdDiff(string $a, string $b): array {
 // 容差：同机 --shot 逐字节确定；留极小容差吸收潜在编码/AA 抖动。
 $THRESHOLD = 0.001;
 $failures = 0;
+// 帧指纹表：md5 → 第一个拍出它的那棵树。两棵"不同的树"拍出**逐字节相同**的帧，
+// 几乎只有一种成因：本示例的 --shot 没按树号选 builder（system 与 catalog 各栽过一次，
+// 两次都靠肉眼比"字节数完全相同"才发现）。这里把它升级成门，并且 record 也拦——
+// 否则重复帧会被洗成基线，之后每轮都拿它当标准答案。
+$digests = [];
 foreach ($trees as $tree) {
     $shot = "$tmpDir/tree$tree.png";
     // 先删旧图：$tmpDir 从不清理，--shot 崩在半路时上一轮的 PNG 还躺在那儿，
@@ -172,6 +177,14 @@ foreach ($trees as $tree) {
         $failures++;
         continue;
     }
+    $digest = md5_file($shot);
+    if ($digest !== false && isset($digests[$digest])) {
+        fwrite(STDERR, "  ✗ tree {$tree}：与 tree {$digests[$digest]} 拍出逐字节相同的帧"
+            . "——多半是本示例的 --shot 没按树号选 builder（不同树该拍不同图）\n");
+        $failures++;
+        continue;
+    }
+    if ($digest !== false) { $digests[$digest] = $tree; }
     $ref = "$baselineDir/tree$tree.png";
     if ($mode === 'record') {
         $before = is_file($ref) ? filesize($ref) : 0;
