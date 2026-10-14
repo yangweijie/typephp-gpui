@@ -38,7 +38,7 @@ php bin/gpui selftest hello             # rc=0 即通过
 ```
 
 `<example>` 是 `examples/` 下的目录名，除 hello/showcase 外还有按功能域拆出来的独立示例
-（现有 `input`、`overlay`、`style`、`table`、`catalog`，见 `ls examples/`）。它们的开关是同一套：`--sections` 自报像素树号、
+（现有 `input`、`overlay`、`style`、`table`、`catalog`、`choices`，见 `ls examples/`）。它们的开关是同一套：`--sections` 自报像素树号、
 `--shot <path> [tree]` 出图、`--selftest` 跑本域的门。与 showcase 的差别只在**范围**：
 一支只装一域，所以编译只花这一域的源，自检也边跑边打（一步一行，崩在哪行停在哪行）。
 

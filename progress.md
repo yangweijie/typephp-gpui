@@ -1733,3 +1733,19 @@ TABLE SELFTEST            CATALOG SELFTEST
 
 验证：showcase/table/catalog 三支 selftest 全 rc=0 · `shotdiff check showcase` 13 张 gdfrac=0 ·
 两支新基线各三次截图 md5 相同 · Pest 103 · PHPStan 0 · parity · shim cpp · docs:build。
+
+## 修复轮 13：`table` / `catalog` / `choices` 三支（Phase 15-C 批量，2026-10-14）
+
+一次搬三域（§5 已在轮 12、本轮 §3 choices + §6 收尾），共用一轮画廊重编与一次像素核对。
+现在 `examples/` 下有 **六支按域独立示例**：input / overlay / style / table / catalog / choices，
+CI 的 `Domain examples` 步骤按 `examples/*/project.macos.yml` 自动发现，加一支不改 CI。
+
+`choices` 这一支是本轮最有价值的一支：它把 #73 从"事件没送达"收窄成"触发器根本不可点"
+（三颗 catalog 触发器在 paint.hits 里没有矩形；点遍 16 条矩形无一让弹层进入持续重画）。
+过程里它先 rc=6 崩在我自己的几何假设上，而报告正好停在 `triggerHits` 那一行——
+这就是把门拆小的全部目的。三条 #73 相关的线现在标着 `(读数)` 不参与 rc，
+量到送达之后再升级成硬门。
+
+验证：`CHOICES SELFTEST OK` rc=0 · `SHOWCASE SELFTEST OK`（§3 搬家 + 九条新 handler 之后） ·
+`shotdiff check showcase` 13 张 gdfrac=0 · `tests/baseline/choices/tree1.png` 三次截图 md5 相同 ·
+Pest 103 · PHPStan 0 · parity · shim cpp · doctor · docs:build。

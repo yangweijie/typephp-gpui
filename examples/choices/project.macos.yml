@@ -1,0 +1,53 @@
+name: gpui-choices
+mode: bin
+output: build/choices
+
+# TypePHP GPUI — macOS arm64，nano 模式。功能域独立示例：选择、开关与按钮变体。
+#
+# 这一支存在的理由：#73（部件自己发出的 open_change / confirm / dismiss 到底回不回 PHP）
+# 在画廊里永远量不出来——画廊的 selftest 要先把 13 节跑完、末尾才打一次报告，
+# 而"弹层一开 gpui 就持续重画"这件事还会把画廊的 dirtyGate 弄红（那条门要求空转只画一次），
+# 所以这个探针在画廊里从一开始就是自相矛盾的。独立一支既能把它当硬门，
+# 也能把"送达"只当读数报出来而不污染别的断言。
+#
+# sources 只列本域那份 feature 源（../_shared/features/choices.php）+ 共用状态表；
+# 同一份文件也被画廊的 yml 收录，所以不存在第二份实现。
+#
+# nano 强制 c++17，shim 是 c++20 预编译库。一轮里第二支起用 --no-native。
+
+sources:
+  - src/main.php
+  - ../_shared/state.php
+  - ../_shared/features/choices.php
+  - ../../src/App.php
+  - ../../src/Element.php
+  - ../../src/El.php
+  - ../../php-src/gpui.stub.php
+  - ../../cpp-src/gpui_bridge.cc
+
+build-dir: build
+
+cxx-std: c++17
+optimize: 2
+
+include-paths:
+  - ../../cpp-src
+  - ../../php-src
+
+# 静态库绝对路径：tpc 不解析相对 ld-flags，故用 @ROOT@ 占位，由 `bin/gpui build`
+# 在编译期替换为仓库绝对根并写到 project.macos.gen.yml。
+ld-flags:
+  - "@ROOT@/cpp-src/build/libgpui_shim.a"
+  - -framework Cocoa
+  - -framework CoreServices
+  - -framework CoreText
+  - -framework CoreGraphics
+  - -framework ImageIO
+  - -framework IOKit
+  - -framework WebKit
+  - -framework AudioToolbox
+  - -framework AVFoundation
+  - -framework Speech
+  - -framework Metal
+  - -framework QuartzCore
+  - -framework Carbon

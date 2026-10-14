@@ -90,45 +90,8 @@ function sectionPrimitives(array $s): El
 // ── 2. 输入与保留态取值 ──> 已搬到 examples/_shared/features/inputs.php
 //    （sectionInputs + wireInputs + inputsTrees），独立示例 examples/input 与画廊共用那一份。
 
-// ── 3. 选择、开关与按钮变体 ─────────────────────────────────────────────────
-function sectionChoices(array $s): El
-{
-    return El::vFlex([
-        El::text('选择、开关与按钮变体')->font(22.0)->semibold(),
-        El::hFlex([
-            El::radio('A', true),
-            El::radio('B', false),
-            El::toggle('Tgl'),
-        ])->gap(10.0)->itemsCenter(),
-        El::hFlex([
-            El::radioGroup([El::radio('甲', true), El::radio('乙', false), El::radio('丙', false)]),
-            El::toggleGroup([El::toggle('左'), El::toggle('中'), El::toggle('右')]),
-        ])->gap(14.0)->itemsCenter(),
-        El::hFlex([
-            // 这颗是 **kind 原语**（gpui-base Button：只有点击与文本，没有圆角/底色/变体），
-            // 后面五颗才是上游画廊里那个 catalog Button。两者同名不同物，
-            // 在左边这颗上调 ->primary() 现在会直接抛（以前是静默丢，见 #66）。
-            El::button('默认(kind)')->id('btn-plain')->onClick(),
-            El::catalogButton('btn-p', 'primary')->onClick()->primary(),
-            El::catalogButton('btn-s', 'secondary')->onClick()->secondary(),
-            El::catalogButton('btn-d', 'danger')->onClick()->danger(),
-            El::catalogButton('btn-g', 'ghost')->onClick()->ghost(),
-            El::catalogButton('btn-o', 'outline')->onClick()->outline(),
-        ])->gap(8.0)->itemsCenter()->flexWrap(),
-        El::hFlex([
-            // 部件自己发出的那批事件（open_change / confirm / dismiss）挂在这三颗上。
-            // 它们的 callbackId 存在 ShellSelectBinding 里，由部件调 runtime->Dispatch*()
-            // 发出，而打过补丁的 Dispatch 开头就有 shim 那条路（entry->shimId 非零 ⇒
-            // 入本窗口事件队列，不碰 QuickJS），所以不需要新补丁就能到 PHP。
-            El::select('ch-select', ['Apple', 'Banana', 'Cherry'])->w(180)
-                ->onOpenChange()->onConfirm()->onDismiss(),
-            El::combobox('ch-combo', ['Red', 'Green', 'Blue'])->w(180)
-                ->onOpenChange()->onConfirm()->onDismiss(),
-            El::datePicker('ch-date')->w(180)->onOpenChange(),
-        ])->gap(10.0),
-        El::text("最近点的按钮：{$s['lastBtn']}")->font(12.0),
-    ])->sizeFull()->gap(12.0)->p(16.0)->overflowYScroll();
-}
+// ── 3. 选择、开关与按钮变体 ──> 已搬到 examples/_shared/features/choices.php
+//    （sectionChoices + wireChoices + choicesTrees），独立示例 examples/choices 与画廊共用那一份。
 
 // ── 4. 容器、布局与滚动 ─────────────────────────────────────────────────────
 function sectionLayout(array $s): El
@@ -252,7 +215,6 @@ function sectionChrome(array $s): El
     ])->sizeFull()->gap(10.0)->p(16.0)->overflowYScroll();
 }
 
-// ── 8. 浮层 ────────────────────────────────────────────────────────────────
 // ── 8. 浮层：dialog / sheet / toast / 通知 ──> 已搬到 examples/_shared/features/overlays.php
 //    （sectionOverlays + wireOverlays + overlaysTrees），独立示例 examples/overlay 与画廊共用那一份。
 
@@ -340,7 +302,6 @@ function sectionEmbedded(array $s): El
     ])->sizeFull()->gap(10.0)->p(16.0)->overflowYScroll();
 }
 
-// ── 12. 样式与图标 ──────────────────────────────────────────────────────────
 // ── 12. 样式、图标与弹层原语 ──> 已搬到 examples/_shared/features/styling.php
 //    （sectionStyling + wireStyling + stylingTrees），独立示例 examples/style 与画廊共用那一份。
 

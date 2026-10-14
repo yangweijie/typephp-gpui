@@ -590,12 +590,8 @@ function wireShowcase(App $app): void
         }
     });
 
-    // 3 节：按钮变体
-    foreach (['plain', 'p', 's', 'd', 'g', 'o'] as $k) {
-        $app->on('btn-' . $k, 'click', function () use ($k): void {
-            ExampleState::$v['lastBtn'] = $k;
-        });
-    }
+    // 3 节：按钮变体——线在 examples/_shared/features/choices.php 里，与 examples/choices 共用。
+    wireChoices($app);
 
     // 2 节：保留态取值——线在 examples/_shared/features/inputs.php 里，
     // 与独立示例 examples/input 共用同一份。
