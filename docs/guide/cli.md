@@ -38,7 +38,7 @@ php bin/gpui selftest hello             # rc=0 即通过
 ```
 
 `<example>` 是 `examples/` 下的目录名，除 hello/showcase 外还有按功能域拆出来的独立示例
-（`input` 等，见 `ls examples/`）。它们的开关是同一套：`--sections` 自报像素树号、
+（现有 `input`、`overlay`，见 `ls examples/`）。它们的开关是同一套：`--sections` 自报像素树号、
 `--shot <path> [tree]` 出图、`--selftest` 跑本域的门。与 showcase 的差别只在**范围**：
 一支只装一域，所以编译只花这一域的源，自检也边跑边打（一步一行，崩在哪行停在哪行）。
 
@@ -58,6 +58,21 @@ php bin/gpui run showcase --probe-events         # 部件级事件送达探针�
 php bin/gpui run showcase --escape               # 进程里第一个 dialog 的 Escape 探针
 php bin/gpui run showcase --wait-key 150         # 真人手按验收：按到 → rc=0
 ```
+
+`examples/overlay` 也带 `--escape`，而且是它的**同一条命令、更小的窗口**：
+
+```bash
+php bin/gpui run overlay --escape                # 实测 ESCAPE-FIRST opened=1 trapAfterOpen=0
+                                                 # trapAfterFrames=993756471 closed=true → rc=0
+```
+
+这条读数是 #62 的结案证据：`trapAfterOpen=0` 而泵 10 帧后非零 ⇒ 焦点陷阱是**要几帧才生效**，
+不是"永不生效"；`closed=true` ⇒ 真 Escape 到达并把 dialog 关了。之前记的"Escape 不关"是
+在"bundle 启动后不自提升为前台应用"那次修好之前测的，之后没人重跑过这条探针——
+重跑一次的代价（画廊 3 分钟 vs 隔离 40 秒）就是没人重跑的原因。
+
+`--escape` 是**探针不是门**：它不参与任何 `--selftest` 的 rc，因为它量的是"真按键有没有送达"
+（#56 那一格），拿它当硬门会把前台归属这种 OS 竞争态变成随机红灯。
 
 `--wait-key` 是给"窗口不是 key window 就没有 firstResponder"那一格用的：前台归属是跟
 IDE/终端竞争来的，自动化拿不到（详见[事件与回调](./events)），所以让命令自己把读数与

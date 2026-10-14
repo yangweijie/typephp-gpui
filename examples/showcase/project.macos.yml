@@ -18,6 +18,7 @@ sources:
   # 按功能域拆出去的源：画廊把它们全列进来（独立示例只列自己那域）。
   - ../_shared/state.php
   - ../_shared/features/inputs.php
+  - ../_shared/features/overlays.php
   - ../../src/App.php
   - ../../src/Element.php
   - ../../src/El.php

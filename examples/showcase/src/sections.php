@@ -337,45 +337,8 @@ function sectionChrome(array $s): El
 }
 
 // ── 8. 浮层 ────────────────────────────────────────────────────────────────
-function sectionOverlays(array $s): El
-{
-    $sheetBtns = [];
-    foreach (App::SHEET_ANCHORS as $a) {
-        $sheetBtns[] = El::catalogButton("ov-sheet-{$a}", "Sheet·{$a}")->onClick()->ghost();
-    }
-    $noticeBtns = [];
-    foreach (App::NOTICE_TYPES as $t) {
-        $noticeBtns[] = El::catalogButton("ov-notify-{$t}", "通知·{$t}")->onClick()->outline();
-    }
-    // NOTICE_PLACEMENTS 全枚举：8 个锚点各一颗按钮，钉在哪一角是看得见的（像素证据）。
-    $placeBtns = [];
-    foreach (App::NOTICE_PLACEMENTS as $p) {
-        $placeBtns[] = El::catalogButton('ov-place-' . $p, $p)->onClick()->ghost()->sizeEnum('xsmall');
-    }
-
-    return El::vFlex([
-        El::text('浮层：dialog / sheet / toast / 通知')->font(22.0)->semibold(),
-        El::text('dialog 与 toast 由 ShellRoot 持有；通知层必须自己摆一颗 El::notifications()。')->font(11.0)->truncate(),
-        El::hFlex([
-            El::catalogButton('ov-dialog', '打开 dialog')->onClick()->primary(),
-            El::catalogButton('ov-dialog-close', '关 dialog')->onClick()->ghost(),
-            El::catalogButton('ov-toast', 'toast')->onClick()->ghost(),
-            El::text("dialog=" . $s['dialogCount'])->font(12.0),
-        ])->gap(8.0)->itemsCenter(),
-        El::hFlex($sheetBtns)->gap(8.0),
-        El::text("sheet: has=" . ($s['hasSheet'] ? '1' : '0') . " anchor=" . $s['sheetAnchor'])->font(12.0),
-        El::hFlex($noticeBtns)->gap(8.0),
-        El::hFlex([
-            El::catalogButton('ov-notify-click', '带 id 的通知（可点）')->onClick()->secondary(),
-            El::catalogButton('ov-notify-clear', '关掉全部通知')->onClick()->ghost(),
-            El::text("在场 " . $s['notifyCount'] . ' 条')->font(12.0),
-        ])->gap(8.0),
-        El::hFlex($placeBtns)->gap(4.0)->flexWrap(),
-        El::text("placement={$s['placement']}（8 个锚点各一颗，点哪张卡就钉在那一角）")->font(11.0),
-        El::text('通知层本体（绝对定位盖住窗口，卡片贴窗口边角）：')->font(11.0),
-        El::notifications('ov-notes')->sizeFull()->absolute(),
-    ])->sizeFull()->gap(10.0)->p(16.0)->relative()->overflowYScroll();
-}
+// ── 8. 浮层：dialog / sheet / toast / 通知 ──> 已搬到 examples/_shared/features/overlays.php
+//    （sectionOverlays + wireOverlays + overlaysTrees），独立示例 examples/overlay 与画廊共用那一份。
 
 // ── 9. 系统能力 ─────────────────────────────────────────────────────────────
 function sectionSystem(array $s): El

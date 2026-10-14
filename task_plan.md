@@ -397,8 +397,17 @@ nano 不支持 require/include，全靠 yml 列源文件；全局函数名必须
       新第 10 条门做过反向锚点（删掉画廊 yml 那行立刻红）。
       **首轮就跑出三条画廊报不出的结论**（详见 findings.md「Phase 15 拆分第一支独立示例」），
       其中 OTP 取值口那条已修（commit `0278c0f`）——这就是"方便测试"要的东西。
-- [ ] **15-B** `overlay`：把 focus trap / Escape / `ui::Cancel` 三条门迁过去，
-      验证"断言也能搬"——并给 `#73`/`stash@{0}` 的 `focusElement` 一个能出声的落点。
+- [x] **15-B** `overlay`：域源搬到 `examples/_shared/features/overlays.php`（builder + `wireOverlays`
+      + `overlaysTrees`），新支 `examples/overlay` 自带九条**确定性**门（focusTrap / ui::Cancel /
+      closeDialog / 每个 anchor 各开各关 sheet / 每种 type 随推随长 / 清场 / 八锚点 / 拆框后仍干净），
+      并带 `--escape`（探针，不是门）。
+      当场结了两件事：**#62 的 Escape 结案**（两支都 `closed=true`，旧结论测于 #54 修前台之前），
+      以及否掉我自己的预期（`clearNotifications()` 要泵过帧才归零，`在场=12/8` 那条 FAIL 是我没先清场）。
+      验证：`OVERLAY SELFTEST OK` rc=0 · `SHOWCASE SELFTEST OK` rc=0 · `shotdiff check showcase`
+      13 张 gdfrac=0（dialog 标题字面量改掉不影响像素，因为那棵树只在点开之后存在）·
+      `tests/baseline/overlay/tree1.png` 三次截图 md5 相同 · Pest 103 / PHPStan / parity / docs:build 绿。
+      **未做的**：画廊 selftest 里那三条旧门（`trapOk`/`cancelClosed`/escape 读数）还留着——
+      它们与这支重叠，等 15-C 铺完一起收口（收口要再重编画廊，一轮 40 秒起）。
 - [ ] **15-C** 其余 10 域按同一模板铺，每铺一支录一支基线。模板 = `examples/_shared/features/<域>.php`
       （builder + `wire<域>` + `<域>Trees()`）→ 域 yml 只列自己那份 → `--selftest` 用 `step()` 边跑边打
       → `bin/gpui build <域> --no-native`（改了 cpp-src/ 则第一支必须走完整链）

@@ -1648,3 +1648,39 @@ INPUT SELFTEST OK                                    rc=0
 `tests/baseline/input/tree1.png` 三次截图 md5 全同（`4dd48935e02fae6b44966662e30f6dd4`）；
 `composer test:all`（Pest 103 + PHPStan 0 + parity + SHIM CPP TESTS OK）、`check-c-abi`、`doctor`、
 `docs:build` 全绿。`check-build-inputs` 只剩"新文件未跟踪"这 5 条，提交即消。
+
+## 修复轮 10：第二支独立示例 `overlay`（Phase 15-B，2026-10-14）
+
+§8 的 builder + 接线搬到 `examples/_shared/features/overlays.php`，画廊 yml 收录它、
+`wireShowcase` 换成一句 `wireOverlays($app)`；新支 `examples/overlay` 九条门全部确定性。
+首轮 8/9 绿，那条 FAIL 教会我一件事（见下），改完 9/9。
+
+```
+OVERLAY SELFTEST
+  ok   registeredError — 空
+  ok   componentFailure — count=0 last=
+  ok   focusTrap — opened=1 dialogCount=1 trap=993756471 focusedId=993756471
+  ok   cancelClosesDialog — dispatched=true dialogCount=0
+  ok   closeDialog — opened=1 closed=true dialogCount=0
+  ok   sheetPerAnchor — 仍在场的 sheet=0 top=1/true bottom=1/true left=1/true right=1/true
+  ok   notifyPerType — 在场=4 类型数=4
+  ok   clearNotifications — 立刻读=4 泵 40 帧后=0        ← 首轮这里报的是"在场=12/8"
+  ok   placements — 在场=8/8
+  ok   teardownClean — err=空
+OVERLAY SELFTEST OK                                       rc=0（--no-native，37 秒）
+```
+
+**#62 结案**（两支各跑一次 `--escape`，都 rc=0）：
+`ESCAPE-FIRST opened=1 trapAfterOpen=0 trapAfterFrames=993756471 closed=true`（overlay）
+`ESCAPE-FIRST opened=1 trapAfterOpen=0 trapAfterFrames=1010534090 closed=true`（showcase）
+⇒ 焦点陷阱是"要几帧才生效"，真 Escape 能把框关掉。旧那条"Escape 不关"测于 #54（bundle 不自提升
+前台）修好之前，之后没人重跑——而重跑的成本是画廊 3 分钟 / 隔离 40 秒。
+任务表里 #62 与 #56 都已按这次读数订正：#56 只剩**真人 HID 那一按**。
+
+**我自己写错的一条预期**：`clearNotifications()` 之后立刻读 `notificationCount()` 仍是 4，
+泵 40 帧才归零；首轮的"在场=12/8"也不是 bug（12 = 4 条 5 秒超时的还没退 + 8 条新推）。
+同一个错法两处：**把有动画的状态当同步返回值读**。现在门同时留两个读数、只断言泵过帧那个。
+
+**其余门禁**：`SHOWCASE SELFTEST OK`（rc=0，搬家后）· `shotdiff check showcase` 13 张 gdfrac=0
+· `tests/baseline/overlay/tree1.png` 三次截图 md5 相同（`f8c975d1…`）且 `check overlay` OK
+· Pest 103 / PHPStan 0 / parity / docs:build 绿。

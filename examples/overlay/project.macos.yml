@@ -1,0 +1,53 @@
+name: gpui-overlay
+mode: bin
+output: build/overlay
+
+# TypePHP GPUI — macOS arm64，nano 模式。功能域独立示例：浮层（dialog / sheet / toast / 通知）。
+#
+# 这一支存在的理由：#62 / #73 / #74 那几条门（焦点陷阱、ui::Cancel 关闭、Escape）都在浮层上，
+# 而它们在画廊里挤在 1800 行的 --selftest 中段——那里报告只在末尾打印一次，
+# 上一轮 rc=11 就是那么无声消失的。独立出来之后每步一行，崩在哪行停在哪行。
+#
+# sources 只列本域那份 feature 源（../_shared/features/overlays.php）+ 共用状态表；
+# 同一份文件也被画廊的 yml 收录，所以不存在第二份实现。
+#
+# nano 强制 c++17，gpui amalgam 与 shim 是 c++20，已预编译成 cpp-src/build/libgpui_shim.a。
+# 一轮里第二支起用 `php bin/gpui build overlay --no-native`（跳过共用的前三步：
+# 同步沙箱→补丁→amalgam→shim 库）。改了 cpp-src/ 之后第一支必须走完整链。
+
+sources:
+  - src/main.php
+  - ../_shared/state.php
+  - ../_shared/features/overlays.php
+  - ../../src/App.php
+  - ../../src/Element.php
+  - ../../src/El.php
+  - ../../php-src/gpui.stub.php
+  - ../../cpp-src/gpui_bridge.cc
+
+build-dir: build
+
+cxx-std: c++17
+optimize: 2
+
+include-paths:
+  - ../../cpp-src
+  - ../../php-src
+
+# 静态库绝对路径：tpc 不解析相对 ld-flags，故用 @ROOT@ 占位，由 `bin/gpui build`
+# 在编译期替换为仓库绝对根并写到 project.macos.gen.yml。
+ld-flags:
+  - "@ROOT@/cpp-src/build/libgpui_shim.a"
+  - -framework Cocoa
+  - -framework CoreServices
+  - -framework CoreText
+  - -framework CoreGraphics
+  - -framework ImageIO
+  - -framework IOKit
+  - -framework WebKit
+  - -framework AudioToolbox
+  - -framework AVFoundation
+  - -framework Speech
+  - -framework Metal
+  - -framework QuartzCore
+  - -framework Carbon

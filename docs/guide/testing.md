@@ -166,7 +166,7 @@ tree 32（通知层）**必须跑够墙钟才拍得到**：通知入场是动画
 | --- | --- | --- | --- |
 | `php` | `php -l` 全源 + Pest + PHPStan | ubuntu-24.04 / PHP 8.5 | ~14s |
 | `docs` | `npm ci` + `vitepress build`（顺带是死链门禁）+ 产物页数与 `base` 断言 | ubuntu-24.04 / Node 24 | ~12s |
-| `native` | `bin/gpui build hello`（同步沙箱→全部补丁→amalgam→shim 库→tpc nano）+ `cmd/check-cxx17.sh` + `cmd/test-shim.sh` + `hello --selftest` + `bin/gpui build showcase` + `showcase --selftest` | **macos-15** | ~3m27s + showcase 一轮 |
+| `native` | `bin/gpui build hello`（同步沙箱→全部补丁→amalgam→shim 库→tpc nano）+ `cmd/check-cxx17.sh` + `cmd/test-shim.sh` + `hello --selftest` + `bin/gpui build showcase` + `showcase --selftest` + `--liveclick` + `--livetyping` + **Domain examples 循环**（`examples/*/project.macos.yml` 里除 hello/showcase 外每支 `build --no-native` 再 `--selftest`） | **macos-15** | ~3m27s + showcase 一轮 + 每支约 40 秒 |
 | `deploy` | 把 `docs` 的产物发到 GitHub Pages（只在 main 的 push） | ubuntu-24.04 | ~45s |
 
 `showcase --selftest` 还带一条**只认真实输入**的验收：`realClick` / `realMouseMove` /

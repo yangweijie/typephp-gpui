@@ -1642,3 +1642,19 @@ key window——只是当下焦点被我这边占着，属于前台竞争，不�
 inputBounds，**少的是哪两颗这条探针答不出**（它只给矩形不给 id）。所以这里只能说
 "inputBounds 不覆盖全部 retained"，不能说"OTP 不在表里"。
 （OTP 的取值口坏了是另一件事，已由 setInput/text 直接证出。）
+
+### Phase 15-B（同日，`examples/overlay`）：拆出来当刻就结了一条旧案、否掉一条我自己的错误预期
+
+**结了 #62**：`run overlay --escape` 与 `run showcase --escape` 两支都回
+`trapAfterOpen=0 → 泵 10 帧后 trap=非零 → closed=true`（rc=0）。所以
+① 焦点陷阱不是"永不生效"，是**要几帧才生效**；② 真 Escape 到达并把 dialog 关了。
+旧的"Escape 不关"测于 #54（bundle 不自提升前台）修好之前，之后没人重跑过这条探针——
+画廊一轮 3 分钟、隔离的一轮 40 秒，**重跑的代价差就是没人重跑的原因**。
+
+**否掉我自己的预期**：`clearNotifications()` 之后**立刻**读 `notificationCount()` 还是 4，
+泵 40 帧后才归零。第一条 `placements` 门报 `在场=12/8` 也不是 bug：12 = 上面 4 条
+`timeout=5000` 的还没退场 + 这 8 条。两处都是同一个错法——**把"有动画的状态"当同步返回值读**。
+现在这条门同时留两个读数（立刻 / 泵过帧），断言只钉在泵过帧那个（用户真正会看到的数）。
+
+**顺带量到**：四个 sheet anchor 各自 `openSheet=1 / hasSheet=true / closeSheet=true`，
+逐个开逐个关不会互相挡住；`notify` 四种 type 随推随长（4/4）。

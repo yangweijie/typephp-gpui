@@ -619,64 +619,8 @@ function wireShowcase(App $app): void
         ExampleState::$v['sidebarCollapsed'] = !ExampleState::$v['sidebarCollapsed'];
     });
 
-    // 8 节：浮层
-    $app->on('ov-dialog', 'click', function () use ($app): void {
-        ExampleState::$v['dialogCount'] = $app->openDialog(
-            El::vFlex([
-                El::text('Showcase dialog')->font(18.0)->semibold(),
-                El::text('dialog 内容是一棵独立的 Element 树（自己的 Box2）。')->font(13.0),
-                El::catalogButton('ov-dialog-ok', '好')->primary(),
-            ])->p(20.0)->gap(10.0)
-        );
-    });
-    $app->on('ov-dialog-close', 'click', function () use ($app): void {
-        $app->closeDialog();
-        ExampleState::$v['dialogCount'] = $app->dialogCount();
-    });
-    $app->on('ov-toast', 'click', function () use ($app): void {
-        $app->toast('Toast', 'title + description + level', 'success');
-    });
-    foreach (App::SHEET_ANCHORS as $a) {
-        $app->on('ov-sheet-' . $a, 'click', function () use ($app, $a): void {
-            $app->openSheet(
-                El::vFlex([
-                    El::text('Sheet·' . $a)->font(16.0)->semibold(),
-                    El::text('从 anchor 命名的那条边滑进来。')->font(12.0),
-                ])->p(20.0)->gap(8.0),
-                $a
-            );
-            ExampleState::$v['hasSheet'] = $app->hasSheet();
-            ExampleState::$v['sheetAnchor'] = $a;
-        });
-    }
-    foreach (App::NOTICE_TYPES as $t) {
-        $app->on('ov-notify-' . $t, 'click', function () use ($app, $t): void {
-            $app->notify('通知·' . $t, 'type 决定图标与配色', $t, 'top_right', 5000, 'ov-note');
-            ExampleState::$v['notifyCount'] = $app->notificationCount();
-        });
-    }
-    $app->on('ov-notify-click', 'click', function () use ($app): void {
-        $app->notify('带 id 的通知', '点它或等它退场，都会打回 PHP', 'info', 'top_right', 8000, 'ov-note');
-        ExampleState::$v['notifyCount'] = $app->notificationCount();
-    });
-    $app->on('ov-notify-clear', 'click', function () use ($app): void {
-        $app->clearNotifications();
-        ExampleState::$v['notifyCount'] = $app->notificationCount();
-    });
-    foreach (App::NOTICE_PLACEMENTS as $p) {
-        // placement 是这几种绿里唯一能钉在像素上的：8 个锚点各一条真通知。
-        $app->on('ov-place-' . $p, 'click', function () use ($app, $p): void {
-            $app->notify('换角', 'placement=' . $p, 'warning', $p, 0, 'ov-note');
-            ExampleState::$v['placement'] = $p;
-            ExampleState::$v['notifyCount'] = $app->notificationCount();
-        });
-    }
-    $app->on('ov-note', 'click', function (): void {
-        ExampleState::$v['clip'] = '通知卡被点了';
-    });
-    $app->on('ov-note', 'close', function () use ($app): void {
-        ExampleState::$v['notifyCount'] = $app->notificationCount();
-    });
+    // 8 节：浮层——线在 examples/_shared/features/overlays.php 里，与独立示例 examples/overlay 共用。
+    wireOverlays($app);
 
     // 9 节：系统能力
     $app->on('sy-clip-set', 'click', function () use ($app): void {
