@@ -508,3 +508,11 @@ SIGSEGV 报成了它自己那一行，而它在画廊里时只是"某轮 rc=11�
       ⇒ "触发器点不开"不是本端缺口，#73 结案。送达名 17→18。
       附带修掉一次假绿：`shotdiff` 不构建，量旧二进制会报"全部字节相同"，
       现在二进制比 `sources:` 旧就 rc=2 拒绝出数。
+- [x] **16-H** #80 的两格补了：OnResize 的 CSV 路由（补丁第 8 处）+ `App::realDrag()`
+      （shim type 2/3）。第三格判定为**硬墙并归 #56**：mac 的按住状态读
+      `[NSEvent pressedMouseButtons]`，合成事件伪造不了 ⇒ 造不出 `DragMoveEvent`，
+      `on_resize` 的送达只能真人验。`resizeDelivered` 保持只报数不判红。
+      附带把 `realDrag` 的返回从 bool 改成 `{pressed,moved,released}`——两种语义不能压成一个值。
+- [ ] **16-I** 一次像素抖动（chrome shotdiff 单跑红、复跑 3/3 绿、无崩溃报告）说明
+      像素门缺"红了先复跑再定罪"的成文规矩；已记进用户记忆 (43)，
+      下一轮把它写进 `docs/guide/testing.md` 的 shotdiff 段。

@@ -188,6 +188,16 @@ behavior 解析、focus 迁移全部真的走一遍；`inputProbe()` 再证明 p
 为什么需要它：自检原有的合成事件按 callbackId 直接入队，绕过"监听器挂没挂"这一步，
 所以 `on_` 前缀失配（真实鼠标一个事件都进不来）时它照样全绿。
 
+`realDrag($x0,$y0,$x1,$y1,$steps)` 是这条缝的"按住再拖"档（`gpui_shim_real_mouse` 的
+type 2/3 = 只按下/只抬起，中间按段发移动并在每段后跑一帧）。它回三个读数
+`{pressed, moved, released}` 而不是一个 bool，因为这两类语义在这个动作里不是一回事：
+按下/抬起回的是"**送进窗口了没有**"（把手上没有 PHP 回调，拿入队当判据会让每次拖都假阴），
+`moved` 沿用 `realMouseMove` 的既有语义 = "**PHP 队列多没多一条**"。
+它的边界也记在这里：mac 层判断"此刻按着哪个键"读的是 `[NSEvent pressedMouseButtons]`
+（物理状态，`window_mac.cpp:511-520`），合成事件伪造不了，所以**拖不动 resizable 的把手**——
+`selftest layout` 的 `resizeDelivered(读数)` 量的就是这个（`按下=true 抬起=true 移动入队=0`）。
+需要真按住的东西归 #56 那一族（真人 HID）。
+
 `--livetyping` 的换节也走真点击（`navClickTo()` 从命中表取那一行的矩形再点它），不再用
 `ExampleState::$v['section'] = N` 直接改状态——改状态等于绕过 hit-test 假装"点过了"。
 那条常驻原生视图吃点击的**回归位是 `--selftest` 的 navProbe**：反向对照实测过，把

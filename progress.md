@@ -1986,3 +1986,30 @@ trigger 与弹层归宿主组合，而上游自己的 `js_story` 里 Select/Comb
 文档里那句"同形状未接的两处"逐条改成了各自的原因（events.md 1b、补丁头注释、upstream-coverage 行、
 layout 域注释）——"补丁没打""上游没有发信方""我们的糖挂错节点"在报表里都是同一个 0，
 只有第三种当场可修，不修就会一直报 0。
+
+## 修复轮 25：resize 的两格补了，第三格是物理按键状态（2026-10-14）
+
+`cmd/patch-select-view.sh` 加了第 8 处：`ScriptView::OnResize` 的
+`DispatchNumbers(const float*, int)` 在补丁里拼成 CSV 交给已有的 `gpuiEnqueueString`
+（不新增钩子签名，顺带补 `#include <cstdio>`）。`gpui_shim_real_mouse` 加了 type 2/3
+（只按下/只抬起），宿主侧是 `App::realDrag()`。
+
+`realDrag` 一开始回 bool，phpstan 挑出"结果没用的调用"其实是真问题：这个动作里
+**按下/抬起的语义是"送进窗口"**（把手上没有 PHP 回调，拿入队当判据每次拖都假阴），
+**移动的语义沿用 `realMouseMove` 的"进了 PHP 队列"**——两件事压成一个 bool 就是骗人。
+改成回 `{pressed, moved, released}`。
+
+然后量到的是一堵墙，而且是有读数的墙：落点确实是那颗把手
+（命中表 `2:57,357x9x64/p1`，起点 61,389），
+`按下=true 抬起=true 移动入队=0 split='—'`。mac 层判断"此刻按着哪个键"读的是
+`[NSEvent pressedMouseButtons]`（`window_mac.cpp:511-520`，`mouseDragged:` 只转给
+`mouseMoved:`），合成事件伪造不了物理按键状态 ⇒ gpui 造不出 `DragMoveEvent`，
+`ResizableState` 也不会在抬起时发 `onResized`。归 #56 那一族（只有真人 HID 能验），
+所以 `resize` 仍记"送达未量"，自检里保持只报数。
+
+**一次红要判定性**：这轮 `chrome` 的 shotdiff 红过一次（gdfrac=0.00767 worst=0.067），
+而我自上次全绿以来只动过 `realDrag`（chrome 不调）。重跑 3/3 全绿、`DiagnosticReports`
+里没有该进程的崩溃报告 ⇒ 是渲染抖动不是回归。没有重录基线（那等于把抖动洗成事实），
+规矩记进记忆 (43)。
+
+门禁：pest 104 · phpstan 0 · 全量 14 支 selftest rc=0 · 44 棵像素树全绿（chrome 复跑后）。

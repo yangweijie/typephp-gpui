@@ -374,6 +374,14 @@ int gpui_shim_real_mouse(void* win, int x, int y, int type) {
     if (type == 1) {
         if (!gpui_mac_send_mouse(x, y, 1, 1)) return 0;
         gpui_mac_send_mouse(x, y, 2, 1);
+    } else if (type == 2) {
+        // 只按下（不抬起）：拖拽的前半。gpui_mac_send_mouse 的 type 1/2 就是
+        // LeftMouseDown/Up，这里只是不再把它们焊成一次单击。
+        // 按下与抬起**回的是"事件送进窗口了没有"**，不是"队列多没多一条"——
+        // 分隔条上本来就没有 PHP 回调，按下当然不会入队；拿入队当判据会让每次拖都假阴。
+        return gpui_mac_send_mouse(x, y, 1, 1);
+    } else if (type == 3) {
+        return gpui_mac_send_mouse(x, y, 2, 1);
     } else if (!gpui_mac_send_mouse(x, y, 0, 0)) {
         return 0;
     }

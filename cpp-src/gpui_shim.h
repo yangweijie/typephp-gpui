@@ -55,7 +55,10 @@ void  gpui_shim_pump(void* win, double max_wait_secs);
 /* 取一条待处理事件；无则返回 0，有则填充 *out 返回 1。 */
 int   gpui_shim_poll(void* win, GpuiEvent* out);
 
-/* 真输入验收缝（见 gpui_mac.h 的 gpui_mac_send_mouse）。type: 0=移动 1=左键单击。
+/* 真输入验收缝（见 gpui_mac.h 的 gpui_mac_send_mouse）。
+ * type: 0=移动 1=左键单击（按下+抬起） 2=只按下 3=只抬起。
+ * 2/3 分开是为了能拖：可伸缩面板的分隔条只在"按住 + 移动"时才改尺寸，
+ * 一次同点单击不会动它（宿主侧的组合口是 App::realDrag）。
  * 返回 1 = 这一趟在 PHP 队列里确实多出一条事件，即"元素真的挂上了监听器"；
  * 0 = 没有（窗口找不到，或 hit-test 上没有回调的元素）。
  * x/y 是视图坐标（左上原点、整数逻辑点），与 snapshot 同一套。 */

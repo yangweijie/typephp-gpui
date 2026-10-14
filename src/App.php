@@ -135,6 +135,40 @@ final class App
     }
 
     /**
+     * 按住再拖：按下 → 分 `$steps` 段移动（每段之后跑一帧，让 gpui 真的处理这次移动）→ 抬起。
+     *
+     * 为什么需要它：可伸缩面板的分隔条只认"按住 + 移动"，同点按下+抬起（`realClick`）
+     * 不会改尺寸——上游 `ResizableState` 在拖拽过程里更新 sizes、抬起时才发
+     * `ResizablePanelEvent::Resized`（base/resizable.cpp:126-198）。
+     *
+     * 返回三个读数而不是一个 bool，因为这个动作里"送进窗口"与"进了 PHP 队列"是两件事：
+     * 按下/抬起（type 2/3）回的是**送进窗口没有**——分隔条上没有 PHP 回调，
+     * 拿入队当判据会让每次拖都假阴；移动（type 0）沿用 `realMouseMove` 的既有语义，
+     * 回的是**队列多没多一条**，所以那里记成次数。
+     * 拖成没成不看返回值，读自己的状态（给那颗面板挂 `on_resize`）。
+     *
+     * @return array{pressed:bool,moved:int,released:bool}
+     */
+    public function realDrag(int $x0, int $y0, int $x1, int $y1, int $steps = 4): array
+    {
+        $n = $steps < 1 ? 1 : $steps;
+        $pressed = \gpui_real_mouse($this->handle(), $x0, $y0, 2) === 1;
+        $moved = 0;
+        for ($i = 1; $i <= $n; $i++) {
+            if (\gpui_real_mouse($this->handle(),
+                $x0 + (int) (($x1 - $x0) * $i / $n),
+                $y0 + (int) (($y1 - $y0) * $i / $n), 0) === 1) {
+                $moved++;
+            }
+            $this->loop(1);
+        }
+        $released = \gpui_real_mouse($this->handle(), $x1, $y1, 3) === 1;
+        $this->loop(2);
+
+        return ['pressed' => $pressed, 'moved' => $moved, 'released' => $released];
+    }
+
+    /**
      * 窗口/应用状态：active（NSApp 是否前台）、key（窗口是否钥匙窗口）、visible、main、
      * bundled（进程有没有 .app bundle 身份），外加 nsappDeliveries——realClick/realKey 里
      * 已经走真路由（NSApp 队列 → nextEventMatchingMask → -[NSApp sendEvent:]）的事件条数，

@@ -96,6 +96,7 @@ function runLayoutSelfTest(): void
     $app = new App();
     $app->create();
     $app->createWindow('Layout Selftest', LAYOUT_W, LAYOUT_H);
+    wireLayout($app);
     $app->render(layoutTree());
     $app->loop(4);
 
@@ -150,6 +151,49 @@ function runLayoutSelfTest(): void
     step('sizeIsMethodOp', $sizeOk, '发出=' . implode('/', $sizeOps)
         . ' 值=' . (string) ($panel->ops[0]['args'][0] ?? ''));
     $ok = $ok && $sizeOk;
+
+    // 6) on_resize 的送达。上游那台状态机是：按下边界记下 dragging
+    //    （base/resizable.cpp:126-132）、**抬起时**"边界落定"发一次 onResized（:187-198），
+    //    中间的连续尺寸变化走 DragMoveEvent。而 mac 侧"此刻按着哪个键"读的是
+    //    物理状态 `[NSEvent pressedMouseButtons]`（window_mac.cpp:511-520；
+    //    `mouseDragged:` 也只是转给 `mouseMoved:`，:701-703）——合成事件伪造不了它，
+    //    所以这条缝能验的是"按下+抬起发的那一次"，不是拖动过程中的连续值（那半归 #56 那一族）。
+    //    落点不猜：先把整张命中表打出来，挑"又窄又高"的那一条当分隔条候选
+    //    （h_resizable 的边界宽≈gap、高等于整行）——#79 的教训，先证明点得到的东西真的在那儿。
+    $hits = (int) ($app->hitProbe()['n'] ?? 0);
+    $dump = [];
+    $handle = -1;
+    for ($i = 0; $i < $hits; $i++) {
+        $h = $app->hitProbe($i);
+        $hw = (int) $h['w'];
+        $hh = (int) $h['h'];
+        $dump[] = $i . ':' . (int) $h['x'] . ',' . (int) $h['y'] . 'x' . $hw . 'x' . $hh
+            . ((int) $h['click'] === 1 ? 'c' : '')
+            . ((int) $h['parent'] >= 0 ? '/p' . (int) $h['parent'] : '');
+        if ($handle < 0 && $hw > 0 && $hw <= 10 && $hh >= 40) {
+            $handle = $i;
+        }
+    }
+    $splitBefore = (string) ExampleState::$v['split'];
+    $where = '没找到候选条';
+    if ($handle >= 0) {
+        $hd = $app->hitProbe($handle);
+        $cx0 = (int) $hd['x'] + (int) ((int) $hd['w'] / 2);
+        $cy0 = (int) $hd['y'] + (int) ((int) $hd['h'] / 2);
+        $clicked = $app->realClick($cx0, $cy0);
+        $app->loop(4);
+        $drag = $app->realDrag($cx0, $cy0, $cx0 + 60, $cy0, 4);
+        $app->loop(4);
+        $where = '起点=' . $cx0 . ',' . $cy0
+            . ' click 入队=' . var_export($clicked, true)
+            . ' 拖：按下=' . var_export($drag['pressed'], true)
+            . ' 移动入队=' . (int) $drag['moved']
+            . ' 抬起=' . var_export($drag['released'], true);
+    }
+    step('resizeDelivered(读数)', true, '命中表=' . $hits . ' 条 [' . implode(' ', $dump)
+        . '] 候选=' . $handle . ' ' . $where
+        . ' split=' . var_export((string) ExampleState::$v['split'], true)
+        . '（打之前=' . var_export($splitBefore, true) . '）');
 
     $app->close();
     echo ($ok ? 'LAYOUT SELFTEST OK' : 'LAYOUT SELFTEST FAIL') . "\n";

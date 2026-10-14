@@ -10,6 +10,7 @@ declare(strict_types=1);
  * 所以只有 builder 与自报的像素树号。
  */
 
+use TypePHP\Gpui\App;
 use TypePHP\Gpui\Element as El;
 
 /** 本域的像素树清单：树号 → [标题, builder]。 */
@@ -52,7 +53,7 @@ function sectionLayout(array $s): El
         El::hResizable([
             El::resizablePanel(El::text('左栏（可拖）')->font(13.0)->p(8.0))->size('30%'),
             El::resizablePanel(El::text('右栏')->font(13.0)->p(8.0))->size('70%'),
-        ])->h(80.0)->gap(4.0)->onResize(),
+        ])->h(80.0)->gap(4.0)->id('lay-split')->onResize(),
         El::vResizable([
             El::resizablePanel(El::text('上')->font(12.0)->p(6.0))->size('50%'),
             El::resizablePanel(El::text('下')->font(12.0)->p(6.0))->size('50%'),
@@ -62,4 +63,14 @@ function sectionLayout(array $s): El
             El::tab('明细')->child(El::text('tab 内容二')->font(12.0)->p(8.0)),
         ])->h(90.0),
     ])->sizeFull()->gap(10.0)->p(16.0)->overflowYScroll();
+}
+
+/** 本域元素的接线。 */
+function wireLayout(App $app): void
+{
+    // 可伸缩面板的尺寸变化。载荷是宿主拼出来的 CSV（"30,70" 这样的两列，
+    // cmd/patch-select-view.sh 的 OnResize 那处），所以这里读 $e['value'] 就够。
+    $app->on('lay-split', 'resize', function (array $e): void {
+        ExampleState::$v['split'] = (string) ($e['value'] ?? '');
+    });
 }

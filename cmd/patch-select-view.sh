@@ -27,14 +27,14 @@
 #     不再是"shim 路丢载荷"那一格。
 #   * `gpuiEnqueueSignal` 无载荷（上游 DispatchSignal 本来也不带）。
 #   * 与 click/key 同一取舍：不再回写 event->propagate，是否继续向外由宿主决定。
-#   * **没覆盖**的两处，2026-10-14 查过原因不同（细节见 docs/guide/events.md 1b）：
+#   * **没覆盖**的那处，2026-10-14 查过原因不是"补丁没打"：
 #     - `OnItemSecondaryPress`：路由了也没用——它的 Listen 只存在于
 #       `ShellRuntime::RenderVirtualItems`（runtime.cpp:12503-12528）那颗虚拟列表行包装里，
 #       而那条路要"渲染回调返回 Element"（#29/#35），我们的 PHP 侧列表不经过它。
-#     - `OnResize`：要先补一条带数组的宿主钩子（DispatchNumbers 给的是 const float*/count，
-#       可照鼠标那族的 CSV 约定），并且自检里得能"按住再拖"——gpui_shim_real_mouse 现在
-#       只有同点按下+抬起(1)与移动(0)，没有拖。另有一格是我们自己的错：上游从**组**读
-#       on_resize（materialize.cpp:2349-2352），示例却挂在 resizable_panel 上，糖静默失效。
+#   * `OnResize` 的发的是 `DispatchNumbers(const float*, int)`：不新增钩子签名，
+#     补丁里把尺寸拼成 CSV（"30,70"）交给 `gpuiEnqueueString`，与鼠标那族同一约定。
+#     所以这条通了之后，剩下的先决条件在**触发侧**：自检要能"按住再拖"分隔条
+#     （`gpui_shim_real_mouse` 的 type 2/3），见 docs/guide/events.md 1b。
 #
 # 前置：cmd/patch-view.sh（弱钩子声明区）与 cmd/patch-mouse-view.sh
 #       （本脚本以它落下的 gpuiEnqueueMove 声明行当插入锚点）。
@@ -82,6 +82,13 @@ src = src.replace(
     + "__attribute__((weak)) void gpuiEnqueueSignal(ScriptView*, Ctx*, uint64_t) {}\n"
     + "__attribute__((weak)) void gpuiEnqueueString(ScriptView*, Ctx*, uint64_t, const char*) {}",
     1)
+
+# ── 1b) OnResize 的 CSV 拼接要用 snprintf：view.cpp 原本不引 <cstdio>，缺就补一行 ──
+inc_anchor = '#include "base/resizable.h"'
+if '#include <cstdio>' not in src:
+    if src.count(inc_anchor) != 1:
+        sys.exit("include anchor count=%d" % src.count(inc_anchor))
+    src = src.replace(inc_anchor, inc_anchor + "\n#include <cstdio>", 1)
 
 reps = [
     # ── 2) Popover 的开合：bool 载荷交给既有的 gpuiEnqueueChange ──
@@ -149,6 +156,26 @@ reps = [
      """    // The event carries nothing: what changed is the whole layout, and dump()
     // is how a subscriber reads it.
     gpuiEnqueueSignal(self, cx, (uint64_t)callback);"""),
+    # ── 9) 可伸缩面板的尺寸：一串 float 拼成 CSV 走字符串钩子（与鼠标那族同一约定，
+    #       PHP 侧 elementValue() 读到的就是 "30,70" 这样的串）──
+    ("""    if (!self || !self->runtime || !event) return;
+    self->runtime->DispatchNumbers((shell::CallbackId)callback, event->sizes,
+                                   event->count, cx->win, cx->app);
+}""",
+     """    if (!self || !self->runtime || !event) return;
+    // ''' + mark + ''' — 不新增钩子签名：把 sizes[0..count) 拼成 CSV 交给 gpuiEnqueueString。
+    // 缓冲写满就停（面板数是个位数，128 字节够；截断只会少几列，不会读到未初始化字节）。
+    char sizes[128];
+    sizes[0] = '\\0';
+    int used = 0;
+    for (int i = 0; i < event->count && event->sizes && used < (int)sizeof(sizes) - 1; i++) {
+        int n = std::snprintf(sizes + used, sizeof(sizes) - (size_t)used,
+                              i ? ",%g" : "%g", event->sizes[i]);
+        if (n <= 0) break;
+        used += n;
+    }
+    gpuiEnqueueString(self, cx, (uint64_t)callback, sizes);
+}"""),
 ]
 
 # 反向替换：一处不中就整支失败，免得半补丁树（漂移门只查 marker，查不出半条替换）。
