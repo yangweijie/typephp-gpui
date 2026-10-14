@@ -1160,9 +1160,12 @@ function runSelfTest(bool $expectBundle, bool $startFront = false): void
         $typedIn = ExampleState::$v['name'] !== '';
     }
     // 兜底：inputProbe 只报最后一颗的框，多输入框时按列扫。
-    // 这里**不拿 focusedId() 当门**：它读的是 win->focusId（WindowFocusedId），而 shell 里
-    // 输入框的焦点记在 win->input 上，实测对 retained input 恒 0。判"能不能打字"只能
-    // 看打字的结果本身——所以下面只把它当诊断读一下。
+    // 这里只把 focusedId() 当诊断读一下，不当门——**逐颗输入框的焦点断言住在
+    // examples/input 的 focusFollowsClick**（那边实测 0→-1001 1→-1002 2→-1003 3→-1004，
+    // 每颗各自一个非零实体 id 且互不相同）。这一页是整套壳一起渲染，点哪颗、
+    // 焦点落在哪颗受前面几节的扫描顺序影响，拿具体数字在这里断会漂。
+    // （以前这段注释写的是"focusedId() 对 retained input 恒 0，所以不能当门"——
+    //   2026-10-14 复量推翻：它不是恒 0，只是在这页不适合断具体值。）
     for ($y = 120; $y <= 660 && !$typedIn; $y += 10) {
         $app->realClick(500, $y);
         $app->loop(2);

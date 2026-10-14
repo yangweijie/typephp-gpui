@@ -328,7 +328,11 @@ Phase 9（三个真 bug）/ Phase 10（mac 集成）/ Phase 11（Capabilities �
 - [x] 新增 `App::realClick/realMouseMove/realKey/inputProbe/focusedId` + 第 9 个补丁标记（CreateRetainedOtp）。
 - [x] `showcase --selftest` 加真输入断言：点导航换节 / hover 命中 / 打字回 PHP / probe.n>0。
 - [x] `cmd/patch-retained.sh` 重写为逐符号幂等 + 自检（upstream 里已含旧补丁，整块闸门会插错位置）。
-- [ ] 遗留：输入框外观无框（主题层）；`focusedId()` 对 retained input 恒 0（只当诊断）。
+- [x] 遗留拆两半：`focusedId()` 对 retained input **不恒 0**（2026-10-14 复量
+      0→-1001 1→-1002 2→-1003 3→-1004，每颗各自一个非零实体 id 且互不相同），
+      那句旧注释连同它「不能当门」的推论一起作废，改成 `examples/input` 的硬门
+      `focusFollowsClick`（断的是关系：非零 + 逐颗互不相同，不断具体数字）。
+- [ ] 遗留：输入框外观无框（主题层）——这一半没动，是主题/样式层的活。
 
 ### Phase 14c：真输入的系统前提（已完成，剩用户手点复核）
 

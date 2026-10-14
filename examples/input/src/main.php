@@ -191,7 +191,9 @@ function runSelfTest(): void
     //    而"第 i 索引对应哪一颗"随布局变——按状态改动反查就不依赖顺序，
     //    顺带把"每一颗都打得进字"量全（showcase 的 --livetyping 对整个画廊做同一件事）。
     //    key_down 也在这里量：合成缝不认 key_down（见 4)），真键是它唯一的路（#53 的回归位）。
-    //    判据用打字的结果本身——focusedId() 对 retained input 实测恒 0，拿它当门会假红。
+    //    判据用打字的结果本身，**并且**焦点也当门：这里以前写着"focusedId() 对 retained
+    //    input 实测恒 0，拿它当门会假红"，2026-10-14 复量推翻了三句里的两句——见下面
+    //    focusFollowsClick 的读数。
     //    这条在 CI 上是**裸二进制**跑的：showcase 的 --liveclick/--livetyping 同样如此
     //    并实测通过，所以它够格当硬门；不成立就是真回归，不是环境抖动。
     ExampleState::$v['name'] = '';
@@ -199,6 +201,9 @@ function runSelfTest(): void
     $typedIdx = -1;
     $keyIdx = -1;
     $sweep = [];
+    $focIds = [];
+    $focTried = 0;
+    $focDump = '';
     for ($i = 0; $i < $n; $i++) {
         $b = $app->inputProbe($i);
         if ((int) $b['w'] <= 0) {
@@ -206,9 +211,16 @@ function runSelfTest(): void
         }
         $app->realClick((int) $b['x'] + (int) $b['w'] / 2, (int) $b['y'] + (int) $b['h'] / 2);
         $app->loop(2);
+        // 点完之后 gpui 认为谁在焦点上。以前这里写着"focusedId() 对 retained input 恒 0，
+        // 拿它当门会假红"——2026-10-14 复量已经不成立（每颗都回一个稳定的负数实体 id），
+        // 所以先把逐颗读数打出来，再判它够不够格当门。
+        $foc = $app->focusedId();
+        $focIds[$foc] = true;
+        $focTried++;
+        $focDump .= ($focDump === '' ? '' : ' ') . $i . '→' . $foc;
         $pressed = $app->realKey(9, 'g');        // kVK_ANSI_G
         $app->loop(2);
-        $sweep[] = $i . ':' . var_export($pressed, true);
+        $sweep[] = $i . ':' . var_export($pressed, true) . '/f' . $foc;
         if ($typedIdx < 0 && (string) ExampleState::$v['name'] !== '') {
             $typedIdx = $i;
         }
@@ -221,6 +233,16 @@ function runSelfTest(): void
         . ' 打进字的索引=' . $typedIdx
         . ' name=' . var_export(ExampleState::$v['name'], true));
     $ok = $ok && $typedIn;
+
+    // 焦点跟着点击走：每颗 retained input 各自一个非零实体 id，且互不相同。
+    // 这条 2026-10-14 才敢立——旧注释写着"focusedId() 对 retained input 实测恒 0，
+    // 拿它当门会假红"，复量的读数是 0→-1001 1→-1002 2→-1003 3→-1004，那句已经不成立。
+    // 断的是**关系**（非零 + 逐颗互不相同），不断具体数字：实体 id 由 gpui 按创建顺序发，
+    // 加一颗输入框就会整体挪位。
+    $focusOk = $focTried >= 2 && count($focIds) === $focTried && !isset($focIds[0]);
+    step('focusFollowsClick', $focusOk, '点过 ' . $focTried . ' 颗，不同焦点 id '
+        . count($focIds) . ' 个 [' . $focDump . ']');
+    $ok = $ok && $focusOk;
 
     // 值回读门（审核 P0-4 的回归位）：elementValue() 读的是 shim 随 change 事件留下的
     // "最近一次上报值"。上面真打字进 in-name 的那个 'g' 必须能从读口拿回来——
