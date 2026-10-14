@@ -91,6 +91,25 @@ El::table('t')->rowCount(2)->columnCount(2)->children([
 ->slot('header', $child)                          // 命名槽（Popover/Avatar/Sidebar…）
 ```
 
+**有些组件的可见部分是"装饰槽"，不给内容就什么都没有。** 上游认的公共槽名只有这些：
+`content` `trigger` `input` `decrement_button` `increment_button` `image` `fallback`
+`header` `footer` `panel`（`component_registry.cpp:IsRegisteredCommonSlot`）。
+最典型的是 `El::numberInput()` 的 ± 两颗：`NumberStepButton` 造的是
+`Button::New(cx, id, …)`——第二个参数是 **id 不是标签**，样式与子元素全从那两个槽取。
+槽空着 ⇒ 按钮 0x0、不落字、`paint.hits` 里没有可点的矩形，于是"点了没反应"查的是这里而不是事件链：
+
+```php
+El::numberInput('in-num')->value('42')->onStep()
+    ->slot('decrement_button', El::button('－')->id('num-dec'))
+    ->slot('increment_button', El::button('＋')->id('num-inc')),
+```
+
+同一族里 `El::select()`/`El::combobox()` 的根在 shell 层只是**一个带
+`role=combobox` 的容器**（`Select::New` 返回裸 `Div`，`base/select.cpp:54-73`），
+trigger 与弹层要宿主自己组合——上游 `examples/js_story` 里 Select/Combobox 两条 story
+至今标着 `availability: "pending"`。所以我们量这一族的事件走的是
+`App::focusElement()` + `dispatchAction()`，不是点触发器。
+
 **按钮有两张脸，选对那张**：`El::button()` 是 gpui-base 的 `ComponentKind::Button`
 （只有点击与文本），上游画廊里带圆角/底色/变体的是 component_shell 的 `Button`
 （`label/tooltip/loading/size/outline/primary/secondary/danger/success/warning/ghost/link/compact`）。

@@ -30,9 +30,10 @@ materialize 的 op 名**必须保留 `on_` 前缀**（它逐字比较 `"on_click
 
 ## 1a. 指针与滚轮（`on_mouse_*` / `on_scroll_wheel` / `on_key_up`）
 
-上游一共认 24 个 `on_*` 回调名，我们发出并**实测送达**的是这 17 个：
+上游一共认 24 个 `on_*` 回调名，我们发出并**实测送达**的是这 18 个：
 `on_click` `on_change` `on_hover` `on_key_down`（原有四个）、下面这十个，
-再加上部件级那一族的 `on_open_change` `on_confirm` `on_dismiss`（2026-10-14 起，见 1b）。
+再加上部件级那一族的 `on_open_change` `on_confirm` `on_dismiss` `on_step`
+（2026-10-14 起，见 1b）。
 
 | 糖 | 事件 type | `value` |
 |---|---|---|
@@ -61,8 +62,8 @@ GpuiEvent 只有一个 value 槽，所以这里定的是**字段顺序**而不�
 上面那句"还**没接**的十个"订正于 2026-10-13：糖现在有了（`onConfirm()` `onDismiss()` `onStep()`
 `onResize()` `onOpenChange()` `onItemClick()` `onItemSecondaryClick()` `onLinkClick()`
 `onTokenClick()` `onTokenHover()`，见下面 1b），其中 `on_open_change` `on_confirm` `on_dismiss`
-从 2026-10-14 起**实测送达**（`selftest choices` 的 `openChangeDelivered` 与
-`confirmDismissDelivered` 两条硬门），其余仍记在
+`on_step` 从 2026-10-14 起**实测送达**（`selftest choices` 的 `openChangeDelivered` 与
+`confirmDismissDelivered`、`selftest input` 的 `stepDelivered` 三条硬门），其余仍记在
 "名字在册、送达未量"。为什么先发糖不算错：callbackId 走的是部件自己的 binding
 （`ShellSelectBinding` 等），触发方在 base 组件里，我们这边能确证的只有"名字发得出去、
 对得上上游词表"——那条门现在住在 `php bin/gpui selftest catalog`
@@ -115,9 +116,16 @@ PHP 侧声明。补上 `El::open(bool)`（`method('open', [$v])`）之后，`exa
 
 同形状还没接的两处：`on_resize`（一串 float）与 `on_item_secondary_click`——
 `cmd/patch-select-view.sh` 的头注释里点名了它们，别再当成已通。
-`on_step` 的钩子（`gpuiEnqueueString`）已经在了，但**送达仍未量到**，而且原因不是投递：
-NumberInput 那两颗 ± 按钮在 `paint.hits` 里没有矩形、像素里也没落字，所以点不到
-（`selftest input` 的 `stepDelivered(读数)` 报的就是这件事，同 #73 那一格一族）。
+`on_step` 同日也量到了，但它多一个前提：**那颗按钮得由宿主填内容**。
+`NumberStepButton`（`materialize.cpp:960-983`）造的是 `Button::New(cx, id, …)`——
+第二个参数是 **id 不是标签**，样式与内容一律从 `decrement_button`/`increment_button`
+那两个装饰槽取（`IsRegisteredCommonSlot` 列着这两个名字）。槽不给内容就是一颗空按钮：
+`paint.hits` 里 0x0、像素上不落字，于是"送达为 0"量的根本不是链路。
+`examples/_shared/features/inputs.php` 现在把两颗槽填成 `－`/`＋`，读数：
+
+```
+  ok   stepDelivered — 命中表=10 条 [...] 落点索引=4 lastStep='decrement' elementValue(in-num)='decrement'
+```
 
 内建动作派发这一条已经有了确定的结果（2026-10-13，同一支探针里量的）：
 开着 dialog、焦点陷阱生效之后 `dispatchAction('ui::Cancel')` 会把框关掉——

@@ -147,6 +147,12 @@ alias list，不是 `public.file-url`，读回来永远是 `paths=0`，看着像
 - `php bin/gpui shotdiff record hello` —— 生成/刷新基线
 - `php bin/gpui shotdiff check hello` —— 比对，超容差 rc=1
 
+它**不构建**，所以第一步先挡"量的是上一次构建的产物"：二进制比它 yml `sources:` 里任何一份
+输入旧就直接 rc=2 拒绝出数。这条 2026-10-14 加，因为当天真踩了一次——改了共享的 feature 源之后
+`shotdiff record showcase` 报"13 棵树的字节数与基线完全相同"，那看起来正好像
+"这次改动不影响像素"，而真实原因是那支二进制没重编；record 模式还会把旧图再写一遍，把假绿坐实。
+（同一族的老教训：`grep -c` 为 0 会吞掉 `&&` 链的后半条。）
+
 同机 `--shot` 逐字节确定。它**首跑就抓到了** dialog double-free（tree13 未关就 close → SIGABRT）。
 跳过 tree 24（MenuBar 现报 root-app 错误节点，不纳入基线以免固化坏态）。
 tree 29（inspector）拍到的是整窗高亮描边——`WindowToggleInspector` 是拾取模式开关，

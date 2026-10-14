@@ -236,12 +236,14 @@ function runSelfTest(): void
     $ok = $ok && $keyIdx >= 0;
 
     // 6) NumberInput 的 ± 步进（事件 type=step，载荷是字符串）。上游把它做成"点按钮"
-    //    而不是键位（materialize.cpp:2290-2303，`NumberStepButton` 给两颗 Button 挂 OnClick），
-    //    所以送达只能经真点击量。
-    //    2026-10-14 实测：这一条**报数不判红**，因为点不到——命中表里根本没有那两颗按钮的
-    //    矩形（10 条里三条是 528x20 的输入框、其余是 0x0），像素基线里也只有 `42` 而没有
-    //    decrement/increment 的字样。也就是说 `step` 卡在"#73 那一格"的同一种缺陷上：
-    //    部件自己组合出来的子元素没有可点矩形。gpuiEnqueueString 那条投递因此仍然未量。
+    //    而不是键位：`NumberStepButton`（materialize.cpp:960-983）造的是
+    //    `Button::New(cx, id, …)`——第二个参数是 **id 不是标签**，样式与内容一律从
+    //    `decrement_button`/`increment_button` 那两个装饰槽取（`IsRegisteredCommonSlot`
+    //    里就列着这两个名字）。所以送达只能经真点击量。
+    //    今天在这条上栽的两个读数，都记在这里：
+    //      槽没填 ⇒ 那两条命中是 0x0、像素上也不落字 ⇒ 点不到，`lastStep='—'`。
+    //        那不是"没接通"，是"没有可点的东西"——所以当时它只报数不判红。
+    //      槽填了 ⇒ 落点索引 4、`lastStep='decrement'`，gpuiEnqueueString 第一次量到带值的送达。
     //    细长/零尺寸矩形一律跳过：命中表里含窗口 resize 边那一类，点它 AppKit 会等下一个
     //    事件而不返回（showcase 的探针栽过一次，实测 rc=124 被看门狗掐掉）。
     ExampleState::$v['lastStep'] = '—';
@@ -264,10 +266,15 @@ function runSelfTest(): void
             break;
         }
     }
-    step('stepDelivered(读数)', true, '命中表=' . $hits . ' 条 [' . implode(' ', $stepTried)
-        . '] 落点索引=' . $stepIdx
-        . ' lastStep=' . var_export(ExampleState::$v['lastStep'], true)
+    $stepVal = (string) ExampleState::$v['lastStep'];
+    // 判据带的是值本身，不只是"来过"：increment/decrement 是这颗事件唯一的载荷。
+    $stepOk = $stepIdx >= 0
+        && ($stepVal === 'increment' || $stepVal === 'decrement')
+        && (string) $app->elementValue('in-num') === $stepVal;
+    step('stepDelivered', $stepOk, '命中表=' . $hits . ' 条 [' . implode(' ', $stepTried)
+        . '] 落点索引=' . $stepIdx . ' lastStep=' . var_export($stepVal, true)
         . ' elementValue(in-num)=' . var_export($app->elementValue('in-num'), true));
+    $ok = $ok && $stepOk;
 
     $app->close();
     echo ($ok ? 'INPUT SELFTEST OK' : 'INPUT SELFTEST FAIL') . "\n";

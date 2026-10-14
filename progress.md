@@ -1941,3 +1941,32 @@ catalog 触发器没有 `paint.hits` 矩形。
 那是拿别人的失败当自己的红灯。
 
 门禁：pest 104 · phpstan 0 · 全量 14 支 selftest rc=0 · 44 棵像素树全绿。
+
+## 修复轮 23：#79 结案——± 是装饰槽，不是缺陷；顺手给 shotdiff 加了"别量旧产物"的守卫
+
+顺着轮 22 那条读数往下查，`Button::New(cx, id, …)` 的第二个参数是 **id 不是标签**，
+`NumberStepButton` 的样式与内容一律从 `decrement_button`/`increment_button` 两个装饰槽取
+（`component_registry.cpp:IsRegisteredCommonSlot` 在册的公共槽就那十个名字）。
+我们的示例从来没填过 ⇒ 一颗空按钮，0x0、不落字。填上 `－`/`＋` 之后：
+
+```
+  ok   stepDelivered — 命中表=10 条 [...] 落点索引=4 lastStep='decrement' elementValue(in-num)='decrement'
+```
+
+那条命中从 `16,319x0x0` 变成 `16,311x15x16`，`step` 的字符串载荷第一次量到 ⇒ 升级成硬门。
+像素亲眼看：`－ 42 … ＋`（`NumberInput::Compose` 本来就是左右各一颗）。
+
+**同一把钥匙也开了 #73**：shell 层 `Select::New` 只返回一个 `role=combobox` 的裸 `Div`，
+trigger 与弹层归宿主组合，而上游自己的 `js_story` 里 Select/Combobox 两条 story 至今标着
+`availability: "pending"`。所以"点不开弹层"不是我们漏了什么，是那一层上游还没做——
+这一族的事件验收改走 `focusElement` + `dispatchAction`，已经量到。#73/#79 双双结案。
+
+**这一轮最值得记的是那次假绿**：`shotdiff` 不构建，我改完共享 feature 源直接
+`shotdiff record showcase`，它报"13 棵树的字节数与基线完全相同"——那句话看起来正好像
+"这次改动不影响像素"，而真实情况是 showcase 的二进制还是上一次构建的。
+`git status tests/baseline/` 只有 input 一张变了、showcase 一张没变，这个不一致就是露馅的地方。
+重编后再录，tree2 才从 101078 变 101129。守卫已加进 `cmd/shotdiff.php`：
+二进制比 yml `sources:` 里任何一份输入旧 ⇒ rc=2 拒绝出数（实测摘下来能挡住、重编后放行）。
+
+送达名 17 → **18**。门禁：pest 104 · phpstan 0 · build-inputs OK ·
+全量 14 支 selftest rc=0 · 44 棵像素树全绿。

@@ -497,7 +497,14 @@ SIGSEGV 报成了它自己那一行，而它在画廊里时只是"某轮 rc=11�
 
 **待办改口**：#73 现在只剩"catalog 触发器在 `paint.hits` 里没有矩形"这一半；
 `resize`/`item_secondary_click` 的同形状派发仍未接（`cmd/patch-select-view.sh` 头注释点名）。
-- [ ] **16-F** 去量 `step`（16-C 里 `gpuiEnqueueString` 那条未量的钩子）⇒ 量到新缺口：
+- [x] **16-F** 去量 `step`（16-C 里 `gpuiEnqueueString` 那条未量的钩子）⇒ 量到新缺口：
       NumberInput 的 ± 按钮在 `paint.hits` 里没有矩形、像素里也不落字（`selftest input` 的
       `stepDelivered(读数)`），所以 `step` 的送达在"点得到"之前量不了。开了 **#79** 单独跟，
       #73 于是从"catalog 触发器"改口成"部件 compose 出来的子元素拿不到矩形"这一族。
+- [x] **16-G** #79/#73 双双结案：`Button::New` 的第二参数是 id 不是标签 ⇒ 那两颗 ± 是**装饰槽**，
+      宿主不给内容就是空按钮（0x0、不落字）。示例填上 `－`/`＋` 之后 `step` 量到送达，升级成硬门；
+      同一层解释套在 Select 上：shell 层 `Select::New` 只是 `role=combobox` 的裸 Div，
+      trigger/弹层归宿主，上游 `js_story` 里 Select/Combobox 至今 `availability: "pending"`
+      ⇒ "触发器点不开"不是本端缺口，#73 结案。送达名 17→18。
+      附带修掉一次假绿：`shotdiff` 不构建，量旧二进制会报"全部字节相同"，
+      现在二进制比 `sources:` 旧就 rc=2 拒绝出数。

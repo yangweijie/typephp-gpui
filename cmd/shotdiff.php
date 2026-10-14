@@ -31,6 +31,36 @@ if (!is_file($bin)) {
     exit(2);
 }
 
+// 二进制比它的构建输入旧 ⇒ 这次量的是上一次构建的产物。这条门是 2026-10-14 真踩出来的：
+// 改了 examples/_shared/features/inputs.php 之后直接 `shotdiff record showcase`，
+// 13 棵树全报"字节数与基线相同"，看起来正好像"这次改动不影响像素"，
+// 而真实原因是那支二进制没重编——record 模式还会把旧图重新写一遍，把假绿坐实。
+$binAge = filemtime($bin);
+$yml = "$root/examples/$example/project.macos.yml";
+$newest = 0;
+$newestSrc = '';
+if (is_file($yml)) {
+    foreach (explode("\n", (string) file_get_contents($yml)) as $line) {
+        if (!preg_match('/^\s+-\s+(\S+\.(?:php|cc|cpp))\s*$/', $line, $m)) {
+            continue;
+        }
+        $src = realpath(dirname($yml) . '/' . $m[1]);
+        if ($src === false || !is_file($src)) {
+            continue;
+        }
+        if (filemtime($src) > $newest) {
+            $newest = filemtime($src);
+            $newestSrc = $src;
+        }
+    }
+}
+if ($newest > $binAge) {
+    fwrite(STDERR, "二进制过期：{$bin}（" . date('Y-m-d H:i:s', $binAge)
+        . "）旧于构建输入 {$newestSrc}（" . date('Y-m-d H:i:s', $newest) . "）\n"
+        . "先 php bin/gpui build {$example} --no-native 再比对，否则量的是上一次构建的产物。\n");
+    exit(2);
+}
+
 // 24（catalog MenuBar）不在窗口内，抓不到，故不入基线。
 // 27/28/29 = 帧率 HUD / Sheet / inspector，Wave1 系统能力的像素验收。
 // 30 = WebView：它那块抓不到（跨进程表面），所以这张基线量的是"webview 没把布局搞塌"，

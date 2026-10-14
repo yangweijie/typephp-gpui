@@ -35,7 +35,15 @@ function sectionInputs(array $s): El
         El::textarea('in-note')->value('多行文本：textarea 也是保留态的')->onChange(),
         El::text($s['note'] !== '' ? "备注 {$s['note']} 个字符" : '备注还没改')->font(11.0),
         El::hFlex([
-            El::numberInput('in-num')->value('42')->placeholder('数字')->onChange()->onStep(),
+            // ± 那颗组件自己不做标签：`NumberStepButton`（materialize.cpp:960-983）造的
+            // 是 `Button::New(cx, id, …)`——第二个参数是 **id 不是文字**，且它只从
+            // `SlotId(node,"decrement_button"/"increment_button")` 那个 spec 节点取样式与子元素。
+            // 上游把这两颗做成【装饰槽】（`IsRegisteredCommonSlot` 里就列着这两个名字），
+            // 宿主不给内容就是一颗空按钮：0x0、不落字、点不到。2026-10-14 之前这里没填，
+            // 于是 `step` 的送达无从量起（见 #79）。
+            El::numberInput('in-num')->value('42')->placeholder('数字')->onChange()->onStep()
+                ->slot('decrement_button', El::button('－')->id('num-dec'))
+                ->slot('increment_button', El::button('＋')->id('num-inc')),
             El::otpInput('in-otp')->placeholder('4 位')->onChange(),
         ])->gap(12.0),
         El::hFlex([
