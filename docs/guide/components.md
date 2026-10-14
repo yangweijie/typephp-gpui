@@ -83,7 +83,10 @@ El::table('t')->rowCount(2)->columnCount(2)->children([
 ->rounded(6)->roundedMd()->roundedLg()->roundedFull()->border()
 ->bg(0xRRGGBB)->textColor('#hex')->font(16)->bold()->semibold()
 ->overflowYScroll()->overflowXScroll()          // gpui 原生滚动（method/behavior op）
-->id('name')->disabled()->selected()->checked()->tooltip('..')
+->id('name')->disabled()->selected()->checked()->open(true)->tooltip('..')
+                                                   // open(true)：Select/Combobox/DatePicker
+                                                   // 的"弹层现在是开着的"，部件按它解释
+                                                   // Confirm/Cancel（见 events.md 1b）
 ->onClick()->onChange()->onHover()->onKeyDown()  // 声明事件；handler 在 App->on 注册
 ->slot('header', $child)                          // 命名槽（Popover/Avatar/Sidebar…）
 ```

@@ -954,6 +954,19 @@ class Element
         return $this->method('disabled', [$v]);
     }
 
+    /**
+     * 声明这颗部件**现在是开着的**（Select / Combobox / DatePicker 的弹层）。
+     *
+     * 为什么得能设：`ShellSelectBinding::open` 取的就是它，而 `SelectActionOf`
+     * 是按这个位决定动作含义的——open=false 时 Confirm 被读成"再开一次"、
+     * Cancel 被读成"不归我管"（`base/select.cpp:43-49`），于是 `onConfirm` /
+     * `onDismiss` 永远不会发。没有这颗糖，那两个名字就算投递链通了也测不到。
+     */
+    public function open(bool $v = true): self
+    {
+        return $this->method('open', [$v]);
+    }
+
     public function selected(bool $v = true): self
     {
         return $this->method('selected', [$v]);
@@ -1165,10 +1178,11 @@ class Element
     // 完全不进回调表，Box2 id 直接回本 box 的队列——open_change 带 true/false、
     // step 带 increment/decrement，PHP 侧 elementValue()/checked() 读得到。
     //
-    // 还没接的两处同形状缺口：on_resize（一串 float）与 on_item_secondary_click。
-    // 另外 confirm/dismiss 光接通还不够：binding 里的 `open` 取自 behavior.open，
-    // 而 PHP 侧没有"这颗 select 现在是开着的"那颗糖，于是 SelectActionOf 把 Confirm
-    // 解释成"再开一次"、把 Cancel 解释成"不归我管"（见 examples/choices 的自检读数）。
+    // 同形状还没接的两处：on_resize（一串 float）与 on_item_secondary_click。
+    // 另外 confirm/dismiss 光接通还不够，还要 `open(true)` 把这颗声明成开着——
+    // 那颗糖有（本文件 `open()`），binding.open 取的就是它；关着时 SelectActionOf
+    // 把 Confirm 解释成"再开一次"、把 Cancel 解释成"不归我管"（见 examples/choices 的
+    // confirmDismissDelivered 硬门，它渲染的第二棵就是把 ch-select 声明成开着的）。
     // 各自的送达状态见 docs/guide/events.md。
 
     /** Select / Combobox / DatePicker 的开合变化。上游带 bool，到 PHP 后是 elementValue() 的真/假。 */

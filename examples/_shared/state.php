@@ -24,6 +24,8 @@ function exampleState(): array
 {
     return [
         'count' => 0, 'name' => '', 'vol' => 30, 'agree' => false, 'lastBtn' => '—',
+        // choices 域：ch-select 声明成"开着"才谈得上 confirm/dismiss（画廊里恒 false）。
+        'selectOpen' => false,
         'lastDd' => '—', 'sidebarCollapsed' => false, 'dialogCount' => 0,
         'hasSheet' => false, 'sheetAnchor' => '—', 'notifyCount' => 0, 'clip' => '',
         'picked' => '', 'sysLog' => [], 'http' => '', 'watchId' => 0, 'watchHits' => 0,

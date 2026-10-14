@@ -30,9 +30,9 @@ materialize 的 op 名**必须保留 `on_` 前缀**（它逐字比较 `"on_click
 
 ## 1a. 指针与滚轮（`on_mouse_*` / `on_scroll_wheel` / `on_key_up`）
 
-上游一共认 24 个 `on_*` 回调名，我们发出并**实测送达**的是这 15 个：
+上游一共认 24 个 `on_*` 回调名，我们发出并**实测送达**的是这 17 个：
 `on_click` `on_change` `on_hover` `on_key_down`（原有四个）、下面这十个，
-再加上部件级那一族的 `on_open_change`（2026-10-14 起，见 1b）。
+再加上部件级那一族的 `on_open_change` `on_confirm` `on_dismiss`（2026-10-14 起，见 1b）。
 
 | 糖 | 事件 type | `value` |
 |---|---|---|
@@ -60,8 +60,9 @@ GpuiEvent 只有一个 value 槽，所以这里定的是**字段顺序**而不�
 
 上面那句"还**没接**的十个"订正于 2026-10-13：糖现在有了（`onConfirm()` `onDismiss()` `onStep()`
 `onResize()` `onOpenChange()` `onItemClick()` `onItemSecondaryClick()` `onLinkClick()`
-`onTokenClick()` `onTokenHover()`，见下面 1b），其中 `on_open_change` 从 2026-10-14 起
-**实测送达**（`selftest choices` 的 `openChangeDelivered` 硬门），其余仍记在
+`onTokenClick()` `onTokenHover()`，见下面 1b），其中 `on_open_change` `on_confirm` `on_dismiss`
+从 2026-10-14 起**实测送达**（`selftest choices` 的 `openChangeDelivered` 与
+`confirmDismissDelivered` 两条硬门），其余仍记在
 "名字在册、送达未量"。为什么先发糖不算错：callbackId 走的是部件自己的 binding
 （`ShellSelectBinding` 等），触发方在 base 组件里，我们这边能确证的只有"名字发得出去、
 对得上上游词表"——那条门现在住在 `php bin/gpui selftest catalog`
@@ -98,10 +99,19 @@ GpuiEvent 只有一个 value 槽，所以这里定的是**字段顺序**而不�
 所以"要焦点"与"要补丁"是两个各自成立的前提，`App::focusElement()`（同日加，
 按 bridge 造 handle 的 `id+":t"` / `id+":c"` 命名规矩把焦点放进部件）负责前者。
 
-`confirm` / `dismiss` 仍然到不了，但原因已经不是投递：binding 里的 `open` 取自 `behavior.open`，
-而 PHP 侧**没有"这颗 Select 现在是开着的"那颗糖**，于是 `SelectActionOf` 把 `Confirm`
-解释成"再开一次"（`select.cpp:43-45`）、把 `Cancel` 解释成"不归我管"（`:46-49`）。
-补上那颗糖是这一族剩下的唯一缺口。
+`confirm` / `dismiss` 同日也量到了，但它们多一个前提：binding 里的 `open` 位取自
+`behavior.open`，而 `SelectActionOf` 是按这个位解释动作的——`open=false` 时 `Confirm`
+被读成"再开一次"、`Cancel` 被读成"不归我管"（`base/select.cpp:43-49`），所以那颗糖必须由
+PHP 侧声明。补上 `El::open(bool)`（`method('open', [$v])`）之后，`examples/choices` 渲染
+第二棵把 `ch-select` 声明成开着，读数：
+
+```
+  ok   confirmDismissDelivered — open=true 那棵 focus=-1001 Confirm=true confirm 到 PHP=true dismiss 到 PHP=true open_change 收尾=false
+```
+
+这条门做过负向对照：只把 `->open(...)` 摘掉（补丁留在原地），同一条就变
+`confirm 到 PHP=false dismiss 到 PHP=false open_change 收尾=true`、rc=1——
+`open_change 收尾=true` 正是"Confirm 被读成再开一次"的样子。
 
 同形状还没接的两处：`on_resize`（一串 float）与 `on_item_secondary_click`——
 `cmd/patch-select-view.sh` 的头注释里点名了它们，别再当成已通。

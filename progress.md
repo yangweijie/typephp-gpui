@@ -1901,3 +1901,26 @@ stdout 重定向到文件是全缓冲的，SIGSEGV 时缓冲区整个丢，`line
 
 没做的事写进计划了：`confirm`/`dismiss` 缺 `open` 糖、`resize`/`item_secondary_click` 同形状未接、
 catalog 触发器没有 `paint.hits` 矩形。
+
+## 修复轮 21：`El::open()` —— 把"通了也发不出"的那两个名字补全（2026-10-14）
+
+上一轮的补丁只解决投递。`confirm`/`dismiss` 仍然必然是 0，原因在更上游一格：
+`SelectActionOf(id, open, disabled)` 按 binding 里的 `open` 位解释动作，
+`open=false` 时 Confirm 读成"再开一次"、Cancel 读成"不归我管"，于是那两个 handler 永远轮不到。
+而那个位来自 `behavior.open`（`materialize.cpp:339-341` 认 `open` 这个 bool op），
+我们 PHP 侧从来没发过它。
+
+补 `Element::open(bool $v = true)`，choices 域加 `selectOpen` 状态位（默认 false，
+所以画廊一棵像素没变——shotdiff 44 棵树证的就是这个），自检渲染第二棵声明成开着：
+
+```
+  ok   confirmDismissDelivered — open=true 那棵 focus=-1001 Confirm=true confirm 到 PHP=true dismiss 到 PHP=true open_change 收尾=false
+```
+
+这条是本轮唯一**当场做过负向对照**的门：只把 `->open(...)` 摘掉、补丁留在原地，
+同一条立刻变 `confirm 到 PHP=false dismiss 到 PHP=false open_change 收尾=true` 且 rc=1，
+`收尾=true` 正是"Confirm 被读成再开一次"的形状。
+
+文档同步：`events.md` 的送达名数从 14 订正成 **17**（在册仍是 24，两个数别再混），
+`upstream-coverage.md` 的 event 行、`components.md` 的糖串、`src/Element.php` 那段族注释。
+门禁：pest 104 · phpstan 0 · parity OK · 全量 14 支 selftest rc=0 · 44 棵像素树全绿。

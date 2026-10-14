@@ -484,3 +484,16 @@ SIGSEGV 报成了它自己那一行，而它在画廊里时只是"某轮 rc=11�
       ④`Box2::enqueue()` 对未知 callbackId 仍会压一条 type/id 全空的事件进队列——
         现在多了几个"合法但没人监听"的 id 走这条路，`onAny` 通配记录器会看见空事件（本轮实测画廊
         `evSeen` 里没有空条目，所以还没改；要改就是 enqueue 里 `it == end()` 直接返回）。
+- [x] **16-E** `El::open(bool)` 补上（16-D 留下的那颗糖）：上游 `materialize.cpp:339-341` 认
+      `open` 这个 bool op 并把它放进 `behavior.open`，`Select::New` 再取进 binding，
+      而 `SelectActionOf` 完全按这个位解释动作。没有它，`confirm`/`dismiss` 是"补丁通了也发不出"。
+      choices 域加 `selectOpen` 状态位（默认 false ⇒ 画廊像素一棵没变），自检渲染第二棵去量它。
+      读数：`confirmDismissDelivered — open=true 那棵 focus=-1001 Confirm=true confirm 到 PHP=true
+      dismiss 到 PHP=true open_change 收尾=false`。
+      **负向对照做过**：只摘 `->open(...)`（补丁留在原地）⇒ 同一条变
+      `confirm 到 PHP=false dismiss 到 PHP=false open_change 收尾=true`、rc=1。
+      送达名字总数随之从 14 订正成 **17**（`grep -c "callback('on_" src/Element.php` 仍是 24，
+      在册与送达是两个数）。全量：14 支 selftest rc=0 · 44 棵像素树全绿。
+
+**待办改口**：#73 现在只剩"catalog 触发器在 `paint.hits` 里没有矩形"这一半；
+`resize`/`item_secondary_click` 的同形状派发仍未接（`cmd/patch-select-view.sh` 头注释点名）。

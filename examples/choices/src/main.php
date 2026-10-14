@@ -246,16 +246,36 @@ function runChoicesSelfTest(): void
         . ' 值=' . var_export($openVal, true)
         . ' confirm/dismiss=' . evCountOf('confirm') . '/' . evCountOf('dismiss'));
     $ok = $ok && $deliveredOk;
-    // confirm 与 dismiss 仍然到不了，而且原因不是投递：binding 里的 `open` 取自
-    // behavior.open，而 PHP 侧没有声明"这颗是开着的"那颗糖，于是 SelectActionOf 把
-    // Confirm 解释成"再开一次"（select.cpp:43-45）、把 Cancel 解释成"不归我管"（:46-49）。
-    step('confirmDismissNeedOpenSugar', true,
-        'Confirm=' . var_export($confirm, true) . ' confirm=' . evCountOf('confirm')
-        . ' dismiss=' . evCountOf('dismiss') . ' evSeen=' . seenSummary());
+    // 这里的 confirm/dismiss 必然是 0，那不是坏而是"还没轮到它"：SelectActionOf 在
+    // open=false 时把 Confirm 读成"再开一次"、把 Cancel 读成"不归我管"。
+    // 下面第 8 段把同一颗声明成开着，那两个才第一次有条件发出来。
 
-    // 标着 (读数) 的三条不参与 $ok：popupRepaints 要真点击与前台窗口，
-    // componentEventDelivery 量的还是没有焦点时的派发，confirm/dismiss 那条等的是 PHP 侧
-    // 少的一颗 open 糖——拿"还没通"当红灯只会变成噪声。
+    // 8) 同一颗声明成"开着"，才谈得上 confirm / dismiss。
+    //    binding 里的 open 位来自 behavior.open（PHP 侧的 El::open()），而 SelectActionOf
+    //    按它解释动作：关着时 Confirm 读成"再开一次"、Cancel 读成"不归我管"。
+    //    所以这一段量的不是投递（1b 那条补丁已经证过了），而是"这颗糖有没有人能用"。
+    ExampleState::$v['selectOpen'] = true;
+    $app->render(choicesTree());
+    $app->loop(4);
+    $openFocus = $app->focusElement('ch-select');
+    $confirmRet = $app->dispatchAction('ui::Confirm');
+    $app->loop(6);
+    $confirmArrived = isset(ExampleState::$v['evSeen']['confirm']['ch-select']);
+    $app->dispatchAction('ui::Cancel');
+    $app->loop(6);
+    $dismissArrived = isset(ExampleState::$v['evSeen']['dismiss']['ch-select']);
+    $openAfterCancel = ExampleState::$v['evSeen']['open_change']['ch-select'] ?? null;
+    $cdOk = $openFocus !== 0 && $confirmRet && $confirmArrived
+        && $dismissArrived && $openAfterCancel === false;
+    step('confirmDismissDelivered', $cdOk,
+        'open=true 那棵 focus=' . $openFocus . ' Confirm=' . var_export($confirmRet, true)
+        . ' confirm 到 PHP=' . var_export($confirmArrived, true)
+        . ' dismiss 到 PHP=' . var_export($dismissArrived, true)
+        . ' open_change 收尾=' . var_export($openAfterCancel, true));
+    $ok = $ok && $cdOk;
+
+    // 标着 (读数) 的两条不参与 $ok：popupRepaints 要真点击与前台窗口，
+    // componentEventDelivery 量的是"没有焦点时"的派发——那一条本来就该是空。
     // 弹层可能还开着——关掉再收尾，免得 close() 撞上 P0-mem 那支析构顺序。
     $app->realKey(53, '');
     $app->loop(4);

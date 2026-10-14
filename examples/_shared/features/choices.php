@@ -46,10 +46,14 @@ function sectionChoices(array $s): El
         ])->gap(8.0)->itemsCenter()->flexWrap(),
         El::hFlex([
             // 部件自己发出的那批事件（open_change / confirm / dismiss）挂在这三颗上。
-            // 它们的 callbackId 存在 ShellSelectBinding 里，由部件调 runtime->Dispatch*()
-            // 发出，而打过补丁的 Dispatch 开头就有 shim 那条路（entry->shimId 非零 ⇒
-            // 入本窗口事件队列，不碰 QuickJS），所以不需要新补丁就能到 PHP。
+            // callbackId 存在 ShellSelectBinding 里，而它是 Box2 自己的 id、不在 runtime
+            // 回调表里，所以 2026-10-14 之前这一族从来没到过 PHP（并由那次扫表崩过一次）——
+            // 现在由 cmd/patch-select-view.sh 在 view 层进宿主队列，见 docs/guide/events.md 1b。
+            // `selectOpen` 把 ch-select 声明成"开着"：binding 里的 open 位就是它，
+            // 而 SelectActionOf 按它解释动作（关着时 Confirm 读成"再开一次"、Cancel 读成
+            // "不归我管"），所以 confirm/dismiss 只有这一颗测得到。默认 false ⇒ 画廊像素不变。
             El::select('ch-select', ['Apple', 'Banana', 'Cherry'])->w(180)
+                ->open((bool) ($s['selectOpen'] ?? false))
                 ->onOpenChange()->onConfirm()->onDismiss(),
             El::combobox('ch-combo', ['Red', 'Green', 'Blue'])->w(180)
                 ->onOpenChange()->onConfirm()->onDismiss(),
