@@ -95,6 +95,19 @@ void gpuiEnqueueHover(ScriptView* self, Ctx*, uint64_t callbackId, bool hovered)
         box->enqueue(callbackId, GPUI_ARG_BOOL, 0, hovered ? 1 : 0, nullptr);
 }
 
+// cmd/patch-select-view.sh：存在部件 binding 里的回调。callbackId 是 Box2 自己的 id，
+// 所以这里直接回本 box 的队列——runtime 的回调表里从来没有它。
+void gpuiEnqueueSignal(ScriptView* self, Ctx*, uint64_t callbackId) {
+    if (Box2* box = boxForView((void*)self))
+        box->enqueue(callbackId, GPUI_ARG_NIL, 0, 0, nullptr);
+}
+
+void gpuiEnqueueString(ScriptView* self, Ctx*, uint64_t callbackId,
+                       const char* value) {
+    if (Box2* box = boxForView((void*)self))
+        box->enqueue(callbackId, GPUI_ARG_STR, 0, 0, value);
+}
+
 void gpuiEnqueueInput(ScriptView* self, Ctx*, uint64_t handle, int eventKind) {
     (void)eventKind;
     Box2* box = boxForView((void*)self);

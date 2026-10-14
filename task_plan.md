@@ -450,3 +450,37 @@ nano 不支持 require/include，全靠 yml 列源文件；全局函数名必须
 天然可用）；不动 `cmd/shotdiff.php` 的 hello 固定表（它自报 `--sections` 的路径已经存在）；
 不在这一轮删 showcase 的任何节。
 
+
+---
+
+## Phase 16：部件 binding 那批回调从 QuickJS 挪进宿主队列（2026-10-14）
+
+拆分带来的直接收益在这里兑现：`examples/choices` 一支独立示例把一条**6 次跑崩 4 次**的
+SIGSEGV 报成了它自己那一行，而它在画廊里时只是"某轮 rc=11、一个字没打"。
+
+- [x] **16-A** 定位：崩溃报告 + `nm`/`objdump` 把故障点说成"第 7 段的第一次 `dispatchAction`"，
+      并把 `DispatchArgs+100` 的反汇编逐字对上 `CallbackArena::Get()` 的扫表循环。
+      旧结论"focusElement 崩过所以不能进 selftest"作废：同一条栈在 07:09 的 showcase 报告里就有。
+- [x] **16-B** 机制：`gpui_shim_callback` 交出去的是 **Box2 自己的 callbackId**，
+      runtime 回调表里从来没有它（只有 `gpui_shim_new_callback` → `PushShimCallback` 会登记）。
+       ⇒ 文档里"这条路不需要新补丁"那句是错的，`src/Element.php` 与 `events.md` 一起订正。
+- [x] **16-C** 修法：新增 `cmd/patch-select-view.sh`（第 14 支，已进 `bin/gpui` 的 patchManifest，
+      doctor 正反两向都过），把 view.cpp 里 7 处 binding 派发换成宿主弱钩子：
+      `open_change`/`bound_bool`/`popover` 走已有的 `gpuiEnqueueChange`（**带 bool**），
+      `confirm`/`dismiss`/`dock` 走新增 `gpuiEnqueueSignal`，`step` 走新增 `gpuiEnqueueString`。
+- [x] **16-D** 验收：`openChangeDelivered` 从读数升级成硬门，读数
+      `focus=-1001 SelectDown=true open_change 到 PHP=true 值=true confirm/dismiss=0/0`；
+      同一支连跑 **6/6 rc=0**（修前 4/6 崩）；全量 **14 支 selftest rc=0 · 44 棵像素树全绿**。
+      计数订正：像素树一直是 **44** 棵（此前记的 43 少数一棵，按 `tests/baseline/**` 独立数过）。
+
+**这一轮的负向对照是"读到的"而不是"重新制造出来的"**：修前的 `open_change=0 evSeen=（空）`
+来自同一支在本次补丁之前的构建，我没有为了对照再把补丁摘一次（那要再付一轮完整链）。
+写进 commit 与文档时按这个口径，不冒充"摘掉补丁复现红"。
+
+- [ ] **待办**（已开任务，不在这轮做）：
+      ①`confirm`/`dismiss` 还缺 PHP 侧那颗"这颗 select 现在是开着的"糖（`behavior.open` 无人能设）；
+      ②`on_resize`（float 数组）与 `on_item_secondary_click` 是同形状未接的两处；
+      ③catalog 触发器在 `paint.hits` 里没有矩形（#73 剩下的那一半）；
+      ④`Box2::enqueue()` 对未知 callbackId 仍会压一条 type/id 全空的事件进队列——
+        现在多了几个"合法但没人监听"的 id 走这条路，`onAny` 通配记录器会看见空事件（本轮实测画廊
+        `evSeen` 里没有空条目，所以还没改；要改就是 enqueue 里 `it == end()` 直接返回）。

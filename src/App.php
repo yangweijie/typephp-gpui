@@ -198,6 +198,24 @@ final class App
     }
 
     /**
+     * 把焦点放进一颗**已经有焦点身份**的部件，返回设完之后读到的焦点 id；
+     * 0 表示这颗部件没有身份（那本身就是有用的信息，不是"失败"）。
+     *
+     * 为什么需要它：内建动作派发（`dispatchAction('ui::Confirm')` 那类）是从**焦点节点**
+     * 出发的，所以焦点不在 Select / DatePicker 里时，那几个动作根本不会经手它们。
+     * 有身份的是这几类：Select / DatePicker 的触发器与内容
+     * （bridge 为它们造过 retained focus handle）、retained 输入、以及 dialog 的 popup。
+     * 传元素自己的 id 即可，后缀（`:t` / `:c`）由 shim 按 bridge 的命名规矩去找。
+     *
+     * 注意它只解决"焦点在不在"，不解决"发出来之后到不到 PHP"——后者见
+     * docs/guide/events.md 的 1b（cmd/patch-select-view.sh 那条）。
+     */
+    public function focusElement(string $id): int
+    {
+        return (int) \gpui_focus_named($this->handle(), $id);
+    }
+
+    /**
      * 合成一次 ShellAction 派发（按名字）。两类名字都认：
      *  · 菜单项/脚本声明的动作——上游给它们加 `shell::` 前缀后 intern，命中后以
      *    `action` 事件回到 PHP，id 就是 MenuItem 写的那个动作名；原生菜单条在窗口之外，

@@ -70,6 +70,7 @@ function patchManifest(): array {
         ['patch-hover-always.sh',  "$gpui/src/gpui/window_mac.cpp",  'NSTrackingActiveAlways'],
         ['patch-key-view.sh',      "$gpui/src/shell/view.cpp",       'typephp-gpui: gpuiEnqueueKey'],
         ['patch-mouse-view.sh',    "$gpui/src/shell/view.cpp",       'typephp-gpui: gpuiEnqueueMouse'],
+        ['patch-select-view.sh',   "$gpui/src/shell/view.cpp",       'typephp-gpui: gpuiEnqueueSignal'],
     ];
 }
 

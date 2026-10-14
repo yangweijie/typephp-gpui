@@ -69,6 +69,8 @@ function gpui_real_key(mixed $window, int $keycode, string $chars): int {}
 function gpui_dispatch_action(mixed $window, string $name): int {}
 /** 当前持有焦点的 gpui 实体 id；0 = 没有焦点，-1 = 窗口不可用。 */
 function gpui_focused_id(mixed $window): int {}
+/** 把焦点放进一颗已有焦点身份的部件；返回设完后读到的 focused id（0 = 没有身份）。 */
+function gpui_focus_named(mixed $window, string $id): int {}
 /** 输入框诊断：['n'=>登记的 input 数, 'x','y','w','h'=>最后一颗的 inputBounds]。 */
 function gpui_input_probe(mixed $window, int $index): array {}
 /** 命中表探针：['n'=>条数, 'x','y','w','h'=>第 index 条的矩形, 'id','path','click'(0/1),'parent']。 */

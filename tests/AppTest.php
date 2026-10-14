@@ -131,3 +131,20 @@ test('pointer events route by the short type and carry the CSV value', function 
     // 这不是 bug 而是既定语义，钉在这里免得哪天被当成回归。
     expect($app->elementValue('row'))->toBe('105.00,226.00,0,1,0');
 });
+
+test('focusElement 设得进去也读得回来，空 id 回 0', function (): void {
+    // 钉的是 PHP 层的语义契约："把焦点放进部件"之后 focusedId() 必须报同一颗——
+    // 原生那一侧给的是部件 retained focus handle 的 id，替身给的是 crc32 伪 id，
+    // 两边只需要"同进同出"，不要求数值相等（所以这里断言的是关系，不是具体数字）。
+    // 有这层契约，examples/choices 才能把"焦点没进部件"与"动作没派发"分成两种失败。
+    $app = new App();
+    $app->create();
+    $app->createWindow('T', 400, 300);
+
+    expect($app->focusElement(''))->toBe(0, '空 id 不该有焦点身份');
+    $sel = $app->focusElement('ch-select');
+    expect($sel)->toBe($app->focusedId(), '设完必须读得回同一颗');
+    $date = $app->focusElement('ch-date');
+    expect($date)->not->toBe($sel, '两颗部件的焦点身份不能撞车');
+    expect($date)->toBe($app->focusedId());
+});

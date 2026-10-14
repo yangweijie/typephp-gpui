@@ -30,8 +30,9 @@ materialize 的 op 名**必须保留 `on_` 前缀**（它逐字比较 `"on_click
 
 ## 1a. 指针与滚轮（`on_mouse_*` / `on_scroll_wheel` / `on_key_up`）
 
-上游一共认 24 个 `on_*` 回调名，我们发出并**实测送达**的是这 14 个：
-`on_click` `on_change` `on_hover` `on_key_down`（原有四个）加下面这十个。
+上游一共认 24 个 `on_*` 回调名，我们发出并**实测送达**的是这 15 个：
+`on_click` `on_change` `on_hover` `on_key_down`（原有四个）、下面这十个，
+再加上部件级那一族的 `on_open_change`（2026-10-14 起，见 1b）。
 
 | 糖 | 事件 type | `value` |
 |---|---|---|
@@ -59,8 +60,9 @@ GpuiEvent 只有一个 value 槽，所以这里定的是**字段顺序**而不�
 
 上面那句"还**没接**的十个"订正于 2026-10-13：糖现在有了（`onConfirm()` `onDismiss()` `onStep()`
 `onResize()` `onOpenChange()` `onItemClick()` `onItemSecondaryClick()` `onLinkClick()`
-`onTokenClick()` `onTokenHover()`，见下面 1b），**但送达仍未量到**，所以标题与状态列里它们
-仍记在"名字在册、送达未量"。为什么先发糖不算错：callbackId 走的是部件自己的 binding
+`onTokenClick()` `onTokenHover()`，见下面 1b），其中 `on_open_change` 从 2026-10-14 起
+**实测送达**（`selftest choices` 的 `openChangeDelivered` 硬门），其余仍记在
+"名字在册、送达未量"。为什么先发糖不算错：callbackId 走的是部件自己的 binding
 （`ShellSelectBinding` 等），触发方在 base 组件里，我们这边能确证的只有"名字发得出去、
 对得上上游词表"——那条门现在住在 `php bin/gpui selftest catalog`
 （`componentCallbackOps — 发出=5 去重后=5`）。
@@ -70,38 +72,51 @@ GpuiEvent 只有一个 value 槽，所以这里定的是**字段顺序**而不�
 ## 1b. 部件自己发出的事件（`on_confirm` / `on_dismiss` / `on_open_change` / `on_step` / `on_resize` …）
 
 这批与上面两族不同的地方是：callbackId 不挂在元素监听器上，而是**存进部件自己的 binding**
-（`ShellSelectBinding` 等），由部件在合适的时刻调 `runtime->DispatchSignal/Change/String()` 发出来。
-好消息是这条路**不需要新补丁**：打过补丁的 `ShellRuntime::Dispatch` 开头就有 shim 那条路
-（`entry->shimId` 非零 ⇒ `gpuiEnqueueShimCallback` 入本窗口事件队列，完全不碰 QuickJS）。
+（`ShellSelectBinding` 等），由部件在合适的时刻发出来。
 
-坏消息是**送达至今没量到**。探针是 showcase 的独立模式：
+**2026-10-14 之前这一节写的"这条路不需要新补丁"是错的**，而且错的代价是一次很难复现的崩溃。
+机制是：`ResolveBehavior`（`materialize.cpp:230-300`）把 `op.callback` **原样**塞进 behavior，
+而 `gpui_shim_callback` 给的是 **Box2 自己的 callbackId**——runtime 的回调表里从来没有它的条目
+（只有 catalog 那条 `gpui_shim_new_callback` → `PushShimCallback` 会登记一个带 `shimId` 的合成条目）。
+于是部件调 `runtime->DispatchChange/Signal/String(那个 id)` 时，`CallbackArena::Get()` 扫一张
+没有该项的表，扫不到就静默丢——这就是"op 发得出、送达从未量到"的机制级原因。
+而这条扫描在 `impl` 已经不健康时会直接段错误：`examples/choices` 连跑 6 次崩 4 次，
+三份崩溃报告同一条栈（`DispatchArgs` ← `ScriptView::OnSelectAction` ← `WindowDispatchActionFrom`），
+反汇编逐字对得上 `for (i < len(entries)) { if (entry->committed && …) }` 那一句。
 
-```bash
-php bin/gpui run showcase --probe-events
+修法是 `cmd/patch-select-view.sh`：跟着点击/按键/指针那三支的既有形状，**在 view 层换投递点**，
+把 7 处 binding 派发改成宿主弱钩子（`gpuiEnqueueChange` 带 bool、新增 `gpuiEnqueueSignal` 无载荷、
+新增 `gpuiEnqueueString` 带字符串），完全不进回调表。实测（`php bin/gpui selftest choices`）：
+
+```
+  ok   openChangeDelivered — focus=-1001 SelectDown=true open_change 到 PHP=true 值=true confirm/dismiss=0/0
 ```
 
-它的读数（2026-10-13，隔离进程、前台已确认 `active=true key=true bundled=true`）：
+`值=true` 是这条链第一次带着载荷到 PHP（旧写法只能拿到"有事件"）。修之前同一支的读数是
+`actionAfterFocus(读数) — SelectDown=true … open_change=0 evSeen=（空）`；
+补丁留在原地、把焦点拿掉，`componentEventDelivery` 那一行仍然是 `evSeen=（空）`——
+所以"要焦点"与"要补丁"是两个各自成立的前提，`App::focusElement()`（同日加，
+按 bridge 造 handle 的 `id+":t"` / `id+":c"` 命名规矩把焦点放进部件）负责前者。
 
-```
-posted=20 open=0 confirm=0 dismiss=0 step=0 resize=0 | confirmPosted=false cancelPosted=false | evSeen=timer{tick} click{btn-plain,btn-p,…}
-```
+`confirm` / `dismiss` 仍然到不了，但原因已经不是投递：binding 里的 `open` 取自 `behavior.open`，
+而 PHP 侧**没有"这颗 Select 现在是开着的"那颗糖**，于是 `SelectActionOf` 把 `Confirm`
+解释成"再开一次"（`select.cpp:43-45`）、把 `Cancel` 解释成"不归我管"（`:46-49`）。
+补上那颗糖是这一族剩下的唯一缺口。
 
-怎么读这份数：20 次真点击投递成功、其中 6 次落到了同一节里的按钮上（`click{...}` 就是证据），
-但 Select / Combobox 那几行没有回任何 `open_change`。另外这一轮只渲染了第 3 节，
-`step`（数字输入在第 2 节）与 `resize`（可伸缩面板在第 4 节）**根本没被触发条件覆盖**——
-这两个 0 是探针自己的漏洞，不是结论。
+同形状还没接的两处：`on_resize`（一串 float）与 `on_item_secondary_click`——
+`cmd/patch-select-view.sh` 的头注释里点名了它们，别再当成已通。
 
 内建动作派发这一条已经有了确定的结果（2026-10-13，同一支探针里量的）：
 开着 dialog、焦点陷阱生效之后 `dispatchAction('ui::Cancel')` 会把框关掉——
 读数是 `cancelGate trap=195604379 dispatched=true closed=true`，
 而且它不依赖任何输入，所以已经进 `--selftest` 当硬门（负向对照：把 shim 里那次
 "按原名字再解析一遍"的回退路摘掉，就变 `dispatched=false closed=false`、rc=1）。
-Select 那几行仍然是 0，原因不同：动作派发从**焦点节点**出发，而自动缝没法把焦点放进 Select
-（要焦点就得真点击或 Tab 到位，这一环与 #56 同源）。
 
-所以现在的诚实状态是：这五个名字**在册、op 发得出去、宿主侧尚未量到送达**。
-探针留在仓库里（`runEventProbe`），任何一次改动之后重跑就能刷新这份读数；
-在它报非零之前，别把这一族当"能用"写进代码里。
+探针留在仓库里（`runEventProbe`），任何一次改动之后重跑就能刷新这份读数：
+
+```bash
+php bin/gpui run showcase --probe-events
+```
 
 三条踩过的坑，写在源头免得再踩：
 

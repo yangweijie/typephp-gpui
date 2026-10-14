@@ -212,8 +212,50 @@ function runChoicesSelfTest(): void
         . ' dismiss=' . evCountOf('dismiss') . ' step=' . evCountOf('step')
         . ' resize=' . evCountOf('resize') . ' evSeen=' . seenSummary());
 
+    // 7) binding 里存的那批回调终于要能到 PHP（cmd/patch-select-view.sh）。
+    //    上面的 (读数) 那一行量的就是这条链的旧状态：op 发得出去、`CallbackArena::Get(Box2 id)`
+    //    扫不到，事件静默丢；而扫表本身在 impl 不健康时直接 SIGSEGV（6 次跑崩 4 次，
+    //    栈是 DispatchArgs ← ScriptView::OnSelectAction ← WindowDispatchActionFrom）。
+    //    现在这条路不进回调表了，所以"送达"第一次可以当硬门钉。
+    //    每一句之前先打一行"进入"：硬信号打死进程时 stdout 缓冲区整个丢，
+    //    报告里剩下的只有已经落到磁盘的那几行。
+    step('focusElement(进入 ch-select)', true, '准备调 App::focusElement');
+    $selFocus = $app->focusElement('ch-select');
+    $focusOk = $selFocus !== 0 && $app->focusedId() === $selFocus;
+    step('focusElement(读数)', true, 'ch-select→' . $selFocus
+        . ' focusedId=' . $app->focusedId()
+        . ' ch-date→' . $app->focusElement('ch-date')
+        . ' ch-combo→' . $app->focusElement('ch-combo')
+        . ' 不存在的 id→' . $app->focusElement('ch-nope'));
+
+    // 焦点必须停在 ch-select 上，才谈得上"这条 open_change 是谁发的"。
+    $backOnSelect = $app->focusElement('ch-select');
+    $down = $app->dispatchAction('ui::SelectDown');
+    $app->loop(6);
+    $openVal = ExampleState::$v['evSeen']['open_change']['ch-select'] ?? null;
+    $openArrived = isset(ExampleState::$v['evSeen']['open_change']['ch-select']);
+    $confirm = $app->dispatchAction('ui::Confirm');
+    $app->loop(6);
+    $app->dispatchAction('ui::Cancel');
+    $app->loop(6);
+    $deliveredOk = $focusOk && $backOnSelect !== 0 && $down
+        && $openArrived && $openVal === true;
+    step('openChangeDelivered', $deliveredOk,
+        'focus=' . $selFocus . ' SelectDown=' . var_export($down, true)
+        . ' open_change 到 PHP=' . var_export($openArrived, true)
+        . ' 值=' . var_export($openVal, true)
+        . ' confirm/dismiss=' . evCountOf('confirm') . '/' . evCountOf('dismiss'));
+    $ok = $ok && $deliveredOk;
+    // confirm 与 dismiss 仍然到不了，而且原因不是投递：binding 里的 `open` 取自
+    // behavior.open，而 PHP 侧没有声明"这颗是开着的"那颗糖，于是 SelectActionOf 把
+    // Confirm 解释成"再开一次"（select.cpp:43-45）、把 Cancel 解释成"不归我管"（:46-49）。
+    step('confirmDismissNeedOpenSugar', true,
+        'Confirm=' . var_export($confirm, true) . ' confirm=' . evCountOf('confirm')
+        . ' dismiss=' . evCountOf('dismiss') . ' evSeen=' . seenSummary());
+
     // 标着 (读数) 的三条不参与 $ok：popupRepaints 要真点击与前台窗口，
-    // componentEventDelivery 现在就是 #73 的已知未定状态——拿"没量到"当红灯只会变成噪声。
+    // componentEventDelivery 量的还是没有焦点时的派发，confirm/dismiss 那条等的是 PHP 侧
+    // 少的一颗 open 糖——拿"还没通"当红灯只会变成噪声。
     // 弹层可能还开着——关掉再收尾，免得 close() 撞上 P0-mem 那支析构顺序。
     $app->realKey(53, '');
     $app->loop(4);

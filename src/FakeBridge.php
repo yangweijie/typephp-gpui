@@ -24,6 +24,8 @@ namespace TypePHP\Gpui {
 
         /** @var array<int, array{window:int, type:string, id:string, value:mixed}> 待取事件队列 */
         public static array $eventQueue = [];
+        /** 替身侧的"当前焦点 id"：只有 gpui_focus_named 会改它（默认 0 = 没焦点）。 */
+        public static int $focusedId = 0;
 
         /** @var array<int, array<string, mixed>[]> 每窗口的渲染历史（用于断言） */
         public static array $renderLog = [];
@@ -181,6 +183,7 @@ namespace TypePHP\Gpui {
             self::$windows = [];
             self::$nextWindowId = 1;
             self::$eventQueue = [];
+            self::$focusedId = 0;
             self::$renderLog = [];
             self::$windowOpen = true;
         }
@@ -452,7 +455,23 @@ namespace {
 
     function gpui_focused_id(mixed $window): int
     {
-        return 0;
+        return FakeBridge::$focusedId;
+    }
+
+    /**
+     * 无头替身：没有 gpui 的 focus registry，所以给每个名字算一个稳定的伪 id（crc32）
+     * 当作它的焦点身份，并让 gpui_focused_id 读回同一个值——这样 PHP 侧
+     * "设了就能读回"的语义在替身下也成立。真实那一侧的 id 来自部件的 retained focus
+     * handle，两者只需要"同进同出"，不需要数值相等，所以这里不模仿上游的 HashClickId。
+     */
+    function gpui_focus_named(mixed $window, string $id): int
+    {
+        if ($id === '') {
+            return 0;
+        }
+        FakeBridge::$focusedId = (int) crc32($id);
+
+        return FakeBridge::$focusedId;
     }
 
     function gpui_real_mouse(mixed $window, int $x, int $y, int $type): int

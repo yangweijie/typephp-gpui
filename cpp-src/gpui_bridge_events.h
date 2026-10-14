@@ -18,6 +18,11 @@ struct Ctx;
 void gpuiEnqueueClick(ScriptView* self, Ctx* cx, uint64_t callbackId, int clickCount);
 void gpuiEnqueueChange(ScriptView* self, Ctx* cx, uint64_t callbackId, bool checked);
 void gpuiEnqueueHover(ScriptView* self, Ctx* cx, uint64_t callbackId, bool hovered);
+// cmd/patch-select-view.sh 的两个入口：部件 binding 里存的那批回调（open_change 走
+// gpuiEnqueueChange 带 bool，confirm/dismiss/dock 走无载荷的 Signal，step 走 String）。
+void gpuiEnqueueSignal(ScriptView* self, Ctx* cx, uint64_t callbackId);
+void gpuiEnqueueString(ScriptView* self, Ctx* cx, uint64_t callbackId,
+                       const char* value);
 void gpuiEnqueueInput(ScriptView* self, Ctx* cx, uint64_t handle, int eventKind);
 void gpuiEnqueueSlider(ScriptView* self, Ctx* cx, uint64_t handle, float value);
 // cmd/patch-mouse-view.sh 的三个指针事件入口（强符号在 cpp-src/gpui_shim_events.inc，

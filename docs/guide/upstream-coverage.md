@@ -158,10 +158,10 @@ Select 的焦点句柄此前从未真的交出去过）。
 | window / multi-window | 🟡 | 有 `App::createWindow()`、`windowState()`，文档此前没写 |
 | entity / context / render / render-once / task / global / element-id / view-cache | ⛔ 概念不对应 | Rust 侧写视图的抽象；我们换成"PHP 数组 + 每帧重算 + 脏驱动"，见 [架构](./architecture) |
 | style | 🟡 | 参数化样式覆盖较全；nullary 关键字 25/137，见第 3 节 |
-| focus | 🟡 | `tab_index` `tab_stop` `key_context` 已接（2026-10-13）；`track_focus` / `content_focus_handle` 的实参是 `Bridged` 句柄，只有 bridge 造得出，故无 PHP 糖。dialog 的焦点陷阱**实测是通的**（`focusTrap()` 读到 `trap == focus == popup`），#62 剩下的只差真键送达 |
+| focus | 🟡 | `tab_index` `tab_stop` `key_context` 已接（2026-10-13）；`track_focus` / `content_focus_handle` 的实参是 `Bridged` 句柄，只有 bridge 造得出，故无 PHP 糖——但 2026-10-14 起 PHP 侧能用 `App::focusElement(id)` **按元素 id 把焦点放进**这些句柄（shim 按 `:t`/`:c` 命名规矩去找），dialog 的焦点陷阱**实测是通的**（`focusTrap()` 读到 `trap == focus == popup`），#62 剩下的只差真键送达 |
 | action | 🟡 | `App::dispatchAction()` + 菜单动作路由已通；无 `bind_keys` 式键位表 |
 | keybinding | ❌ | 只有系统级全局快捷键（`onHotkey`），没有应用内键位/和弦 |
-| event | 🟡 | PHP 侧现在发得出 **24 个** `on_*` 名（原有 4 + #71 的指针/滚轮/键抬起 10 + #73 的部件级 10；`grep -c "callback('on_" src/Element.php` 量的就是这个数，别凭印象改）。24 个名字全部在上游词表里在册（parity 门 11 静态核），但**送达只量到前 14 个**：后 10 个的先决条件是触发器可点，见上一行与 `selftest choices` 的三条读数 |
+| event | 🟡 | PHP 侧现在发得出 **24 个** `on_*` 名（原有 4 + #71 的指针/滚轮/键抬起 10 + #73 的部件级 10；`grep -c "callback('on_" src/Element.php` 量的就是这个数，别凭印象改）。24 个名字全部在上游词表里在册（parity 门 11 静态核），**实测量到送达的是 15 个**：前 14 个 + 部件级的 `open_change`（2026-10-14，`cmd/patch-select-view.sh` 把这一族从 `CallbackArena::Get(Box2 id)` 那条扫不到也扫得崩的路挪进宿主队列，`selftest choices` 的 `openChangeDelivered` 硬门连 `值=true` 一起钉）。剩下的：`confirm`/`dismiss` 缺的是 PHP 侧那颗"select 现在是开着的"糖（`SelectActionOf` 在 `open=false` 时把 Confirm 解释成再开一次、把 Cancel 解释成不归它管），`resize` 与 `item_secondary_click` 的同形状派发补丁还没落 |
 | animation | ❌ | `transition`/`spring` 整族未接 |
 | paint / geometry / text-system | 🟡 | 布局与文本可用；无路径绘制（PathFill/PathStroke 未接） |
 | accessibility | 🟡 | `role`（上游 181 个名字全表白名单，写错当场抛）+ `aria_label` `aria_selected` `aria_level` `aria_active_descendant` `selectable` 已接。缺口：没有读屏侧回读口，验收只能是"op 发对了 + 像素一位没变"，VoiceOver 里到底读出什么得人工确认 |

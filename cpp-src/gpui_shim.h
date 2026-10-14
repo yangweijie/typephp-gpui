@@ -115,6 +115,9 @@ uint64_t gpui_shim_retained_slider(void* win, const char* id, double min,
                                    double max, double step);
 /* 为 DatePicker/Select/Combobox 创建常驻 Focus 实体（按 id 幂等）。返回 EntityHandle。 */
 uint64_t gpui_shim_retained_focus(void* win, const char* id);
+/* 把焦点放进一颗已有焦点身份的部件（bridge 以 "id:t"/"id:c" 造过 handle 的那些），
+ * 返回设完后读到的 focused id；0 = 这颗部件没有焦点身份。见 gpui_shim.cpp 的注释。 */
+int gpui_shim_focus_named(void* win, const char* id);
 
 /* Otp 的 retained（RetainedKind::Otp）。materialize 的 OtpInput 分支要的就是这个，
  * 没有它整颗 otp_input 静默降级成 Div。length 目前由 bridge 定（4 格）。 */

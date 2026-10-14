@@ -1692,3 +1692,64 @@ catalog `Select`/`Combobox`/`DatePicker` 在 `paint.hits` 里**没有自己的�
    于是打印出 `rc=0`——而 composer 其实已经失败。管道之后要拿
    `${pipestatus[1]}`（zsh）或先把输出重定向到文件再分别取码。
    这与记忆里"`grep -c` 在 `&&` 链里 0 命中会吞掉后半条链"是同一族错：**报告的退出码必须来自被测的那一步**。
+
+## 修复轮 19：一次"4 次里崩 3 次"的 SIGSEGV，从退出码查到具体那一行（2026-10-14）
+
+### 症状与"边跑边打为什么没用"
+
+`bash cmd/all-examples.sh` 第三轮里 `choices` 报 rc=11、报告一个字没打。直接跑同一个二进制 6 次：
+**4 次 rc=139（SIGSEGV）、2 次 rc=0** —— 先前两次绿是运气，不是"修好了"。
+
+上一轮我给每条探针加了"进入"行，本意是让崩溃自己报出位置；这次证明**它挡不住**：
+stdout 重定向到文件时是全缓冲的，进程被 SIGSEGV 打死时缓冲区整个丢，
+所以"边跑边打"只在崩溃是**异常退出**（走正常清理）时有效，硬信号下等于没打。
+真要位置，得靠崩溃报告 + 反汇编（下面就是这么定位到那一行的）。
+
+### 定位链（可复用的三步）
+
+1. `~/Library/Logs/DiagnosticReports/choices-*.ips`：`EXC_BAD_ACCESS / SIGSEGV /
+   KERN_INVALID_ADDRESS at 0x1`，栈顶 `gpui::DispatchArgs+100` ←
+   `ScriptView::OnSelectAction+360` ← `WindowDispatchActionFrom+276` ← `gpui_shim_dispatch_action`。
+   **同族报告今天已经出现过第三次**：`showcase-2026-10-14-070954.ips` 的栈一模一样
+   （`DispatchArgs+104`，地址 0x41）—— 也就是说这条崩不是我这次加的 focusElement 引入的，
+   它就是那条"画廊里崩过一次、报告一个字没打"的旧账（rc=11 即 128+11）。
+2. `nm -m` 取 `php_runchoicesselftest` 基址，`objdump -d` 看返回地址
+   （崩溃报告给的是 `php_runchoicesselftest()+17656` = `0x1000958f4`）：
+   紧邻其前的 `bl` 是 `php_typephp__gpui__app__dispatchaction`。
+   把函数里所有 `bl focuselement` / `bl dispatchaction` 按地址排出来，
+   就能说出崩的是**第几个** dispatchAction：`0x100094db8/0x100094e14` 是第 6 段的
+   Confirm/Cancel，`0x10009547c…574` 是四次 focusElement，`0x1000958f0` 才是
+   **第 7 段的 `dispatchAction('ui::SelectDown')`**。
+3. 反汇编 `DispatchArgs` 的 +0x38..+0x64，形状是
+   `impl = runtime->impl`（`cbz x0` 后 `[x0+8]`）、`len = [impl+0x38]`、
+   `ptr = [impl+0x40]`、循环 `ldr x21,[ptr],#8` 再 `ldrb [x21+0x40]` 比 1 ——
+   逐字对上上游 `runtime.cpp:249` 的
+   `for (i < len(entries)) { if (entry->committed && entry->id == id) … }`
+   （`committed` 就是那个 +0x40 的 bool）。所以崩在 **`CallbackArena::Get()` 扫表**，
+   它读到的 `entries.ptr` 是 `0x1`/`0x41` 而 `len ≥ 1` ⇒
+   `impl`（或它里面的那个 Vec）本身已经不是有效对象了。
+
+### 由此翻出来的真缺口：24 个 on_* 名字里有两族，我们只接通了一族
+
+`ResolveBehavior`（materialize.cpp:230-300）把 `op.callback` **原样**塞进 `behavior.onXxx`，
+而我们两条来源给的 id 不是同一个命名空间：
+
+| 通路 | id 从哪来 | 有没有 runtime 回调表条目 | 到达 PHP 的方式 |
+|---|---|---|---|
+| `on_click` / `on_hover` / `on_key_*` / `on_mouse_*` | `box->newCallback()` 的 **Box2 id** | **没有** | view.cpp 的弱钩子（patch-view / patch-key-view / patch-mouse-view）直接拿 Box2 id 入队，**绕开** DispatchArgs |
+| catalog 组件的 `ComponentArgument.callback` | `gpui_shim_new_callback()` → `PushShimCallback()` 的 **runtime id** | **有**（committed，shimId=Box2 id） | InvokeWith / DispatchArgs 的 shimId 旁路 |
+| 存在 binding 里的那批（`on_open_change`/`on_confirm`/`on_dismiss`/`on_step`/`on_resize`…） | `gpui_shim_callback()` 的 **Box2 id** | **没有** | 部件在合适时刻调 `runtime->DispatchChange/Signal(id)` → `CallbackArena::Get(id)` 扫不到 ⇒ 事件静默丢弃；而扫表这一步在 `impl` 已不健康时会**直接崩** |
+
+也就是说 `docs/guide/events.md` 里"这条路**不需要新补丁**就能到 PHP"那句是**错的**：
+它假设 `gpui_shim_callback` 也做了 `PushShimCallback`，实际只有 `gpui_shim_new_callback` 做了。
+这就是 #73 里"op 发得出、送达从未量到"的机制级原因——不是投递链断了，是
+**这些 id 从来没进过 runtime 的回调表**。
+
+### 修法取向（为什么不在 gpui_shim_callback 里补 PushShimCallback）
+
+把 `gpui_shim_callback` 的返回值换成 runtime id 会连带改掉 `behavior.onClick`，
+而 view.cpp 那三个弱钩子拿的正是这个字段——它们会往队列里塞一个 Box2 反查不到的 id，
+**把现在唯一通的点击/按键族一起弄坏**（爆炸半径覆盖 14 条已实测送达的链路）。
+所以按本仓库验证过的形状走：像 `patch-key-view.sh` 换掉 `DispatchKey` 那样，
+把 Select 那三个 helper 里的 `runtime->Dispatch*` 换成一个带 Box2 id 的弱钩子，
+完全不进回调表；顺带把 open_change 的 bool 载荷带过去（现在文档里写着"丢载荷"）。

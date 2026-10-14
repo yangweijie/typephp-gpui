@@ -67,6 +67,8 @@ bash cmd/patch-nano.sh                 # 修 php-nano 的 "Core" 依赖解析缺
 bash cmd/patch-view.sh                 # view.cpp 事件入队 + window_mac 单帧泵/入口改名
 bash cmd/patch-retained.sh             # ShellRuntime 暴露 CreateRetainedInput/Slider
 bash cmd/patch-focus.sh                # ShellRuntime 暴露 CreateRetainedFocus（DatePicker/Select）
+# ↑ 这里只列前四支；完整清单与逐支落位校验以 `php bin/gpui doctor` 为准
+#   （bin/gpui 的 patchManifest 是唯一来源，缺一支 build 会当场停）
 ( cd build/gpui-kit-cpp && bun cmd/build.ts -rel hello_world )   # 生成 .work/ 并编译 amalgam（须在所有补丁之后）
 bash cmd/build-shim.sh                 # c++20 编 shim + 归档成 cpp-src/build/libgpui_shim.a
 php vendor/bin/tpc.php examples/hello/project.macos.yml --nano -f # AOT 产出 build/hello

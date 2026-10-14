@@ -1153,21 +1153,31 @@ class Element
     //
     // 这一族的共同点：callbackId 不是直接挂在元素监听器上（像 on_click 那样走
     // ClickListener），而是存进部件自己的 binding（ShellSelectBinding / ShellBoolBinding /
-    // …），由部件在合适的时刻调 runtime->Dispatch*() 把它发出去。而我们打过补丁的
-    // ShellRuntime::Dispatch 在入口就有 shim 那条路（patch-dispatch-cb.sh：entry->shimId
-    // 非零 ⇒ gpuiEnqueueShimCallback 入本窗口事件队列，完全不碰 QuickJS），
-    // 所以这些名字**不需要新补丁**就能到 PHP。
-    // 代价：那条 shim 路目前**丢载荷**（注释原话 "Payload is dropped"），
-    // 于是带值的 open_change / step / bound_bool 只会到一条"有事件"而看不到 true/false。
+    // …），由部件在合适的时刻把它发出去。
+    //
+    // 2026-10-14 之前这里写的"不需要新补丁就能到 PHP"是**错的**，两个前提都不成立：
+    // 一是 `ResolveBehavior` 把 `op.callback` 原样塞进 binding，而那个 id 是 **Box2 自己的**
+    // callbackId，从来不是 runtime 回调表里的条目（只有 catalog 那条 `gpui_shim_new_callback`
+    // 会 `PushShimCallback` 登记），所以 `CallbackArena::Get()` 扫不到 ⇒ 事件静默丢；
+    // 二是这条扫描本身在 `impl` 不健康时直接段错误（实测 6 次跑崩 4 次，
+    // 栈 `DispatchArgs ← ScriptView::OnSelectAction ← WindowDispatchActionFrom`）。
+    // 现在由 cmd/patch-select-view.sh 在 view 层换投递点（与点击/按键/指针那三支同形状），
+    // 完全不进回调表，Box2 id 直接回本 box 的队列——open_change 带 true/false、
+    // step 带 increment/decrement，PHP 侧 elementValue()/checked() 读得到。
+    //
+    // 还没接的两处同形状缺口：on_resize（一串 float）与 on_item_secondary_click。
+    // 另外 confirm/dismiss 光接通还不够：binding 里的 `open` 取自 behavior.open，
+    // 而 PHP 侧没有"这颗 select 现在是开着的"那颗糖，于是 SelectActionOf 把 Confirm
+    // 解释成"再开一次"、把 Cancel 解释成"不归我管"（见 examples/choices 的自检读数）。
     // 各自的送达状态见 docs/guide/events.md。
 
-    /** Select / Combobox / DatePicker 的开合变化。上游带 bool，现经 shim 路丢值。 */
+    /** Select / Combobox / DatePicker 的开合变化。上游带 bool，到 PHP 后是 elementValue() 的真/假。 */
     public function onOpenChange(): self { return $this->callback('on_open_change'); }
     /** 选中确认（Select / Combobox 的 Confirm 动作）。无载荷（DispatchSignal）。 */
     public function onConfirm(): self { return $this->callback('on_confirm'); }
     /** 弹层被收回（Esc / 再点一次 / 选中后关闭）。无载荷。 */
     public function onDismiss(): self { return $this->callback('on_dismiss'); }
-    /** 数字输入的 ± 步进。上游带 "increment"/"decrement"，现经 shim 路丢值。 */
+    /** 数字输入的 ± 步进。上游带 "increment"/"decrement"，到 PHP 后是 elementValue() 的字符串。 */
     public function onStep(): self { return $this->callback('on_step'); }
     /** 尺寸变化（可伸缩面板）。带宽高，现经 shim 路丢值。 */
     public function onResize(): self { return $this->callback('on_resize'); }

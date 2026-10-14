@@ -34,6 +34,9 @@ void gpuiEnqueueClick(ScriptView*, Ctx*, uint64_t, int);
 void gpuiEnqueueChange(ScriptView*, Ctx*, uint64_t, bool);
 
 void gpuiEnqueueHover(ScriptView*, Ctx*, uint64_t, bool);
+// cmd/patch-select-view.sh 的两个弱符号强实现（部件 binding 里存的那批回调）。
+void gpuiEnqueueSignal(ScriptView*, Ctx*, uint64_t);
+void gpuiEnqueueString(ScriptView*, Ctx*, uint64_t, const char*);
 // tick 监听强符号：签名须匹配 ListenerArgFn（void(*)(void*,Ctx*,const void*,int64_t)）。
 void gpuiEnqueueTimer(ScriptView*, Ctx*, const void*, int64_t);
 // catalog 组件回调旁路（cmd/patch-registered-cb.sh 在 runtime.cpp 放的弱符号强实现）：
@@ -1269,6 +1272,38 @@ uint64_t gpui_shim_retained_focus(void* win, const char* id) {
     uint64_t h = g_runtime->CreateRetainedFocus(g_app, box->viewEntity, box);
     box->inputHandles[id] = h;
     return h;
+}
+
+// 把焦点放进一颗**已经有焦点身份**的部件，返回设完之后读到的 WindowFocusedId
+// （0 = 这颗部件没有身份，那本身就是有用的信息，而不是"设失败了"）。
+//
+// 为什么需要它：内建动作派发（gpui_shim_dispatch_action）是从焦点节点出发的，
+// 所以 Select / DatePicker 那族的 open_change 要能到 PHP，有两个各自成立的前提：
+// 焦点得真的在这颗部件里（这个函数管），且派发点不能走 QuickJS 那条回调表
+// （cmd/patch-select-view.sh 管——见 docs/guide/events.md 1b）。
+// 上游自己也是这么排的：dialog 的 popup 用 FocusId(HashClickId(name))，
+// 而 Select/DatePicker 的触发器与内容用 TrackFocus(RetainedFocus(handle))，
+// handle 由 bridge 以 `id+":t"` / `id+":c"` 的名字造出来（见 gpui_bridge.cc 的
+// selTrigger/selContent）。
+// 所以这里按同一个命名规矩找 handle，而不是自己另算一个 id——
+// WindowSetFocusId(win, HashClickId(元素 id)) 那种"看起来等价"的写法只对 dialog 成立。
+int gpui_shim_focus_named(void* win, const char* id) {
+    auto* box = static_cast<Box2*>(win);
+    if (!box || !box->window || !g_runtime || !id || !*id) return 0;
+    static const char* kSuffixes[] = {":t", ":c", ""};
+    for (const char* sfx : kSuffixes) {
+        std::string key(id);
+        key += sfx;
+        auto it = box->inputHandles.find(key);
+        if (it == box->inputHandles.end()) continue;
+        auto* e = g_runtime->Retained((gpui::shell::EntityHandle)it->second);
+        if (!e || e->kind != gpui::shell::RetainedKind::Focus || !e->focus.IsValid())
+            continue;
+        gpui::WindowSetFocusId(box->window, e->focus.id);
+        int got = gpui::WindowFocusedId(box->window);
+        if (got) return got;
+    }
+    return 0;
 }
 
 int gpui_shim_input_value(void* win, const char* id, char* out, int outlen) {

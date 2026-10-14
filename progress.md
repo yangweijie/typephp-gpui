@@ -1868,3 +1868,36 @@ CI 自动发现（`Domain examples` 步骤按 yml 循环）。
 就是因为 `$ok` 链尾挤不出投递余量。现在腾出来了。
 
 验证：`bash cmd/all-examples.sh both` → 14 支 selftest 全 rc=0、43 棵像素树全绿、88 秒。
+
+## 修复轮 19：focusElement 落地 + 一次"报告一个字没打"的账算清了（2026-10-14）
+
+先按规矩走完整链（改了 `cpp-src/` ⇒ 第一支必须 full chain）：`bash cmd/all-examples.sh first-native`
+→ **14 支 selftest 全 rc=0**；`shotdiff` → 全绿。八道门（pest 104 / phpstan / parity /
+test-shim / check-c-abi / check-build-inputs / doctor / selftest 全量）都过。
+
+`focusElement` 的读数是 `ch-select→-1001 focusedId=-1001 ch-date→-1005 ch-combo→-1003 不存在的 id→0`，
+`dispatchAction('ui::SelectDown')` 返回 true 而 `open_change` 仍是 0。
+上一轮我给每条探针加"进入"行想让崩溃自己报位置——这一轮证明**它挡不住硬信号**：
+stdout 重定向到文件是全缓冲的，SIGSEGV 时缓冲区整个丢，`lines=0`。
+位置最后是从 `DiagnosticReports/*.ips` + `nm`/`objdump` 里拿到的（过程记在 findings 轮 19）。
+
+顺带把两处文档里已经被推翻的话改了：`events.md` 那句"自动缝没法把焦点放进 Select"，
+和 `src/Element.php`/`events.md` 那句"这条路不需要新补丁"。
+
+## 修复轮 20：第 14 支补丁把 binding 那批回调从 QuickJS 挪进宿主队列（2026-10-14）
+
+查清机制后一支补丁解决两件事：**崩**（`CallbackArena::Get()` 扫表在 impl 不健康时 fault 在 0x1）
+和**这一族事件从来没到过 PHP**（Box2 id 不在 runtime 表里，扫不到就静默丢）。
+
+`cmd/patch-select-view.sh` 换掉 view.cpp 里 7 处 binding 派发，`open_change` 复用已有的
+`gpuiEnqueueChange` 所以**载荷第一次跟着到 PHP**；新增 `gpuiEnqueueSignal`（无载荷）与
+`gpuiEnqueueString`（step 的 increment/decrement）。
+
+实测：`openChangeDelivered — focus=-1001 SelectDown=true open_change 到 PHP=true 值=true`，
+同一支连跑 **6/6 rc=0**（修前 6 次里崩 4 次）。全量 **14 支 rc=0 · 44 棵像素树全绿**
+（像素树数从"43"订正成 44：按 `tests/baseline/**` 独立数过一遍，之前那个数是手数的）。
+`doctor` 正反两向（清单→落位、`cmd/patch-*.sh`→清单）都认这支；
+`check-build-inputs` 一开始红在"清单点名但未跟踪：cmd/patch-select-view.sh"——这正是它该有的行为。
+
+没做的事写进计划了：`confirm`/`dismiss` 缺 `open` 糖、`resize`/`item_secondary_click` 同形状未接、
+catalog 触发器没有 `paint.hits` 矩形。

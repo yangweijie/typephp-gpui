@@ -52,8 +52,11 @@ gpui.h 用了 C++20 的 `concept` / `requires`，而 TypePHP **nano 模式强制
 
 ## 构建产物链
 
-1. `cmd/patch-*.sh`（7 个，幂等）给上游源码打补丁：事件入队、nano 依赖解析、retained
-   实体、focus、registered 回调旁路、DispatchArgs 回调路由、host 侧 nested-view 注册。
+1. `cmd/patch-*.sh`（幂等；**支数以 `php bin/gpui doctor` 打出来的清单为准**，这里以前写死过
+   7、composer 写死 8、`bin/gpui` 跑 11，三份不一致时单跑 `composer patch` 得到的是半补丁树）
+   给上游源码打补丁：事件入队、nano 依赖解析、retained
+   实体、focus、registered 回调旁路、DispatchArgs 回调路由、host 侧 nested-view 注册、
+   按键/指针入宿主队列、部件 binding 里那批回调入宿主队列。
 2. `bun cmd/build.ts` 生成 amalgam（`.work/gpui.{h,cpp}`）+ 编 `gpui.o`。
 3. `cmd/build-shim.sh` 编 `gpui_shim.cpp`（C++20）并与 `gpui.o/quickjs.o/AppLog.o` 归档成
    `cpp-src/build/libgpui_shim.a`。

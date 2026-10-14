@@ -491,6 +491,13 @@ Int php_gpui_focused_id(Variant boxVar) {
     return gpui_shim_focused_id(win);
 }
 
+// 把焦点放进一颗已有焦点身份的部件；返回设完后读到的 focused id（0 = 没有身份）。
+Int php_gpui_focus_named(Variant boxVar, String id) {
+    void* win = winOf(boxVar);
+    if (!win) return 0;
+    return gpui_shim_focus_named(win, std::string(id.data(), id.length()).c_str());
+}
+
 Int php_gpui_activate(Variant boxVar) {
     void* win = winOf(boxVar);
     if (!win) return 0;
