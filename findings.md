@@ -1753,3 +1753,24 @@ stdout 重定向到文件时是全缓冲的，进程被 SIGSEGV 打死时缓冲�
 所以按本仓库验证过的形状走：像 `patch-key-view.sh` 换掉 `DispatchKey` 那样，
 把 Select 那三个 helper 里的 `runtime->Dispatch*` 换成一个带 Box2 id 的弱钩子，
 完全不进回调表；顺带把 open_change 的 bool 载荷带过去（现在文档里写着"丢载荷"）。
+
+### 修复轮 21 的另一半：`El::open()` 补上了，`step` 却撞见同一种新缺陷
+
+`El::open(bool)` 之后 `confirm`/`dismiss` 第一次到 PHP（读数与负向对照见 progress 轮 21）。
+顺手去量 `step`（上一轮 `gpuiEnqueueString` 那条钩子一直没测过，正是 #66"假糖"的形状），
+结果量到的不是投递问题：
+
+- `examples/input` 的 `in-num` 是 `El::numberInput('in-num')->value('42')->onChange()->onStep()`，
+  上游 `NumberStepButton`（materialize.cpp:960-983）给 `increment`/`decrement` 两颗
+  `Button::New` 挂上 `OnClick(step)`，`NumberInput::Compose`（base/number_input.cpp:252-276）
+  无条件把它们做成 FlexRow 的三个子元素之一 —— 树形上它们**该在**。
+- 但 `hitProbe` 的 10 条里没有它们的矩形：`[0:0,0x560x620 1:16,91x528x20 2:16,152x528x20
+  3:16,209x528x20 4:16,319x0x0 5:522,319x0x0 6:534,267x9x103c 7:16,390x0x0 8:16,420x0x0c
+  9:28,420x0x0c]` —— 三条 528x20 是输入框，其余是 0x0（8/9 还标着可点）。
+- 像素基线 `tests/baseline/input/tree1.png` 亲眼看：只有 `42` 一行字，
+  没有 decrement/increment 的字样，也没有输入框的边框。
+
+⇒ **#73 那一格不只发生在 catalog 触发器上**：部件自己 compose 出来的子元素（这里是 base Button）
+同样可以"在元素树里、但既没有可点矩形也不落字"。所以 `step` 的送达仍然未量，
+而 `stepDelivered` 在自检里**只报数不判红**——判红的会是"点不到"，不是"没接通"。
+教训同 #66/#73 那一族：一次"送达为 0"，先证明被投递的对象在屏幕上真的占了一块地方。

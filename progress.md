@@ -1924,3 +1924,20 @@ catalog 触发器没有 `paint.hits` 矩形。
 文档同步：`events.md` 的送达名数从 14 订正成 **17**（在册仍是 24，两个数别再混），
 `upstream-coverage.md` 的 event 行、`components.md` 的糖串、`src/Element.php` 那段族注释。
 门禁：pest 104 · phpstan 0 · parity OK · 全量 14 支 selftest rc=0 · 44 棵像素树全绿。
+
+## 修复轮 22：去量 `step`，量到的却是一格新缺陷（2026-10-14）
+
+上一轮留下的 `gpuiEnqueueString`（step 的 increment/decrement）一直没测过——那正是 #66
+"糖发了、送达没量"的形状，所以给 `in-num` 补了 `step` handler，在 `examples/input` 里
+按 `hitProbe` 逐条真点击去找那两颗 ± 按钮。
+
+结果不是投递问题：命中表 10 条里三条是 528x20 的输入框，其余全是 0x0（8/9 还标着可点），
+`tests/baseline/input/tree1.png` 亲眼看也只有 `42` 一行字——**那两颗按钮既不落字也没有矩形**，
+而上游侧它们确实在树里（`NumberStepButton` 造 Button 挂 `OnClick(step)`，
+`NumberInput::Compose` 无条件做成 FlexRow 的子元素）。
+
+所以 #73 那一格不是 catalog 专属，而是"部件 compose 出来的子元素拿不到矩形"这一族，
+开了 #79 单独跟。`stepDelivered` 因此**只报数不判红**：判红的会是"点不到"而不是"没接通"，
+那是拿别人的失败当自己的红灯。
+
+门禁：pest 104 · phpstan 0 · 全量 14 支 selftest rc=0 · 44 棵像素树全绿。

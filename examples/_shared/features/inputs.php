@@ -71,4 +71,9 @@ function wireInputs(App $app): void
     $app->on('in-key', 'key_down', function (array $e): void {
         ExampleState::$v['key'] = (string) ($e['value'] ?? '?');
     });
+    // NumberInput 的 ± 步进。上游把它做成"点按钮"而不是键位，所以这条只能经真点击量；
+    // 载荷是字符串 increment/decrement（cmd/patch-select-view.sh 起才带着值到 PHP）。
+    $app->on('in-num', 'step', function (array $e): void {
+        ExampleState::$v['lastStep'] = (string) ($e['value'] ?? '');
+    });
 }

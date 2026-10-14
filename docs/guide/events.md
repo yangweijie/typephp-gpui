@@ -115,6 +115,9 @@ PHP 侧声明。补上 `El::open(bool)`（`method('open', [$v])`）之后，`exa
 
 同形状还没接的两处：`on_resize`（一串 float）与 `on_item_secondary_click`——
 `cmd/patch-select-view.sh` 的头注释里点名了它们，别再当成已通。
+`on_step` 的钩子（`gpuiEnqueueString`）已经在了，但**送达仍未量到**，而且原因不是投递：
+NumberInput 那两颗 ± 按钮在 `paint.hits` 里没有矩形、像素里也没落字，所以点不到
+（`selftest input` 的 `stepDelivered(读数)` 报的就是这件事，同 #73 那一格一族）。
 
 内建动作派发这一条已经有了确定的结果（2026-10-13，同一支探针里量的）：
 开着 dialog、焦点陷阱生效之后 `dispatchAction('ui::Cancel')` 会把框关掉——

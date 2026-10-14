@@ -24,6 +24,8 @@ function exampleState(): array
 {
     return [
         'count' => 0, 'name' => '', 'vol' => 30, 'agree' => false, 'lastBtn' => '—',
+        // NumberInput 的 ± 步进事件值（increment/decrement）。
+        'lastStep' => '—',
         // choices 域：ch-select 声明成"开着"才谈得上 confirm/dismiss（画廊里恒 false）。
         'selectOpen' => false,
         'lastDd' => '—', 'sidebarCollapsed' => false, 'dialogCount' => 0,

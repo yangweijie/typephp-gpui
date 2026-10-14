@@ -497,3 +497,7 @@ SIGSEGV 报成了它自己那一行，而它在画廊里时只是"某轮 rc=11�
 
 **待办改口**：#73 现在只剩"catalog 触发器在 `paint.hits` 里没有矩形"这一半；
 `resize`/`item_secondary_click` 的同形状派发仍未接（`cmd/patch-select-view.sh` 头注释点名）。
+- [ ] **16-F** 去量 `step`（16-C 里 `gpuiEnqueueString` 那条未量的钩子）⇒ 量到新缺口：
+      NumberInput 的 ± 按钮在 `paint.hits` 里没有矩形、像素里也不落字（`selftest input` 的
+      `stepDelivered(读数)`），所以 `step` 的送达在"点得到"之前量不了。开了 **#79** 单独跟，
+      #73 于是从"catalog 触发器"改口成"部件 compose 出来的子元素拿不到矩形"这一族。
