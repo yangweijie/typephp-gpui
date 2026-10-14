@@ -61,80 +61,8 @@ function showcaseSections(): array
 // ── 6. catalog 富组件（Registered 机制）──> 已搬到 examples/_shared/features/catalog.php
 //    （sectionCatalog + wireCatalog + catalogTrees），独立示例 examples/catalog 与画廊共用那一份。
 
-// ── 7. 侧栏、表单与菜单 ─────────────────────────────────────────────────────
-function sectionChrome(array $s): El
-{
-    return El::vFlex([
-        El::text('侧栏、表单与菜单')->font(22.0)->semibold(),
-        El::hFlex([
-            El::sidebar('cr-sidebar', [
-                El::sidebarMenu([
-                    El::sidebarMenuItem('Home')->navIcon('home')->selected(true),
-                    El::sidebarMenuItem('Components')->navIcon('components'),
-                    El::sidebarMenuItem('Settings')->navIcon('settings'),
-                    El::sidebarMenuItem('Archive')->navIcon('archive'),
-                    El::sidebarMenuItem('Account')->navIcon('account'),
-                ]),
-            ])->side('left')->collapsibleMode($s['collapse'])->collapsed($s['sidebarCollapsed'])
-              // slot 是命名槽：header/footer 走它，不是 children。
-              ->slot('header', El::sidebarHeader(El::text('头部')->font(12.0)->semibold()))
-              ->slot('footer', El::sidebarFooter(El::text('底部')->font(12.0))),
-            El::sidebarToggleButton(),
-            El::vFlex([
-                El::form(true, [
-                    // align 属于 Field（"Aligns the label and control within the field"），
-                    // 不是 Form 的方法；Form 那边可设的是 columns / label_width。
-                    El::field([El::text('字段 A')->font(12.0), El::input('cr-f1')->value('a')])
-                        ->align($s['align'])->description('description 挂在 Field 上'),
-                    El::field([El::text('字段 B')->font(12.0), El::input('cr-f2')->value('b')])->align('end'),
-                ])->columns(2)->labelWidth(90),
-                // 菜单家族的契约（component_shell/lifecycle/menu.cpp）：
-                //   MenuBar 只收 Menu 子节点（:281），Menu 只收 MenuItem/MenuSeparator（:98）
-                //   ——嵌套 Menu 也不行。上一版把 MenuItem/分隔符直接塞给 MenuBar、又把
-                //   「最近」当嵌套 Menu，于是每帧报 `MenuBar accepts only Menu children`
-                //   并在画面上渲染成 "Failed to render MenuBar"。
-                El::menuBar('File', [
-                    El::menu('File', [
-                        El::menuItem('新建', 'cr-m-new'),
-                        El::menuSeparator(),
-                    ]),
-                    El::menu('最近', [
-                        El::menuItem('a.txt', 'cr-m-a'),
-                        El::menuItem('b.txt', 'cr-m-b'),
-                    ]),
-                ]),
-                El::menu('内联菜单', [El::menuItem('只读项', 'cr-m-ro')]),
-            ])->flex1()->gap(8.0)->pl(12.0),
-        ])->sizeFull(),
-        El::hFlex(array_map(
-            static fn (string $mode): El => El::catalogButton('cr-collapse-' . $mode, '折叠·' . $mode)->onClick()->ghost(),
-            El::COLLAPSE_MODES
-        ))->gap(6.0),
-        El::text("左边大侧栏当前 collapsibleMode={$s['collapse']}")->font(11.0),
-        // COLLAPSE_MODES 全枚举：三颗并排的迷你侧栏，各自钉死一种折叠模式。
-        El::hFlex(array_map(
-            static fn (string $mode): El => El::sidebar('cr-mode-' . $mode, [
-                El::sidebarMenu([
-                    El::sidebarMenuItem('Home')->navIcon('home'),
-                    El::sidebarMenuItem('Settings')->navIcon('settings'),
-                ]),
-            ])->w(180.0)->h(96.0)->side('right')->collapsibleMode($mode)->collapsed(false),
-            El::COLLAPSE_MODES
-        ))->gap(10.0)->itemsStart(),
-        El::hFlex(array_map(
-            static fn (string $a): El => El::catalogButton('cr-align-' . $a, 'align·' . $a)->onClick()->ghost(),
-            El::FIELD_ALIGN
-        ))->gap(6.0),
-        // FIELD_ALIGN 全枚举：form 的 label 对齐三档并排画出来。
-        El::hFlex(array_map(
-            static fn (string $a): El => El::form(true, [
-                El::field([El::text('L')->font(11.0), El::input('cr-al-' . $a)->value($a)])->align($a),
-            ])->w(200.0)->columns(1)->labelWidth(40),
-            El::FIELD_ALIGN
-        ))->gap(10.0)->itemsStart(),
-        El::text("上面大表单当前 align={$s['align']}")->font(11.0),
-    ])->sizeFull()->gap(10.0)->p(16.0)->overflowYScroll();
-}
+// ── 7. 侧栏、表单与菜单 ──> 已搬到 examples/_shared/features/chrome.php
+//    （sectionChrome + wireChrome + chromeTrees），独立示例 examples/chrome 与画廊共用。
 
 // ── 8. 浮层：dialog / sheet / toast / 通知 ──> 已搬到 examples/_shared/features/overlays.php
 //    （sectionOverlays + wireOverlays + overlaysTrees），独立示例 examples/overlay 与画廊共用那一份。
@@ -145,27 +73,7 @@ function sectionChrome(array $s): El
 
 // ── 10. 服务 ──> 已搬到 examples/_shared/features/system.php（与 §9 同一份）
 
-// ── 11. WebView 与 Inspector ────────────────────────────────────────────────
-function sectionEmbedded(array $s): El
-{
-    return El::vFlex([
-        El::text('WebView 与 Inspector 面板')->font(22.0)->semibold(),
-        El::text('两者都经 ComponentKind::ChildView + host 侧 nested-view 注册挂进元素树。')->font(11.0)->truncate(),
-        El::text('WebView 是盖在窗口上的 OS 控件：挡住后面的元素、不随容器滚动、没有圆角。')->font(11.0)->truncate(),
-        El::hFlex([
-            El::catalogButton('em-back', '后退')->onClick()->ghost(),
-            El::catalogButton('em-fwd', '前进')->onClick()->ghost(),
-            El::catalogButton('em-probe', '探针读 url/盒子')->onClick()->ghost(),
-            El::text($s['probe'] !== '' ? "probe：{$s['probe']}" : 'probe：读 wry 报的当前地址与应用盒子')->font(11.0)->truncate(),
-        ])->gap(8.0),
-        El::hFlex([
-            El::webviewHtml('<h3 style="font-family:sans-serif">webviewHtml</h3><p>由 wry 加载</p>', 'em-html')->w(300.0)->h(180.0)->border()->borderColor(0xCCC6BD),
-            El::webview('https://example.com', 'em-url')->w(300.0)->h(180.0)->border()->borderColor(0xCCC6BD),
-        ])->gap(12.0),
-        El::text('下面是 Inspector 面板（要先开拾取模式才画得出东西）：')->font(12.0),
-        El::inspector('em-inspector')->w(300.0)->h(150.0),
-    ])->sizeFull()->gap(10.0)->p(16.0)->overflowYScroll();
-}
+// ── 11. WebView 与 Inspector ──> 已搬到 examples/_shared/features/embedded.php
 
 // ── 12. 样式、图标与弹层原语 ──> 已搬到 examples/_shared/features/styling.php
 //    （sectionStyling + wireStyling + stylingTrees），独立示例 examples/style 与画廊共用那一份。

@@ -600,15 +600,8 @@ function wireShowcase(App $app): void
     // 6 节：catalog 回调（registered 旁路）——线在 examples/_shared/features/catalog.php 里
     wireCatalog($app);
 
-    // 7 节：菜单项（catalog 菜单的动作也走同一条 id/type 路由）
-    foreach (['new' => '新建', 'a' => 'a.txt', 'b' => 'b.txt', 'ro' => '只读项'] as $k => $label) {
-        $app->on('cr-m-' . $k, 'click', function () use ($label): void {
-            ExampleState::$v['lastBtn'] = 'menu:' . $label;
-        });
-    }
-    $app->on('cr-sidebar', 'click', function (): void {
-        ExampleState::$v['sidebarCollapsed'] = !ExampleState::$v['sidebarCollapsed'];
-    });
+    // 7 节：侧栏/表单/菜单——线在 examples/_shared/features/chrome.php 里，与 examples/chrome 共用。
+    wireChrome($app);
 
     // 8 节：浮层——线在 examples/_shared/features/overlays.php 里，与独立示例 examples/overlay 共用。
     wireOverlays($app);
@@ -617,36 +610,14 @@ function wireShowcase(App $app): void
     // 与独立示例 examples/system 共用同一份。
     wireSystem($app);
 
-    // 11 节：内嵌
-    $app->on('em-back', 'click', function () use ($app): void {
-        $app->webviewBack('em-url');
-    });
-    $app->on('em-fwd', 'click', function () use ($app): void {
-        $app->webviewForward('em-url');
-    });
-    $app->on('em-probe', 'click', function () use ($app): void {
-        $p = $app->webviewProbe('em-url');
-        ExampleState::$v['probe'] = sprintf('ok=%s url=%s box=%.0fx%.0f',
-            var_export($p['ok'] ?? false, true), (string) ($p['url'] ?? ''),
-            (float) ($p['w'] ?? 0), (float) ($p['h'] ?? 0));
-    });
+    // 11 节：内嵌——线在 examples/_shared/features/embedded.php 里，与 examples/embedded 共用。
+    wireEmbedded($app);
 
     // 13 节：mac 系统集成——线在 examples/_shared/features/mac.php 里，与 examples/mac 共用。
     wireMac($app);
 
     // 12 节：样式域的接线在 examples/_shared/features/styling.php 里
     wireStyling($app);
-    // 1/2 节：hover 与 key_down 两条独立事件通道
-    foreach (El::COLLAPSE_MODES as $mode) {
-        $app->on('cr-collapse-' . $mode, 'click', function () use ($mode): void {
-            ExampleState::$v['collapse'] = $mode;
-        });
-    }
-    foreach (El::FIELD_ALIGN as $a) {
-        $app->on('cr-align-' . $a, 'click', function () use ($a): void {
-            ExampleState::$v['align'] = $a;
-        });
-    }
     // 1 节：pr-hover 那颗探针的精确 hover handler 在 examples/_shared/features/primitives.php 里
     wirePrimitives($app);
     // 具体 id 的 hover handler 与 onAny('hover') 两条都注册：前者证明精确路由，后者证明通配。

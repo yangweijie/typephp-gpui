@@ -1800,3 +1800,35 @@ Pest 103 · PHPStan · parity · shim cpp · docs:build · README/cli/testing �
 
 验证：MAC / SYSTEM / SHOWCASE 三支 rc=0 · `shotdiff check showcase` 13 张 gdfrac=0 ·
 `check system` 两张 gdfrac=0 · mac 基线三次 md5 相同 · Pest 103 · PHPStan · parity · docs:build。
+
+## 修复轮 16：`chrome` 与 `embedded` —— 13 节全部拆完（Phase 15-C 收口，2026-10-14）
+
+§7 与 §11 用同一支 python 脚本搬家。**这支脚本第一次跑把 main.php 弄坏了**：
+我按 (c11,c13) → (lo,hi) → (c7,c8) 的顺序做替换，而这三段在文件里不是从后往前的，
+第一段替换之后后两段的行号全漂，于是删错区间（`Unmatched ')' on line 633`）。
+两份文件都已提交，`git checkout --` 直接还原，改完排序（`sorted(..., reverse=True)`）重跑一次成功。
+教训：**按行号批量编辑必须从文件末尾往前**，而"改完立刻 `php -l`"是唯一的看门人。
+
+`CHROME SELFTEST` 首轮两条 FAIL，都是我在断言里夹带了未验证的假设：
+1. `namedSlots — children=1`：`El::sidebar($id, $menus)` 的第二个实参本来就是往 children 放的，
+   我拿带 menus 的那颗去断言"children 为空"是断言过头。改成传空 menus 再断言 0。
+2. `menuActionToPhp — dispatched=true 而 lastBtn 不动`：**菜单动作回来的事件类型是 `action`，不是 `click`**。
+   搬过来的 §7 接线只注册了 click（那是 DropdownMenu.item 那条路），画廊里这条一直是靠
+   `onAny('action')` 通配记录器才被看见的——我第一轮拿 click handler 等它，自然一动不动。
+   现在示例内自挂一颗 action handler，读数 `回来的 type=action lastBtn:—→menu:cr-m-new`。
+
+`EMBEDDED SELFTEST` 一次过 6/6：`webViewAttached — ok=true box=356x178`（nested-view 真挂上了，
+"节点在树上但表面没挂"那类假绿只有盒子能照）、`probeUnknownId` 回 `ok=false` 而不是零盒子
+（否则 2) 里的零分不清是哪种）。
+
+## 拆分总账（Phase 15）
+
+`examples/` 现在是：`hello` + `showcase`（画廊：壳/导航/节表 + 跨域门）+ **12 支按域独立示例**
+（input overlay style table catalog choices text layout system mac chrome embedded），
+13 节 → 12 域（§9+§10 合成 system）。`examples/showcase/src/sections.php` 从 628 行降到 82 行，
+只剩节表与指路注释；`main.php` 从 1833 降到 1468。全部 UI 源在 `examples/_shared/features/`，
+一份文件同时被画廊与它自己的示例编译，**没有第二份实现**。
+每支都有：自己的 yml、`--sections`/`--shot`/`--selftest`（边跑边打）、像素基线（三次截图 md5 稳定）、
+CI 自动发现（`Domain examples` 步骤按 yml 循环）。
+拆的过程里另修掉 3 条真 bug + 结 1 条旧案（OTP 取值口 / sysInfo 键名 / 两棵树同一张图 / #62 Escape 结案），
+并把 #73 收窄成"三颗 catalog 触发器在 paint.hits 里没有矩形"。

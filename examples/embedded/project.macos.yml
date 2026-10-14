@@ -1,0 +1,49 @@
+name: gpui-embedded
+mode: bin
+output: build/embedded
+
+# TypePHP GPUI — macOS arm64，nano 模式。功能域独立示例：WebView 与 Inspector。
+#
+#
+# 两者都是"盖在窗口上的 OS 控件"：经 ComponentKind::ChildView + host 侧 nested-view 注册
+# 挂进元素树（#42/#43）。这一支只探 em-html 那颗（内容由 webviewHtml 直接给），
+# 不去探加载外站的 em-url——门禁里不该新增对外网的请求与它的超时抖动。
+#
+# nano 强制 c++17，shim 是 c++20 预编译库。一轮里第二支起用 --no-native。
+
+sources:
+  - src/main.php
+  - ../_shared/state.php
+  - ../_shared/features/embedded.php
+  - ../../src/App.php
+  - ../../src/Element.php
+  - ../../src/El.php
+  - ../../php-src/gpui.stub.php
+  - ../../cpp-src/gpui_bridge.cc
+
+build-dir: build
+
+cxx-std: c++17
+optimize: 2
+
+include-paths:
+  - ../../cpp-src
+  - ../../php-src
+
+# 静态库绝对路径：tpc 不解析相对 ld-flags，故用 @ROOT@ 占位，由 `bin/gpui build`
+# 在编译期替换为仓库绝对根并写到 project.macos.gen.yml。
+ld-flags:
+  - "@ROOT@/cpp-src/build/libgpui_shim.a"
+  - -framework Cocoa
+  - -framework CoreServices
+  - -framework CoreText
+  - -framework CoreGraphics
+  - -framework ImageIO
+  - -framework IOKit
+  - -framework WebKit
+  - -framework AudioToolbox
+  - -framework AVFoundation
+  - -framework Speech
+  - -framework Metal
+  - -framework QuartzCore
+  - -framework Carbon

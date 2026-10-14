@@ -26,6 +26,8 @@ sources:
   - ../_shared/features/layout.php
   - ../_shared/features/system.php
   - ../_shared/features/mac.php
+  - ../_shared/features/chrome.php
+  - ../_shared/features/embedded.php
   - ../_shared/features/catalog.php
   - ../../src/App.php
   - ../../src/Element.php

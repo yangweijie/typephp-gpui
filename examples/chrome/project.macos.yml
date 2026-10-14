@@ -1,0 +1,49 @@
+name: gpui-chrome
+mode: bin
+output: build/chrome
+
+# TypePHP GPUI — macOS arm64，nano 模式。功能域独立示例：侧栏、表单与菜单。
+#
+#
+# 这一域的证据有两条：命名槽（header/footer 走 slot，不是 children）与"目录菜单行的动作
+# 到底能不能回到 PHP"（dispatchAction 那条缝）。侧栏的 collapsibleMode/图标名、Field 的
+# align 都是 registered_method，名字对而通道错就是 #66 那种静默无效。
+#
+# nano 强制 c++17，shim 是 c++20 预编译库。一轮里第二支起用 --no-native。
+
+sources:
+  - src/main.php
+  - ../_shared/state.php
+  - ../_shared/features/chrome.php
+  - ../../src/App.php
+  - ../../src/Element.php
+  - ../../src/El.php
+  - ../../php-src/gpui.stub.php
+  - ../../cpp-src/gpui_bridge.cc
+
+build-dir: build
+
+cxx-std: c++17
+optimize: 2
+
+include-paths:
+  - ../../cpp-src
+  - ../../php-src
+
+# 静态库绝对路径：tpc 不解析相对 ld-flags，故用 @ROOT@ 占位，由 `bin/gpui build`
+# 在编译期替换为仓库绝对根并写到 project.macos.gen.yml。
+ld-flags:
+  - "@ROOT@/cpp-src/build/libgpui_shim.a"
+  - -framework Cocoa
+  - -framework CoreServices
+  - -framework CoreText
+  - -framework CoreGraphics
+  - -framework ImageIO
+  - -framework IOKit
+  - -framework WebKit
+  - -framework AudioToolbox
+  - -framework AVFoundation
+  - -framework Speech
+  - -framework Metal
+  - -framework QuartzCore
+  - -framework Carbon
