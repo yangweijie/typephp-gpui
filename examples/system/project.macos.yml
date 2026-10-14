@@ -1,0 +1,52 @@
+name: gpui-system
+mode: bin
+output: build/system
+
+# TypePHP GPUI — macOS arm64，nano 模式。功能域独立示例：系统能力 + 服务（§9 与 §10 合成一域）。
+#
+# 两节合一支的理由：它们的能力全部受同一张 Capabilities 授权表约束
+# （grantRoot 之后才允许遍历，遍历时逐级 openat + O_NOFOLLOW），
+# 而"没授权要读不到、授权后要读得到"这个**双向**门必须在同一个进程里按顺序量——
+# 授权表是进程内累计的，同进程里先测拒绝再测放行才是有效证据。
+#
+# sources 只列本域那份 feature 源（../_shared/features/system.php，两节两个 builder）+ 共用状态表；
+# 同一份文件也被画廊的 yml 收录，所以不存在第二份实现。
+#
+# nano 强制 c++17，shim 是 c++20 预编译库。一轮里第二支起用 --no-native。
+
+sources:
+  - src/main.php
+  - ../_shared/state.php
+  - ../_shared/features/system.php
+  - ../../src/App.php
+  - ../../src/Element.php
+  - ../../src/El.php
+  - ../../php-src/gpui.stub.php
+  - ../../cpp-src/gpui_bridge.cc
+
+build-dir: build
+
+cxx-std: c++17
+optimize: 2
+
+include-paths:
+  - ../../cpp-src
+  - ../../php-src
+
+# 静态库绝对路径：tpc 不解析相对 ld-flags，故用 @ROOT@ 占位，由 `bin/gpui build`
+# 在编译期替换为仓库绝对根并写到 project.macos.gen.yml。
+ld-flags:
+  - "@ROOT@/cpp-src/build/libgpui_shim.a"
+  - -framework Cocoa
+  - -framework CoreServices
+  - -framework CoreText
+  - -framework CoreGraphics
+  - -framework ImageIO
+  - -framework IOKit
+  - -framework WebKit
+  - -framework AudioToolbox
+  - -framework AVFoundation
+  - -framework Speech
+  - -framework Metal
+  - -framework QuartzCore
+  - -framework Carbon

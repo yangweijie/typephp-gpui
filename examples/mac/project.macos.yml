@@ -1,0 +1,53 @@
+name: gpui-mac
+mode: bin
+output: build/mac
+
+# TypePHP GPUI — macOS arm64，nano 模式。功能域独立示例：mac 系统集成（托盘 / 全局快捷键 / Dock / OS 通知）。
+#
+# 这一域的证据基本在系统界面之外：原生菜单条在屏幕顶（--shot 抓不到）、Dock 角标在程序坞、
+# OS 通知走通知中心。所以它的门是"读数对不对"而不是像素：
+# trayCount / hotkeyCount / fireHotkeyForTest 的派发回执 / appMenuCount / menuRows。
+# 拆成独立一支之后，HOTKEY_MODS 四个修饰键**逐个**注册再逐个撤销这件事才有条门钉得住
+# （画廊的按钮也注册每个组合，但没有任何断言逐个数过它们）。
+#
+# sources 只列本域那份 feature 源（../_shared/features/mac.php）+ 共用状态表；
+# 同一份文件也被画廊的 yml 收录，所以不存在第二份实现。
+#
+# nano 强制 c++17，shim 是 c++20 预编译库。一轮里第二支起用 --no-native。
+
+sources:
+  - src/main.php
+  - ../_shared/state.php
+  - ../_shared/features/mac.php
+  - ../../src/App.php
+  - ../../src/Element.php
+  - ../../src/El.php
+  - ../../php-src/gpui.stub.php
+  - ../../cpp-src/gpui_bridge.cc
+
+build-dir: build
+
+cxx-std: c++17
+optimize: 2
+
+include-paths:
+  - ../../cpp-src
+  - ../../php-src
+
+# 静态库绝对路径：tpc 不解析相对 ld-flags，故用 @ROOT@ 占位，由 `bin/gpui build`
+# 在编译期替换为仓库绝对根并写到 project.macos.gen.yml。
+ld-flags:
+  - "@ROOT@/cpp-src/build/libgpui_shim.a"
+  - -framework Cocoa
+  - -framework CoreServices
+  - -framework CoreText
+  - -framework CoreGraphics
+  - -framework ImageIO
+  - -framework IOKit
+  - -framework WebKit
+  - -framework AudioToolbox
+  - -framework AVFoundation
+  - -framework Speech
+  - -framework Metal
+  - -framework QuartzCore
+  - -framework Carbon

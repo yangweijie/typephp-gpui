@@ -412,8 +412,8 @@ nano 不支持 require/include，全靠 yml 列源文件；全局函数名必须
       （builder + `wire<域>` + `<域>Trees()`）→ 域 yml 只列自己那份 → `--selftest` 用 `step()` 边跑边打
       → `bin/gpui build <域> --no-native`（改了 cpp-src/ 则第一支必须走完整链）
       → `shotdiff record <域>` 并做两次截图 md5 对拍 → CI 的 Domain examples 步骤自动发现它。
-      **已完成 6/10：`style`(§12) `table`(§5) `catalog`(§6) `choices`(§3) `text`(§1) `layout`(§4)** —
-      前四支的门是"连根搬走"而不是复制：
+      **已完成 10/12：`input`(§2) `overlay`(§8) `style`(§12) `table`(§5) `catalog`(§6) `choices`(§3)
+      `text`(§1) `layout`(§4) `system`(§9+§10) `mac`(§13)** — 前几支的门是"连根搬走"而不是复制：
       `$styleSugarOk` / `$tableOk` / `$cbEmitOk` 与它们在画廊 `$ok` 链、报告串里的引用一起删掉。
       **搬完立刻红过一次**：pest 报 2 条——`onLinkClick` 等五个糖与 `specIndex()` 在画廊里唯一的
       调用点就是被搬走的门，覆盖率门当场说"这六个 API 现在没人展示了"。这条门是活的。
@@ -428,7 +428,12 @@ nano 不支持 require/include，全靠 yml 列源文件；全局函数名必须
       文档跟着改：`events.md` 那句"还没接的十个…不给糖"与代码不符（糖 10-13 就加了），
       订正成"糖有、送达未量"；`specIndex` 那条门的归属改指 `selftest table`；
       `upstream-coverage.md` 的 event 两行按 `grep -c "callback('on_" src/Element.php` 量出的 24 改写。
-      待搬：`chrome`(§7) `system`(§9+§10) `webview`(§11) `mac`(§13) + 跨域的 `a11y`
+      后四支（system/mac 这两轮）照出两条真 bug 并修掉：§10 的 sysInfo handler 用 C 结构体字段名
+      （`memUsedBytes`）而 bridge 给的键是 `memUsed` ⇒ 画廊那一行一直显示 `mem 0 / 0`；
+      以及"两棵树拍出同一张图"（树号拿去比节号）——是**两次基线字节数完全相同**这个异常暴露的。
+      mac 那支还交了一次 nano 编译期学费：`foreach ($ids as $k => $v)` 之后再赋 int 给 `$v`
+      ⇒ `Cannot assign value to variable $id of type php::Int with type php::Var`，rc=255 且没跑到自检。
+      待搬：`chrome`(§7) 与 `webview`(§11) 两域 + 跨域的 `a11y`
       （`$roleAllOk`/`$roleThrows`）与 `pointer`（`$mouseOk`，它要画廊的壳，最后判要不要搬）。
 - [ ] **15-D** CI native job 的域循环已就位（15-A 就加了）；剩下的是一轮全量本地跑与文档里的
       示例清单页。`shotdiff` 保持不进 CI（托管 runner 无窗口会话）。

@@ -1772,3 +1772,31 @@ TEXT SELFTEST                                    LAYOUT SELFTEST
 现在 `examples/` 下有 **八支按域独立示例**。验证：text/layout/showcase 三支 selftest 全 rc=0 ·
 `shotdiff check showcase` 13 张 gdfrac=0 · 两支新基线各三次截图 md5 相同 ·
 Pest 103 · PHPStan · parity · shim cpp · docs:build · README/cli/testing 的示例清单同步。
+
+## 修复轮 15：`mac` 与 `system` 两支 + 两条被拆出来的真 bug（2026-10-14）
+
+§9+§10 合成一支 `examples/system`（同一张 Capabilities 授权表管着它们，双向门必须同进程按顺序量），
+§13 拆成 `examples/mac`。这两支的搬家改用一支一次性 python 脚本按行范围搬（150+70 行手写必错），
+搬完立刻 `php -l` 三份文件 + `pest`——脚本失败时（第一次 `'\n'.join` 漏了）没有写坏任何文件。
+
+**十门全绿的 system**：`fsTwoWay`（gpui 写的 PHP 读得到、PHP 写的二进制 gpui 原样读回、
+列目录 2 条不截断、越界读 NULL **且留下 62 字节的原因**、递归删后不存在）、
+`processTwoWay`、`storageTwoWay`（未授权 set=false → 授权后成环）、`inflate`（两种容器 + 坏流 null）、
+`httpFailurePath`（127.0.0.1:1，排队 true、回来 ok=false，不碰外网）、`watchDir`、`sysInfo`…
+
+**拆出来照到的两条真 bug**：
+1. §10 那个 sysInfo handler 用的是 **C 结构体字段名**（`memUsedBytes`/`memTotalBytes`），
+   而 bridge 给的 PHP 键是 `memUsed`/`memTotal` ⇒ `(int) null = 0`，画廊那一行一直是 `mem 0 / 0`。
+   修后 `sysInfo — mem=11254202368/17179869184`。（hello 的 selftest 与 tests/SystemTest.php
+   一直用的是正确键，所以只有这一处 handler 错——正是"同一条链在别处有门、在这里没门"的样子。）
+2. 两支的"两棵树"拍出**同一张图**（49984 = 49984）：`systemTree()` 拿树号 2 去比节号 10。
+   是"两次基线字节数完全相同"这个异常暴露的，不是眼睛看出来的。修后 tree1≠tree2 且各自三次截图 md5 稳定。
+
+**mac 那支还交了一次 nano 编译期学费**：`foreach ($ids as $mod => $id)` 之后再把 int 赋给 `$id`
+⇒ `Cannot assign value to variable $id of type php::Int with type php::Var`，rc=255 且**一个字都没跑**，
+`php -l` 完全不报。已按"一个作用域一个名字一种类型"改掉（$modName/$newId/$dropId），
+并把这条教训写进注释。门：`trayLifecycle 0→1→0`、`hotkeyEveryMod 4 个组合 0→4→0`、
+`hotkeyDispatch`（fireHotkeyForTest 打进 handler，命中 1）、`appMenus 2 条 / rows 含 mac-about`。
+
+验证：MAC / SYSTEM / SHOWCASE 三支 rc=0 · `shotdiff check showcase` 13 张 gdfrac=0 ·
+`check system` 两张 gdfrac=0 · mac 基线三次 md5 相同 · Pest 103 · PHPStan · parity · docs:build。

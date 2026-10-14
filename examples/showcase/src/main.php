@@ -613,142 +613,9 @@ function wireShowcase(App $app): void
     // 8 节：浮层——线在 examples/_shared/features/overlays.php 里，与独立示例 examples/overlay 共用。
     wireOverlays($app);
 
-    // 9 节：系统能力
-    $app->on('sy-clip-set', 'click', function () use ($app): void {
-        $app->setClipboardText('showcase 写入的文本 ' . $app->notificationCount());
-    });
-    $app->on('sy-clip-get', 'click', function () use ($app): void {
-        $t = $app->clipboardText();
-        ExampleState::$v['clip'] = $t === null ? '空' : 'text=' . strlen($t);
-    });
-    $app->on('sy-clip-item', 'click', function () use ($app): void {
-        $item = $app->clipboardItem();
-        ExampleState::$v['clip'] = sprintf(
-            'text=%s image=%s paths=%d',
-            $item['text'] === null ? '-' : strlen($item['text']),
-            $item['image'] === null ? '-' : strlen($item['image']),
-            count($item['paths'])
-        );
-    });
-    $app->on('sy-url', 'click', function () use ($app): void {
-        $ok = $app->openUrl('https://example.com');
-        $rej = $app->openUrl('javascript:alert(1)');
-        ExampleState::$v['clip'] = 'openUrl 放行=' . var_export($ok, true) . ' 拒绝=' . var_export($rej, true);
-    });
-    $app->on('sy-pick', 'click', function () use ($app): void {
-        $p = $app->promptForPath(false, '选一个文件');
-        if ($p !== null) {
-            ExampleState::$v['picked'] = $p;
-        }
-    });
-    $app->on('sy-fs', 'click', function (): void {
-        // 授权根必须是**已存在**的目录：Capabilities::ResolvePath 只做前缀判断，
-        // 不会替你把根建出来，授一个还不存在的目录会让后面每一步都吃"不在根里"。
-        $root = '/tmp';
-        $work = '/tmp/gpui-showcase/nest';
-        App::grantRoot($root, true);
-        $log = [];
-        $log[] = 'mkdir=' . var_export(App::fsMkdir($work, true), true);
-        $log[] = 'write=' . var_export(App::fsWrite($root . '/nest/a.txt', "第一段\n第二段"), true);
-        $log[] = 'read=' . var_export(App::fsRead($root . '/nest/a.txt'), true);
-        $log[] = 'exists=' . var_export(App::fsExists($root . '/nest/a.txt'), true);
-        $truncated = false;
-        $entries = App::fsList($work, $truncated) ?? [];
-        $names = [];
-        foreach ($entries as $e) {
-            $names[] = (string) $e['name'];
-        }
-        sort($names);
-        $log[] = 'list=' . implode(',', $names) . ' truncated=' . var_export($truncated, true);
-        $log[] = 'outside=' . var_export(App::fsRead('/etc/hosts'), true) . '（' . App::fsError() . '）';
-        $log[] = 'remove=' . var_export(App::fsRemove($work, true, true), true);
-        ExampleState::$v['sysLog'] = $log;
-    });
-    $app->on('sy-proc', 'click', function (): void {
-        App::grantExecute(['/bin/echo']);
-        $r = App::processRun('/bin/echo', ['showcase 的输出']);
-        $denied = App::processRun('/bin/cat', ['/etc/passwd']);
-        ExampleState::$v['sysLog'] = array_merge(ExampleState::$v['sysLog'], [
-            'echo=' . ($r === null ? 'null' : 'code=' . $r['code'] . ' out=' . trim($r['out'])),
-            'cat(未授权)=' . var_export($denied, true) . '（' . App::fsError() . '）',
-        ]);
-    });
-    $app->on('sy-store', 'click', function (): void {
-        $before = App::storageSet('k', 'v');
-        App::grantStorage(true);
-        App::storagePath('/tmp/gpui-showcase-store.json');
-        $set = App::storageSet('theme', 'dark');
-        ExampleState::$v['sysLog'] = array_merge(ExampleState::$v['sysLog'], [
-            '未授权 set=' . var_export($before, true),
-            '授权后 set=' . var_export($set, true) . ' get=' . var_export(App::storageGet('theme'), true)
-                . ' len=' . App::storageLen(),
-            'remove=' . var_export(App::storageRemove('theme'), true),
-        ]);
-    });
-
-    // 10 节：服务
-    $app->on('sv-http', 'click', function () use ($app): void {
-        // 127.0.0.1 上一个必然没人听的端口：验整条异步路而不碰外网
-        ExampleState::$v['http'] = 'queued=' . var_export($app->httpGet('http://127.0.0.1:1/probe', 'sv-api'), true);
-    });
-    $app->on('sv-api', 'http', function () use ($app): void {
-        $r = $app->httpResponse('sv-api');
-        ExampleState::$v['http'] = $r === null ? '应答已被读过' : 'ok=' . var_export($r['ok'], true) . ' status=' . $r['status'];
-    });
-    $app->on('sv-watch', 'click', function () use ($app): void {
-        ExampleState::$v['watchId'] = $app->watchDir('/tmp', 'sv-themes', false);
-    });
-    $app->on('sv-unwatch', 'click', function () use ($app): void {
-        if (ExampleState::$v['watchId'] > 0) {
-            $app->unwatchDir(ExampleState::$v['watchId']);
-            ExampleState::$v['watchId'] = 0;
-        }
-    });
-    $app->on('sv-themes', 'dirChange', function () use ($app): void {
-        ExampleState::$v['watchHits']++;
-        $app->toast('目录变了', '/tmp 有写动作为真');
-    });
-    $app->on('sv-inflate', 'click', function (): void {
-        // 外部真数据（开发机 PHP 的 zlib 生成的 "hello gpui"），字节写死。
-        // 之前这里用一串手写的 base64，结果 inflate 返回 NULL——本机
-        // gzdecode(base64_decode(...)) 同样返回 false，所以错的是**我编的向量**，
-        // 不是 nano 的 base64_decode，也不是 gpui 的解压器。锚点要在两边都成立。
-        $gzip = "\x1F\x8B\x08\x00\x00\x00\x00\x00\x00\x13\xCB\x48\xCD\xC9\xC9\x57\x48"
-            . "\x2F\x28\xCD\x04\x00\x52\x1A\x59\x50\x0A\x00\x00\x00";
-        $out = App::inflate($gzip, true);
-        ExampleState::$v['inflate'] = $out === null ? '失败' : '解出 ' . strlen($out) . ' 字节：' . $out;
-    });
-    $app->on('sv-sysinfo', 'click', function (): void {
-        $info = App::sysInfo(3);
-        $rows = [
-            sprintf('cpu=%.1f%% mem=%.0f%% disk=%.0f%% ncpu=%d',
-                $info['cpu'], $info['memPct'], $info['diskPct'], $info['ncpu']),
-            sprintf('mem %s / %s', fmtBytes((int) $info['memUsedBytes']), fmtBytes((int) $info['memTotalBytes'])),
-            sprintf('battery present=%s charging=%s pct=%.0f%%',
-                var_export($info['batteryPresent'], true), var_export($info['batteryCharging'], true), $info['batteryPct']),
-        ];
-        foreach ($info['procs'] as $p) {
-            $rows[] = sprintf('  pid=%d %s cpu=%.1f%% mem=%s', $p['pid'], $p['name'], $p['cpu'], fmtBytes((int) $p['memoryBytes']));
-        }
-        ExampleState::$v['sysInfo'] = $rows;
-    });
-    foreach (App::FPS_ANCHORS as $a) {
-        $app->on('sv-fps-' . $a, 'click', function () use ($app, $a): void {
-            ExampleState::$v['hud'] = $app->showFpsHud($a);
-            ExampleState::$v['fpsAnchor'] = $a;
-        });
-    }
-    $app->on('sv-fps-off', 'click', function () use ($app): void {
-        $app->hideFpsHud();
-        ExampleState::$v['hud'] = $app->fpsHudVisible();
-    });
-    $app->on('sv-insp', 'click', function () use ($app): void {
-        $app->toggleInspector();
-    });
-    $app->on('sv-theme', 'click', function () use ($app): void {
-        ExampleState::$v['theme'] = ExampleState::$v['theme'] === 'dark' ? 'light' : 'dark';
-        $app->setTheme(ExampleState::$v['theme']);
-    });
+    // 9+10 节：系统能力与服务——线在 examples/_shared/features/system.php 里，
+    // 与独立示例 examples/system 共用同一份。
+    wireSystem($app);
 
     // 11 节：内嵌
     $app->on('em-back', 'click', function () use ($app): void {
@@ -764,76 +631,8 @@ function wireShowcase(App $app): void
             (float) ($p['w'] ?? 0), (float) ($p['h'] ?? 0));
     });
 
-    // 13 节：mac 系统集成
-    $app->on('mc-tray', 'click', function () use ($app): void {
-        ExampleState::$v['trayId'] = $app->tray(['新建', '打开…', '退出'], 'mc-tray-item', 'Showcase 托盘');
-    });
-    $app->on('mc-tray-off', 'click', function () use ($app): void {
-        if (ExampleState::$v['trayId'] > 0) {
-            $app->removeTray(ExampleState::$v['trayId']);
-            ExampleState::$v['trayId'] = 0;
-        }
-    });
-    $app->on('mc-tray-item', 'tray', function (array $e): void {
-        ExampleState::$v['lastBtn'] = 'tray:' . (string) ($e['value'] ?? '');
-    });
-    $app->on('mc-hk-1', 'click', function () use ($app): void {
-        // keycode 105 = F7（Carbon kVK_F7）， mods 走 App::HOTKEY_MODS 的位掩码表。
-        ExampleState::$v['hotkeyId'] = $app->onHotkey('mc-hk-cmdshift', 105, ['cmd', 'shift']);
-        ExampleState::$v['hotkeyMods'] = 'cmd+shift';
-    });
-    $app->on('mc-hk-2', 'click', function () use ($app): void {
-        ExampleState::$v['hotkeyId'] = $app->onHotkey('mc-hk-opt', 100, ['option']);
-        ExampleState::$v['hotkeyMods'] = 'option';
-    });
-    $app->on('mc-hk-3', 'click', function () use ($app): void {
-        ExampleState::$v['hotkeyId'] = $app->onHotkey('mc-hk-ctrl', 101, ['control']);
-        ExampleState::$v['hotkeyMods'] = 'control';
-    });
-    foreach (array_keys(App::HOTKEY_MODS) as $mod) {
-        $app->on('mc-hk-' . $mod, 'click', function () use ($app, $mod): void {
-            ExampleState::$v['hotkeyId'] = $app->onHotkey('mc-hk-' . $mod, 110, [$mod]);
-            ExampleState::$v['hotkeyMods'] = $mod;
-        });
-    }
-    $app->on('mc-hk-cmdshift', 'hotkey', function (): void {
-        ExampleState::$v['hotkeyHits']++;
-    });
-    foreach (array_keys(App::HOTKEY_MODS) as $mod) {
-        $app->on('mc-hk-' . $mod, 'hotkey', function () use ($mod): void {
-            ExampleState::$v['hotkeyHits']++;
-            ExampleState::$v['hotkeyMods'] = '命中:' . $mod;
-        });
-    }
-    $app->on('mc-hk-off', 'click', function () use ($app): void {
-        if (ExampleState::$v['hotkeyId'] > 0) {
-            $app->removeHotkey(ExampleState::$v['hotkeyId']);
-            ExampleState::$v['hotkeyId'] = 0;
-        }
-    });
-    $app->on('mc-dock-7', 'click', function (): void {
-        App::dockBadge('7');
-        ExampleState::$v['dock'] = '7';
-    });
-    $app->on('mc-dock-off', 'click', function (): void {
-        App::dockBadge('');
-        ExampleState::$v['dock'] = '（清空）';
-    });
-    $app->on('mc-osn', 'click', function (): void {
-        ExampleState::$v['osNotify'] = var_export(App::osNotify('Showcase', '这是操作系统通知中心的一条'), true);
-    });
-    $app->on('mc-menus', 'click', function () use ($app): void {
-        // 键名要跟 bridge 对齐：菜单条用 name（不是 label），行用 action（不是 id）。
-        // 写错不报错，只是那一行的动作永远是 0——点了没有任何回音。
-        ExampleState::$v['menuCount'] = $app->setAppMenus([
-            ['name' => 'Showcase', 'items' => [
-                ['label' => '关于', 'action' => 'menu-about'],
-                ['separator' => true],
-                ['label' => '退出', 'action' => 'menu-quit'],
-            ]],
-            ['name' => 'Help', 'items' => [['label' => '文档', 'action' => 'menu-doc']]],
-        ]);
-    });
+    // 13 节：mac 系统集成——线在 examples/_shared/features/mac.php 里，与 examples/mac 共用。
+    wireMac($app);
 
     // 12 节：样式域的接线在 examples/_shared/features/styling.php 里
     wireStyling($app);
@@ -877,18 +676,6 @@ function evSeenSummary(): string
         $parts[] = $type . '{' . implode(',', array_keys($ids)) . '}';
     }
     return implode(' ', $parts);
-}
-
-function fmtBytes(int $n): string
-{
-    $units = ['B', 'K', 'M', 'G', 'T'];
-    $i = 0;
-    $v = (float) $n;
-    while ($v >= 1024.0 && $i < 4) {
-        $v /= 1024.0;
-        $i++;
-    }
-    return sprintf('%.1f%s', $v, $units[$i]);
 }
 
 // ── 模式 ────────────────────────────────────────────────────────────────────

@@ -139,67 +139,11 @@ function sectionChrome(array $s): El
 // ── 8. 浮层：dialog / sheet / toast / 通知 ──> 已搬到 examples/_shared/features/overlays.php
 //    （sectionOverlays + wireOverlays + overlaysTrees），独立示例 examples/overlay 与画廊共用那一份。
 
-// ── 9. 系统能力 ─────────────────────────────────────────────────────────────
-function sectionSystem(array $s): El
-{
-    return El::vFlex([
-        El::text('系统能力：剪贴板 · url · 文件系统 · 进程 · 存储')->font(22.0)->semibold(),
-        El::hFlex([
-            El::catalogButton('sy-clip-set', '写剪贴板')->onClick()->ghost(),
-            El::catalogButton('sy-clip-get', '读文本')->onClick()->ghost(),
-            El::catalogButton('sy-clip-item', '读完整一项')->onClick()->ghost(),
-            El::catalogButton('sy-url', '打开 URL')->onClick()->ghost(),
-            El::catalogButton('sy-pick', '选文件')->onClick()->ghost(),
-        ])->gap(8.0),
-        El::text($s['clip'] !== '' ? "剪贴板：{$s['clip']}" : '剪贴板：还没读（三通道：文本/图像/文件）')->font(12.0),
-        El::text($s['picked'] !== '' ? "选中：{$s['picked']}" : 'promptForPath 自带嵌套消息循环 ⇒ 只能在事件回调里调')->font(11.0)->truncate(),
-        El::text('授权文件系统（先 grantRoot，之后每个调用内部自己选根）：')->font(12.0),
-        El::hFlex([
-            El::catalogButton('sy-fs', 'fs 写·读·列·删')->onClick()->secondary(),
-            El::catalogButton('sy-proc', '跑 /bin/echo')->onClick()->ghost(),
-            El::catalogButton('sy-store', '存储 set/get')->onClick()->ghost(),
-        ])->gap(8.0),
-        El::vFlex(array_map(
-            static fn (string $line): El => El::text($line)->font(11.0)->truncate(),
-            $s['sysLog'] === [] ? ['（还没点上面三个按钮）'] : $s['sysLog']
-        ))->gap(2.0)->p(8.0)->bg(0xFAF8F5)->roundedMd()->h(130.0)->overflowYScroll(),
-    ])->sizeFull()->gap(10.0)->p(16.0)->overflowYScroll();
-}
+// ── 9. 系统能力 ──> 已搬到 examples/_shared/features/system.php
+//    （sectionSystem + sectionServices + wireSystem + systemTrees），
+//    独立示例 examples/system 与画廊共用那一份。
 
-// ── 10. 服务 ────────────────────────────────────────────────────────────────
-function sectionServices(array $s): El
-{
-    return El::vFlex([
-        El::text('服务：http · 目录监听 · 解压 · 系统状态 · HUD · Inspector · 主题')->font(22.0)->semibold(),
-        El::hFlex([
-            El::catalogButton('sv-http', 'httpGet（loopback，必然失败）')->onClick()->secondary(),
-            El::catalogButton('sv-watch', 'watchDir 临时目录')->onClick()->ghost(),
-            El::catalogButton('sv-unwatch', '停监听')->onClick()->ghost(),
-            El::catalogButton('sv-inflate', 'inflate 一段 gzip')->onClick()->ghost(),
-            El::catalogButton('sv-sysinfo', 'sysInfo 采样')->onClick()->ghost(),
-        ])->gap(8.0),
-        El::text($s['http'] !== '' ? "http：{$s['http']}" : 'http：HttpSend 阻塞 ⇒ 只接 HttpSendAsync，结果走事件队列')->font(11.0)->truncate(),
-        El::text("dirChange：watch id={$s['watchId']}，命中 {$s['watchHits']} 次（合并上报，不带文件名）")->font(11.0),
-        El::text($s['inflate'] !== '' ? "inflate：{$s['inflate']}" : 'inflate：三方锚定的解压（gpui 容器与真 deflate 都读）')->font(11.0)->truncate(),
-        El::vFlex(array_map(
-            static fn (string $line): El => El::text($line)->font(11.0)->truncate(),
-            $s['sysInfo']
-        ))->gap(2.0)->p(8.0)->bg(0xFAF8F5)->roundedMd(),
-        El::hFlex([
-            El::catalogButton('sv-insp', 'Inspector 拾取')->onClick()->ghost(),
-            El::catalogButton('sv-theme', '切主题 dark/light')->onClick()->ghost(),
-        ])->gap(8.0),
-        // FPS_ANCHORS 全枚举：8 个锚点各一颗，HUD 真钉在那一角。
-        El::hFlex(array_map(
-            static fn (string $a): El => El::catalogButton('sv-fps-' . $a, 'HUD·' . $a)->onClick()->ghost()->sizeEnum('xsmall'),
-            App::FPS_ANCHORS
-        ))->gap(4.0)->flexWrap(),
-        El::hFlex([
-            El::catalogButton('sv-fps-off', '藏 HUD')->onClick()->ghost(),
-            El::text("hud=" . ($s['hud'] ? 'on' : 'off') . " anchor={$s['fpsAnchor']} · 主题={$s['theme']}")->font(12.0),
-        ])->gap(8.0),
-    ])->sizeFull()->gap(10.0)->p(16.0)->overflowYScroll();
-}
+// ── 10. 服务 ──> 已搬到 examples/_shared/features/system.php（与 §9 同一份）
 
 // ── 11. WebView 与 Inspector ────────────────────────────────────────────────
 function sectionEmbedded(array $s): El
@@ -226,42 +170,5 @@ function sectionEmbedded(array $s): El
 // ── 12. 样式、图标与弹层原语 ──> 已搬到 examples/_shared/features/styling.php
 //    （sectionStyling + wireStyling + stylingTrees），独立示例 examples/style 与画廊共用那一份。
 
-// ── 13. mac 系统集成 ────────────────────────────────────────────────────────
-function sectionMac(array $s): El
-{
-    // HOTKEY_MODS 全部走一遍：每个修饰键组合一颗按钮，注册成真全局快捷键。
-    $hkBtns = [];
-    foreach (array_keys(App::HOTKEY_MODS) as $mod) {
-        $hkBtns[] = El::catalogButton('mc-hk-' . $mod, 'HK·' . $mod)->onClick()->ghost();
-    }
-
-    return El::vFlex([
-        El::text('mac 集成：托盘 · 全局快捷键 · Dock · OS 通知')->font(22.0)->semibold(),
-        El::text('托盘/快捷键/Dock/OS 通知都经 gpui_mac.mm 的 Cocoa+Carbon 直路，不碰 gpui.h。')->font(11.0)->truncate(),
-        El::hFlex([
-            El::catalogButton('mc-tray', '装托盘（A/B 两项）')->onClick()->primary(),
-            El::catalogButton('mc-tray-off', '撤掉托盘')->onClick()->ghost(),
-            El::text("trayId={$s['trayId']} 在场=" . App::trayCount())->font(12.0),
-        ])->gap(8.0)->itemsCenter(),
-        El::text('托盘项被点 ⇒ 事件 type=tray，值=菜单项文本（无人值守下用 fireHotkeyForTest 那条缝验派发链）。')->font(11.0)->truncate(),
-        El::hFlex([
-            El::catalogButton('mc-hk-1', '注册 ⌘⇧F7')->onClick()->secondary(),
-            El::catalogButton('mc-hk-2', '注册 ⌥F8')->onClick()->ghost(),
-            El::catalogButton('mc-hk-3', '注册 ⌃F9')->onClick()->ghost(),
-            El::catalogButton('mc-hk-off', '撤最近一条')->onClick()->ghost(),
-            El::text("hkId={$s['hotkeyId']} 在场=" . App::hotkeyCount() . " 命中={$s['hotkeyHits']} mods={$s['hotkeyMods']}")->font(12.0),
-        ])->gap(8.0)->itemsCenter(),
-        El::hFlex($hkBtns)->gap(6.0)->flexWrap(),
-        El::text('上面一排按 HOTKEY_MODS 的每个键各注册一条（cmd/shift/option/control 全覆盖）。')->font(11.0),
-        El::hFlex([
-            El::catalogButton('mc-dock-7', 'Dock 角标 7')->onClick()->ghost(),
-            El::catalogButton('mc-dock-off', 'Dock 角标清掉')->onClick()->ghost(),
-            El::catalogButton('mc-osn', 'OS 通知')->onClick()->outline(),
-            El::text("badge={$s['dock']} osNotify={$s['osNotify']}")->font(12.0),
-        ])->gap(8.0)->itemsCenter(),
-        El::hFlex([
-            El::catalogButton('mc-menus', '装 app 菜单（含分隔线与子菜单）')->onClick()->primary(),
-            El::text("menuCount=" . $s['menuCount'])->font(12.0),
-        ])->gap(8.0)->itemsCenter(),
-    ])->sizeFull()->gap(12.0)->p(16.0)->overflowYScroll();
-}
+// ── 13. mac 系统集成 ──> 已搬到 examples/_shared/features/mac.php
+//    （sectionMac + wireMac + macTrees），独立示例 examples/mac 与画廊共用那一份。
