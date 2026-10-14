@@ -1803,3 +1803,24 @@ type 1 = 同点按下+抬起、type 0 = 移动，没有分离的按下/抬起，
 
 **教训**：写"未接"之前要先说清是哪一格——"补丁没打"与"上游没有发信方"与"我们的糖挂错节点"
 在报表里长得一模一样，但只有第三种当场可修，而且不修就会一直报 0。
+
+## 修复轮 28：「输入框外观无框（主题层）」这条遗留的标签是错的（2026-10-14）
+
+计划里挂了很久的一句"输入框没边框，是主题层的活"，逐层查下来跟主题没关系：
+
+| 层 | 事实 | 位置 |
+|---|---|---|
+| shell kind | `input` 走的是**不带样式**那个重载 `InputBase::New(cx,id,interactive,role)`；带 `InputStyles`（含 focus/disabled 态）的重载存在但 materialize 不调 | `base/input.cpp:34-39` vs `:41-49`，调用点 `materialize.cpp:1950-1956` |
+| catalog | 有样式的是 catalog 的 `Input`，构造**只吃一个实参** `state`，schema 是 `SchemaEntity("InputState")`；同型七颗（NumberInput/OtpInput/Slider/ColorPicker/Calendar/DatePicker/TimeField） | `component_shell/retained_forms/mod.cpp:553-554, 624` |
+| 我们的实参层 | **不挡**：`SchemaKind::Entity` 早就映成 `out->handle=(uint64_t)ga.num` | `cpp-src/gpui_shim.cpp:632-637` |
+| 上游读侧 | **不挡**：`MaterializeRequest::State` → `ShellRuntime::ComponentState(handle, kind, …)`，public | `runtime.cpp:13186-13199`、`:12833` |
+| 上游写侧 | **挡**：`componentStates.Insert(...)` 只出现在 JS 绑定函数里（同段 `JS_ThrowTypeError` + `ScopeCurrentApplication()`），而 `componentStates` 是 `ShellRuntimeImpl` 私有成员 | `runtime.cpp:3256`、`:406` |
+
+⇒ 真正的缺口是"宿主没有创建 state 实体的入口"，补一支小补丁（第 15 支，与
+`PushShimCallback`/`RegisterHostView` 同族）就能**一次开通整族带样式的表单组件**，
+而不是去调主题。已开任务 #81，含实现顺序与一个必须盯住的风险：
+`componentStates.Clear()`（`:11176`）与 `ReleaseApplication`（`:11822`）是既有的回收路径，
+宿主造的实体必须挂进同一套生命周期，否则就是当年"每帧回调无界增长"那一族的复发。
+
+教训还是那条老形状：**"看起来像 A 层的问题"要先证明 A 层真的参与**。这次"无框"被标成
+主题层，实际主题层从头到尾没被调用过——差的是构造实参。

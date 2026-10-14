@@ -332,7 +332,17 @@ Phase 9（三个真 bug）/ Phase 10（mac 集成）/ Phase 11（Capabilities �
       0→-1001 1→-1002 2→-1003 3→-1004，每颗各自一个非零实体 id 且互不相同），
       那句旧注释连同它「不能当门」的推论一起作废，改成 `examples/input` 的硬门
       `focusFollowsClick`（断的是关系：非零 + 逐颗互不相同，不断具体数字）。
-- [ ] 遗留：输入框外观无框（主题层）——这一半没动，是主题/样式层的活。
+- [ ] 遗留"输入框外观无框（主题层）"**标签是错的**，2026-10-14 查清：shell 的 `input` kind
+      走的是不带样式那个重载（`InputBase::New(cx,id,interactive,role)`，base/input.cpp:34-39），
+      带 `InputStyles` 的那个重载（:41-49）materialize 根本不用 ⇒ 裸框是上游 shell 层的行为。
+      真正有样式的是 catalog 的 `Input`（`component_shell/retained_forms/mod.cpp:624`），
+      它构造只吃一个实参 `state`，schema 是 `SchemaEntity("InputState")`（`kInputStateEntity` :554）
+      ——`NumberInput`/`OtpInput`/`Slider`/`ColorPicker`/`Calendar`/`DatePicker`/`TimeField` 全同此型。
+      我们这侧实参层**不挡**（`buildComponentArgs` 早就把 `SchemaKind::Entity` 映成
+      `out->handle = ga.num`，cpp-src/gpui_shim.cpp:632-637），挡的是"宿主造不出那颗 state 实体"。
+      上游注释说它是 `StateBuild::New<TextStateEntity>()`（`input_tokens.h:20`），而 `StateBuild`
+      是个公开结构体（`component_registry.h:263-280`）、不需要 JS。⇒ 缺一个 shim 入口，
+      补上就一次开通整族带样式的表单组件。见任务 #81。
 
 ### Phase 14c：真输入的系统前提（已完成，剩用户手点复核）
 
