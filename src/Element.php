@@ -1269,6 +1269,59 @@ class Element
         ])->id($id);
     }
 
+    /**
+     * catalog 表单族剩下那七颗（#82）：每颗的构造都只吃一个 `state`，差别只在
+     * 那颗实体的 schema（`retained_forms/mod.cpp:470-518`）。
+     *
+     * 与 `El::input()`/`El::slider()`/`El::otpInput()` 那批 kind 版的区别同
+     * `catalogInput()`：kind 版不带样式（materialize 走无样式的重载），带边框/焦点态的
+     * 是 catalog 这一族。**取值回读只覆盖 kind 版**：`App::text()`/`checked()` 读的是
+     * shim 的 inputHandles 表，catalog 那颗不在里面（见 examples/input 的门注释）。
+     */
+    public static function catalogNumberInput(string $id, string $placeholder = '', string $initial = ''): self
+    {
+        // NumberInput 与 Input 共用 InputState（"shared by Input and NumberInput"）。
+        return self::reg('NumberInput', [
+            self::state('InputState', $id, [
+                $placeholder === '' ? null : $placeholder,
+                $initial === '' ? null : $initial,
+            ]),
+        ])->id($id);
+    }
+
+    /** OtpState 的 `length` 是**必填** Number（正整数），不是 optional 文本。 */
+    public static function catalogOtpInput(string $id, int $length = 6): self
+    {
+        return self::reg('OtpInput', [self::state('OtpState', $id, [$length])])->id($id);
+    }
+
+    /** SliderState 只有一个 optional Number，且上游限定 0..100。 */
+    public static function catalogSlider(string $id, float $initial = 0.0): self
+    {
+        return self::reg('Slider', [self::state('SliderState', $id, [$initial])])->id($id);
+    }
+
+    /** Calendar/ColorPicker/DatePicker/TimeField 四颗的 state 不吃实参。 */
+    public static function catalogCalendar(string $id): self
+    {
+        return self::reg('Calendar', [self::state('CalendarState', $id)])->id($id);
+    }
+
+    public static function catalogColorPicker(string $id): self
+    {
+        return self::reg('ColorPicker', [self::state('ColorPickerState', $id)])->id($id);
+    }
+
+    public static function catalogDatePicker(string $id): self
+    {
+        return self::reg('DatePicker', [self::state('DatePickerState', $id)])->id($id);
+    }
+
+    public static function catalogTimeField(string $id): self
+    {
+        return self::reg('TimeField', [self::state('TimeFieldState', $id)])->id($id);
+    }
+
     // ── 子节点 ──
 
     public function child(self $element): self

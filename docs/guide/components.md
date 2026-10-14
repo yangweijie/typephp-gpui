@@ -293,6 +293,21 @@ El::catalog('Input', [El::state('InputState', 'in-cat', ['占位', '初值'])]);
 El::state($kind, $key, $args);   // 实参标记；$args 按该 state 描述符的 schema 顺序，null = 不传（optional 缺席）
 ```
 
+整族八颗都有糖（`retained_forms/mod.cpp:470-518` 是它们各自的 schema）：
+
+| 糖 | state kind | 实参 |
+|---|---|---|
+| `El::catalogInput($id, $ph, $init)` | `InputState` | 两个 optional 文本 |
+| `El::catalogNumberInput($id, $ph, $init)` | `InputState`（与 Input 同一颗） | 同上 |
+| `El::catalogOtpInput($id, $length = 6)` | `OtpState` | `length` 是**必填** Number |
+| `El::catalogSlider($id, $initial = 0.0)` | `SliderState` | 一个 optional Number，上游限 0..100 |
+| `El::catalogColorPicker($id)` / `catalogCalendar` / `catalogDatePicker` / `catalogTimeField` | 各自同名 kind | **不吃实参** |
+
+`examples/_shared/features/inputs.php` 里这一族与 kind 版并排画着，两件事一次看清：
+带不带框、以及**取值回读只覆盖 kind 版**——`App::text()`/`checked()` 读的是 shim 的
+`inputHandles` 表，catalog 那颗不在里面（要它的值得走 `change` 事件那条线，见
+[事件与回调](/guide/events)）。
+
 三条必须知道的语义：
 
 - **`$key` 是复用的身份**：PHP 每帧重建整棵树，宿主按 `(kind, key)` 缓存实体——用元素 id 就够。

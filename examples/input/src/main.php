@@ -26,6 +26,16 @@ use TypePHP\Gpui\Element as El;
 const INPUT_W = 560;
 const INPUT_H = 620;
 
+/**
+ * 页面上 catalog 表单族的颗数 = 宿主造的 state 实体颗数（#81/#82）。
+ *
+ * 这个数字是 catalogStateReuse 那条门的判据，改 examples/_shared/features/inputs.php
+ * 那一族时必须同步改这里——不同步就红，正是要的红。清单：
+ *   in-cat(Input) in-cnum(NumberInput) in-cotp(OtpInput) in-cslider(Slider)
+ *   in-ccolor(ColorPicker) in-ctime(TimeField) in-cdate(DatePicker) in-ccal(Calendar)
+ */
+const INPUT_CATALOG_STATES = 8;
+
 function main(int $argc, array $argv): void
 {
     // nano 下未捕获异常只印一行类名，位置与消息都没有：先包一层，把消息原样打出来。
@@ -156,16 +166,16 @@ function runSelfTest(): void
     //     天生裸框；带边框/焦点态那颗是 catalog 的 `Input`，构造只吃**一颗宿主造的
     //     `InputState` 实体**（retained_forms/mod.cpp:538-554）。这条链建不出来时上游
     //     照旧静默降级成 Div（registeredError() 也是空的），所以断的是外显读数：
-    //     框数确实因为这一行变多——改前实测 n=4，改后 n=5。探针只给矩形不给 id，
-    //     所以这里不断"哪一颗是 in-cat"，只断"多出来一颗有矩形的框"。
+    //     框数确实因为这一行变多——改前实测 n=4，加了 in-cat 是 5，铺满一族之后 6。
+    //     探针只给矩形不给 id，所以这里断**下界**不断定值：哪一颗进那张表由上游布局决定，
+    //     定值会让任何一次布局改动都红，而下界照样抓着"in-cat 那颗没建成"。
     $catOk = $n >= 5;
-    step('catalogInputRect', $catOk, 'n=' . $n . '（把这一行从页面上拿掉时实测 4）');
+    step('catalogInputRect', $catOk, 'n=' . $n . '（这一族都不在时实测 4，全铺上是 6）');
     $ok = $ok && $catOk;
 
     // 2c) 实体是按帧复用、不是每帧新建。读数取**上游实体表的长度**而不是我方缓存条数：
     //     缓存失效时是同一个 (kind,key) 被覆盖，我方条数看不出来，而表长度每帧 +1。
-    //     本域只有一颗 catalog 组件，所以这个数必须是 1；这里先取第一次，末了再取一次
-    //     （中间那些逐颗点击/敲键都伴随重渲染）。
+    //     期望值就是页面上 catalog 那一族的颗数（INPUT_CATALOG_STATES）。
     $sc = $app->stateCounts();
     $statesEarly = (int) ($sc['componentStates'] ?? -1);
 
@@ -318,12 +328,14 @@ function runSelfTest(): void
     $ok = $ok && $stepOk;
 
     // 到这里页面已经重渲染过多帧（上面逐颗框都点过、每步都 loop 过）：实体表还必须是
-    // 同一个数，而且必须是 1。见 2c) 的说明——这条是 #81 的"每帧漏一颗"防线。
+    // 同一个数，而且必须正好是那一族的颗数。见 2c) 的说明——这条是 #81/#82 的
+    // "每帧漏一颗"防线，颗数不对就说明某一颗根本没建成（而它是静默降级成 Div 的）。
     $scLate = $app->stateCounts();
     $statesLate = (int) ($scLate['componentStates'] ?? -1);
-    $reuse = $statesEarly === 1 && $statesLate === 1;
+    $want = INPUT_CATALOG_STATES;
+    $reuse = $statesEarly === $want && $statesLate === $want;
     step('catalogStateReuse', $reuse, 'componentStates 首帧后=' . $statesEarly
-        . ' 多帧后=' . $statesLate . '（本域一颗 catalog 组件，应恒为 1）');
+        . ' 多帧后=' . $statesLate . '（页面上 catalog 表单族 ' . $want . ' 颗）');
     $ok = $ok && $reuse;
 
     // 反向对照（这条门自己会不会是假绿）：把 state 的 kind 换成不存在的名字重渲染一次，

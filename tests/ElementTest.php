@@ -305,6 +305,7 @@ test('every factory that takes an $id puts it where its kind routes events', fun
     $sentinel = 'probe-id-9';
     $base = 0;
     $registered = 0;
+    $stateCtor = 0;   // ctor 只吃 state 实体的那几颗（catalog 表单族，#81/#82）
     foreach ($rc->getMethods(ReflectionMethod::IS_PUBLIC) as $m) {
         // getMethods 的掩码是"命中任一标志即入选"，只写 IS_STATIC 会把 public 实例方法
         // （如 item()）一起捞进来，反射调用它们时要对象实例——所以这里显式再筛一遍。
@@ -358,19 +359,25 @@ test('every factory that takes an $id puts it where its kind routes events', fun
         expect($el)->toBeInstanceOf(El::class, $m->getName() . ' 的返回值不是 Element');
         $arr = $el->toArray();
         if (!empty($arr['registered'])) {
-            // 例外一颗：catalog `Input` 的上游构造**只吃 state**（SchemaEntity，
+            // catalog 表单族那八颗（#81/#82）：上游构造**只吃 state**（SchemaEntity，
             // retained_forms/mod.cpp:538-554），所以 ctorArgs[0] 是那颗实体的标记数组
-            // 而不是 id；它的 $id 走 ->id()（回调路由要用）并同时当 state 缓存的 key。
-            // 不是放宽规则——改成断"这两处都得是 sentinel"，id 走错任何一处照样红。
-            if ($m->getName() === 'catalogInput') {
-                expect($arr['ctorArgs'][0][2] ?? null)->toBe(
+            // 而不是 id；它们的 $id 走 ->id()（回调按 id 路由）并同时当 state 缓存的 key。
+            // 认形状不认名字——按方法名豁免的话，下一颗同类糖就会悄悄绕过这条门。
+            $first = $arr['ctorArgs'][0] ?? null;
+            if (is_array($first) && ($first[0] ?? null) === '__state__') {
+                expect($first[2] ?? null)->toBe(
                     $sentinel,
-                    'catalogInput() 的 $id 没进 state 标记的 key 位（每帧会造出新实体）'
+                    $m->getName() . '() 的 $id 没进 state 标记的 key 位（每帧会造出新实体）'
+                );
+                expect(is_string($first[1] ?? null) && $first[1] !== '')->toBe(
+                    true,
+                    $m->getName() . '() 没带 state kind（上游按 kind 查描述符，空=必失败）'
                 );
                 expect($arr['id'])->toBe(
                     $sentinel,
-                    'catalogInput() 的 $id 没进 id 字段（回调按 id 路由）'
+                    $m->getName() . '() 的 $id 没进 id 字段（回调按 id 路由）'
                 );
+                $stateCtor++;
                 $registered++;
                 continue;
             }
@@ -390,6 +397,9 @@ test('every factory that takes an $id puts it where its kind routes events', fun
     // 两类都得真跑到，别让它悄悄退化成"一个都没查"或"只查了一类"。
     expect($base)->toBeGreaterThanOrEqual(8);
     expect($registered)->toBeGreaterThanOrEqual(2);
+    // 豁免分支自己也得有覆盖：一条按形状的豁免，如果哪天没有一颗工厂走进来，
+    // 它就悄悄变成"只查了另一类"——那正是这条门要防的事。
+    expect($stateCtor)->toBeGreaterThanOrEqual(8);
 });
 
 /*

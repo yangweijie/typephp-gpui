@@ -61,6 +61,29 @@ function sectionInputs(array $s): El
             El::switchBox('深色开关', false)->id('in-dark')->onChange(),
             El::text($s['agree'] ? 'checkbox 已勾选' : 'checkbox 未勾选')->font(12.0),
         ])->gap(12.0),
+        // catalog 的带样式表单族（入口是 #81，这一族是 #82）：八颗的构造都**只吃一个
+        // `state` 实参**，而那颗实体原本只有 JS 绑定函数能造（要 live script scope），
+        // 现在由宿主经 El::state() 造。跟上面 kind 版那几颗并排，是为了"带不带框"
+        // 在同一页可比。
+        //
+        // 取值回读**只覆盖 kind 版**：App::text()/checked() 读的是 shim 的 inputHandles
+        // 表，catalog 那颗不在里面。所以这一族的验收是"建成 + 有矩形 + 实体数不涨"
+        // （examples/input 的 catalogFamily* 三条门），不是"值回得来"。
+        El::text('catalog 表单族（每颗都要一颗宿主造的 state 实体）')->font(12.0),
+        El::hFlex([
+            El::catalogNumberInput('in-cnum', 'catalog NumberInput', '7'),
+            El::catalogOtpInput('in-cotp', 4),
+        ])->gap(12.0),
+        El::hFlex([
+            El::catalogSlider('in-cslider', 35.0),
+            El::text('catalog Slider(35)')->font(12.0),
+        ])->gap(12.0)->itemsCenter(),
+        El::hFlex([
+            El::catalogColorPicker('in-ccolor'),
+            El::catalogTimeField('in-ctime'),
+        ])->gap(12.0),
+        El::catalogDatePicker('in-cdate'),
+        El::catalogCalendar('in-ccal'),
     ])->sizeFull()->gap(10.0)->p(16.0)->overflowYScroll();
 }
 

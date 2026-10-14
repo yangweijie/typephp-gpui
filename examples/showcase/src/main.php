@@ -1148,6 +1148,14 @@ function runSelfTest(bool $expectBundle, bool $startFront = false): void
     $app->loop(2);
     $probe = $app->inputProbe();
     $inputsReal = (int) $probe['n'] > 0;
+    // 逐颗矩形一起报出来：下面那套"点最后一颗，不中就沿列扫"的启发式，
+    // 没有这张表就看不懂它落到了哪一颗（加了一族输入框之后就是靠它定位的）。
+    $boxDump = '';
+    for ($bi = 0, $bn = (int) ($probe['n'] ?? 0); $bi < $bn; $bi++) {
+        $bb = $app->inputProbe($bi);
+        $boxDump .= ($bi === 0 ? '' : ' ') . $bi . ':' . (int) $bb['x'] . ','
+            . (int) $bb['y'] . 'x' . (int) $bb['w'] . 'x' . (int) $bb['h'];
+    }
     $px = (int) $probe['x'] + (int) $probe['w'] / 2;
     $py = (int) $probe['y'] + (int) $probe['h'] / 2;
     if ($inputsReal) {
@@ -1159,15 +1167,23 @@ function runSelfTest(bool $expectBundle, bool $startFront = false): void
         $app->loop(2);
         $typedIn = ExampleState::$v['name'] !== '';
     }
-    // 兜底：inputProbe 只报最后一颗的框，多输入框时按列扫。
-    // 这里只把 focusedId() 当诊断读一下，不当门——**逐颗输入框的焦点断言住在
-    // examples/input 的 focusFollowsClick**（那边实测 0→-1001 1→-1002 2→-1003 3→-1004，
-    // 每颗各自一个非零实体 id 且互不相同）。这一页是整套壳一起渲染，点哪颗、
-    // 焦点落在哪颗受前面几节的扫描顺序影响，拿具体数字在这里断会漂。
-    // （以前这段注释写的是"focusedId() 对 retained input 恒 0，所以不能当门"——
+    // 兜底：逐颗点 inputProbe 登记过的框——探针的 -1 只报最后一颗，多框页面不够。
+    // 这里以前是"沿 x=500 从 y=120 扫到 660"，那是一条**跟布局无关**的假设：
+    // #82 在页面上加了一族输入框之后就露馅了——in-name 的框在 y=41，压根不在那条带里，
+    // 于是扫满 55 次也没打进字，valuePull 跟着红。逐颗点没有这个假设，
+    // 而且用的还是真点击 + 真键（不是合成缝）。
+    // focusedId() 在这里只当诊断，不当门——**逐颗输入框的焦点断言住在
+    // examples/input 的 focusFollowsClick**（那边实测每颗各自一个非零实体 id 且互不相同）。
+    // 这一页是整套壳一起渲染，点哪颗、焦点落在哪颗受前面几节的扫描顺序影响，断具体值会漂。
+    // （以前那段注释写的是"focusedId() 对 retained input 恒 0，所以不能当门"——
     //   2026-10-14 复量推翻：它不是恒 0，只是在这页不适合断具体值。）
-    for ($y = 120; $y <= 660 && !$typedIn; $y += 10) {
-        $app->realClick(500, $y);
+    for ($bi = 0; $bi < $bn && !$typedIn; $bi++) {
+        $bb = $app->inputProbe($bi);
+        if ((int) $bb['w'] <= 0 || (int) $bb['h'] <= 0) {
+            continue;
+        }
+        $app->realClick((int) $bb['x'] + (int) $bb['w'] / 2,
+                        (int) $bb['y'] + (int) $bb['h'] / 2);
         $app->loop(2);
         $focus = max($focus, $app->focusedId());
         if ($app->realKey(9, 'g')) {   // kVK_ANSI_G
@@ -1363,7 +1379,7 @@ function runSelfTest(bool $expectBundle, bool $startFront = false): void
             . ' mouseProbe down=' . $mouseDownBand . ' up=' . $mouseUpBand
             . ' move=' . $moveHits . '/ok=' . var_export($mouseOk, true)
             . ' downVal=' . $mouseSample
-            . ' hoverAt=' . $hoverAtX . ',' . $hoverAtY . ' probe=' . $probe['n'] . '@' . $probe['x'] . ',' . $probe['y'] . ' ' . $probe['w'] . 'x' . $probe['h'] . ' hit=' . $px . ',' . $py,
+            . ' hoverAt=' . $hoverAtX . ',' . $hoverAtY . ' probe=' . $probe['n'] . '@' . $probe['x'] . ',' . $probe['y'] . ' ' . $probe['w'] . 'x' . $probe['h'] . ' hit=' . $px . ',' . $py . ' boxes=[' . $boxDump . ']',
     ];
     echo ($ok ? 'SHOWCASE SELFTEST OK (' : 'SHOWCASE SELFTEST FAIL (') . implode(' · ', $report) . ")\n";
     $app->close();

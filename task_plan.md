@@ -554,3 +554,19 @@ SIGSEGV 报成了它自己那一行，而它在画廊里时只是"某轮 rc=11�
       分表校验；`$id` 约定门 ⇒ catalogInput 的 id 进 `->id()` + state key 两处，改断这两处。
       **边界**：实测过的只有 `InputState` 一种 kind；其余 14 颗走同一入口、实参 schema 各异，
       未逐一验过 ⇒ `upstream-coverage.md` 那句"没有造句柄的 API"订正为"入口通了 ≠ 16 个都能用"。
+- [x] **16-L** #82 把那一族铺满：八颗糖（`catalogInput`/`catalogNumberInput`/`catalogOtpInput`/
+      `catalogSlider`/`catalogColorPicker`/`catalogCalendar`/`catalogDatePicker`/`catalogTimeField`，
+      各自的 schema 记在 `retained_forms/mod.cpp:470-518`）。实测 `componentStates 8→8`、
+      `registeredError 空`、`componentFailure 0`、`inputBounds n=6` ⇒ 全部建成且跨帧不涨。
+      页面多一排框当场抓到画廊 `valuePull` 的老启发式（"沿 x=500 从 y=120 扫到 660"，而
+      in-name 实测在 y=41）⇒ 换成逐颗点登记过的框，`realInput` 从 true/true/false 变 true/true/true；
+      画廊报告行加 `boxes=[…]`。两条既有门据此扩面：parity 词表分"导出名 / state kind"两张表，
+      `$id` 约定门的豁免改成认形状不认名字 + `$stateCtor >= 8` 防空转。
+- [x] **16-M** #83：`embedded` 的像素门一天红三次，上一轮我判成"抖动"并写进了文档——**判错了**。
+      直接连跑 `--shot` 5 次就有 1 次 md5 不同（不确定在示例自己身上，不在 shotdiff），
+      而**看那张图**才看见真相：基线里右边那颗 WebView 印的是 `example.com` 的正文，
+      红图里它还没加载 ⇒ 像素基线一直含着"外网页面加载进来没有"（还顺带每次门禁打一次外网、
+      无网 CI 必红）。旧文档"WebView 离屏必然空白"当场作废（跨进程表面会进图）。
+      修法：像素/自检路径离线（`ExampleState.offline` → 那颗盒子换同 id 同几何的本地页），
+      真地址只在交互模式加载；改完 5/5 逐字节相同。testing.md 补一条规矩：
+      **复跑变绿只够推迟定罪，不够结案**，量级（0.68/0.84）本身就是"不是同一页内容"的证据。

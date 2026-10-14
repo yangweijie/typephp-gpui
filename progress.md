@@ -2094,3 +2094,43 @@ layout 域注释）——"补丁没打""上游没有发信方""我们的糖挂�
 API"已订正成"入口通了 ≠ 16 个都能用"。像素基线里那颗带样式的框是本任务的验收，
 但 `input`/`showcase` 两棵树需要重录（本轮跑完 selftest 后再录，避免上次"不重构建就 record
 得到 13 棵一模一样的树"那种假绿）。
+
+## 修复轮 31：#82 把 catalog 表单族铺满（八颗糖 + 三条门），并修掉画廊的打字启发式（2026-10-14）
+
+`El::state()` 只是入口；这一轮给带样式表单族全部八颗配了糖（`catalogInput` /
+`catalogNumberInput` / `catalogOtpInput` / `catalogSlider` / `catalogColorPicker` /
+`catalogCalendar` / `catalogDatePicker` / `catalogTimeField`，各自 schema 见
+`retained_forms/mod.cpp:470-518`：OtpState 的 `length` 必填、SliderState 限 0..100、
+Calendar/ColorPicker/DatePicker/TimeField 不吃实参），页面上一族八颗与 kind 版并排。
+
+实测：`componentStates 首帧后=8 多帧后=8`、`registeredError 空`、`componentFailure count=0`、
+`inputBounds n=6`（每颗框各自一个非零焦点 id）⇒ 八颗全建成、跨帧不涨。门从 1 颗的
+`=== 1` 改成 `=== INPUT_CATALOG_STATES`（颗数写在示例顶部并列出 id 清单，改页面不同步就红）。
+
+页面上多一排框，立刻抓到画廊的一条老启发式：`valuePull` 打字走"点 `inputProbe(-1)`
+（只报最后一颗）→ 不中就沿 x=500 从 y=120 扫到 660"，而本域的框表实测 in-name 在 **y=41**，
+不在那条带里 ⇒ 扫满也不中。改成逐颗点自己登记过的框（`examples/input` 早就是这么做的），
+`realInput` 从 `true/true/false` 变 `true/true/true`。顺手把逐颗矩形 `boxes=[…]` 加进画廊
+报告行——判落点不必再靠猜。
+
+两条既有门的扩面（都是它们先抓到真问题，不是我先想到）：parity 门把七个新 state kind 当导出名
+报错 ⇒ 词表分表校验；`$id` 约定门 ⇒ 豁免改成**认形状不认名字**（`ctorArgs[0]` 是
+`__state__` 标记才走豁免），并加 `$stateCtor >= 8` 防豁免分支悄悄空转。
+
+门禁：pest 104/519 · phpstan 0 · parity OK（含 state kind 15 在册 / PHP 用 7）。
+
+## 修复轮 32：#83 embedded 的像素门红，根因是基线里印着外网页面（2026-10-14）
+
+上一轮我把同一条门的红记成"渲染抖动"（还写进了 testing.md）。这轮按"复跑 + 独立信号"再查，
+结论反过来：直接连跑 `--shot` 5 次就有 1 次 md5 不同 ⇒ 不确定在示例自己身上；**看那张图**
+⇒ 红图里右边那颗 WebView 是空白的，绿图里印着 `example.com` 的正文。也就是说
+`examples/embedded` 的基线像素一直含着"外网页面这次加载进来没有"——不确定、每次跑门禁
+打一次外部请求、无网 CI 必红。旧文档那句"WebView 离屏截图必然空白"当场被推翻（跨进程表面会进图）。
+
+修法：像素与自检路径离线（`ExampleState` 新增 `offline` 位，那颗盒子换同 id 同几何的本地页），
+真地址只在交互模式加载。改完 5/5 逐字节相同、`webViewAttached ok=true box=356x178`、
+基线重录（61327 → 49907 字节）。testing.md 两处订正：WebView 那一节改写成上述事实，
+"红了先复跑再定罪"那段补一句**复跑变绿只够推迟定罪，不够结案**，并把这次的误判留在文档里。
+
+教训（记进用户记忆的形状）：`gdfrac` 的量级本身就是证据——0.68/0.84 不是抗锯齿漂一点的形状，
+它一直在说"这不是同一页内容"；只看百分比不看图，就会把一次真缺陷记成仪表噪声。

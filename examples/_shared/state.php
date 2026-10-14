@@ -38,6 +38,10 @@ function exampleState(): array
         'trayId' => 0, 'hotkeyId' => 0, 'hotkeyHits' => 0, 'hotkeyMods' => '—',
         'dock' => '', 'osNotify' => '—', 'menuCount' => 0, 'trace' => false,
         'front' => true, 'frontTries' => 0, 'evSeen' => [],
+        // 像素/自检路径置 true：内嵌域那颗加载真地址的 webview 换成同几何的本地页。
+        // 基线里不能含"外网页面这次加载进来没有"——那既不确定，又让门禁每跑一次
+        // 就打一次外部请求（见 examples/embedded 的 runShot 注释）。
+        'offline' => false,
     ];
 }
 

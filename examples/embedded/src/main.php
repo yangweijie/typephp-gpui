@@ -67,7 +67,9 @@ function embeddedTree(): El
 
 function runEmbeddedShot(string $path): void
 {
-    ExampleState::boot(['section' => 11]);
+    // offline：像素路径不加载外网（见 examples/_shared/features/embedded.php 那段注释）——
+    // 那颗 webview 的内容会进离屏截图，"页面这次加载进来没有"就成了基线像素的差别。
+    ExampleState::boot(['section' => 11, 'offline' => true]);
     $app = new App();
     $app->create();
     $app->createWindow('Embedded Shot', EMBEDDED_W, EMBEDDED_H);
@@ -86,7 +88,8 @@ function runEmbeddedShot(string $path): void
 
 function runEmbeddedSelfTest(): void
 {
-    ExampleState::boot(['section' => 11]);
+    // 同上：自检也不该为了一条像素无关的门打外网（CI 可能根本没网）。
+    ExampleState::boot(['section' => 11, 'offline' => true]);
     $app = new App();
     $app->create();
     $app->createWindow('Embedded Selftest', EMBEDDED_W, EMBEDDED_H);
