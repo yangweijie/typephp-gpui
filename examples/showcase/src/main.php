@@ -848,10 +848,9 @@ function wireShowcase(App $app): void
             ExampleState::$v['align'] = $a;
         });
     }
+    // 1 节：pr-hover 那颗探针的精确 hover handler 在 examples/_shared/features/primitives.php 里
+    wirePrimitives($app);
     // 具体 id 的 hover handler 与 onAny('hover') 两条都注册：前者证明精确路由，后者证明通配。
-    $app->on('pr-hover', 'hover', function (): void {
-        ExampleState::$v['hover'] = 'pr-hover';
-    });
     $app->onAny('hover', function (array $e): void {
         ExampleState::$v['note'] = 'hover:' . (string) ($e['id'] ?? '');
     });

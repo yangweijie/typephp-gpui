@@ -1749,3 +1749,26 @@ CI 的 `Domain examples` 步骤按 `examples/*/project.macos.yml` 自动发现�
 验证：`CHOICES SELFTEST OK` rc=0 · `SHOWCASE SELFTEST OK`（§3 搬家 + 九条新 handler 之后） ·
 `shotdiff check showcase` 13 张 gdfrac=0 · `tests/baseline/choices/tree1.png` 三次截图 md5 相同 ·
 Pest 103 · PHPStan 0 · parity · shim cpp · doctor · docs:build。
+
+## 修复轮 14：`text` 与 `layout` 两支（Phase 15-C，2026-10-14）
+
+§1 与 §4 搬进 `examples/_shared/features/{primitives,layout}.php`（`pr-hover` 的 hover handler
+一起搬过去，画廊与 `examples/text` 共用同一条线）。这两域**没有门可搬**（画廊里那两条
+`$roleAllOk`/`$mouseOk` 不属于它们），所以新支写的是"通道门"——
+名字对而通道错正是 #66 的形状，而那种错在五层门禁里全绿：
+
+```
+TEXT SELFTEST                                    LAYOUT SELFTEST
+  ok registeredError / componentFailure            ok registeredError / componentFailure
+  ok nullaryChannel  hidden/truncate/font_bold/cursor_pointer   ok nullaryChannel flex/flex_col/flex_row/flex_1/flex_none
+  ok behaviorChannel overflow_y_scroll/disabled    ok paramChannel flex_grow/flex_shrink/gap_x/gap_y/p/px
+  ok urlWhitelistReject javascript:=false          ok behaviorChannel overflow_y/x/scroll 三个
+  ok hoverProbeHasRect 命中表 5 条里 4 条像样       ok sizeIsMethodOp size=30%（method 而非 registered_method）
+```
+
+`flex_1`（关键字）与 `flex_grow`（带参族）是同一类概念的两条通道，这条门把两者的区别钉住了；
+`size` 在 kind 节点上必须是 method——§12 那句"rm('size') 打在 kind 节点上是没用的"从此有可执行形式。
+
+现在 `examples/` 下有 **八支按域独立示例**。验证：text/layout/showcase 三支 selftest 全 rc=0 ·
+`shotdiff check showcase` 13 张 gdfrac=0 · 两支新基线各三次截图 md5 相同 ·
+Pest 103 · PHPStan · parity · shim cpp · docs:build · README/cli/testing 的示例清单同步。

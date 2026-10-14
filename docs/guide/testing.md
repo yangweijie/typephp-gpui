@@ -185,8 +185,14 @@ behavior 解析、focus 迁移全部真的走一遍；`inputProbe()` 再证明 p
 `ROUNDTRIP`（点进挂原生视图那节再点回来打字）在同样条件下仍然绿——
 一条门能不能抓住房 bug，只看它被否掉时会不会红，不看它长得像不像。
 
-`showcase --selftest` 那条是第八道门禁的运行时那一半：`tests/ShowcaseTest.php`（在 `php` job 里）
-反射出 Element/App 的每个公开成员、断言示例真调用过、并静态核每次调用的实参个数；
+按功能域拆出去的独立示例（`ls examples/` 里除 hello/showcase 之外的那些，目前有
+input / overlay / style / table / catalog / choices / text / layout）各带一支自己的 `--selftest`，CI 里由 `Domain examples`
+那一步按 `examples/*/project.macos.yml` 自动发现并逐支编译（`--no-native`，只跑 tpc 那一段）+ 跑门。
+它们与画廊的分工是：**同一份 UI 源**（`examples/_shared/features/*.php`）两边都编译，
+所以不存在第二份实现；而"域自己的断言"搬到独立那支，因为画廊的总报告只在末尾打印一次，
+域的门一崩，外部看见的只是退出码非零、一个字没打——独立那支是边跑边打的，崩在哪行停在哪行。
+`showcase --selftest` 那条是第八道门禁的运行时那一半：`tests/ShowcaseTest.php`（在 `php job` 里）
+反射出 Element/App 的每个公开成员、断言**任一示例**真调用过、并静态核每次调用的实参个数；
 二进制再证明这些调用在原生侧不产出错误节点。**像素那一半不进 CI**——
 `php cmd/shotdiff.php check showcase` 的 13 张基线要抓真在屏 NSView，托管 runner 没有窗口会话，
 与 hello 的 18 张同理，只在本地跑。

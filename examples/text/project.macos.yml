@@ -1,0 +1,52 @@
+name: gpui-text
+mode: bin
+output: build/text
+
+# TypePHP GPUI — macOS arm64，nano 模式。功能域独立示例：基础原语（文本 / 链接 / 图 / Markdown / hover 探针）。
+#
+# 这一支量的是"同一个概念走的通道对不对"：hidden()/truncate()/bold()/cursorPointer()
+# 该发 nullary_style，overflow_y_scroll/disabled 该发 method(behavior)——
+# #66 那批 bug 的形状就是"名字对、通道错"，上游静默跳过而一个像素都不动。
+#
+# sources 只列本域那份 feature 源（../_shared/features/primitives.php）+ 共用状态表；
+# 同一份文件也被画廊的 yml 收录，所以不存在第二份实现。
+# pr-hover 那颗探针（#71 指针事件族的现场）也在这一份里，画廊与这一支共用同一条线。
+#
+# nano 强制 c++17，shim 是 c++20 预编译库。一轮里第二支起用 --no-native。
+
+sources:
+  - src/main.php
+  - ../_shared/state.php
+  - ../_shared/features/primitives.php
+  - ../../src/App.php
+  - ../../src/Element.php
+  - ../../src/El.php
+  - ../../php-src/gpui.stub.php
+  - ../../cpp-src/gpui_bridge.cc
+
+build-dir: build
+
+cxx-std: c++17
+optimize: 2
+
+include-paths:
+  - ../../cpp-src
+  - ../../php-src
+
+# 静态库绝对路径：tpc 不解析相对 ld-flags，故用 @ROOT@ 占位，由 `bin/gpui build`
+# 在编译期替换为仓库绝对根并写到 project.macos.gen.yml。
+ld-flags:
+  - "@ROOT@/cpp-src/build/libgpui_shim.a"
+  - -framework Cocoa
+  - -framework CoreServices
+  - -framework CoreText
+  - -framework CoreGraphics
+  - -framework ImageIO
+  - -framework IOKit
+  - -framework WebKit
+  - -framework AudioToolbox
+  - -framework AVFoundation
+  - -framework Speech
+  - -framework Metal
+  - -framework QuartzCore
+  - -framework Carbon

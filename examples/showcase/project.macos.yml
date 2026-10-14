@@ -22,6 +22,8 @@ sources:
   - ../_shared/features/styling.php
   - ../_shared/features/data.php
   - ../_shared/features/choices.php
+  - ../_shared/features/primitives.php
+  - ../_shared/features/layout.php
   - ../_shared/features/catalog.php
   - ../../src/App.php
   - ../../src/Element.php

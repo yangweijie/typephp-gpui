@@ -43,49 +43,8 @@ function showcaseSections(): array
 // 状态表（exampleState() + ExampleState）在 examples/_shared/state.php：
 // 按功能域拆出去的独立示例要共用它，所以它不属于 showcase。
 
-// ── 1. 基础原语 ─────────────────────────────────────────────────────────────
-function sectionPrimitives(array $s): El
-{
-    return El::vFlex([
-        El::text('基础原语')->font(22.0)->semibold(),
-        El::text('text / link / image / svg / textView(Markdown)')->font(12.0)->truncate(),
-        // link 的 href 走 gpui 那条白名单（capability.cpp）：只放行 http/https。
-        El::link('一个外链（点击交给 openUrl 白名单）', 'https://example.com'),
-        El::textView("# Markdown 标题\n\n支持 **粗体**、[链接](https://example.com) 与列表：\n\n- 第一条\n- 第二条"),
-        El::hFlex([
-            // image / svg 走资源根相对路径；文件不存在时是空块，不报错。
-            El::image('assets/missing.png', '占位图')->w(64.0)->h(40.0)->roundedMd(),
-            El::svg('assets/missing.svg')->w(48.0)->h(48.0),
-            El::div()->w(64.0)->h(40.0)->bg(0xEEEAE3)->roundedMd(),
-        ])->gap(10.0)->itemsCenter(),
-        El::text("计数器（定时器驱动）：{$s['count']}")->font(14.0)->bold(),
-        El::hFlex([
-            El::text('disabled 样式')->font(12.0)->disabled(),
-            El::text('这行被 hidden() 藏了')->font(12.0)->hidden(),
-            El::text('relative + cursorPointer')->font(12.0)->relative()->cursorPointer(),
-        ])->gap(12.0),
-        // onHover 只是"声明此元素有 hover 事件"的回调标记；handler 在 App->on(id,'hover') 注册。
-        El::hFlex([
-            // onHover 要求元素有 hit-testable 几何体（bg/border/明确尺寸），纯 text 节点不参与 hover 检测。
-            El::text('把鼠标放上来（onHover）')->id('pr-hover')->onHover()
-                // 指针事件族（onMouseMove / 按下 / 抬起）挂在同一颗有几何体的探针上：
-                // selftest 的 hover 扫描正好在这列做真移动，down/up 由 navProbe 的真点击覆盖。
-                ->onMouseMove()->onMouseDownLeft()->onMouseUpLeft()
-                // 右/中键这两对只是把 API 摆出来：selftest 的真点击只发左键，
-                // 所以它们的送达要靠人手动一下（同 #56 那格），这里不当门。
-                ->onMouseDownRight()->onMouseUpRight()
-                ->onMouseDownMiddle()->onMouseUpMiddle()
-                ->onMouseDownOut()->onScrollWheel()
-                ->font(12.0)
-                ->p(6.0)->bg(0xF4F1EC)->roundedMd()->cursorPointer(),
-            El::text("hover={$s['hover']}")->font(12.0),
-        ])->gap(10.0)->itemsCenter(),
-        // wFull/hFull = 100% 的 w/h（非 nullary style，是带参 method op）。
-        El::hFlex([
-            El::div()->wFull()->hFull()->bg(0xE8F0E4)->roundedMd(),
-        ])->h(28.0)->p(4.0)->border()->borderColor(0xCCC6BD),
-    ])->sizeFull()->gap(8.0)->p(16.0)->overflowYScroll();
-}
+// ── 1. 基础原语 ──> 已搬到 examples/_shared/features/primitives.php
+//    （sectionPrimitives + wirePrimitives + primitivesTrees），独立示例 examples/text 与画廊共用那一份。
 
 // ── 2. 输入与保留态取值 ──> 已搬到 examples/_shared/features/inputs.php
 //    （sectionInputs + wireInputs + inputsTrees），独立示例 examples/input 与画廊共用那一份。
@@ -93,46 +52,8 @@ function sectionPrimitives(array $s): El
 // ── 3. 选择、开关与按钮变体 ──> 已搬到 examples/_shared/features/choices.php
 //    （sectionChoices + wireChoices + choicesTrees），独立示例 examples/choices 与画廊共用那一份。
 
-// ── 4. 容器、布局与滚动 ─────────────────────────────────────────────────────
-function sectionLayout(array $s): El
-{
-    return El::vFlex([
-        El::text('容器、布局与滚动')->font(22.0)->semibold(),
-        El::text('flex / flexRow / flexCol / flexWrap / flexNone / flexGrow / flexShrink / gap·gapX·gapY / m·mt·mb·ml·mr / p·px·py·pt·pb·pl·pr')->font(11.0)->truncate(),
-        El::hFlex([
-            El::text('m + mt')->font(12.0)->m(4.0)->mt(8.0)->bg(0xE4EAF0)->p(6.0)->roundedMd(),
-            El::text('mb + ml')->font(12.0)->mb(8.0)->ml(6.0)->bg(0xF0E8E4)->p(6.0)->roundedMd(),
-            El::text('mr + pb/pr')->font(12.0)->mr(10.0)->pb(6.0)->pr(6.0)->bg(0xE8F0E4)->pt(4.0)->pl(6.0)->roundedMd(),
-        ])->gap(0.0)->itemsStart()->bg(0xFAF8F5)->p(2.0)->roundedMd(),
-        El::hFlex([
-            El::text('flexGrow 1')->font(12.0)->flexGrow(1.0)->bg(0xE8F0E4)->p(8.0)->roundedMd(),
-            El::text('flexGrow 2')->font(12.0)->flexGrow(2.0)->bg(0xF0E8E4)->p(8.0)->roundedMd(),
-            El::text('flexShrink 0 + flexNone')->font(12.0)->flexShrink(0.0)->flexNone()->bg(0xE4EAF0)->p(8.0)->roundedMd(),
-        ])->gapY(8.0)->gapX(6.0)->h(64.0),
-        El::vFlex([
-            El::text('itemsEnd + justifyBetween')->font(12.0),
-            El::text('第二行')->font(12.0),
-        ])->gap(4.0)->p(8.0)->border()->borderColor(0xCCC6BD)->itemsStart()->itemsEnd()->justifyStart()->justifyCenter()->justifyBetween()->roundedMd()->flex()->flexCol()->flexRow()->flex1(),
-        // 原生滚动：overflowYScroll 是 method/behavior op（materialize.cpp:364），不是 nullary
-        // style——这是 bug #18 那轮量出来的。
-        El::vFlex(array_map(
-            static fn (int $i): El => El::text("可滚动第 {$i} 行")->font(12.0)->px(8.0)->py(2.0),
-            range(1, 40)
-        ))->h(120.0)->overflowYScroll()->overflowXScroll()->overflowScroll()->bg(0xFAF8F5)->roundedMd(),
-        El::hResizable([
-            El::resizablePanel(El::text('左栏（可拖）')->font(13.0)->p(8.0))->size('30%')->onResize(),
-            El::resizablePanel(El::text('右栏')->font(13.0)->p(8.0))->size('70%'),
-        ])->h(80.0)->gap(4.0),
-        El::vResizable([
-            El::resizablePanel(El::text('上')->font(12.0)->p(6.0))->size('50%'),
-            El::resizablePanel(El::text('下')->font(12.0)->p(6.0))->size('50%'),
-        ])->h(90.0),
-        El::tabs('lay-tabs')->children([
-            El::tab('总览')->child(El::text('tab 内容一')->font(12.0)->p(8.0)),
-            El::tab('明细')->child(El::text('tab 内容二')->font(12.0)->p(8.0)),
-        ])->h(90.0),
-    ])->sizeFull()->gap(10.0)->p(16.0)->overflowYScroll();
-}
+// ── 4. 容器、布局与滚动 ──> 已搬到 examples/_shared/features/layout.php
+//    （sectionLayout + layoutTrees），独立示例 examples/layout 与画廊共用那一份。
 
 // ── 5. 表格、列表与进度 ──> 已搬到 examples/_shared/features/data.php
 //    （sectionData + dataTrees；这一域没有点击接线），独立示例 examples/table 与画廊共用那一份。

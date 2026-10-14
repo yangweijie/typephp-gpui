@@ -51,6 +51,9 @@ php bin/gpui selftest hello            # 编译并跑 --selftest（输入回环+
 php bin/gpui run showcase              # 另一个示例：13 节把 PHP 面全部特性走一遍
                                        # （Element 全部工厂/链式方法 + App 全部能力，
                                        #  coverage 由 tests/ShowcaseTest.php 反射核对）
+php bin/gpui selftest input --no-native # 按功能域拆出的独立示例（ls examples/）：
+                                       #  一支只装一域，编译与报告都只那一域的范围，
+                                       #  自检边跑边打（一步一行，崩在哪行停在哪行）
                                        # run/selftest 会把二进制包进 .app 再启动：没有
                                        # bundle 身份的进程在 macOS 不是前台应用，手点第一下
                                        # 被当成激活点击吃掉、keyDown 也没有 firstResponder，
