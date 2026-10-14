@@ -1854,3 +1854,17 @@ CI 自动发现（`Domain examples` 步骤按 yml 循环）。
 而我上一条命令打印的 `rc=0` 是 **grep 的**退出码，不是 composer 的（`cmd | grep; echo rc=$?` 的坑）。
 两条教训都记进了 findings 与用户记忆：程序化改写已跟踪文件之后**立刻**读 `git diff --stat`；
 报告的退出码必须来自被测那一步。修法本身是 `git checkout --` 一行，因为它在基线里。
+
+## 修复轮 18：画廊自检去重（Phase 15 那条"未做的收口"，2026-10-14）
+
+删掉画廊 selftest 里与 `examples/overlay` 重复的三条：`$trapOk`（焦点陷阱==焦点）、
+`$cancelClosed`（ui::Cancel 关框）、以及两格 Escape 读数（withControl / plain 那一整段，
+含 `--invalidate` 与"点一下再按"的补救尝试）。共 73 行，`main.php` 1468 → 1395。
+
+留着的：画廊自己的 `--escape` 模式（`runEscapeProbe`）——它量的是"整套壳在场时"的形状，
+与隔离窗口那次是两条不同证据，#62 结案时两支都跑过。
+
+删它们的理由不只是重复：上一轮 `#73` 的部件级事件探针之所以被挪出 selftest，
+就是因为 `$ok` 链尾挤不出投递余量。现在腾出来了。
+
+验证：`bash cmd/all-examples.sh both` → 14 支 selftest 全 rc=0、43 棵像素树全绿、88 秒。

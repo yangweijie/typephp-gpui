@@ -904,83 +904,16 @@ function runSelfTest(bool $expectBundle, bool $startFront = false): void
     $bdCounts = $app->stateCounts();
     $bdReclaimed = (int) ($bdCounts['boxesAlive'] ?? -1) === $boxesBase
         && (int) ($bdCounts['viewsAlive'] ?? -1) === $viewsBase;
-    // #62 的读数。两条断言各管各的，别混：
-    //   $escProbeAfterTab —— 焦点在框内（Tab 进去了）时 Escape 必须关掉它。这条真锁行为。
-    //   $escClosed        —— 前一个 dialog 周期之后，纯文本框的 Escape 也关得掉。
-    // 但**#62 本体**（进程里第一个框、没点过任何东西）不在这里判——反向对照显示摘掉
-    // 候选修法后这两条照样绿，说明它们不覆盖那个场景。那一格由 `--escape` 单独量。
-    // 已排除：注入路不通（同一个派发口上 Tab 会换焦点）、escape/backdrop 四层参数顺序错、
-    // topmost 没置（root.cpp:840-847 每次渲染重算，背板能关就是证据）、
-    // 帧数不够、脏驱动没重画、开框时清焦点（focusWas=0 时 Escape 依然不关）。
-    // 第一格：框里放一颗**可聚焦**的 catalog 按钮，Tab 把焦点带进去再按 Escape。
-    //   关掉 ⇒ 绑定与派发都是好的，缺的只是"开框那一下把焦点带进去"；
-    //   不关 ⇒ 上下文栈这一侧没拿到 DialogContext，得往 win->dispatch/KeyContext 查。
-    $app->openDialog(El::catalogButton('esc-target', '按 Escape 该关掉我')->onClick());
-    $app->loop(6);
-    $escProbeOpen = $app->dialogCount();
-    $escProbeTrap = $app->focusTrap();     // 机制级读数：陷阱生效了没有
-    $app->realKey(48, '');                // kVK_Tab
-    $app->loop(4);
-    $escProbeFocus = $app->focusedId();
-    $app->realKey(53, '');                // kVK_Escape
-    $app->loop(6);
-    $escProbeAfterTab = $app->dialogCount();
-    for ($i = 0; $i < 4 && $app->dialogCount() > 0; $i++) {
-        $app->closeDialog();
-        $app->loop(2);
-    }
-
+    // Escape 与焦点陷阱这几格 2026-10-14 起归 examples/overlay（它的 --selftest 有同样的
+    // trap==focus==popup 与 ui::Cancel 两条硬门，另有独立的 --escape 探针）。
+    // 画廊只留 `--escape` 这一个模式（runEscapeProbe），因为它量的是"整套壳在场时"的形状，
+    // 与隔离窗口那次是两条不同的证据；而 selftest 里重复的那三条已删——
+    // 上一轮 #73 的部件级事件探针正是因为在 $ok 链尾挤不出余量才被挪出 selftest 的。
     $dialogN = $app->openDialog(El::text('st dialog')->p(10.0));
     $dialogCount = $app->dialogCount();
-    $plainTrap = $app->focusTrap();
-    // 这一格是**不依赖输入**的机制读数，因此可以当硬门：给几帧之后，
-    // 焦点陷阱必须生效、且焦点必须就落在陷阱的宿主（popup）上。
-    // 实测：trapOnOpen=0（open 当场还没 arm，Arm 发生在 DrawFrame 的渲染里）、
-    // 十帧后 trap==focus==popup 的 id —— 上游那条"开框把焦点带进陷阱"的链是通的。
-    // 反向对照：把 loop(10) 挪到读数之后 ⇒ trapAfterFrames=0 / focus=-1062 / trapOk=false，
-    // selftest rc=1。所以这门量的是"帧把陷阱带起来"这件事本身，不是恒真。
-    // Escape 关不关则依赖真键送达（前台是竞争态），所以只报不判，见 --escape。
     $app->loop(10);
-    $trapAfterFrames = $app->focusTrap();
-    $focusOnTrap = $app->focusedId();
-    $trapOk = $trapAfterFrames !== 0 && $focusOnTrap === $trapAfterFrames;
-    // 第二格：纯文本框（没有任何可聚焦东西）开着，直接按 Escape。
-    $escClosed = false;
-    $escAfterInvalidate = false;
-    $countAfterPress = -1;
-    $focusBeforeEsc = $app->focusedId();
-    if ($dialogCount >= 1) {
-        $app->loop(10);
-        $app->realKey(53, '');            // kVK_Escape
-        $app->loop(6);
-        $escClosed = $app->dialogCount() === 0;
-        if (!$escClosed) {
-            $app->invalidate();
-            $app->loop(6);
-            $app->realKey(53, '');
-            $app->loop(6);
-            $escAfterInvalidate = $app->dialogCount() === 0;
-        }
-        if (!$escAfterInvalidate && $app->dialogCount() >= 1) {
-            $app->realClick(600, 380);
-            $app->loop(3);
-            $countAfterPress = $app->dialogCount();
-            $app->realKey(53, '');
-            $app->loop(6);
-        }
-    }
-    // 内建动作派发是**不依赖输入**的一条关框路（#62 的另一半）：dispatchAction('ui::Cancel')
-    // 命中上游给 popup 挂的那条 OnAction(Cancel)，框就该关。
-    // 放在这里而不是上面那格中间：上面那格要读 trap/focus 的时序，中途把框关掉会把它弄红
-    // ——上一版就犯过这个错（门的红必须对应得上事，不能对应到探针自己）。
-    // 这条门还只在上次修的那条回退路上成立：gpui_shim_dispatch_action 若只查 shell:: 那张表，
-    // 'ui::Cancel' 会被 intern 成"shell::ui::Cancel"这个谁都没在听的新 id，派发返回 false。
-    $app->openDialog(El::text('cancel-gate 框')->p(10.0));
-    $app->loop(10);
-    $cancelTrap = $app->focusTrap();
-    $cancelDispatched = $cancelTrap !== 0 && $app->dispatchAction('ui::Cancel');
-    $app->loop(8);
-    $cancelClosed = $cancelDispatched && $app->dialogCount() === 0;
+    // 内建动作派发是不依赖输入的一条关框路，但它现在由 examples/overlay 硬判；
+    // 这里只把框收干净，让后面的 toast/notify 与析构计数在干净的框数上读。
     $app->closeDialog();
     $app->toast('st toast', 'desc', 'warning', 100);
     $nid = $app->notify('st 通知', 'body', 'success', 'bottom_left', 0, 'st-note');
@@ -1329,7 +1262,7 @@ function runSelfTest(bool $expectBundle, bool $startFront = false): void
         && $clipBack === 'SHOWCASE-Ω' && $item['text'] === 'SHOWCASE-Ω'
         && $urlRejected === false && $hudOn && $hudVisible
         && $overlayReclaimed && $bdNativeClosed && $bdReclaimed
-        && $sheetN > 0 && $hasSheet && $dialogN >= 0 && $dialogCount >= 1 && $trapOk && $cancelClosed
+        && $sheetN > 0 && $hasSheet && $dialogN >= 0 && $dialogCount >= 1
                 && $nid > 0 && $notifyCount === 1 && $notifyAfter === 0
         && $menuCount > 0 && $trayId > 0 && $trayCount === 1 && $hk > 0 && $hkFired
         && $theme === ''
@@ -1373,13 +1306,7 @@ function runSelfTest(bool $expectBundle, bool $startFront = false): void
         'overlay backdrop nativeClosed=' . var_export($bdNativeClosed, true)
             . ' reclaimed=' . var_export($bdReclaimed, true),
         'dialog=' . $dialogN . '/' . $dialogCount
-            . ' cancelGate trap=' . $cancelTrap . ' dispatched=' . var_export($cancelDispatched, true)
-            . ' closed=' . var_export($cancelClosed, true),
-        'escape withControl: open=' . $escProbeOpen . ' trap=' . $escProbeTrap . ' focus=' . $escProbeFocus . ' afterTab=' . $escProbeAfterTab,
-        'escape plain: trapOnOpen=' . $plainTrap . ' trapAfterFrames=' . $trapAfterFrames
-            . ' focus=' . $focusOnTrap . ' trapOk=' . var_export($trapOk, true)
-            . ' esc=' . var_export($escClosed, true) . ' invalidate=' . var_export($escAfterInvalidate, true)
-            . ' countAfterPress=' . $countAfterPress . ' focusWas=' . $focusBeforeEsc,
+            . '（焦点陷阱与关框那三条门归 examples/overlay；画廊只留 --escape 这一条壳内探针）',
         'tray=' . $trayId . '/' . $trayCount,
         'hk=' . $hk . '/' . var_export($hkFired, true),
         'osn=' . var_export($osn, true) . '(参考：裸二进制无 bundle id)',

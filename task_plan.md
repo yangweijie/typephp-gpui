@@ -441,8 +441,10 @@ nano 不支持 require/include，全靠 yml 列源文件；全局函数名必须
       全量本地实测：**14 支 selftest 全 rc=0 · 43 棵像素树全绿 · 86 秒**。
       文档同步：cli.md / testing.md / getting-started.md / README 的示例段；
       清单不再枚举名字（`ls examples/` 即清单），省掉每拆一支改一遍文档。
-      未做的收口：画廊 selftest 里与 overlay 重复的那三条旧门（trapOk/cancelClosed/escape 读数）
-      仍在，删它们要再重编画廊一轮——留给下次动画廊自检时顺手做。`shotdiff` 保持不进 CI。
+      画廊自检去重已做（轮 18）：删掉与 overlay 重复的 `$trapOk`/`$cancelClosed`/两格 Escape 读数
+      共 73 行，`$ok` 链于是腾出余量给 #73 的部件级事件探针。
+      全量收口命令：`bash cmd/all-examples.sh [selftest|shotdiff|both|first-native]`
+      （composer 别名 `examples:all`），清单 = `examples/*/project.macos.yml`。`shotdiff` 不进 CI。
 
 **明确不做**：不给每支示例配独立 `.app` bundle 逻辑（`bin/gpui` 的 `appBundle()` 已按名字生成，
 天然可用）；不动 `cmd/shotdiff.php` 的 hello 固定表（它自报 `--sections` 的路径已经存在）；
