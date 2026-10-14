@@ -153,7 +153,15 @@ alias list，不是 `public.file-url`，读回来永远是 `paths=0`，看着像
 "这次改动不影响像素"，而真实原因是那支二进制没重编；record 模式还会把旧图再写一遍，把假绿坐实。
 （同一族的老教训：`grep -c` 为 0 会吞掉 `&&` 链的后半条。）
 
-同机 `--shot` 逐字节确定。它**首跑就抓到了** dialog double-free（tree13 未关就 close → SIGABRT）。
+**红了先复跑再定罪。** 这条门**不是逐字节确定的**（下面那句"同机逐字节确定"是 2026-10-14 之前
+写的，当天就被推翻了一次）：`chrome` 报过一次 `gdfrac=0.00767（worst=0.067）`，
+而自上次全绿以来唯一的改动是新增一个该示例根本不调用的方法；复跑 3 次全绿、
+`~/Library/Logs/DiagnosticReports` 里没有该进程的崩溃报告 ⇒ 判定为渲染抖动，不是回归。
+判红之前要有的两样东西：**复跑次数**与**一个独立信号**（崩溃报告有无、`git status`
+说哪几张图变了）。**不要为了让它变绿而重录基线**——那等于把一次抖动洗成"这就是正确像素"，
+下一次真回归就再也报不出来。
+
+同机 `--shot` 通常逐字节相同。它**首跑就抓到了** dialog double-free（tree13 未关就 close → SIGABRT）。
 跳过 tree 24（MenuBar 现报 root-app 错误节点，不纳入基线以免固化坏态）。
 tree 29（inspector）拍到的是整窗高亮描边——`WindowToggleInspector` 是拾取模式开关，
 不是面板；面板由 `El::inspector()` 摆（tree31：右侧 320px 的 Inspector 面板 + 拾取按钮）。

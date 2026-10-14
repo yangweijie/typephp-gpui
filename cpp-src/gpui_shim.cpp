@@ -182,12 +182,16 @@ class Box2 {
     void enqueue(uint64_t callbackId, int vkind, double vnum, int vbool,
                  const char* vstr) {
         auto it = callbacks.find(callbackId);
+        // 不认识这个 callbackId 就**不入队**。以前是照入一条 type/id 全空的记录，
+        // 于是 `App::onAny()` 的通配 handler 会收到一条"哪个元素都不属于"的事件——
+        // 而 cmd/patch-select-view.sh 之后走这条路的多了一批"合法但本窗口没人监听"的 id
+        // （popover 开合、bound_bool、dock 布局），空事件只会越来越多，不会自己消失。
+        // 值记忆也留在命中分支里：没主的 id 不该污染 elementValue() 的读源。
+        if (it == callbacks.end()) return;
         GpuiEvent ev{};
-        if (it != callbacks.end()) {
-            std::snprintf(ev.type, sizeof(ev.type), "%s", it->second.second.c_str());
-            std::snprintf(ev.id, sizeof(ev.id), "%s", it->second.first.c_str());
-            rememberValue(it->second.first.c_str(), vkind, vnum, vbool, vstr);
-        }
+        std::snprintf(ev.type, sizeof(ev.type), "%s", it->second.second.c_str());
+        std::snprintf(ev.id, sizeof(ev.id), "%s", it->second.first.c_str());
+        rememberValue(it->second.first.c_str(), vkind, vnum, vbool, vstr);
         ev.vkind = vkind;
         ev.vnum = vnum;
         ev.vbool = vbool;

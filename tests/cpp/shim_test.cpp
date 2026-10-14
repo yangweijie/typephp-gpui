@@ -570,6 +570,30 @@ void testGapServices() {
     CHECK(!gpui::HttpUrlIsRemote(gpui::Str("")));
 }
 
+// 11) Box2::enqueue 的路由：认识的 callbackId 入队并带 (id,type)；不认识的**整条丢掉**。
+//     两个方向都要钉：只测"未知不入队"会放过"把该入队的也一起丢了"这种改法，
+//     只测"已知入队"则是这次 bug 的原样（以前未知 id 会压一条 type/id 全空的事件，
+//     App::onAny() 的通配 handler 因此看得见"哪个元素都不属于"的事件）。
+void testEnqueueRouting() {
+    std::puts("enqueue routing");
+    Box2 box;
+
+    // 反方向锚点：认识的 id 必须照常入队，且值记进 lastValues（elementValue 的读源）。
+    uint64_t cb = box.newCallback("in-num", "step");
+    CHECK(cb != 0);
+    box.enqueue(cb, GPUI_ARG_STR, 0, 0, "increment");
+    CHECK(box.queue.size() == 1);
+    CHECK(box.queue.front().id == std::string("in-num"));
+    CHECK(box.queue.front().type == std::string("step"));
+    CHECK(box.queue.front().vstr == std::string("increment"));
+
+    // 正方向：没登记过的 callbackId 一条都不该留下，也不该给值读源添条目。
+    box.enqueue(cb + 1000, GPUI_ARG_BOOL, 0, 1, nullptr);
+    box.enqueue(0, GPUI_ARG_NIL, 0, 0, nullptr);
+    CHECK(box.queue.size() == 1);
+    CHECK(box.lastValues.size() == 1);
+}
+
 } // namespace
 
 int main() {
@@ -583,6 +607,7 @@ int main() {
     testCopyBounded();
     testGapServices();
     testCapabilityServices();
+    testEnqueueRouting();
     if (g_failures) {
         std::fprintf(stderr, "SHIM CPP TESTS FAIL (%d)\n", g_failures);
         return 1;

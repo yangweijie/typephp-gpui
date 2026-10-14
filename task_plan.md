@@ -513,6 +513,10 @@ SIGSEGV 报成了它自己那一行，而它在画廊里时只是"某轮 rc=11�
       `[NSEvent pressedMouseButtons]`，合成事件伪造不了 ⇒ 造不出 `DragMoveEvent`，
       `on_resize` 的送达只能真人验。`resizeDelivered` 保持只报数不判红。
       附带把 `realDrag` 的返回从 bool 改成 `{pressed,moved,released}`——两种语义不能压成一个值。
-- [ ] **16-I** 一次像素抖动（chrome shotdiff 单跑红、复跑 3/3 绿、无崩溃报告）说明
+- [x] **16-I** 一次像素抖动（chrome shotdiff 单跑红、复跑 3/3 绿、无崩溃报告）说明
       像素门缺"红了先复跑再定罪"的成文规矩；已记进用户记忆 (43)，
       下一轮把它写进 `docs/guide/testing.md` 的 shotdiff 段。
+- [x] **16-J** `Box2::enqueue()` 不再为未知 callbackId 压空事件（值记忆也收进命中分支），
+      新增 `tests/cpp/shim_test.cpp` 的 `enqueue routing` 双向钉；负向对照是**换回旧实现**
+      （第一次只删早返回 ⇒ 测试段错误，那测的是我的改法不是旧行为，已纠正）。
+      守卫在现有示例里没有可观察差别（画廊 `any=120` 前后一致），证据是那条 C++ 测试。
