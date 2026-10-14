@@ -2060,3 +2060,37 @@ layout 域注释）——"补丁没打""上游没有发信方""我们的糖挂�
 并把旧的错误论断留在注释里说明它被谁推翻。
 
 门禁：pest 104 · phpstan 0 · 全量 14 支 selftest rc=0 · 44 棵像素树全绿。
+
+## 修复轮 30：#81 落地——句柄 0 是合法实体，我方把"建成第一颗"读成了失败（2026-10-14）
+
+上一轮末的现场是三条互相矛盾的读数（`registeredError` 报"InputState: state creation failed"，
+而 `componentFailure count=0`、`inputBounds` 的框数**确实**从 4 变 5）。本轮先把失败命名出来，
+再逐层排除：guard（`impl->components` 与 `Components()` 是同一枚指针，shim 前置查询已通过）、
+描述符缺失（会写非空 `unknown component state`）、工厂拒绝（`NewInputState` 三条 `Fail` 全带文本，
+而 `buildComponentArgs` 恒按 schema 元数下发）、`Insert` 失败（两条失败都 `StrDup` 了原因）——
+全都不成立。成立的是 `component_registry.h:522` 的 `uint64_t nextHandle = 0;`：
+**第一颗实体的 handle 就是 0**，而我方 `if (!handle)` 把它读成失败。上游 JS 那条路没这个坑，
+因为它把 handle 当**数**交给脚本（`JS_NewFloat64`），0 在那儿就是正常值。
+
+改动分三层，一次改齐不留"看着对"的半截：
+
+1. `cmd/patch-host-state.sh`：`NewHostState` 改 `bool + uint64_t* handle`；每条 `return false`
+   都写 `*error`（原来那条静默 guard 现在是 `no runtime to create component state in`）；
+   顺带加 `ComponentStateCount()`（`impl->componentStates.Len()`，`Len()` 本来就是 public）。
+   自检加三条：handle 出参恰好一处、读数落位、实现体里不许再有 `return 0`；
+   旧签名的树直接 abort（不叠第二份重载定义）。
+2. shim/bridge：`gpui_shim_state` 同样改状态码 + 出参，缓存命中判定改用 `stateHandles` 的
+   key 存在；造不出实体时 bridge 下发 `GPUI_ARG_NIL`（不是 `ENTITY num=0`——那个 handle
+   可能属于别的组件），让 shim 的 Entity 支拒绝、错误节点上屏、`registeredError()` 报出来。
+3. `stateCounts()` 多一项 `componentStates`（上游实体表长度，进程级）：这是"每帧复用"与
+   "每帧漏一颗"唯一的区分仪表——我方缓存条数在漏的时候是按同一个 key 覆盖，看不出来。
+
+`examples/input` 加三条门：`catalogInputRect`（n≥5，改前实测 4）、`catalogStateReuse`
+（首帧后与多帧后都必须是 1）、`catalogStateFailureVisible`（**执行式**反向对照：拿
+`El::state('NoSuchState', …)` 重渲染一次，失败必须读得出来）。
+
+诚实的边界：`El::state` 打通的是**入口**，实测过的只有 `InputState` 一种 kind——
+其余 15 颗 state 各自的实参 schema 还没验，`upstream-coverage.md` 那句"我们目前没有造句柄的
+API"已订正成"入口通了 ≠ 16 个都能用"。像素基线里那颗带样式的框是本任务的验收，
+但 `input`/`showcase` 两棵树需要重录（本轮跑完 selftest 后再录，避免上次"不重构建就 record
+得到 13 棵一模一样的树"那种假绿）。

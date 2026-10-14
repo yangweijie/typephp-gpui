@@ -563,6 +563,66 @@ uint64_t gpui_shim_new_callback(void* win, const char* elem_id,
     return res;
 }
 
+// catalog 的保留态实体（#81）。Input / NumberInput / OtpInput / Slider / ColorPicker /
+// Calendar / DatePicker / TimeField 的构造都只吃一个 `state` 实参（SchemaEntity），
+// 而上游那颗实体的**创建**原本只在 JS 绑定函数里（要 live script scope）——
+// `ShellRuntime::NewHostState`（cmd/patch-host-state.sh）是给它补的宿主入口。
+//
+// 按 "kind\x1fkey" 缓存：PHP 每帧重建同一棵树，不缓存就是每帧往 componentStates
+// 里塞一颗新实体（"每帧回调无界增长"那一族的复发）。key 用元素 id 就够——同一颗
+// 组件在页面里只有一个身份。
+//
+// 出参而不是返回值：上游 componentStates 的 nextHandle 从 0 起，第一颗实体的 handle
+// 就是 0——把它当失败哨兵会让"刚建好的第一颗"永远被判为失败（#81 首跑正是栽在这）。
+int gpui_shim_state(void* win, const char* kind, const char* key,
+                    const GpuiArg* args, int argc, uint64_t* handle) {
+    if (handle) *handle = 0;
+    auto* box = static_cast<Box2*>(win);
+    if (!box || !g_runtime || !kind || !*kind || !key || !*key || !handle)
+        return 0;
+    const gpui::shell::FrozenComponentRegistry* comps = g_runtime->Components();
+    if (!comps) {
+        box->lastError = "runtime ships no component catalog";
+        return 0;
+    }
+    std::string cacheKey(kind);
+    cacheKey += '\x1f';
+    cacheKey += key;
+    auto hit = box->stateHandles.find(cacheKey);
+    if (hit != box->stateHandles.end()) {
+        *handle = hit->second;
+        return 1;
+    }
+
+    const gpui::shell::StateDescriptor* desc =
+        comps->StateOfKind(gpui::Str(kind, (int)std::strlen(kind)));
+    if (!desc) {
+        box->lastError = std::string("unknown component state '") + kind + "'";
+        return 0;
+    }
+    gpui::Arena* a = box->specs.Storage();
+    std::string err;
+    gpui::shell::ComponentArgument* arguments = nullptr;
+    int n = buildComponentArgs(a, desc->arguments, args, argc, &arguments, &err);
+    if (n < 0) {
+        box->lastError = std::string(kind) + ": " + err;
+        return 0;
+    }
+    gpui::Str error;
+    // owner 用宿主唯一的那枚应用令牌：componentStates.ReleaseApplication 按 owner 回收，
+    // 另造一枚就等于把实体挂在没人放的地方。
+    uint64_t created = 0;
+    if (!g_runtime->NewHostState(desc->kind, box->window, g_app, hostAppToken(),
+                                 arguments, n, &created, &error, a)) {
+        box->lastError = error.s ? std::string(error.s, (size_t)(error.len > 0 ? error.len : 0))
+                                 : std::string(kind) + ": state creation failed";
+        return 0;
+    }
+    box->stateHandles[cacheKey] = created;
+    *handle = created;
+    return 1;
+}
+
 int gpui_shim_selftest_fire_registered(void* win, const char* elem_id,
                                        const char* type) {
     auto* box = static_cast<Box2*>(win);

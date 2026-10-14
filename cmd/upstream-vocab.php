@@ -19,7 +19,7 @@ declare(strict_types=1);
 
 final class UpstreamVocab
 {
-    /** @return array{kinds: list<string>, ops: list<string>, slots: list<string>, stateStyles: list<string>, roles: list<string>, styleKeywords: array{all: list<string>, animated: list<string>, missing: list<string>, families: list<string>, otherParams: list<string>}, catalog: array<string,array{ctors:array<string,list<array{0:?string,1:string,2:list<string>>}>,methods:array<string,list<array{0:?string,1:string,2:list<string>>}>,file:string}>} */
+    /** @return array{kinds: list<string>, ops: list<string>, slots: list<string>, stateStyles: list<string>, stateKinds: list<string>, roles: list<string>, styleKeywords: array{all: list<string>, animated: list<string>, missing: list<string>, families: list<string>, otherParams: list<string>}, catalog: array<string,array{ctors:array<string,list<array{0:?string,1:string,2:list<string>>}>,methods:array<string,list<array{0:?string,1:string,2:list<string>>}>,file:string}>} */
     public static function load(string $treeDir): array
     {
         [$slots, $states] = self::slotTables($treeDir . '/src/shell/runtime.cpp');
@@ -28,10 +28,38 @@ final class UpstreamVocab
             'ops' => self::ops($treeDir . '/src/shell/materialize.cpp'),
             'slots' => $slots,
             'stateStyles' => $states,
+            'stateKinds' => self::stateKinds($treeDir . '/src/component_shell'),
             'roles' => self::roles($treeDir . '/src/shell/a11y.cpp'),
             'styleKeywords' => self::styleKeywords($treeDir . '/src/shell/style.cpp'),
             'catalog' => self::catalog($treeDir . '/src/component_shell'),
         ];
+    }
+
+    /**
+     * 保留态实体的 kind 名（#81 的 `El::state(...)` 吃的那个名字）。
+     *
+     * 权威源取 `SchemaEntity("X")`：那是**组件构造真正会去要的** kind，注册表在 build
+     * 时保证它与某条 StateDescriptor 的 kind 对得上。不去解析 `StateDescriptor` 聚合
+     * 初始化（`{"InputState", "InputState", kInputStateArgs, …}`）——那个形状里第一个
+     * 是导出名、第二个才是 kind，靠位置解析容易被注释里的逗号带偏，而我们要挡的恰恰是
+     * "PHP 侧写了一个上游没人要的名字"。
+     *
+     * @return list<string>
+     */
+    public static function stateKinds(string $dir): array
+    {
+        $out = [];
+        if (!is_dir($dir)) { return $out; }
+        $it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($dir, FilesystemIterator::SKIP_DOTS));
+        foreach ($it as $f) {
+            if (!$f->isFile() || substr($f->getFilename(), -4) !== '.cpp') { continue; }
+            if (preg_match_all('/SchemaEntity\(\s*"([^"]+)"/', (string) file_get_contents($f->getPathname()), $m)) {
+                foreach ($m[1] as $name) { $out[$name] = true; }
+            }
+        }
+        $names = array_keys($out);
+        sort($names);
+        return $names;
     }
 
     /** 从 $text 的 $open（'{' 的下标）取出配对花括号内的内容。 */

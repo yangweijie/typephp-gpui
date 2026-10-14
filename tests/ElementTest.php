@@ -358,6 +358,22 @@ test('every factory that takes an $id puts it where its kind routes events', fun
         expect($el)->toBeInstanceOf(El::class, $m->getName() . ' 的返回值不是 Element');
         $arr = $el->toArray();
         if (!empty($arr['registered'])) {
+            // 例外一颗：catalog `Input` 的上游构造**只吃 state**（SchemaEntity，
+            // retained_forms/mod.cpp:538-554），所以 ctorArgs[0] 是那颗实体的标记数组
+            // 而不是 id；它的 $id 走 ->id()（回调路由要用）并同时当 state 缓存的 key。
+            // 不是放宽规则——改成断"这两处都得是 sentinel"，id 走错任何一处照样红。
+            if ($m->getName() === 'catalogInput') {
+                expect($arr['ctorArgs'][0][2] ?? null)->toBe(
+                    $sentinel,
+                    'catalogInput() 的 $id 没进 state 标记的 key 位（每帧会造出新实体）'
+                );
+                expect($arr['id'])->toBe(
+                    $sentinel,
+                    'catalogInput() 的 $id 没进 id 字段（回调按 id 路由）'
+                );
+                $registered++;
+                continue;
+            }
             expect($arr['ctorArgs'][0] ?? null)->toBe(
                 $sentinel,
                 $m->getName() . '() 是注册组件，$id 必须进 ctorArgs[0]（原生按位置取它）'

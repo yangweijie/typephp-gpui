@@ -200,12 +200,33 @@ function upstreamParityProblems(string $repo, string $tree): array
             foreach ($m5[1] as $n) { $usedExports[$n] = true; }
         }
     }
-    $badExports = array_values(array_diff(array_keys($usedExports), $exports));
+    // state 实参标记（#81）：`El::state('InputState', …)` 里的名字来自**另一张表**
+    // （StateDescriptor 的 kind，不是组件导出名）。两张表混着判会两头错：合法名字被
+    // 报成"上游查不到"，而真正拼错的 kind 因为长得像导出名放过去。所以各查各的。
+    // 只扫 src——`examples/input` 的反向对照故意写了一个不存在的 kind。
+    $usedStateKinds = [];
+    if (preg_match_all("/state\(\s*'([A-Z][A-Za-z0-9]*)'/", $src, $mState)) {
+        foreach ($mState[1] as $n) { $usedStateKinds[$n] = true; }
+    }
+    $validStates = $v['stateKinds'] ?? [];
+    // 从导出名里豁免的，只有"确实写在 state( 位置上、且上游真有这个 kind"的那几个——
+    // 否则一个拼错的导出名撞上合法 kind 名就悄悄过了。
+    $excused = array_intersect(array_keys($usedStateKinds), $validStates);
+    $badExports = array_values(array_diff(array_keys($usedExports), $exports, $excused));
     sort($badExports);
     if ($badExports !== []) {
         $problems[] = '这些 catalog 导出名上游 descriptor 表里没有（会 build 不出来 → 降级成 Div）：'
             . implode(', ', $badExports);
     }
+    $badStates = array_values(array_diff(array_keys($usedStateKinds), $validStates));
+    sort($badStates);
+    if ($badStates !== []) {
+        $problems[] = '这些 state kind 上游没有对应的 SchemaEntity（gpui_shim_state 查不到描述符，'
+            . 'bridge 会下发 NIL 实参 → 那颗组件渲染成错误节点）：' . implode(', ', $badStates);
+    }
+    $info[] = sprintf('state kind：%d 个上游在册（SchemaEntity 声明），PHP 侧用到 %d 个：%s',
+        count($validStates), count($usedStateKinds),
+        implode(', ', array_keys($usedStateKinds)) ?: '（无）');
     $rmNames = [];
     // 名字来源有两处：直接 ->rm('x')，以及 catalog 糖里的 catalogMethod('x', …)。
     // 只扫前者会在"糖改成统一分发器"之后静默失去覆盖——那正是这条门要防的那类事。

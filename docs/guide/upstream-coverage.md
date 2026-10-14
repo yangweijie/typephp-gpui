@@ -37,9 +37,14 @@ Questionnaire 家族、TableFooter、VForm —— 但**没有专用工厂就意�
 
 **还需要上游 entity 状态句柄的 16 个**（`SchemaEntity("CommandState"/"DataTableState"/
 "EditorState"/"DiffState"/"MessageScrollerState"/"CarouselState"/"CalendarState"/
-"TimeFieldState"/"ColorPickerState"/"ScrollbarHandle"…)`，我们目前没有造句柄的 API）：
+"TimeFieldState"/"ColorPickerState"/"ScrollbarHandle"…)`）：
 Command、DataTable、Diff、Editor、MessageScroller、Scroll、Carousel 六件套、
 QuestionnaireInput、ColorPicker、Calendar、TimeField。
+**造句柄的 API 已于 2026-10-14 打通**（#81：`cmd/patch-host-state.sh` 给上游补了宿主入口
+`ShellRuntime::NewHostState`，PHP 侧是 `El::state($kind, $key, $args)`，见
+[组件 · 带样式的表单族](./components#带样式的表单族要先造一颗-state-实体-catalog-input-一族)）。
+但**实测过的只有 `InputState`**（`El::catalogInput`，`examples/input` 三条门）：每一颗 state 的
+实参 schema 各自不同，其余 kinds 走的是同一入口、尚未逐一验过——"入口通了"不等于"16 个都能用"。
 
 **看起来缺、其实走了别的路**：Dialog / AlertDialog → `App::openDialog()`；Sheet →
 `App::openSheet()`；Notification → `App::notify()`；Tooltip → 元素上的 `tooltip` op；

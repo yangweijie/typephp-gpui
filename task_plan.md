@@ -534,3 +534,23 @@ SIGSEGV 报成了它自己那一行，而它在画廊里时只是"某轮 rc=11�
       新增 `tests/cpp/shim_test.cpp` 的 `enqueue routing` 双向钉；负向对照是**换回旧实现**
       （第一次只删早返回 ⇒ 测试段错误，那测的是我的改法不是旧行为，已纠正）。
       守卫在现有示例里没有可观察差别（画廊 `any=120` 前后一致），证据是那条 C++ 测试。
+- [x] **16-K** #81 落地：宿主侧 catalog 保留态实体入口 `cmd/patch-host-state.sh`（第 15 支）
+      + `gpui_shim_state` + `El::state()`/`El::catalogInput()`，一次开通带样式的表单族。
+      首跑三条读数互相矛盾（`registeredError` 报创建失败、`componentFailure count=0`、
+      `inputBounds` 的框数却从 4 变 5），根因是**我方哨兵**：上游
+      `ComponentStateStore::nextHandle` 从 0 起（`component_registry.h:522`），
+      第一颗实体的 handle 就是 0，而 `if (!handle)` 把"建成第一颗"读成失败。
+      三层一起改齐：`NewHostState` 改 `bool + uint64_t* handle` 且每条 return false 都写
+      `*error`；`gpui_shim_state` 同形；bridge 造不出实体时下发 NIL（不是 handle 0——
+      那个 handle 可能属于别的组件）。`stateCounts()` 多一项 `componentStates`
+      （上游实体表长度）：这是"每帧复用/每帧漏一颗"唯一分得开的仪表。
+      `examples/input` 三条门全绿：`catalogInputRect`（n=5）、`catalogStateReuse`
+      （首帧后=1、多帧后=1）、`catalogStateFailureVisible`（**执行式**反向对照，读数
+      `Input: at argument 'state': expected a catalog state handle (El::state(...))`）。
+      像素验收：那颗带圆角边框的框 + 里面"初值来自 state"（初值经实体回环）已进基线，
+      改动范围恰好 input/tree1 + showcase/tree2 两棵，其余 42 棵 gdfrac=0.00000。
+      两条既有门各自抓到真问题并据此扩面：parity 门把 `InputState` 当导出名报错
+      ⇒ 词表新增 `stateKinds`（15 个，取自 `SchemaEntity("X")`），导出名与 state kind
+      分表校验；`$id` 约定门 ⇒ catalogInput 的 id 进 `->id()` + state key 两处，改断这两处。
+      **边界**：实测过的只有 `InputState` 一种 kind；其余 14 颗走同一入口、实参 schema 各异，
+      未逐一验过 ⇒ `upstream-coverage.md` 那句"没有造句柄的 API"订正为"入口通了 ≠ 16 个都能用"。

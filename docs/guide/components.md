@@ -272,6 +272,45 @@ $el::cb('click', 'routeId')           // 回调实参标记（DropdownMenu.item 
 枚举常量（对齐 descriptor 白名单）：`El::SIZES` `El::SIDES` `El::COLLAPSE_MODES`
 `El::FIELD_ALIGN` `El::NAV_ICONS` `El::ALERT_VARIANTS`。
 
+## 带样式的表单族要先造一颗 state 实体（catalog Input 一族）
+
+`El::input()` 画出来永远是个裸框——这不是主题没配好：它走的是 shell 的
+`ComponentKind::Input`，而 materialize 调的是**不带样式**那个重载
+（`InputBase::New(cx, id, interactive, role)`，`base/input.cpp:34-39`）。带边框/底色/焦点态的那颗
+是 catalog 里的 `Input` 组件，而它的构造**只吃一个实参** `state`，schema 是
+`SchemaEntity("InputState")`。同型的还有七颗：`NumberInput` / `OtpInput` / `Slider` /
+`ColorPicker` / `Calendar` / `DatePicker` / `TimeField`
+（`component_shell/retained_forms/mod.cpp:538-554, 624`）。
+
+上游那颗实体的**创建**原本只存在于 JS 绑定函数里（`NativeRegisteredState` 要 live script scope
+才能拿到 Window/App 身份和 JS 错误通道），PHP 宿主两样都没有。第 15 个补丁
+`cmd/patch-host-state.sh` 补了宿主入口 `ShellRuntime::NewHostState(...)`，shim 经
+`gpui_shim_state` 用它，PHP 侧就是这两句：
+
+```php
+El::catalogInput('in-cat', '你的名字', '初值');   // 糖：catalog Input 加它自己的 InputState
+El::catalog('Input', [El::state('InputState', 'in-cat', ['占位', '初值'])]);   // 同一形状，手写
+El::state($kind, $key, $args);   // 实参标记；$args 按该 state 描述符的 schema 顺序，null = 不传（optional 缺席）
+```
+
+三条必须知道的语义：
+
+- **`$key` 是复用的身份**：PHP 每帧重建整棵树，宿主按 `(kind, key)` 缓存实体——用元素 id 就够。
+  不缓存就是每帧往上游实体表塞一颗。仪表是 `App::stateCounts()['componentStates']`（上游表的长度），
+  我方缓存条数分不了这个案：漏的时候是同一个 key 被覆盖，条数不变，而表长度每帧 +1。
+  `examples/input` 的 `catalogStateReuse` 门断的就是这个数在多帧之后仍恒为 1。
+- **handle `0` 是一颗合法实体**：上游 `ComponentStateStore::nextHandle` 从 **0** 起
+  （`component_registry.h:522`），所以第一颗实体的 handle 就是 0。跨层传它一律"状态码 + 出参"，
+  别让同一个整数既当身份又当成功位——#81 首跑正是把"刚建成第一颗"读成了失败。
+- **造不出实体不会静默降级**：bridge 在下发时就把它换成 NIL 实参，而 shim 的 `Entity` 支只收
+  `GPUI_ARG_ENTITY`，于是这颗组件渲染成错误节点、`registeredError()` 报出原因。把 0 当 handle
+  传下去才危险——那个 handle 可能属于别的组件。`examples/input` 的 `catalogStateFailureVisible`
+  用 `El::state('NoSuchState', ...)` 实测过这一条。
+
+失败的另一半仍然是静默的：实体建出来了、组件 materialize 不了时 gpui 只画 `Failed to render X`。
+所以 `El::catalogInput()` 的验收要看**两条**——`registeredError()` 为空，**且**
+`App::inputProbe()` 的框数真的因为这一行变多（`input` 域实测 4→5）。
+
 ## 已知限制
 
 - **MenuBar**：`AppEffects` 需 gpui 的 root-application（基座 `Root`），与 ShellRoot 根模型

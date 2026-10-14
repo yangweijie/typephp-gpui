@@ -1824,3 +1824,44 @@ type 1 = 同点按下+抬起、type 0 = 移动，没有分离的按下/抬起，
 
 教训还是那条老形状：**"看起来像 A 层的问题"要先证明 A 层真的参与**。这次"无框"被标成
 主题层，实际主题层从头到尾没被调用过——差的是构造实参。
+
+## 修复轮 29：#81 首跑的「state creation failed」是**我方哨兵错**，不是上游拒绝（2026-10-14）
+
+补丁打通后第一次全链跑，三条读数互相矛盾：
+
+```
+FAIL registeredError — InputState: state creation failed
+ok   componentFailure — count=0 last=
+ok   inputBounds — n=5 有效框=5 越界读数零=true     ← 改之前是 4
+```
+
+"创建失败"与"多了一颗真框"不可能同时为真。逐条排下来：
+
+| 假设 | 判据 | 结论 |
+|---|---|---|
+| `NewHostState` 的 `if (!impl \|\| !impl->components \|\| !kind) return 0;` 没写 `*error` | `ShellRuntime::Components()` 就是 `impl ? impl->components : nullptr`，而我方 shim **先**调它且没报"no component catalog" ⇒ 同一枚 `impl->components` 非空 | 排除（但这条静默 return 确实是坏形状，见下） |
+| 描述符查不到 | 会写 `StrL("unknown component state")`，读数里看得见 | 排除 |
+| 工厂 `NewInputState` 拒绝 | 三条 `Fail` 全带文本（`count != 2` / "must be optional text" / "expects text"），而 `buildComponentArgs` 恒按 schema 元数（2）下发，Optional 支把 NIL 映成 `ArgKind::Optional` | 排除 |
+| `ComponentStateStore::Insert` 失败 | 两条失败都 `StrDup` 了非空原因 | 排除 |
+| **handle 0 是一颗合法实体** | `component_registry.h:522` `uint64_t nextHandle = 0;`，`:913` `entry.handle = nextHandle++` ⇒ **第一颗实体的 handle 就是 0**；我方 shim 写的是 `if (!handle) { …失败… }` | **命中** |
+
+所以：实体建出来了、`registered Input` 拿到了它、渲染成第五颗有矩形的框；唯一错的是我方
+把"成功但 handle==0"读成失败并写了 `lastError`。上游自己的 JS 创建路（`NativeRegisteredState`）
+从没这个坑——它把 handle 当**数**返回给脚本（`JS_NewFloat64(ctx, (double)handle)`），0 在那里
+就是个正常值；是我把 C 习惯的"0 = 空"带进了一个 0 有身份的句柄空间。
+
+改法（三层同时收口，不留"看着对"的半截）：
+
+1. `cmd/patch-host-state.sh`：`ShellRuntime::NewHostState` 从 `uint64_t` 返回改成
+   `bool … , uint64_t* handle, Str* error, Arena* a)`；**每条** return false 都写 `*error`
+   （原先那条静默 guard 现在是 `StrL("no runtime to create component state in")`）。
+   补丁自检加两条：头文件里 handle 出参恰好一处、实现体里不许再出现 `return 0`。
+2. `cpp-src/gpui_shim.h` / `_services.inc`：`gpui_shim_state` 同样改状态码 + 出参；
+   缓存命中判定改用 `stateHandles` 的 **key 存在**而不是值非零。
+3. `cpp-src/gpui_bridge.cc`：造不出实体时下发 `GPUI_ARG_NIL` 而不是 `ENTITY num=0`。
+   shim 的 Entity 支只收 `GPUI_ARG_ENTITY`，于是失败会渲染成错误节点并被
+   `registeredError()` 报出——把 0 传下去则是"可能属于别的组件的一颗实体"，是静默串用。
+
+**教训（新形状，值得单独记）**：拿到"看起来是成功读数"的**另一个**仪表（n=5）与失败读数矛盾时，
+先怀疑哨兵而不是被检对象。句柄空间里 0 是否合法，取决于分配器的初值，不取决于 C 惯例——
+所以跨层传句柄一律用"状态码 + 出参"，别让同一个整数既当身份又当成功位。

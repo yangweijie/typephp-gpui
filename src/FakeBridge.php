@@ -566,6 +566,8 @@ namespace {
             'webviews' => 0, 'inspectors' => 0, 'notifyLists' => 0, 'dialogs' => 0,
             'watchCtx' => 0, 'httpResponses' => 0,
             'boxesAlive' => 0, 'viewsAlive' => 0,
+            // 真侧第 15 项是上游保留态实体表的长度（#81）。假侧没有那张表。
+            'componentStates' => 0,
         ];
     }
 

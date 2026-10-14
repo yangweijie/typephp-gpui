@@ -66,6 +66,8 @@ function patchManifest(): array {
         ['patch-dispatch-cb.sh',   "$gpui/src/shell/runtime.cpp",    'typephp-gpui: shim route (DispatchArgs)'],
         ['patch-nested-view.sh',   "$gpui/src/shell/runtime.cpp",    'RegisterHostView'],
         ['patch-host-application.sh', "$gpui/src/shell/runtime.cpp", 'HostApplyComponentAppEffect'],
+        ['patch-host-state.sh',      "$gpui/src/shell/runtime.cpp", 'typephp-gpui: host-side retained component state'],
+        ['patch-host-state.sh',      "$gpui/src/shell/runtime.h",   'NewHostState'],
         ['patch-concepts.sh',      "$gpui/src/gpui/gpui.h",          'EmitsEventV'],
         ['patch-hover-always.sh',  "$gpui/src/gpui/window_mac.cpp",  'NSTrackingActiveAlways'],
         ['patch-key-view.sh',      "$gpui/src/shell/view.cpp",       'typephp-gpui: gpuiEnqueueKey'],

@@ -17,14 +17,19 @@ extern "C" {
 
 /* 参数化样式/方法的一个桥接实参：tagged union，跨 C ABI 安全。
  * ARRAY 用 items/count 携带嵌套实参（如 Breadcrumb 的路径段数组）；
- * CB 用 num 携带事先经 gpui_shim_new_callback 分配的 callbackId。 */
+ * CB 用 num 携带事先经 gpui_shim_new_callback 分配的 callbackId；
+ * ENTITY 用 num 携带 gpui_shim_state 造的 catalog 保留态 handle（#81）。
+ * ENTITY 与 NUM 分家是有意的：schema 要 Entity 的地方给一个普通数字，
+ * 上游会当成合法 handle 去查表，错了也只是"渲染出 Failed to render X"；
+ * 分成两个 kind 才能在我们这侧当场拒掉。 */
 typedef enum {
     GPUI_ARG_NIL = 0,
     GPUI_ARG_BOOL,
     GPUI_ARG_NUM,
     GPUI_ARG_STR,
     GPUI_ARG_ARRAY = 5,
-    GPUI_ARG_CB = 6
+    GPUI_ARG_CB = 6,
+    GPUI_ARG_ENTITY = 7
 } GpuiArgKind;
 
 typedef struct GpuiArg {
@@ -152,8 +157,9 @@ int gpui_shim_last_error(void* win, char* out, int outlen);
  * 按 kind 只填对应出参：NUM→*out_num，BOOL→*out_bool，STR→out_str（NUL 结尾）。 */
 /* 各容器条数（内存增长仪表）。顺序与 gpui_shim.cpp 里一致：
  * timerKeys/timerIds/callbacks/cbByKey/shimCallbacks/inputHandles/lastValues/
- * webviews/inspectors/notifyLists/dialogs/watchCtx/httpResponses，末两项是**进程级**：
- * boxesAlive（活着的 Box2 数）与 viewsAlive（g_views 键数）。返回写入条数。 */
+ * webviews/inspectors/notifyLists/dialogs/watchCtx/httpResponses，接着三项是**进程级**：
+ * boxesAlive（活着的 Box2 数）、viewsAlive（g_views 键数）与 componentStates
+ * （上游保留态实体表的长度，#81 起宿主也会往里造）。返回写入条数。 */
 int gpui_shim_state_counts(void* win, long long* out, int cap);
 
 int gpui_shim_element_value(void* win, const char* id, double* out_num,
@@ -430,6 +436,16 @@ void gpui_shim_registered_method(void* win, uint32_t spec, const char* name,
  * 返回 callbackId。 */
 uint64_t gpui_shim_new_callback(void* win, const char* elem_id,
                                 const char* type);
+
+/* catalog 的保留态实体（#81）：Input/NumberInput/OtpInput/Slider/ColorPicker/
+ * Calendar/DatePicker/TimeField 的构造只吃一个 `state` 实参，这个入口就是造它。
+ * args 按该 state 描述符的 schema 给（可空）。同一个 (kind,key) 每帧复用同一颗。
+ * 成功返回 1 并把 handle 写进 *handle；失败返回 0，原因进 gpui_last_error。
+ * handle 必须走出参：上游 ComponentStateStore 的 nextHandle 从 **0** 起
+ * （component_registry.h:522），所以 0 是一颗合法实体，不能拿来当失败哨兵。
+ * 见 cmd/patch-host-state.sh。 */
+int gpui_shim_state(void* win, const char* kind, const char* key,
+                    const GpuiArg* args, int argc, uint64_t* handle);
 
 /* 指定根 spec id 并请求下一帧重绘。 */
 void gpui_shim_render_end(void* win, uint32_t root_id);

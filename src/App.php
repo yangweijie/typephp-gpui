@@ -427,9 +427,12 @@ final class App
      * 内部各容器的条数（诊断/回归用）：内存增长类修复的仪表。
      * 例：同一个 id 反复 setTimer 之后 timerKeys 必须还是 1，而不是每挂一次加一条。
      *
-     * 末两项是**进程级**的：`boxesAlive`（活着的窗口/overlay 包装数）与 `viewsAlive`
-     * （view→包装 反查表的键数）。overlay 的回收只能靠这两个数证明——`dialogs` 读的是
-     * vector 长度，而 pop 在调用方做，回收与否它都是 0。
+     * 末三项是**进程级**的：`boxesAlive`（活着的窗口/overlay 包装数）、`viewsAlive`
+     * （view→包装 反查表的键数）与 `componentStates`（上游保留态实体表的长度）。overlay
+     * 的回收只能靠前两个数证明——`dialogs` 读的是 vector 长度，而 pop 在调用方做，
+     * 回收与否它都是 0。`componentStates` 是 #81 起才有的：宿主在脚本域外也能造实体，
+     * 而"每帧复用同一颗"与"每帧漏一颗"在我方缓存条数上长得一模一样（漏的时候是同一个
+     * key 覆盖），只有这张表的长度分得开。
      *
      * 注意它有副作用：读之前会先把 overlay 包装与上游真实状态对齐（dialog/sheet 可以被
      * Escape/点背板**原生**关掉，那条路不经过本 shim），否则仪表会报一个马上就被纠正的

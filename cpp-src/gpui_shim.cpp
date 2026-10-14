@@ -86,6 +86,9 @@ class Box2 {
     std::string scratchOpName; // 回调 op 名的复用缓冲
     // "elemId\x1ftype" → runtime CallbackId（catalog 组件回调旁路，自检直接触发用）
     std::unordered_map<std::string, uint64_t> shimCallbacks;
+    // "stateKind\x1fkey" → catalog 保留态实体的 handle（gpui_shim_state）。
+    // 必须缓存：PHP 每帧重建同一棵树，不缓存就是每帧往 componentStates 里塞一颗新实体。
+    std::unordered_map<std::string, uint64_t> stateHandles;
     // 最近一次 registered 构造/方法失败的原因（每帧 render_begin 清空，供 gpui_last_error 回传）
     std::string lastError;
     // elementId → 最近一次上报的值（App::checked()/elementValue() 的读源，见 rememberValue）。
@@ -630,6 +633,12 @@ bool toComponentArg(gpui::Arena* a, const GpuiArg& ga,
             return true;
         }
         case SchemaKind::Entity: {
+            // 只收 GPUI_ARG_ENTITY：把"一个普通数字"当成 state handle 交给上游，
+            // 换来的是 `Failed to render X` 这种要到渲染后才看得见的错。这里先拦住。
+            if (ga.kind != GPUI_ARG_ENTITY) {
+                *err = "expected a catalog state handle (El::state(...))";
+                return false;
+            }
             out->kind = ArgKind::Entity;
             out->entityKind = schema.text;
             out->handle = (uint64_t)ga.num;
@@ -959,11 +968,20 @@ void* gpui_shim_app_init(void) {
 //
 // 整个宿主只用**一个**身份令牌：组件 materialize 时的 cx->self 会在 PhpView 与
 // ShellRoot 之间换人，两个身份就成了两条 app-effect 世代，各自装卸同一份 OwnedMenus。
+//
+// 同一枚令牌也是 catalog 保留态实体的 owner（`gpui_shim_state` 把它交给
+// `ShellRuntime::NewHostState`）——`ComponentStateStore::ReleaseApplication` 按 owner
+// 回收，宿主只有一枚就意味着这些实体会跟着应用一起放掉；再造第二枚等于把
+// "每帧无界增长"那一族的复发路径留回来。
+static void* hostAppToken() {
+    static std::unique_ptr<char[]> token = std::make_unique<char[]>(1);
+    return token.get();
+}
+
 static void registerHostApplication(gpui::EntityId entity) {
     if (!g_runtime) return;
-    static std::unique_ptr<char[]> token = std::make_unique<char[]>(1);
-    g_runtime->SetHostApplicationFallback(token.get());
-    if (entity.IsValid()) g_runtime->RegisterHostApplication(entity, token.get());
+    g_runtime->SetHostApplicationFallback(hostAppToken());
+    if (entity.IsValid()) g_runtime->RegisterHostApplication(entity, hostAppToken());
 }
 
 void* gpui_shim_open_window(const char* title, int width, int height) {
@@ -1151,6 +1169,10 @@ int gpui_shim_state_counts(void* win, long long* out, int cap) {
         box->httpResponses.size(),  // 12
         (size_t)(g_boxAlive < 0 ? 0 : g_boxAlive),  // 13 进程级：活着的 Box2
         g_views.size(),                             // 14 进程级：g_views 键数
+        // 15 进程级：上游保留态实体表的长度。#81 起宿主也能造实体（脚本域外），
+        // "每帧复用同一颗"与"每帧漏一颗"只有这个长度能分开——我方 stateHandles 缓存
+        // 的条数分不开，因为漏的时候是按同一个 key 覆盖。
+        (size_t)(g_runtime ? g_runtime->ComponentStateCount() : 0),
     };
     int n = (int)(sizeof(all) / sizeof(all[0]));
     if (n > cap) n = cap;

@@ -1235,6 +1235,40 @@ class Element
         return ['__cb__', $type, $id];
     }
 
+    /**
+     * catalog 的**保留态实体**实参（#81）：`Input` / `NumberInput` / `OtpInput` /
+     * `Slider` / `ColorPicker` / `Calendar` / `DatePicker` / `TimeField` 的构造都只吃
+     * 一个 `state`，schema 是 `SchemaEntity("...State")`。
+     *
+     * 这里只放标记，真正的实体由 bridge 在 emitTree 时经 `gpui_shim_state` 造
+     * （建树时窗口可能还不存在），并按 (kind, key) 缓存——PHP 每帧重建同一棵树，
+     * 不缓存就是每帧往上游的实体表里塞一颗新的。`$key` 用元素 id 就够。
+     *
+     * @param array<int, string|int|float|bool|null> $args 按该 state 的 schema 顺序；null = 不传（optional 缺席）
+     */
+    public static function state(string $kind, string $key, array $args = []): array
+    {
+        return ['__state__', $kind, $key, $args];
+    }
+
+    /**
+     * 带组件库样式的输入框（catalog `Input`）。
+     *
+     * 与 `El::input()` 的区别是**两个不同的组件**，不是糖度：`El::input()` 是 shell 的
+     * `ComponentKind::Input`，materialize 走的是不带样式那个重载
+     * （`InputBase::New(cx, id, interactive, role)`，base/input.cpp:34-39），所以它天生裸框；
+     * 带边框/底色/焦点态的是 catalog 这颗，代价是必须先造一颗 `InputState` 实体。
+     */
+    public static function catalogInput(string $id, string $placeholder = '', string $initial = ''): self
+    {
+        return self::reg('Input', [
+            self::state('InputState', $id, [
+                $placeholder === '' ? null : $placeholder,
+                $initial === '' ? null : $initial,
+            ]),
+        ])->id($id);
+    }
+
     // ── 子节点 ──
 
     public function child(self $element): self

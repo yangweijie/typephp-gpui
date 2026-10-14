@@ -27,6 +27,12 @@ function sectionInputs(array $s): El
         El::text('输入与保留态取值')->font(22.0)->semibold(),
         El::text('input / textarea / numberInput / otpInput：值由 gpui 持有，PHP 用 text(id) 取回')->font(12.0),
         El::input('in-name')->placeholder('你的名字')->onChange(),
+        // 同一页并排画两颗输入框，是为了让"裸框"这件事可看可比：上面那颗是 shell 的
+        // `ComponentKind::Input`（materialize 走不带样式的 InputBase::New，天生无框），
+        // 下面这颗是 catalog 的 `Input`（El::catalogInput，#81）——带边框/底色/焦点态，
+        // 代价是构造要先有一颗 InputState 保留实体。验收看两点：componentFailure 仍为 0
+        // （建不出来会渲染成 "Failed to render X" 并计数）+ inputProbe 的颗数多一颗。
+        El::catalogInput('in-cat', 'catalog Input（带样式）', '初值来自 state'),
         El::text($s['name'] !== '' ? "Hello, {$s['name']}!" : '还没输入')->font(13.0)->italic(),
         // onKeyDown：回调 op 名是 on_key_down，bridge 剥掉 "on_" 前缀后事件类型是 key_down
         // （cpp-src/gpui_bridge.cc:49），所以 handler 注册用 $app->on(id, 'key_down')。

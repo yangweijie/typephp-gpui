@@ -150,6 +150,25 @@ function runSelfTest(): void
         . ($badIdx === [] ? '' : ' 塌框索引=' . implode('/', $badIdx)));
     $ok = $ok && $inputsReal;
 
+    // 2b) catalog 表单族（#81）：这一页比拆分前多一行 `El::catalogInput('in-cat', …)`。
+    //     它与 `El::input()` 是**两个组件**，不是糖度差别：后者是 shell 的
+    //     ComponentKind::Input，materialize 走不带样式那个重载（base/input.cpp:34-39），
+    //     天生裸框；带边框/焦点态那颗是 catalog 的 `Input`，构造只吃**一颗宿主造的
+    //     `InputState` 实体**（retained_forms/mod.cpp:538-554）。这条链建不出来时上游
+    //     照旧静默降级成 Div（registeredError() 也是空的），所以断的是外显读数：
+    //     框数确实因为这一行变多——改前实测 n=4，改后 n=5。探针只给矩形不给 id，
+    //     所以这里不断"哪一颗是 in-cat"，只断"多出来一颗有矩形的框"。
+    $catOk = $n >= 5;
+    step('catalogInputRect', $catOk, 'n=' . $n . '（把这一行从页面上拿掉时实测 4）');
+    $ok = $ok && $catOk;
+
+    // 2c) 实体是按帧复用、不是每帧新建。读数取**上游实体表的长度**而不是我方缓存条数：
+    //     缓存失效时是同一个 (kind,key) 被覆盖，我方条数看不出来，而表长度每帧 +1。
+    //     本域只有一颗 catalog 组件，所以这个数必须是 1；这里先取第一次，末了再取一次
+    //     （中间那些逐颗点击/敲键都伴随重渲染）。
+    $sc = $app->stateCounts();
+    $statesEarly = (int) ($sc['componentStates'] ?? -1);
+
     // 3) 取值回环：setInput → shim 的 inputHandles → InputSetValue/OtpSetValue → text。
     //    四颗带值的 retained 各来一遍——串到别的字段上（同一次改动踩过一次误报）
     //    只有逐个验才看得出来。in-otp 走的是 OtpState 不是 InputState：
@@ -297,6 +316,29 @@ function runSelfTest(): void
         . '] 落点索引=' . $stepIdx . ' lastStep=' . var_export($stepVal, true)
         . ' elementValue(in-num)=' . var_export($app->elementValue('in-num'), true));
     $ok = $ok && $stepOk;
+
+    // 到这里页面已经重渲染过多帧（上面逐颗框都点过、每步都 loop 过）：实体表还必须是
+    // 同一个数，而且必须是 1。见 2c) 的说明——这条是 #81 的"每帧漏一颗"防线。
+    $scLate = $app->stateCounts();
+    $statesLate = (int) ($scLate['componentStates'] ?? -1);
+    $reuse = $statesEarly === 1 && $statesLate === 1;
+    step('catalogStateReuse', $reuse, 'componentStates 首帧后=' . $statesEarly
+        . ' 多帧后=' . $statesLate . '（本域一颗 catalog 组件，应恒为 1）');
+    $ok = $ok && $reuse;
+
+    // 反向对照（这条门自己会不会是假绿）：把 state 的 kind 换成不存在的名字重渲染一次，
+    // 失败必须**看得见**——bridge 下发 NIL 而不是 handle 0（0 在上游是一颗合法实体，
+    // 可能属于别的组件），shim 的 Entity 支于是拒绝这颗实参，组件渲染成错误节点，
+    // registeredError() 报出原因。放在最后跑：它会污染 registeredError() 与
+    // componentFailure()，而那两条在前面已经判过了。
+    $app->render(El::vFlex([
+        El::catalog('Input', [El::state('NoSuchState', 'in-bad', [])]),
+    ])->sizeFull());
+    $app->loop(2);
+    $neg = $app->registeredError();
+    step('catalogStateFailureVisible', $neg !== '', '错 kind 时读回='
+        . var_export($neg, true) . '（非空=看得见）');
+    $ok = $ok && $neg !== '';
 
     $app->close();
     echo ($ok ? 'INPUT SELFTEST OK' : 'INPUT SELFTEST FAIL') . "\n";

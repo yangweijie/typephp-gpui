@@ -65,6 +65,17 @@ bool isCallbackMarker(Array aa) {
     return h.isString() && std::strcmp(h.toCString(), kCbSentinel) == 0;
 }
 
+// Element::state() 的哨兵：['__state__', kind, key, [args...]]。
+// catalog 的保留态实体只能由宿主经 gpui_shim_state 造（#81），而 PHP 侧建树时
+// 窗口可能还不存在——所以树上先挂这个标记，等到这里（emitTree，窗口必然在）才换成 handle。
+constexpr const char* kStateSentinel = "__state__";
+
+bool isStateMarker(Array aa) {
+    if (aa.count() < 3) return false;
+    Variant h = aa.get(0);
+    return h.isString() && std::strcmp(h.toCString(), kStateSentinel) == 0;
+}
+
 GpuiArg NIL_ARG() {
     GpuiArg g{};
     g.kind = GPUI_ARG_NIL;
@@ -105,6 +116,31 @@ GpuiArg toArgOne(Variant av, void* win, const std::string& defId,
             g.kind = GPUI_ARG_CB;
             g.num = (double)gpui_shim_new_callback(win, elemId.c_str(),
                                                    type.c_str());
+            return g;
+        }
+        if (isStateMarker(aa)) {
+            // 内层实参先按普通规则转好（InputState 的两个 optional 文本就是 STR/NIL），
+            // 再交给 gpui_shim_state 造实体；它按 (kind,key) 缓存，所以每帧重建同一棵树
+            // 拿回的是同一颗实体。造不出来就下发 NIL：shim 的 Entity 支会拒绝非 ENTITY
+            // 实参，于是这颗组件渲染成错误节点、registeredError() 报出原因——而不是
+            // 把 0 当 handle 传下去（0 在上游是一颗合法实体，可能属于别的组件）。
+            std::string kind = strOf(aa.get(1));
+            std::string key = strOf(aa.get(2));
+            std::vector<GpuiArg> inner;
+            if (aa.count() >= 4 && aa.get(3).isArray()) {
+                Array list = aa.get(3).toArray();
+                inner.resize(list.count());
+                for (size_t j = 0; j < inner.size(); ++j)
+                    inner[j] = toArgOne(list.get(j), win, defId, strPool, subPool);
+            }
+            uint64_t handle = 0;
+            if (!gpui_shim_state(win, kind.c_str(), key.c_str(),
+                                 inner.empty() ? nullptr : inner.data(),
+                                 (int)inner.size(), &handle))
+                return NIL_ARG();
+            GpuiArg g{};
+            g.kind = GPUI_ARG_ENTITY;
+            g.num = (double)handle;
             return g;
         }
         // 普通数组 → GPUI_ARG_ARRAY（递归转 items）。
@@ -647,6 +683,7 @@ Array php_gpui_state_counts(Variant boxVar) {
         "timerKeys", "timerIds", "callbacks", "cbByKey", "shimCallbacks",
         "inputHandles", "lastValues", "webviews", "inspectors", "notifyLists",
         "dialogs", "watchCtx", "httpResponses", "boxesAlive", "viewsAlive",
+        "componentStates",
     };
     Array out;
     long long c[32] = {0};
