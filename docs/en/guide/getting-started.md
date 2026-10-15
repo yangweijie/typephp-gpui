@@ -7,9 +7,8 @@ PHP: a declarative `Element` tree is compiled ahead-of-time by
 
 > Only **macOS arm64** is supported today (nano mode — a self-contained binary, no libphp).
 >
-> The rest of this documentation currently lives in
-> [Chinese](/guide/getting-started); this page is the first of the English set, and the
-> nav only lists pages that actually exist so the build's dead-link check stays green.
+> The English guide covers architecture, components, upstream coverage, events,
+> system capabilities, testing, and the CLI. Use the language menu for the Chinese edition.
 
 ## Prerequisites
 
@@ -33,20 +32,19 @@ composer install
 
 ## 2. Place the gpui-kit-cpp sources
 
-Upstream has no git remote, so you supply the source tree yourself, at
 The upstream sources are **vendored into this repository** at
-`upstream/gpui-kit-cpp` (a 22 MB source subset that already carries our seven host
-patches). Before building, `cmd/sync-upstream.sh` copies it into a sandbox at
-`build/gpui-kit-cpp`, so patches, the amalgam and object files never dirty tracked
-sources. To build against your own checkout, point `GPUI_DIR` at it — the sync then
-skips itself:
+`upstream/gpui-kit-cpp`. The tracked tree already contains host adaptations;
+build patches must remain idempotent. Before building, `cmd/sync-upstream.sh`
+copies it into `build/gpui-kit-cpp`, so generated files and patch execution do not
+dirty the tracked source tree. To build against an external checkout, point
+`GPUI_DIR` at it; automatic synchronization then skips that tree:
 
 ```bash
 export GPUI_DIR=/path/to/gpui-kit-cpp   # optional; defaults to build/gpui-kit-cpp
 ```
 
-`bin/gpui doctor` checks that the sources are present and that all seven patches have
-landed.
+`php bin/gpui doctor` checks the source tree and every patch marker from the current
+manifest. The manifest, not a fixed count in this guide, is authoritative.
 
 ## 3. Build in one command
 
@@ -56,9 +54,9 @@ composer bootstrap        # same as: bin/gpui build hello
 php bin/gpui build hello
 ```
 
-Internally, in order: apply the seven patches → `verifyPatches()` → `bun cmd/build.ts`
-generates the amalgam → `cmd/build-shim.sh` compiles the C++20 static library →
-`tpc --nano` compiles PHP + the C++17 bridge and links. Output:
+Internally: synchronize the sandbox → apply `patchManifest()` → `verifyPatches()` →
+`bun cmd/build.ts` generates the amalgam → `cmd/build-shim.sh` compiles the C++20
+static library → `tpc --nano` compiles PHP + the C++17 bridge and links. Output:
 `examples/hello/build/hello`.
 
 ## 4. Run it, then verify it
@@ -76,7 +74,8 @@ window.
 
 ## Where to go next
 
-- Architecture and why the C-ABI firewall exists — [架构与 C-ABI 防火墙](/guide/architecture)
-- Component coverage — [组件 API](/guide/components)
-- Event routing — [事件与回调](/guide/events)
-- System capabilities (clipboard, tray, sandboxed fs…) — [系统能力](/guide/system-capabilities)
+- [Architecture and the C ABI](./architecture)
+- [Component API](./components) and [Upstream Coverage](./upstream-coverage)
+- [Events and Callbacks](./events)
+- [System Capabilities](./system-capabilities)
+- [Testing and Gates](./testing) and [CLI](./cli)

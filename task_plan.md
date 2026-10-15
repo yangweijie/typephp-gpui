@@ -4,21 +4,12 @@
 用 TypePHP (AOT) 参考 gpui-kit-cpp（本地源码 `/Volumes/data/git/c/gpui-kit-cpp`）重新实现一套 PHP 原生桌面 GUI 框架，让 PHP 开发者能用声明式 API 构建跨平台 GPU 加速桌面应用。
 
 ## Current Phase
-**当前 = Phase 15**：把 `examples/showcase` 按功能域拆成独立示例（用户令，参考上游
-`/Volumes/data/git/c/gpui-kit-cpp` 的 `examples/*.cpp` 布局），目的是让单域测试能各自出声。
-Phase 1–5、7 完成（含 P0 加固、P1 门禁、P2 文档/基石）；Phase 6 只剩"独立示例应用集"一项
-——Phase 15 正是把它做完。
-Phase 8「系统能力桥接 Wave 1–2」于
-2026-10-11 完成：剪贴板三通道、原生对话框、OpenUrl 白名单、Inspector、帧率 HUD、Sheet、
-WebView、Inspector 面板、http/dirChange/inflate、`App::sysInfo()`、应用内通知中心。
-剩余：**Phase 9 mac 系统集成**（托盘/全局快捷键/OS 通知/Dock 角标，自写 `.mm`，不引外部库）、
-`FsRun/ProcessRunBounded/Storage`（受 `Capabilities` 读写根授权模型约束，要单独一轮设计）、
-以及 root-app epic 那面墙（catalog MenuBar / VirtualList / Dock 的同步取值，防火墙不可达）。
-Phase 9（三个真 bug）/ Phase 10（mac 集成）/ Phase 11（Capabilities 三服务）于
-2026-10-11 全部完成并**已提交**（`f00614a` feat / `159e885` docs），六道门禁全绿
-（Pest 65/296 · PHPStan 0 · shim_test 10 组 · selftest 21 链路 · shotdiff 18 树 · doctor 7 marker）。
-下一段是 Phase 12：远端与 CI 首跑（CI 从未执行过，见 P1 的订正）。
-"缺失"清单已收敛到真缺失：Linux/Windows 的托盘与 OS 通知（端口里是桩或空实现）。
+**当前 = Phase 17：完成本计划所有待处理交付后，从 examples、文档、测试清除 showcase**（当前用户目标）。
+Phase 15 的功能域拆分及 Phase 16 的 catalog state 组件已交付；不重复重写。
+虚拟列表正在由真正的同步 C ABI 行渲染接通：惰性、滚动、行自身监听、列表点击/右键均有原生读数，
+但还要完成全量原生与像素复验。旧的“C ABI 禁止同步回调”结论已被实测推翻。
+Dock、英文剩余正文、runner/当前 CI 与真人 HID 验收仍需逐项完成，不能仅改勾选状态。
+showcase 仍含独有原生验收；必须迁入独立域并验收后再移除。当前检查表见 Phase 17。
 
 ## Phases
 
@@ -113,8 +104,19 @@ Phase 9（三个真 bug）/ Phase 10（mac 集成）/ Phase 11（Capabilities �
 **P2 — 覆盖面/DX/文档**（用户 2026-10-11 定序：先 4+1，2+3 归 root-app epic）
 - [x] **root-app epic 基石**（2026-10-11，commit d9672d8）：`cmd/patch-dispatch-cb.sh` 把 Stage D 的 shimId 旁路从 `InvokeWith` 扩到通用调用器 `DispatchArgs`（+前向声明）→ 所有 runtime 回调（菜单动作/retained/点击）可回 PHP。shimId 对 JS 恒 0，六门禁全绿零回归。**这是可复用资产**。
 - [~] **MenuBar**：catalog MenuBar 被 `AppEffects`（root-app）挡死（见 findings）。替代路 `BaseSetAppMenus` 装的是 **macOS 系统菜单栏**（屏幕顶，`--shot` 抓不到窗口 → 不可视验证），且动作路由需每帧在聚焦视图绑 `ActionCallback`（复杂，且 Quit/Cut/Copy/Paste 多已被系统接管）→ **ROI 低**。基石已就位，但 MenuBar 本身不建议强做。
-- [ ] **A 类 VirtualList/Dock**：基石只解锁"事件型回调"，VirtualList 行渲染要"回调返回 Element"（BuildWith 型），是**另一种机制**，基石不直接覆盖。仍需专门设计。
-  - **定论（2026-10-11，见 findings）**：gpui 原生 list 虚拟化靠 `spec->renderItems` **渲染委托**（`RenderVirtualItems` 同步回调 JS），与 build-delegate 同属"gpui→脚本同步取值"类 → **纯 C ABI 防火墙不可达**。epic 边界：防火墙支持 gpui→PHP **异步**（事件），不支持 **同步取值**。VirtualList/Dock/catalog-MenuBar 全在此墙外。唯一可行是 PHP 侧近似窗口化（`on_scroll_wheel` deltaY 累加估偏移，非真惰性）。
+- [x] **A 类 VirtualList/Dock**：两半都已实现并复验；这一条原来挂着"Dock 的布局及 chrome 宿主接口仍待实现"，
+      与 17-B 的结案矛盾，是**没跟上的陈旧条目**（2026-10-15 对着当前源码与产物核过才勾）。
+      VirtualList：`patch-host-list.sh` 从 `RenderVirtualItems` 分叉到 shim，bridge 经 `php::call` 调 PHP 行闭包，
+      10000 行只请求可见区间、滚轮确实改变请求 start（不是估算窗口化）。
+      Dock：`cpp-src/gpui_shim.h` 一排 `gpui_shim_dock_*`（create/push/panel_begin/panel_end/select/remove/layout/load）
+      + PHP 侧 `App::dockLayout()/dockProbe()/dockBadge()`，宿主入口即 `cmd/patch-host-dock.sh` 的 renderer 委托；
+      门在 `examples/layout`——`dockMaterialized`/`dockSelect`/`dockNativeTabClick`/`dockAtomicPanelUpdate`/
+      `dockPanelCallback`/`dockLayoutRoundtrip`/`dockInvalidLayout`/`dockRetainedReuse`/`dockLayoutEvent`/`dockReclaimed`
+      十条在册。**本轮新鲜读数**（不沿用上轮日志）：`cmd/all-examples.sh both` 里
+      `layout selftest rc=0` 且 `layout shotdiff rc=0`（2026-10-15 05:09）。
+      仍不归本项的：真人物理拖拽改面板尺寸 → #56 / 17-E。
+  - **旧结论已推翻**：C ABI 可传同步函数指针。`patch-host-list.sh` 从 `RenderVirtualItems` 分叉到 shim，再由 bridge 的 `php::call` 调 PHP 行闭包；主树不改，行描述借帧 arena。
+    10000 行只请求可见区间，滚轮确实改变请求 start；这不是 PHP 估算滚动偏移的近似窗口化。
 - [x] **文档**（2026-10-11）：**VitePress** 文档站 `docs/`（用户定）——index + guide{getting-started, architecture, components, events, testing, cli} + contributing。`npm install`+`docs:build` 验证 rc=0（8 页渲染）。node_modules/dist 由 docs/.gitignore 排除，package-lock 入库。
 
 ### Phase 8: 系统能力桥接 Wave 1–2（2026-10-11 完成）
@@ -215,7 +217,14 @@ Phase 9（三个真 bug）/ Phase 10（mac 集成）/ Phase 11（Capabilities �
   与 `base: '/typephp-gpui/'`，并加一步"产物里必须出现 `/typephp-gpui/`"的断言，让 base 忘设
   这种静默错配在 CI 里就红。run `38140955210` 三 job 全绿，线上实测：根 200、
   `/guide/testing` 200（cleanUrls 生效）、`/typephp-gpui/assets/app.*.js` 200。
-- [ ] 若 CI 绿了，再考虑加 self-hosted runner 跑原生链（六道门禁里 3/4/5 目前只在本地这台机器上验过）。
+- [x] ~~若 CI 绿了，再考虑加 self-hosted runner 跑原生链（六道门禁里 3/4/5 目前只在本地这台机器上验过）~~
+      —— **括号里那句已被实测推翻**（2026-10-15 run `38682636928`）：门 3/4/5 连同原生自检都在
+      GitHub 托管的 macOS runner 上跑绿了，conclusion 逐条是
+      `success  C++17 parseability of gpui.h` / `success  C ABI 防火墙仍是纯 C` /
+      `success  C++ shim tests (headless)` / `success  Native selftest`。
+      所以"只在本地这台机器验过"不再成立，剩下的**唯一**缺口是像素那一路（`--shot`/shotdiff）需不需要
+      一台 self-hosted runner —— 那不是本条，归 **17-D**，且当前被"CI 红在 showcase、
+      `Domain examples` 被跳过"挡着（见 17-D）。
 
 ### Phase 13: 文档站增强 + 上游托管 + 原生链进 CI — ✅ 完成（2026-10-11）
 - [x] **站内搜索**：VitePress 自带 `search.provider: 'local'`（MiniSearch，构建期建索引、
@@ -225,9 +234,12 @@ Phase 9（三个真 bug）/ Phase 10（mac 集成）/ Phase 11（Capabilities �
 - [x] **多语言骨架**：`locales` 里 **中文留在根路径**（站点已上线、外链都指向 `/guide/…`，
   挪 locale 等于打断已有链接），英文挂 `/en/`。已翻 `en/index.md` 与
   `en/guide/getting-started.md`；**en 的 nav/sidebar 只列真存在的页**，因为 CI 的
-  vitepress build 就是死链门禁（config 没设 ignoreDeadLinks）。
-- [ ] 英文正文其余 7 页（约 5.6 万字符）——**用户决定暂停**：文档内容还要调整，现在翻了白翻。
-  骨架已就位（locales / 语言切换 / en nav 只列真存在的页），补页时不用改结构。
+  **注意：`vitepress build` 只查页面存在，不查 `#fragment`**（实测放过一根真死锚），
+  锚点要另扫产物（见 17-H 的"产物锚点复扫"）。
+- [x] 英文正文其余 7 页（约 5.6 万字符）——**已在 17-C/#88 完成**：早先"用户决定暂停"是历史状态，
+  本轮在"所有待处理任务"目标下补齐并验收（八页齐全、locale 导航接好、生产产物上跑过
+  搜索/语言切换/窄屏/控制台）。骨架未改结构，只补内容与英文标签。
+  注意：英文页与中文页**成对维护**，中文再改时英文会滞后（`docs/en` 现在零 showcase 引用）。
 - [x] **gpui-kit-cpp 本地托管 = vendored 源码子集**（用户选定）：
   `upstream/gpui-kit-cpp`（src/assets/cmd/examples/gpui_shell + 根文档，22M / 1198 文件；
   去掉 out/.work/tests/bench/web 与上游留下的 3MB `*.bak`）。这份树**已含 7 个宿主补丁**，
@@ -574,3 +586,445 @@ SIGSEGV 报成了它自己那一行，而它在画廊里时只是"某轮 rc=11�
       `CarouselState`），`examples/catalog` tree 2 + `catalogStateFamily` 门（实体 5→5）。附带：
       `noteError()` 让一帧多错接上而不互盖（原因与后果同时可见）；`shotdiff` 加"两棵树同一帧即红"门；
       快照前指针归位（`gpui_shim_snapshot` 同步停指针 + 忽略真实鼠标），悬停/拾取类抖动 8/8 → 确定。
+
+## Phase 17：计划收尾后清除 showcase（当前用户目标）
+
+以下是提示到产物的检查表；本阶段所有项完成并实际审计后才能结案，不以全绿测试代替缺失交付。
+
+- [x] **17-A / #35** 真 VirtualList：list 与 uniformList 同步行闭包、帧 arena、滚动后的新区间、行监听器及 item_click/item_secondary_click。
+      当前 table bundle 自检已测到 10000 行只请求 10 行，滚动 start 0→17，行 click/right 同 key；
+      右键含 position/local_position/modifiers，左键负向对照不触发它；variable list 也有独立门。
+      摘 renderer 的执行式负向对照已红。Pest 108/589、PHPStan、ABI、parity、C++ 与文档构建通过；
+      全量 14 支原生自检绿，table/tree1 和 showcase/tree5 的列表基线更新并比对绿。
+      全量像素另有 hello/tree27 的 HUD 资源行差异，保留为 #86，不能称整个目标全绿。
+      桌面截图为黑屏，不能据此宣称普通交互模式或真人 HID 已验收。
+- [x] **17-B / #29** Dock：实现 retained 布局、面板与 chrome 宿主入口及独立原生门；Stage 7 的“设计交付”不能代替本项实现。
+      本轮在**当前源码**上重跑（不沿用上轮日志）：`bin/gpui selftest layout` rc=0，十六条门全绿，
+      其中九条 Dock 门为 `dockMaterialized`（registered 4/open 4/nodes 3）、`dockSelect`、
+      `dockNativeTabClick`（真点原生标签切到控制台）、`dockAtomicPanelUpdate`（失败新建/更新都拒且描述数仍 4）、
+      `dockPanelCallback`、`dockLayoutRoundtrip`（dump 613 字节 remove/restore）、`dockInvalidLayout`、
+      `dockRetainedReuse`（40 次 load 后节点 3→3、状态/描述 1/4）、`dockLayoutEvent`、关窗后 `dockReclaimed` 0/0。
+      像素：`shotdiff check layout` 两棵树 gdfrac=0.00000。三层另有 Pest（`tests/AppTest.php:215`）、
+      C++ 往返含 40× `DockLoad`（`tests/cpp/shim_test.cpp:594`）、契约门认 `dock_area`（`tests/ContractTest.php:172`）。
+      **负控范围据实改口径**：#87 原写“旧补丁摘除对照”，实际摘不得也摘不掉——`cmd/patch-host-dock.sh`
+      自带硬断言（renderer 委托不完整即 `sys.exit`），且 `bin/gpui:222` 在 `verifyPatches()` 失败时直接中止构建，
+      所以“补丁没落”这条路到不了运行期。真实跑过的行为对照是摘宿主 `wireDock` 接线（多门红、rc=1）。
+      **仍未验**：真人物理拖拽改面板尺寸，归 #56，不在本项结案范围内冒充完成。
+- [x] **17-C** 英文正文其余 7 页：按更新后的中文源完成、接入 locale 导航并通过文档死链门。
+      之前的暂停是历史状态；当前“所有待处理任务”目标下本项已完成。
+      八页（含 getting-started）在生产构建产物里齐全；`vitepress build` 绿。
+      但**死链门不查 fragment**：扫产物补查出中文 `components.md` 仍指向已改名的
+      `/guide/system-capabilities#六条硬约束`（现标题「运行约束」），已改锚并重建。
+      复扫 60 条内部链接（其中 11 条带锚点）对产物路由与真实 id 全解析，0 问题。
+      浏览器实测（生产 preview，非 dev）：搜索命中 VirtualList/gpui_shim/Dock、无结果文案、
+      Esc 关闭；语言切换双向且停在同页（`/en/guide/cli` ⇄ `/guide/cli`，html lang 与侧栏同译）；
+      390px 窄屏页面无横向溢出、抽屉八页齐全且当前页高亮；控制台无 error/warn。
+- [ ] **17-D** 当前原生 CI / self-hosted runner：核查实际 runner 资源与当前版本的原生门；未授权注册/没有 runner 的事实必须保持未完成。
+  **2026-10-15 04:39 已按授权 push**（`af52c71..815afe9`，纯 fast-forward，范围内无疑似密钥路径），
+  run `38682636928` 实测：**native job 红在 `Showcase selftest`**（rc=1），
+  红的就是 `valuePull` —— CI 日志里 `focus=0`、打字进了 `in-key/in-note/in-num` 却没进 `in-name`，
+  `elementValue('in-name')` 里没有 `g`；`C++17 / C ABI / shim tests / Native selftest(hello) / VitePress / Deploy` 全绿。
+  **连带发现（比那条红更重要）**：作业是 `bash -e` 逐步执行的，showcase 一红就把后面的
+  `Live-click gate`、`Live-typing gate`、`Domain examples（逐支 --selftest）` 全部标成 `skipped`
+  ⇒ **迁移后的 12 支域门在 CI 条件下是零证据**，而不是"绿了但没人看"。
+  本机用 CI 的同一种调用形式（裸二进制、不经 bundle）复跑过 `./examples/input/build/input --selftest`：
+  `INPUT SELFTEST OK`、`valuePull — elementValue(in-name)='甲g'`、`focusFollowsClick` 六颗各异
+  ——但这只是"同调用形式"的代理，**本机绿不能顶替 CI 绿**（runner 上没有物理鼠标、前台竞争不同）。
+  **卡点换了**：showcase 的删除只在未提交的工作区里（HEAD 仍含 63 个 showcase 文件、HEAD 的 ci.yml
+  仍引用它 13 次），所以要么一直红在一支"即将被删掉"的示例上，要么把工作区提交后再推——
+  提交需要你点头（本轮已授权的只有 push）。**17-D 保持未完成。**
+  判据：CI 上 `Domain examples` 那一步真的**跑到了**并且 12 支全绿，才算原生链证据落地。
+  **这条红已被证明是确定性的，不是偶发竞争（05:59 第二次跑）**：仓库本来就配了
+  `workflow_dispatch`，所以对**同一 commit `815afe9`** 手工再触发一次（不改任何代码，
+  run `38689080650`）：结论仍是 `failure`，红的仍是同一格 `Showcase selftest`，前面十步结论逐条相同，
+  后面 `Live-click` / `Live-typing` / `Domain examples` 又一律 `skipped`。
+  更关键的是**失败签名逐字段一致**：`valuePull=false`、`keyHits=2`、`focus=0`、
+  `realInput=true/true/false`、`navHits=13`、`evSeen=change{in-key,in-note,in-num} key_down{in-key} key_up{in-key}`
+  ——两次独立 runner 实例给出同一组读数，说明这不是"那一刻前台归谁"的抖动，而是托管 macOS runner 上的
+  **系统性质**：真按键确实进得来（三个别的框报了 change），但 `in-name` 永远吃不到、`focusedId()` 恒 0。
+  两件事因此坐实：① 我把这条称作"竞争态偶发"对 CI 一侧是**定性错了**，应改说"runner 上稳定不聚焦"；
+  ② 我改的那两道门（`valuePull` 断链不断落点、`focusFollowsClick` 不要求逐颗非零）正对着这两条签名，
+  于是"提交后 `Domain examples` 会绿"从推测升级为有两次 CI 读数支撑的预期——HEAD 版那两支门在这台
+  环境下会**必然**红，而我改后的版本断的是链，`in-key/in-note/in-num` 里就带着 `g`。
+  这仍然替代不了那一步本身：这是 pre-deletion 状态的复跑，删除后的域循环只有提交后才跑得到。
+  **但上一条结论里"提交后域循环会绿"的预测，被同一批证据证伪了一半（06:09 自查）**：
+  既然 runner 两次都是 `active=false / key=false / main=false`、`focus=0`，那么
+  ① `examples/input` 的 `focusFollowsClick`（我这轮改成"≥2 个不同非零焦点 id"）在那台机器上
+  **照样必红**——它断的其实变成"窗口能不能拿到系统焦点"，那属 17-E 那一格；
+  ② `examples/overlay` 的 `focusTrap` 里 `$focus === $trap` 那一半同依赖，也会红。
+  两处的写法都改成 hello `bundleGreen/routeGreen` 的既有形状：**只在窗口真持有焦点（key 或 main）时断言**，
+  前提不成立就在读数里打 `applicable=false` / `focusHeld=false` 并记"未验"，而不是当回归；
+  `trap !== 0`（陷阱注册）与 `valuePull`（回读链）这些不依赖焦点的仍硬断。
+  本机复验（前提成立，所以断言真的跑到了）：`focusFollowsClick — … 6 个 applicable=true` rc=0、
+  `focusTrap — trap=993756471 focusedId=993756471 focusHeld=true` rc=0 —— 改成"未验"没有把断言悄悄变成永不执行。
+  ③ 同一轮系统性复扫又逮到**第三处**（`examples/choices/src/main.php:241`）：
+  `openChangeDelivered` 的判定里带了 `$focusOk = $selFocus !== 0 && focusedId() === $selFocus`，
+  后一半同样依赖窗口持有焦点 ⇒ runner 上必红。改成只把" equality "那一半前提化
+  （`focusElement()` 返回句柄非零仍然硬断），读数加打 `持有焦点=`。
+  三处都在本机验过**前提成立时断言仍完整执行**（不是悄悄变成永不执行）：
+  `applicable=true` / `focusHeld=true` / `持有焦点=true`，三支 rc 全 0；
+  `cmd/all-examples.sh selftest` = `ALL EXAMPLES: OK`，docs 构建、锚点门、门 9、parity、Pest 108/583 全绿。
+  写法约定也进了 `docs/guide/testing.md`（中英同步待做的话归后续），标题级原则：
+  **焦点/HID 依赖的门必须写成前提式，否则 runner 上红的含义不是回归而是"环境不给焦点"。**
+  **记下这个教训**：把 CI 的一次红归因成"竞争/偶发"之前，先把**同一次日志里的窗口态字段**读全；
+  `key=false` 这种前提级证据比"再跑一次看会不会变绿"便宜得多，也直接决定门该断什么。
+  **连带改了一处迁移过来的门（`examples/input/src/main.php`）**：showcase 红的正是 `valuePull`，
+  而它被逐字迁到了 input——`str_contains(elementValue('in-name'), 'g')` 假定"字一定打进 in-name"，
+  这依赖前台/焦点归谁。改成断**链**不断落点：扫 `in-name/in-key/in-note/in-otp`，
+  任一颗读回带 `g` 即通，另加一条反串槽控制（`in-vol` 是滑块，真键打不进 `g`；
+  若 `elementValue()` 退化成全局槽就会看见 `g` ⇒ 红，正是审核 P0-4/#55 那种串字段）。
+  `focusFollowsClick` 同因由"逐颗全覆盖非零"降为"≥2 颗各自不同的非零实体 id"
+  ——一次都不跟走仍红、点谁都是同一颗仍红，只是不再要求 OS 把每颗都给焦点。
+  实测（本机、CI 同种裸二进制调用）：改后两遍 `INPUT SELFTEST OK`，
+  `valuePull — 带 g 的颗=[in-name,in-key,in-note] 串槽=false`，`focusFollowsClick` 六颗各异。
+  **红侧没有实测**：想用 `osascript` 抢前台复现 `focus=0` 没成功（示例启动会自提升为前台，
+  读数与平时逐字相同），所以这次是"按 CI 实测的那次红来定边界"，
+  不是"本机已证伪旧门"；旧注释里"裸二进制实测通过所以够格当硬门"那句已删掉并注明被哪次 run 推翻。
+  **顺手修掉一个会再吞一次证据的同类坑（`.github/workflows/ci.yml` 的 Domain examples 步）**：
+  那步原来带 `set -e`，所以**一支**域示例红就会把循环打断，其余各支同样落进"没跑过"——
+  这次整批证据丢失的形状在域循环内部还有一份。改成逐支记录、末尾 `::error::` 汇总再 `exit 1`。
+  验证方式与证据类别要写清：真 YAML 解析器确认结构（jobs = php/docs/deploy/native，该步属 native，
+  run 块 25 行），再把 run 块**原文抽出来**在 `/tmp` 假示例树上执行：
+  构建红(a) → 继续、b 仍出 `DOMAIN OK b`、自检红(c) → 记账、末尾 `域示例失败: a(build) c(selftest)` rc=1；
+  全绿桩则出 `DOMAIN LOOP OK` rc=0；`hello` 被正确排除。
+  （第一版假桩把判据写成 `$1 = c`，而调用形如 `./build/c --selftest`，`$1` 恒为 `--selftest`，
+  于是"c 红"这条路根本没被测到却报了 OK——桩错了当场作废重来，没拿那次绿当结论。）
+  这只是**控制流**层面的证明，**不产生任何原生链证据**；17-D 仍等提交授权。
+  **提交配方多一步硬性前置（本轮查出来的新洞，比 P0-1 更深一层）**：
+  `git add -N`（intent-to-add，本仓库登记新文件的既有惯例）只把**路径**记进索引，
+  索引里的 blob 是空的（sha `e69de29…`）。原来的 `check-build-inputs.php` 用
+  `git ls-files -- <path>` 判"在版本控制里"，而 intent-to-add 的路径**同样会被列出来**，
+  所以这道 P0-1 防线对"提交出去是 0 字节文件"是全瞎的。实测当前有 **13 个**这样的路径
+  （4 支补丁脚本与 cmd/headless-trees.php、7 篇 `docs/en/guide/*`、`tests/ExampleCoverageTest.php`、
+  `tests/baseline/layout/tree2.png`），磁盘内容合计约 17 万字节 —— 按索引原样提交，
+  干净克隆里补丁脚本是空的、英文文档站缺页、像素基线是 0 字节空图（shotdiff 会拿它当标准答案）。
+  已把门改成**按内容判**（查 sha）并加第 4 条全仓不变式：现在它报 `BUILD INPUTS FAIL (4)`，
+  同时仍有 116 个 ✓（证明是判别性的、不是全红）。
+  **所以 C1/C2/C3 每支提交之前必须先 `git add <该组路径>` 把内容写进索引**，
+  光靠 `-N` 的状态提交就会复现这个失效；`git commit -a` 是否覆盖 intent-to-add 的内容没有实测，
+  不要拿它赌，配方里一律显式 `git add`。
+  **这一步已经做掉了（2026-10-15 05:24）**：把上述 13 个路径 `git add` 进索引后，
+  空 blob 条目 **13→0**，门从 `BUILD INPUTS FAIL (4)` 变 `BUILD INPUTS OK`——
+  红绿两侧都在同一变量（索引里的 blob 内容）上实测到，不是只见过红。
+  HEAD 仍是 `815afe9`、`git diff --cached --name-only` = 13 支，**没有提交、没有 push**；
+  这一步只是把索引补全（要撤可 `git reset` 撤回），所以下一次授权提交时不会再把空文件推上去，
+  而 CI 的 php job 那道门（step 9）从"必红"变成"已过"。
+  **不靠提交也拿到了一份"删除后能从干净克隆构建并跑通全部门"的证据（2026-10-15 05:30-05:37）**：
+  方法 = `git worktree add --detach /Volumes/data/git/tmp-gpui-clone HEAD` + `git apply --binary`
+  工作区补丁（89 支文件 / 2.4MB，两条"new blank line at EOF"空白警告非致命），
+  再 `rsync` 主工作区的 `vendor/`（被 gitignore，克隆里没有）。验内容一致：`diff -rq` 无 `differ` 行。
+  读数：**克隆状态下 `check-build-inputs` 先是 `FAIL (3)`**（`patch-host-dock.sh`/`patch-host-list.sh`/
+  `patch-window-handle.sh` 在 HEAD 里根本不存在——这就是"不提交则 CI 必红"的直接证据，门自己抓到了），
+  `git add -A` 补齐后 `BUILD INPUTS OK`；随后在克隆里走完整链 `php bin/gpui build hello` **rc=0**
+  （同步 → 17 支补丁 → amalgam → shim → tpc，耗时约 6.5 分钟），
+  再 `bash cmd/all-examples.sh both` = **`ALL EXAMPLES: OK`（13 支 selftest rc=0 + 13 支 shotdiff rc=0，共 26 条）**；
+  克隆里 `hello --selftest` 的 #90 判别臂同样绿（`snaparm=true/A400px/B420px`）；克隆里 `vendor/bin/pest` **rc=0，108 项 583 断言**。
+  **这份证据不能替代 CI 那一次**：跑的是我这台机器的窗口会话，托管 runner 上没有——
+  `--shot`/shotdiff 因此本来就不进 CI（见 ci.yml 的边界注释），而真实按键/焦点这类门在 runner 上的
+  表现仍只能是 17-D 那一步的结果；这次仿真只把"删除后干净克隆构建不了"这一类风险**排除掉**，
+  并把"提交后 CI 会跑到 `Domain examples`"的预期从猜测变成有 26 条读数的支撑。验完即 `git worktree remove` 拆掉。
+  **待你授权提交时的现成分组（按此顺序每步都可独立构建）**：
+  C1 原生与门禁 —— `cpp-src/*`（含 #90 的选窗绑定）、`cmd/patch-window-handle.sh`、`bin/gpui` 清单两行、
+  `examples/hello`（snaparm 判别臂 + #86 泵稳态）、`examples/input`（valuePull/focusFollowsClick 改断链）、
+  `examples/{text,chrome,overlay,embedded,_shared}`（迁入的门）、`tests/cpp/shim_test.cpp`、`cmd/shotdiff.php`、
+  像素基线（`tests/baseline/{hello,table}` 改、`layout/tree2.png` 增）；
+  C2 删画廊 + CI 同步 —— `examples/showcase/**`(D)、`tests/baseline/showcase/**`(13 D)、
+  `tests/ShowcaseTest.php → tests/ExampleCoverageTest.php`(R)、`cmd/headless-trees.php`(A)、
+  `.github/workflows/ci.yml`、`cmd/check-build-inputs.php`、`cmd/real-input-probe.py`、`README.md`；
+  C3 文档 —— `docs/**`（含 `docs/en/guide/*` 七页新增与 `config.mts`）。
+  顺序不能倒：C2 删画廊的前提是 C1 已经把那些门迁到各域，否则中间那次提交自己就缺覆盖。
+      本轮实测（只读 `gh`）：`origin/main` 落后本地 **52 个提交**（`rev-list --left-right --count` = `0 52`），
+      最近一条 run 是 2026-10-11 的 `38144279771`（native job，3m54s success），
+      仓库 runner 列表 `total_count=0`、`online=[]`。⇒ 当前 HEAD `815afe9` **没有也不可能有 CI run**：
+      要么先 push（需用户明确授权，不擅自推），要么本机跑原生门替代。
+      本项因此**不能由我完成**，保持未勾选；showcase 迁移不以它为前提（迁移用本机产物验）。
+- [ ] **17-E / #56** 真人 HID：输入与物理按住 resize 的实际验收记录，不能用合成 NSEvent 的成功替代。
+      **仪器这一侧已自证（2026-10-15 05:15）**：`php bin/gpui run input --wait-key 4` 在**没人按键**下
+      自己给负结论——从 `.app` bundle 起跑（真前台应用）、泵 279 帧、
+      `WAIT-KEY seconds=5 frames=279 key_down=0 key_up=0 click=0 change=0 focus=0 seen=no`、**rc=1**，
+      不挂不退化成静默成功；屏幕上四行提示写明"先点窗口带到前台、按几个字母键、最后按 Escape"。
+      （`4` 打印成 `5` 不是错位，是 `max(5, min(600, $secs))` 的钳位，打印的是生效值。）
+      所以剩下的只是人手那一下：按到应当 rc=0 且 `key_down>0`。**这一项不能由我完成。**
+      需要用户的手：本轮 layout 自检里 `resizeDelivered` 的读数仍是「按下=true 移动入队=0 抬起=true split=—」，
+      Dock 面板尺寸物理拖拽同理。合成事件与真人 HID 的界限已写进 `docs/guide/testing.md`，不拿前者冒充后者。
+
+- [x] **17-F** 先迁 showcase 唯一验收：hello 承接脏帧/计时器/生命周期；text 承接 hover/mouse/角色；
+      input 承接键值与诊断；embedded 承接 WebView 切走后的点击；overlay 承接 churn/背板回收；
+      mac 承接应用菜单动作。导航需要独立宿主探针，不删除后直接损失覆盖。
+
+      **17-F-1（本轮已完成并逐条在产物里跑绿）** 盘点方式：先跑画廊 `--selftest` 让它自己报今天验了哪些门，
+      再拿门名去 `examples/*/src`（排除 build 与 showcase）交叉比对，得出"全仓只有画廊调过"的清单。
+      已迁并实测：
+      - `examples/hello`：`timerKeys 1→2 noGrow`（同 id 重挂 50 次只 +1 键）、`onAny('click')` 通配送达
+        （`any=2/inc`，handler 收整个 event）、生命周期五颗 `isOpen/runFrames/frameCount/stop/lastError`
+        （`frames=3`、`stopped=true`、`err=''`）、脏门两半（撤掉全部定时器后空转 40 帧 `idle=1`，
+        真塞事件后 `wake=true`）、`view()` 每帧重描述（`invalidate` 后 debug_tree 出现新文案）、
+        缺失 id 读回空串、`bundleGreen/routeGreen`（`--expect-bundle` 下 `bundled=true`；
+        前台时 `nsapp=3>0`）。`selftest hello` rc=0。
+      - `examples/text`：181 个角色在**编出来的产物**里逐个 `role()` + 未知角色当场抛
+        （`rolesInArtifact` 181/allOk/unknownThrows）；指针族送达 `down/up/move` 三类到货且值是宿主 CSV
+        （`down值=88.00,397.00,0,1,0`）。踩到的两处真因已写进源码注释：handler 必须在 render **之前**挂
+        （回调 id 在 materialize 时定死），以及"最宽可点矩形"启发式挑错了 31px 的正文——
+        命中表里 `click=0` 的那颗才是探针。`selftest text` rc=0。
+      - `examples/overlay`：30× dialog churn + 10× sheet 换开后 `boxesAlive/viewsAlive` 回到基线
+        （`开过=30 boxes=1→1 views=1→1 dialogs=0`）；点背板那条原生关框路 `nativeClosed=true` 且回收对齐。
+      - `examples/chrome`：`menuRows` 只含带动作那一行（分隔符与无动作行不得在册）；
+        三行导航逐行真点、三行全到达、纵向带 252..336（`navRowsReachable`）。
+      - `examples/embedded`：先显示 WebView（盒子 356x178）→ 换走 → 点原位，点击到达 PHP
+        （`clickAfterWebView`，就是"常驻 WKWebView 吃上半区点击"那类错的回归位）。
+      新变量必须避开作用域内已有名字：nano 报 `Cannot assign value ... to variable 'h'`，
+      把 `$h/$i/$band/$rows` 全换成带前缀的名字才编得过（PHP 本身不报）。
+
+      **17-F-2（本轮已完成）** 剩下的真人/诊断通路也落了地：
+      - `examples/input` 新增 `--wait-key <秒>`（屏幕上写清按什么、按到就出结论并以退出码给判；
+        实测无人在场时 `frames=318 seen=no rc=1`，6 秒自己退出，不挂人）、`--trace`
+        （写 `/tmp/input-events.log`；`cmd/real-input-probe.py` 五处已改指 input：LOG、BIN、
+        窗口属主名、osascript 进程名、pkill 模式），以及**未知开关当场拒绝**（rc=2；实测
+        `input --liveclick` 1 秒内报 `未知开关` 而不是落回交互 `run()` 永久挂住）。
+      - `--liveclick`/`--livetyping` 的"跨节"那一半拆成三处更强的门：`chrome` 的
+        `navRowsReachable` 改成**只跑一帧**就逐行真点（把"首帧可点"本身钉进门里，实测 3 行全到达）、
+        `input` 的逐颗打字、`embedded` 的 `clickAfterWebView`。
+      - `--probe-events` 不再存在：它读的每一件事在 choices/input/overlay/text 里都有硬门主人，
+        唯一还没有硬门的是 `resize` 送达（layout 那条仍是 `(读数)`，归 #56）。
+      落点汇总：hello=生命周期/脏门/每帧重描述/定时器不涨/onAny/缺失 id/bundle+NSApp 路由，
+      text=181 角色 + 指针族送达与 CSV 值形状 + ariaLevel 边界，overlay=churn 与背板回收，
+      chrome=menuRows 只含带动作行 + 首帧导航可达，embedded=WebView 切走后的点击，
+      input=真人键盘与事件日志。
+
+- [x] **17-G** A–F 完成后，从 examples、docs、tests 清除 showcase 源、13 张基线和引用；
+      同步清理 CI、诊断脚本、构建入口，并将 ShowcaseTest 的通用 API/枚举/参数门迁成全域门。
+      已删 `examples/showcase` 与 `tests/baseline/showcase`（13 张），git 记为 17 处删除（tracked，可恢复）。
+      CI 摘掉 4 条 showcase step、排除表 `hello|showcase`→`hello`，注释写明四类证据各自的新主人；
+      `cmd/real-input-probe.py` 五处改指 input；`bin/gpui`、`cmd/shotdiff.php`、`cmd/check-build-inputs.php`、
+      `cmd/patch-host-application.sh` 注释同步；README 那两行改掉。
+      `tests/ShowcaseTest.php` → `tests/ExampleCoverageTest.php`（git 认出重命名）：4 条静态覆盖门 + arity 门
+      原样留为全域门；"每棵建树 + 孤儿 handler"搬进 `cmd/headless-trees.php`（逐支一进程，13 支全 OK，
+      并带 `--self-check` 对照臂，已接进 Pest）；节表自洽改成 yml 自洽 + 共享源不许悄悄掉队。
+      删前救下一个真洞：`ariaLevel` 全仓只有画廊壳调过，删了"链式方法全覆盖"就会红 ⇒ 在 text 补成真门。
+      文档双语清引用：中文 6 篇逐处订正（上游 gpui-kit 画廊的说法保留），英文 4 处"aggregate 待迁"改成事实；
+      `_shared` 里带 Showcase 字样的活字面量与 `keyContext('ShowcaseDataList')` 一并改掉。
+      **删除后审计**：13 支逐支 `build --no-native` + `selftest` + `shotdiff check` 全绿，
+      `composer test:all`、`check-build-inputs`、`check-upstream-parity`、`docs:build` 全绿；
+      当时唯一红的是 `hello` 像素，即 #86（已单独修掉并三次复验，见 17-H）。
+
+- [ ] **17-H** 完成审计：所有实际待办有证据、没有 showcase 源/死引用；
+      Pest/PHPStan/parity/ABI/shim/native selftest/shotdiff/docs 构建均覆盖迁移后的独立域。
+      **审计已执行，结论如下**（保持未勾选，因为 17-D/17-E 两项待办本身还没完成）：
+      **2026-10-15 05:17 在含 #90 修法与 input 门改动的同一批产物上复跑过一遍**（不沿用旧日志）：
+      `composer test:all` 四步按序全过（Pest `Duration: 1.32s` → PHPStan `[OK] No errors` →
+      `UPSTREAM PARITY OK` → `SHIM CPP TESTS OK`，全程无 FAIL/ERROR 行；composer 遇首个失败脚本即中止，
+      所以跑到最后一步的 OK 行意味着四步都过了）；`cmd/check-build-inputs.php` 不在 test:all 里，单独跑
+      `BUILD INPUTS OK`；`cmd/check-cxx17.sh` `CXX17 GATE OK`；`cmd/all-examples.sh both` =
+      `ALL EXAMPLES: OK`（13 支逐支 build+selftest+像素）；`shotdiff check hello` 三遍 18 棵全 rc=0。
+      showcase 复扫（排除 upstream/dist/build/node_modules）：画廊源码目录不存在、
+      `tests/baseline/showcase` 不存在、`docs/**` 正文 **0** 处引用、CI 步骤 0 处，
+      仅剩两类有意留下的历史注释各 1 处（`tests/ExampleCoverageTest.php:18` 说明它原名、
+      `.github/workflows/ci.yml:172` 写明它独占的四类证据现在的归属）。
+      · showcase 源与 13 张基线确认不存在；`tests/baseline/*` 与 `examples/*` 一一对应，无孤儿基线目录。
+      · 全仓 `showcase` 只剩 6 处**讲历史的注释**，且这次复扫**不加 `--include` 过滤**
+        （前一次只扫了 php/md/yml/sh/cpp/h/mts/ts，漏了 `composer.json`、`GPUI.lock`、`.gitignore`、
+        `*.inc`、`*.py`、`*.mm` 这些类——那种"带过滤的零命中"不能叫全仓）：
+        第一方命中 7 处注释（另有 1 条是 `.git/index` 二进制命中，不算引用）——
+        `ci.yml:187`（四类证据归属）、`cmd/headless-trees.php:14` 与
+        `tests/ExampleCoverageTest.php:18`（两支的由来）、`_shared/features/overlays.php:9` 与
+        `_shared/state.php:19`（字面量/类名为何不再带 Showcase 字样）、`examples/input/src/main.php:386`
+        （记 CI 那次红的出处）、`cmd/check-build-inputs.php:140`（第 6 条门里我举的**反例说明**，
+        正是"删掉画廊后别留着 `bin/gpui selftest showcase`"这句话，属有意提及而非陈旧引用）；
+        早先写的"6 处"是本会话新增那条之前数的，口径已更新。`composer.json`/`GPUI.lock`/`.gitignore` **0 处**；
+        文件名含 showcase 的第一方残留 0 个（只有 `vendor/ajaxray/ansikit/` 里第三方自己的
+        `showcase.php`/`showcase.png`，与本仓库无关）；其余命中全在 findings/progress/task_plan 三份日志里。
+        顺带修一处口径：旧条目写"`cmd/check-build-inputs.php` 的注释说 tests/ShowcaseTest.php
+        与 13 张基线未跟踪"——那半句现在已失真（这两类都在索引里了，本轮 05:24 又补齐了内容），
+        注释本身已在 17-G 改成指向新主人。
+      · 有效矩阵（独占沙箱、严格串行）：完整链 rc=0；`hello` 连三遍 **18 绿 0 红**且 `tree27`
+        = 0.00042/0.00043/0.00044 稳定；12 支域示例逐支 `build --no-native` + bundle 直调
+        `--selftest --expect-bundle` + `shotdiff check` **全 ok**；`cmd/test-shim.sh` rc=0；
+        `composer test:all` rc=0（同一批产物、同一次串行运行）。
+      · **本轮新增两道门（都是"两侧实测"过的，不是写完就算）**：
+        ① `cmd/check-doc-anchors.php` —— CI docs job 里跟着 `docs:build` 跑的第 13 道门。
+        `docs:build` 只查页面存在、**不解析 `#fragment`**（今天就被它放过一根真死锚），这条门拿产物里
+        真实渲染出的 `id="…"` 比对照料内链接的锚；绿读数 `60 条链接 / 11 带锚 / 0 问题`，
+        红侧当场插一根死锚 + 一个缺页 → `DOC ANCHORS FAIL (2)` rc=1，还原后回 rc=0；
+        并且它"一条链接都没扫到"时 rc=2（防空跑）。为它给 docs job 补了一步 `Setup PHP`
+        （该 job 原来只有 node）。
+        ② `check-build-inputs` 第 5 条 —— **CI 点名的 `cmd/*.(php|sh)` 必须在册**。这条门是当场
+        抓到我自己刚造出来的洞：ci.yml 新引用了未跟踪的 `cmd/check-doc-anchors.php`，
+        加进去前 `BUILD INPUTS FAIL (1)`、按内容 `git add` 后 `BUILD INPUTS OK`（7 支被 CI 点名的脚本
+        其余全绿）。这正是 P0-1 那一类的自动化版本，且用的是 #92 修好的**按内容 sha** 判定。
+        中英 `testing.md` 的门禁表各加一行同步说明（表到第 13 道）。
+        ③ `check-build-inputs` 第 6 条 —— **`composer.json` scripts 点名的本地目标必须存在**
+        （路径类 `cmd|bin|tests|docs|examples|php-src|cpp-src/*`，以及 `bin/gpui <动词> <示例>` 的示例名）。
+        这条是本轮"入口一致性"的收官：画廊删掉之后，最容易留下的就是这种跑得动才知道的坏引用。
+        实测绿侧真值 `composer scripts 的 14 个本地目标都存在（14 支脚本）`；红侧当场把两条坏目标
+        （`php cmd/nope-missing.php` 与 `php bin/gpui selftest showcase`）临时写进 composer.json，
+        门逐条点名并 `FAIL (2)` rc=1，还原后 rc=0 且 `git status composer.json` 干净。
+        过程中先修了自己刚写的一处错：通配路径走 `file_exists()` 会恒 false，
+        那种写法会把好脚本误报成坏目标——分开 `glob()` 与字面路径两条分支才对。
+      · 静态侧：Pest 108 项 583 断言、PHPStan 无错、`check-upstream-parity` OK、
+        `check-build-inputs` OK、`docs:build` OK、产物锚点复扫 60 链接/11 锚点/0 问题。
+      · **parity 哨兵的扫描范围补了一处真实盲区（05:49）**：`cmd/check-upstream-parity.php`
+        对 catalog 导出名与 `rm()/catalogMethod()` 方法名只扫 `examples/*/src/*.php`，
+        **不扫 `examples/_shared/**`**——而那份被每支示例的 yml `sources:` 编进产物。
+        扩范围后立刻量到差异：用到的导出名 **45→53**、方法名 **25→26**，也就是说此前有
+        8 个导出名 + 1 个方法名一直在跑而不被核。红侧直接证：往 `_shared/features/catalog.php`
+        塞 `El::catalog('BogusWidget')` 与 `->rm('bogus_op_zzz')` → 两条都点名、**gate rc=1**
+        （第一次测时 rc 被 `| tail` 吞成 0，重测直接收），还原后 rc=0，探针零残留。
+        `state kind` 那条判定**故意仍只扫 src**（`examples/input/src/main.php:483` 留着
+        `NoSuchState` 当反向对照，一并判定就红成设计），改为另报一行"示例侧另出现 2 个
+        （CarouselState 在 `_shared`，加那颗对照）"，这样可读性与判定边界都不撒谎。
+      · **顺带纠正一处文档失真**：`docs/guide/upstream-coverage.md` 那句"还需要上游 entity
+        状态句柄的 **16** 个"是 #81/#82/#84 交付**之前**的清单。现值：上游 `SchemaEntity` 共
+        **15** 个 state kind，src 侧判定用到 11 个，示例侧另有 `CarouselState` ⇒
+        **真缺口是 3 个**（`DataTableState`/`MessageScrollerState`/`ScrollbarHandle`，
+        我们代码里 `grep` 零命中，属"根本没接"而非"接了没验"）；已按可数口径重写这段。
+        EN 那页没有这条陈旧数字（不用同步）。改后 `docs:build` rc=0、`check-doc-anchors` rc=0、
+        `UPSTREAM PARITY OK`、`BUILD INPUTS OK`、Pest 108/583 rc=0。
+      · **本轮补齐的最后两类"上一轮读数"**（不沿用旧日志）：
+        `bash cmd/check-c-abi.sh` **rc=0**（`gpui_shim.h: 纯 C11 编得过，且无 C++ 记号`）、
+        `php bin/gpui doctor` **rc=0 且 0 条 ✗**；
+        **bundle 那一类门在当前产物上重新量到**：`php bin/gpui selftest hello`（走 .app bundle、
+        带 `--expect-bundle`）**SELFTEST OK rc=0**，读数
+        `win bundled=true/frontmost=true/nsapp=3/fgTries=0/bundleGreen=true/routeGreen=true`，
+        `snaparm=true/A400px/B420px` 也在同一次跑里；随后 `build hello --no-native` 重链后
+        裸二进制 `--selftest` rc=0 且 `shotdiff check hello` **18 棵 rc=0**。
+      · **一次"怀疑→查证→发现怀疑不成立"的记录（http 门）**：OK 串里的 `http ok=false/0` 看着像
+        "请求失败也被当通过"，读 `examples/hello/src/main.php:336-342` 才确认它断的是**拒连回环**：
+        `data:` scheme 必须被拒、`http://127.0.0.1:1/nope` 必然连接失败，门要求
+        `$schemeRejected && $queued && $httpHits>0 && $resp['ok']===false && $resp['status']===0`
+        ——即"失败要如实回传、回调真进、形状对"，不是"HTTP 成功"那一类证据（后者需要真服务器，
+        属另一类，本仓库没有把它混进硬门）。因为这句话容易让人重走我这段复查，标签已改成
+        `http拒连回环 ok=false/status=0`，改后重链复跑 rc=0。
+      · 未闭合项如实列出（2026-10-15 05:28 更新）：**17-D**——push 已授权并已执行（`815afe9`），
+        缺的是**提交授权**（HEAD 仍含画廊 ⇒ CI 红在它即将被删的那一步，并连带跳过域门）；
+        **17-E/#56**——需真人手点手敲（仪器负分支已自证 rc=1）。
+        ~~#90~~ **已结案**：新补丁 `cmd/patch-window-handle.sh` 露出 `WindowNativeHandle`，
+        快照绑到传入那一扇，判别臂红绿两侧都实测（旧选窗 A420/B420 rc=1 ⇒ 修后 A400/B420 rc=0），
+        像素门三遍 18 棵全 0.00000——见本文件 #90 结案段。
+
+### Phase 17 交接（本轮停在这里，剩余三项的具体下一步）
+
+工作区状态（2026-10-15 05:27 实测）：**13 A / 17 D / 60 M（90 支路径）**，其中原先 13 支
+intent-to-add（索引里是空 blob）的路径已 `git add` 补全内容；HEAD 仍是 `815afe9`，
+**未提交、未注册 runner**。`main` 已按授权 push 到 `815afe9`，那次 run `38682636928`
+= `completed failure`（7m16s）。`cpp-src/gpui_shim.cpp` 的 `snapshot` 段已带 #90 的绑窗修法。
+
+本轮另外清掉的文档漂移（都按当前实测改，不是照抄旧结论）：README 的"Pest：13 个无头单测"→
+108 项 / 583 断言（`vendor/bin/pest` rc=0 实测），README 里上游"703 个源文件"这种查不到的数
+换成 vendored 子集实测值（`src/` 693 个 C/C++、全树 1187 个文件）并写明来源；
+中文文档 5 处"第 N 个补丁"位置性序数全部改成脚本名（`patch-concepts.sh` 现在是清单第 12 支、
+`patch-host-state.sh` 第 9 支，序数早就跟清单脱节了），残留序数 0 处；`docs:build` rc=0。
+
+1. **17-D（push 已授权并已执行）**：`af52c71..815afe9` 推上去，run `38682636928` 红在
+   `Showcase selftest`（`valuePull`：CI 上 `focus=0`，`in-name` 没吃到字），并且这一红把后面的
+   `Domain examples` 整个循环跳过了 ⇒ 迁移后的 12 支域门在 CI 上仍是零证据。
+   **下一步需要的是提交授权**（HEAD 里 showcase 还在：63 个文件、ci.yml 引用 13 处），
+   把工作区提交并推上去，CI 才会真的跑到那个循环；若还要 `--shot`/shotdiff 进 CI，
+   才需要一台 macOS self-hosted runner（当前 `total_count=0`）。在此之前不要把 17-D 当完成。
+2. **17-E / #56（要你的手）**：`php bin/gpui run input --wait-key 150` —— 屏幕上会写清
+   "先点窗口带到前台再按几个字母键"，按到 rc=0、没按到 rc=1；
+   另一条是 `php bin/gpui run input --trace` 后手点，读 `/tmp/input-events.log`。
+   物理按住 resize / Dock 拖拽也在这一格。
+   **补一条边界（06:19 实测得出）**：runner 上窗口恒 `key=false/main=false`，
+   所以焦点这一类**不可能**由 CI 变绿结案——17-D 完成后仍留着这一格，别把域循环绿误当成它过了。
+
+### Phase 17 当前实况（06:21 收口审计，全部本轮现跑，不用记忆）
+
+- **计划未勾只剩 3 条**：17-D（CI 域循环证据）、17-E/#56（真人 HID）、17-H（依赖前两条）。
+- **showcase 移除复验**：源码目录 0、`tests/baseline/showcase` 0、`docs/**` 正文 0、CI 步骤 0；
+  第一方命中 7 处**有意注释**（含本轮我自己加的反例说明 `cmd/check-build-inputs.php:140`）。
+- **门禁全绿（逐条显式调用，rc 现收）**：`check-build-inputs 0`、`upstream-parity 0`、
+  `check-c-abi 0`、`check-cxx17 0`、`check-doc-anchors 0`（60 链接 / 11 带锚 / 0 问题）、
+  `pest 0`（108 项 583 断言）、`phpstan 0`、`docs:build 0`、`all-examples selftest = ALL EXAMPLES: OK`。
+- **本轮新增的门/规则**（每条都两侧实测过）：门 13 锚点解析（CI docs job，附 `Setup PHP` 一步）、
+  `check-build-inputs` 第 4 条（索引空 blob 不变式）、第 5 条（CI 点名脚本必须在册）、
+  第 6 条（composer scripts 目标必须存在）、`parity` 扫描范围扩到 `examples/_shared/**`
+  （导出名 45→53、方法名 25→26）。
+- **本轮修的真缺陷**：#90 快照绑窗（新补丁 `cmd/patch-window-handle.sh`）、
+  input `valuePull`/`focusFollowsClick` + overlay `focusTrap` + choices `openChangeDelivered`
+  四处焦点/HID 依赖改成前提式、文档陈旧数字若干（16 个 state 句柄 → 实际差 3；Pest 13 → 108；
+  序数"第 N 个补丁" → 脚本名；"门 3/4/5 只在本地验过" → 托管 runner 本就绿）。
+- **git 现场**：HEAD `815afe9`（main 已 push 到它），未提交路径 93，`AM` 残留 0，索引空 blob 0；
+  已暂存的 14 支是原先 intent-to-add 那批补内容后的结果，**未提交、未新建分支、未注册 runner**。
+- **下一步就是那两条人工输入**：给 17-D 一句提交授权（`git add` 每组 → C1 → C2 → C3 → push），
+  以及跑 17-E 那一按。二者之外的可独立完成项，本轮已全部做完并留了证据。
+3. **#90（已完成，见下方"#90 结案"）**：新补丁 `cmd/patch-window-handle.sh` 已把
+   `gpui::Window* → NSWindow*` 露出来，`gpui_shim_snapshot` 现在只认传入那一扇、解析不到即失败，
+   判别臂 `hello --selftest` 的 `snaparm` 两侧都实测过（红：旧选窗 A420/B420 rc=1；
+   绿：修后 A400/B420 rc=0），像素门三遍 18 棵全 `gdfrac=0.00000`。
+   **别再走的两条死路**：`Box2::viewPtr` 是 C++ 视图不是 NSView（实测 18 棵全 rc=139）；
+   开窗时 diff `[NSApp windows]` 也不行（`OrderFrontOnce` 到首次 Redraw 才建 NSWindow）。
+   第三条也堵上了：mac 层现有的 `GpuiWindow()`（`cpp-src/gpui_mac.mm:298`）拿的就是
+   `[NSApp windows]` 第一个 ⇒ 它不是"按 Box2 解析"，只在 shim 内部改用它等于换个错法，
+   所以**必须**新加一条上游补丁把 `Window*→NSWindow*` 露出来。
+   **原判据作废**（写的時候太弱）：`shotdiff check hello` 连三遍全绿 + 退出码 0
+   ——2026-10-15 04:22 在**未改任何代码**的现有产物上实测：三遍 rc 全 0，
+   tree29/31/32 `gdfrac=0.00000`，`SHOTDIFF OK`。既然没有修法也能连绿三遍，
+   这条判据就分不清"修好了"和"前台竞争这一次没触发"，不能拿它结案。
+   **换强的判据**：先造一个确定性的复现臂——同一进程里开第二扇窗（Dock 面板即可）并让它
+   成为 keyWindow，然后对第一扇 `--shot`；未修时必拍到错误窗口（绿臂变红才算门成立），
+   修后三遍 `gdfrac=0.00000` 才算结案。 #90 仍未结案。
+
+
+      Pest/PHPStan/parity/ABI/shim/native selftest/shotdiff/docs 构建均覆盖迁移后的独立域。
+      新发现 #86：hello/tree27 的 FPS HUD 在资源采样就绪后多出 CPU/MEM 行，框高改变；
+      需稳定该采样状态的验收，未重录掩盖。**#86 已修并三次复验**（泵到稳定态，见下）。
+      另开 **#90**：tree29/31 会交替报 `gdfrac=1.00000`（整帧不同），处置边界写死为
+      "不许重录/加容差，先抓到那一帧看过"。**根因已定**：`gpui_shim_snapshot` 选窗用
+      `[NSApp keyWindow]`，拿不到就退化成 `[NSApp windows]` 的第一个，传进来的 `Box2*` 根本没参与
+      选窗 ⇒ 前台竞争那一刻拍到的是别的窗口整帧。已核**已提交的 tree29/31 基线本身是真帧**
+      （看过图：tree31 有完整的被检查内容 + Inspector 面板），所以错帧没被固化成标准答案。
+      **第一次修法实测被否并已回退**：想用 `Box2::viewPtr` 的 `-window` 绑定，但 `PhpView` 是
+      C++ 视图不是 NSView（同文件按 `gpui::ScriptView*` 用它），对它发 ObjC 消息即野指针 ⇒
+      hello 全部 18 棵 `--shot` **rc=139 SIGSEGV**；已回退到与 HEAD 逐字一致并重跑矩阵确认恢复。
+      正解需要一条新补丁把 `Window*→NSWindow*` 暴露出来（`PlatWindow` 在 `gpui.h` 里只有前向声明，
+      开窗时 diff `[NSApp windows]` 也不可靠——`OrderFrontOnce` 到首次 Redraw 才建 NSWindow）。
+      这条**不在本轮硬凑**，留给下一步；#90 保持未结案。
+
+      **2026-10-15 05:09 #90 结案**（有修法 + 判别臂两侧都实测过）：
+      · 新补丁 `cmd/patch-window-handle.sh`（已登记进 `bin/gpui` 的 marker 清单两行，
+        `patchScripts()` 自动多跑一支）：声明落在上游 `src/gpui/platform.h` 的
+        `WindowDispatchInput` 旁边（所以它会进 amalgam 头，实测 `WindowNativeHandle`
+        在 `.work/gpui.h` 与 `.work/gpui.cpp` 各 1 处），定义落在 `src/gpui/window_mac.cpp`
+        的 `OrderFrontOnce` 前——因为只有那个 TU 看得见 `PlatWindow` 的完整定义
+        （`gpui.h:6464` 只是前向声明，`Window::plat` 在 6479 是公开的）。
+        第一版在 `-fobjc-arc` 下 `return (void*)win->plat->window;` 直接编译失败
+        （ObjC 指针到 void* 必须 `__bridge`），改成 `(__bridge void*)` 才过——
+        这一层的 ARC 是上游构建自己的标志，不是我们 shim 的。
+      · `gpui_shim_snapshot` 改为 `box->window → WindowNativeHandle → (__bridge NSWindow*)`，
+        **解析不到就返回 0**，不再退化成 keyWindow / windows[0]。
+      · 判别臂进 `hello --selftest`（所以 CI 的 `Native selftest` 那一步永久覆盖它）：
+        同进程再开一扇 420x320 的窗口，各按自己的句柄取帧，断两张 PNG 的 IHDR 宽度不相等
+        （不断内容：自检里两扇画同一棵树，只有尺寸能区分）。
+        **红侧实测过**：临时把选窗退回旧写法重建 shim 后 `snaparm=false/A420px/B420px`、
+        `SELFTEST FAIL` rc=1 —— 即两次都拍到了同一扇（420 那扇），把缺陷直接量了出来；
+        恢复修法后 `snaparm=true/A400px/B420px` rc=0。
+      · 像素门：`shotdiff check hello` 连三遍，每遍 18 棵、rc=0、非零差异行 0。
+      · 顺带确认：`bun` 侧那条 `clang++: error: linker command failed`（上游自带
+        hello_world 示例缺 `_main`）在改动前的日志里同样存在，不是这次引入的；
+        整链 rc 仍为 0。开第二扇窗口不崩、不泄漏出可见异常。
+
+      静态与文档侧（可与构建并行，已跑完）：`docs:build` 过；产物锚点复扫 **60 条内部链接 /
+      11 条带锚点 / 0 问题**（第一版扫描脚本报的 42 条"死链"是它自己把 `docs/` 前缀算进路由键的
+      假读数，修脚本后归零）；`vendor/bin/pest` **108 项 583 断言**全过；PHPStan 无错；
+      `check-upstream-parity` OK；`check-build-inputs` OK。
+      **原生矩阵两次读数作废**：第一版审计（23:36 起，独占沙箱）是可信的，13 支全绿、唯一红是
+      `hello/tree27`（即 #86，之后已修并三次复验）；但随后两次"串行复验"都被我自己污染——
+      `bin/gpui selftest <ex>` 本身走完整链（sync + 重生成 amalgam），与我并发提交的前台构建互相
+      抽掉 `out/` 目录，于是一边报 `unable to rename temporary gpui-*.o.tmp`、一边把正常推进的
+      后台链误判成"静默死亡"（`ps` 窄模式匹配不到 `bun cmd/build.ts`）。那两份矩阵里的
+      BUILD/SELFTEST FAIL **不算证据**，正在跑第三次：独占沙箱、期间不再起任何构建。
+
+      **"和上游保持一致"这条到底怎么核对的**（不靠形容词）：
+      上游 `upstream/gpui-kit-cpp/examples/showcase/` 本身就是**一组件一文件**（43 个 `.cpp` + `Showcase.h`），
+      所以"拆成按域/按组件的独立示例"是**朝上游靠**，而原来那份 1417 行单文件画廊才是不一致的一方。
+      名字层代理核对：43 个上游组件文件里 26 个在我们示例中有同名 `El::` 工厂调用；
+      其余 17 个逐个查过入口——`dialog/sheet/toast` 走服务对象 `App::openDialog/openSheet/toast`，
+      `calendar/color_picker/time_field/editor` 走 `El::catalog*()` 那族糖，`virtual_list` 走
+      `El::list()/uniformList()`；剩下 `scrollbar/pagination/navStack/textSelection`（`tooltip/tree/toolbar`
+      只有元素上的 op 形态）在 PHP 层**没有同名工厂**，属已记录在案的可达性差异
+      （`docs/guide/upstream-coverage.md` 的"通用 catalog 可达"与 19 项 kind 差集两节就是讲这个），
+      并由 `cmd/check-upstream-parity.php` 把名字册住。⇒ 这条代理核对**没有发现新缺口**，
+      也不能被当成"覆盖完整"的证明；覆盖判据仍是那三道词表门 + 各域产物门。
+      过程作废两次：`for c in $comps` 在 zsh 里不做词分割，头两版脚本各只跑了一轮却分别报出
+      "0 缺口"和"1/43 但有 0 个缺"，都是假读数——改成 `while IFS= read -r` 逐行才是上面这组数。
+

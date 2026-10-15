@@ -1907,3 +1907,102 @@ testing.md）。这轮按"复跑 + 独立信号"再查，结论反过来：
 **教训（对自己上一轮的判读）**：`复跑变绿` 只够**推迟**定罪，不够结案。第二次同一条门红的时候，
 必须去看那张图本身而不是只看 gdfrac——0.84 这个量级根本不是"抗锯齿漂了一点"的形状，
 它一直在说"这不是同一页内容"。把"复跑 3/3 绿"当成结论写进文档，等于把一次真缺陷记成了仪表噪声。
+
+## 同步行渲染的实证（2026-10-15）
+
+旧“C ABI 只能异步入队”结论是错的：C 函数指针能在同一线程调用 bridge，bridge 的 `php::call` 能同步调用 PHP 行闭包。
+上游 `RenderVirtualItems` 的 shimId 分支已接通；行描述必须进临时借帧 arena，不能修改被读取的主树。
+VirtualList 的 prepaint Ctx 不带 self，所以宿主 materialize 行时必须恢复视图实体；否则计数与像素可绿，行自身监听却不会送达。
+Text 的 MinContent 测量会按一像素宽度换行；标准 truncate 后多行正常显示，不能用定高容器的绿冒充裸文本正确。
+
+计数不是完整验收：table 的 virtualListLazy、virtualListScroll、virtualRowListeners、virtualItemEvents、virtualVariableRows 分别验惰性、滚动、行监听、列表包装事件和不等高行。
+摘 renderer 的负向对照为 0/0 且 rc=1；恢复后 10000 行只请求 10 行，滚动 start 0→17，click/right 同 key。
+滚轮 CGEvent 没有窗口编号，必须用本地 locationInWindow 直投 NSWindow；走 NSApp 的“投递成功”计数不会证明命中。
+
+普通启动入口也是独立边界：run 曾直接 window_open，绕过 createWindow 的 renderer 接线；已统一入口并以 Pest 验预登记。
+原生关窗后的 isOpen 检查和显式 close 释放 bridge 的闭包；不能只清外部缓存却让 callback 长期持有窗口。
+
+当前全目标尚不完整：showcase 独有的原生脏帧/导航/计时器/overlay回收/菜单动作等仍需迁移，随后才能删除示例及引用；Dock、英文正文、runner和真人HID仍待完成。
+
+## 英文正文前置核对（2026-10-15）
+
+三支翻译代理均因额度限制失败；实际 docs/en/guide 仍只有 getting-started.md，没有可接续的半成品。主代理直接补正文，不调用付费外部翻译 API。
+中文旧统计不能照译：当前 kKindNames 47 项（含 UniformList），DockArea 另走专用 ABI；nullary 样式 72/137，callback 糖 24 个，open 已接。input 的 catalogStateReuse 断 8→8，不再是单颗时代的 1→1。
+这些是代码可达性，不等于交互全验：catalog 取值/载荷、物理 resize 与 Dock 拖拽仍需各自证据。英文不能把它们改写成已完成。
+
+## 英文正文落盘与源文订正（2026-10-15）
+
+七篇正文已写全，英文导航列 8 页；仍需构建、锚点与浏览器验收。onAny 必须给 type；token click/hover 的 schema 返回 void，只有 token 是返回内容的 renderer，中文旧说法已更正。
+parity 原始 kind 差集为 19，C++ 排除 Registered/ChildView 后漂移门是 17；DockArea 有专用 ABI，二者均不可当“不可用数”。搜索报告仍会引用源内旧注释声称 item_secondary 未接，已用现有 bridge 载荷/原生列表证据排除，未照译。
+hello tree24 的 builder 存在但不在基线表，不能由旧排除注释推断 MenuBar 仍坏；tree30 仍在 hello，WebView 本地内容能进图；tree27 资源行高度问题继续保留 #86。新英文只推荐真实存在的独立模式，没有把 --trace/--wait-key 等移植状态写成已完成。
+
+## 英文八页验收与「死链门不查锚点」（2026-10-15）
+
+`vitepress build` 绿**不等于**锚点绿：它只校验页面存在，`#fragment` 一律放过。扫生产产物（路由键取自
+`dist/**/*.html`，锚点取自渲染后的 `id="…"`）才抓出一处真死锚——中文 `components.md:408` 指
+`/guide/system-capabilities#六条硬约束`，而那节标题本轮已改成「运行约束」。改锚后复扫 60 条内部链接
+（11 条带锚点）0 问题。以后改标题必须连带扫锚，别拿构建绿交差。
+
+搜索/语言/窄屏要在**生产 preview** 上验，不是在 dev server：local search 索引是构建期生成的。
+实测命中 `VirtualList` 2、`gpui_shim` 16、`Dock` 16，无结果文案为英文，Esc 关闭；
+语言切换双向且停在同一页（`/en/guide/cli` ⇄ `/guide/cli`，`html lang` 与侧栏同步翻译）；
+390px 下 `documentElement.scrollWidth === clientWidth === 390`（页面不溢出），表格里最宽的一颗
+自身横向溢出 199px 属正常滚动容器，抽屉八页齐全且当前页高亮；控制台无 error/warn。
+
+## 迁画廊门时的四条硬事实（2026-10-15）
+
+**读代码不如让产物自己报。** 画廊 `--selftest` 那一行 `·` 分隔的报告就是"今天到底验了什么"的权威清单；
+拿门名去 `examples/*/src`（**必须排除 `build/`**，否则每支示例的生成物都会命中）比对，才分得清
+ONLY / DUP / 更弱 / 更强。凭注释判断会判错，见下条。
+
+**`--liveclick`/`--livetyping` 在 `examples/input` 里只是注释提到，没有 argv 分支。** 域示例**静默忽略
+未知开关**并落回交互 `run()`，所以我直接跑 `input --liveclick` 是永久挂住而不是报错（画廊那条
+"未知开关必须拒绝"因此本身就是一条 ONLY 门）。推论：CI 的域循环今天并没有真的跑这两条模式，
+迁移时不能拿"某支示例里有同名注释"当已覆盖。
+
+**指针 handler 必须在 render 之前挂。** 回调 id 在 materialize 那一步定死，树画完再挂，shim 登记的还是
+渲染那份，事件永远不落地——症状是"送达 0"，看着像路不通，其实是接线时机。另外别拿"命中表里最宽的
+可点矩形"当探针启发式：探针在命中表里是 `click=0` 那一颗（31px 的正文反而 `click=1` 且更宽），
+逐颗真点 + 看 hover 落到哪，才是自定位。
+
+**nano 的变量类型复用是编译期 fatal，`php -l` 不报**：`foreach ($band as $h)` 撞上同作用域已有的
+`$h` 就报 `Cannot assign value ... to variable 'h'`。给新变量加域前缀（`$navHit/$emHit`）即可。
+同族还有一条：`gpui_shim.cpp` 是 **ARC 的 objective-c++**，把 shim 里以 `void*` 存的 ObjC 对象
+（如 `Box2::viewPtr` 那颗 `PhpView*`）转回去必须写 `(__bridge NSView*)ptr`；直接 `(NSView*)ptr`
+编译期就拒（`cast of C pointer type 'void *' to Objective-C pointer type ... requires a bridged cast`）。
+
+## #86 的"改前"量到了：tree27 五次五张图（2026-10-15）
+
+同一台机、同一支二进制、连跑 5 次 `hello --shot <path> 27`，**5 个 md5 全不相同**。
+这不是 shotdiff 的问题，是那一帧本身没定下来：HUD 的 CPU/MEM 行要等采样器凑齐第二次样本才画，
+行数一变框就变高，而 `runShot` 在 `showFpsHud()` 之后只泵 3 帧——拍到哪一态取决于墙钟。
+所以"重录一次让它变绿"是错的修法（下一次照样漂移）；改法是泵到稳定态（120 帧）再拍，
+并用"多次 md5 全等"当结案判据，而不是"这次 check 过了"。
+
+另记一条并行陷阱：`composer test:all` 的 `cmd/test-shim.sh` 会重跑 sync，把沙箱里的
+`build/gpui-kit-cpp/out/.../gpui.o` 一起清掉；这时另开 `gpui build <ex> --no-native`
+会被**正确地拒绝**（"前置产物不在"）。这不是 bug，是那条门在起作用——别把它当成构建坏了。
+
+**同一条陷阱我随后自己踩了第二次**：把"`bin/gpui selftest <ex>`（走完整链，会 sync）"和
+"`composer test:all`（test-shim 也 sync）"写进**同一条脚本**，结果 test:all 报 rc=1、
+`--no-native` 那步报"前置产物不在"，看起来像三处回归。分开单跑全部 rc=0。
+判据：任何两步里只要有两步会 sync 沙箱，就必须**严格串行**并且让第一步产出、后续只消费，
+或者干脆分成两次运行；否则"红"是脚本自己造的，不是代码的。
+
+**今天被这条陷阱骗了两次，第二次差点误判"任务死了"**：`bin/gpui selftest <ex>` 不是"只跑一下自检"，
+它走的是**完整链**（sync → 补丁 → `bun cmd/build.ts` 重生成 amalgam → shim 库 → tpc），
+所以它会周期性地把 `build/gpui-kit-cpp/out/.../gpui.o` 清掉重建。任何并行的
+`gpui build <ex> --no-native` 都会撞上"前置产物不在"而被拒绝——这**是门在起作用**，不是构建坏了。
+另一条教训：判断后台任务是否活着，`ps | grep 'tpc.php|clang|pest'` 这种窄模式会漏
+（它此刻在跑 `bun cmd/build.ts` / `sh -c cd .../build/gpui-kit-cpp`，一个都不匹配），
+结果我把一个正常推进的任务当成"静默死亡"，又起了一份重复工作。要判存活就用任务自身的
+状态/输出文件，或放宽到 `pgrep -f 'gpui|bun|rsync'`。
+
+
+## #86 结案与一条新洞（2026-10-15）
+
+`hello --shot 27`（FPS HUD）改前 5 次 5 张不同图；泵到 120 帧后 5 张同尺寸、两两差 0.00013~0.00023，
+容差 0.001 之内，`check hello` 三遍全绿 ⇒ #86 修的是"行集随采样就绪而变"，结案。
+但同一批里 **tree29/tree31 交替报 `gdfrac=1.00000`**（整帧完全不同，不是细微信号漂移），
+撤掉那次顺手误重录的 tree29 基线后连三遍又全绿 ⇒ 间歇性、且发生在"刚跑完一批 --shot"之后。
+已单独立成 #90，禁止用重录或加容差处理：1.0 的差异要么是真没画到该画的东西，要么是拍到了别的表面。

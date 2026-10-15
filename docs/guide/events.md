@@ -12,15 +12,16 @@ PHP 侧注册 handler：
 
 ```php
 $app->on('go', 'click', function (array $e): void {
-    // $e 有 type / id / value 三个键；值随事件走（点击是连击数，指针是 CSV）
-    // 改外部状态即可，下一帧 view 闭包读到新值自动重渲染
-    $count++;
+    ExampleState::$v['count']++;
 });
 ```
 
+`$e` 含 type / id / value；值随事件走。示例状态保存在共享静态表，下一帧 view 读取新值，
+不依赖 nano 不支持的引用捕获。
+
 主循环每帧 `pump` + `poll` 取事件，`dispatch` 按 `(id, type)` 找 handler 调用。
-`App::onAny($fn)` 收所有事件。arity 自适应：写 `function ()` 就不传参，
-写 `function (array $e)` 传的是**整个事件数组**（不是 `value` 本身）。
+`App::onAny($type, $fn)` 收所有元素的指定类型事件，不是省略类型的全事件订阅。
+arity 自适应：写 `function ()` 就不传参，写 `function (array $e)` 传的是**整个事件数组**（不是 `value` 本身）。
 
 支持类型：`click` / `change`（input/textarea/slider）/ `hover` / `key_down` 等。
 链式标记与事件名的对应关系是 `on_hover` → `hover`、`on_key_down` → `key_down`：
@@ -30,10 +31,10 @@ materialize 的 op 名**必须保留 `on_` 前缀**（它逐字比较 `"on_click
 
 ## 1a. 指针与滚轮（`on_mouse_*` / `on_scroll_wheel` / `on_key_up`）
 
-上游一共认 24 个 `on_*` 回调名，我们发出并**实测送达**的是这 18 个：
+上游一共认 24 个 `on_*` 回调名，我们发出并**实测送达**的是这 20 个：
 `on_click` `on_change` `on_hover` `on_key_down`（原有四个）、下面这十个，
-再加上部件级那一族的 `on_open_change` `on_confirm` `on_dismiss` `on_step`
-（2026-10-14 起，见 1b）。
+再加上部件级的 `on_open_change` `on_confirm` `on_dismiss` `on_step`，
+以及虚拟列表的 `on_item_click` / `on_item_secondary_click`（见 1b）。
 
 | 糖 | 事件 type | `value` |
 |---|---|---|
@@ -47,7 +48,7 @@ materialize 的 op 名**必须保留 `on_` 前缀**（它逐字比较 `"on_click
 `button` 是上游 `gpui.h` 里 `MouseButton` 的序号（Left=0 / Right=1 / Middle=2 /
 NavigateBack=3 / NavigateForward=4）；`mods` 是位掩码
 `control=1 alt=2 shift=4 platform(Command)=8 function(Fn)=16`。
-GpuiEvent 只有一个 value 槽，所以这里定的是**字段顺序**而不是类型。
+这些指针事件在 `value` 字符串里约定**字段顺序**；虚拟列表右键另有结构化载荷，见下节。
 
 这三类 handler 的投递**依赖 `cmd/patch-mouse-view.sh`**：materialize 给它们挂的是
 `Listen(cx, &ScriptView::OnScriptMouse*, cbid)`（`materialize.cpp:2701-2735`），
@@ -63,13 +64,14 @@ GpuiEvent 只有一个 value 槽，所以这里定的是**字段顺序**而不�
 `onResize()` `onOpenChange()` `onItemClick()` `onItemSecondaryClick()` `onLinkClick()`
 `onTokenClick()` `onTokenHover()`，见下面 1b），其中 `on_open_change` `on_confirm` `on_dismiss`
 `on_step` 从 2026-10-14 起**实测送达**（`selftest choices` 的 `openChangeDelivered` 与
-`confirmDismissDelivered`、`selftest input` 的 `stepDelivered` 三条硬门），其余仍记在
-"名字在册、送达未量"。为什么先发糖不算错：callbackId 走的是部件自己的 binding
+`confirmDismissDelivered`、`selftest input` 的 `stepDelivered` 三条硬门）。列表级
+`on_item_click` / `on_item_secondary_click` 另由 `selftest table` 的 `virtualItemEvents` 验证；
+其余仍记在“名字在册、送达未量”。为什么先发糖不算错：callbackId 走的是部件自己的 binding
 （`ShellSelectBinding` 等），触发方在 base 组件里，我们这边能确证的只有"名字发得出去、
 对得上上游词表"——那条门现在住在 `php bin/gpui selftest catalog`
 （`componentCallbackOps — 发出=5 去重后=5`）。
-`token` 那两个更不是事件，它是**要返回内容**的渲染回调，与 `El::list` 的 renderer 同一类
-（见 #29/#35），发了糖也不会有任何东西回到 PHP。
+`on_token_click` / `on_token_hover` 在上游 schema 中是普通 `void` 事件监听器，PHP 送达仍未验。
+另一个名为 `token` 的方法才是**要返回 Element 或 null** 的渲染回调，不能把三者混为一谈。
 
 ## 1b. 部件自己发出的事件（`on_confirm` / `on_dismiss` / `on_open_change` / `on_step` / `on_resize` …）
 
@@ -114,12 +116,13 @@ PHP 侧声明。补上 `El::open(bool)`（`method('open', [$v])`）之后，`exa
 `confirm 到 PHP=false dismiss 到 PHP=false open_change 收尾=true`、rc=1——
 `open_change 收尾=true` 正是"Confirm 被读成再开一次"的样子。
 
-同形状**没接**的两处，2026-10-14 逐条查过，原因不一样，别再笼统写成"补丁没打"：
+下面两类的旧缺口原因不同：列表事件现已接通；resize 仍有物理输入验收边界，不能笼统写成“补丁没打”。
 
-- `on_item_secondary_click`：**不是投递缺口，是没人挂监听器**。它的 `Listen` 只出现在
-  `ShellRuntime::RenderVirtualItems`（`runtime.cpp:12503-12528`）里那颗
-  `gpui-shell-virtual-item:` 行包装上——也就是"渲染回调返回 Element"的 JS 列表那条路（#29/#35）。
-  我们的列表是 PHP 侧窗口化，根本不经过那个函数，所以路由了也没有发信方。
+- `on_item_click` / `on_item_secondary_click`：现在由宿主虚拟列表行包装挂监听器，
+  不再依赖只能调 QuickJS 的列表渲染路。`value` 为行根 id（未给 id 时为全局行号字符串）。
+  右键事件另带 `button='right'`、`click_count`、窗口坐标 `position`、行内坐标 `local_position`
+  和布尔修饰键表 `modifiers`。`examples/table` 的 `virtualItemEvents` 通过真实 AppKit 点击/右键验证
+  key、坐标及左键不触发右键事件；`virtualRowListeners` 另验证行自己挂的监听器。
 - `on_resize`：2026-10-14 把能补的两格补了，第三格是硬墙。
   ① **糖挂错节点，已修**：上游只从**组**读 `on_resize`（`materialize.cpp:2349-2352`），
   panel 分支只取 size/range/visible（`:2361-2371`），而示例原先写在
@@ -151,11 +154,10 @@ PHP 侧声明。补上 `El::open(bool)`（`method('open', [$v])`）之后，`exa
 而且它不依赖任何输入，所以已经进 `--selftest` 当硬门（负向对照：把 shim 里那次
 "按原名字再解析一遍"的回退路摘掉，就变 `dispatched=false closed=false`、rc=1）。
 
-探针留在仓库里（`runEventProbe`），任何一次改动之后重跑就能刷新这份读数：
-
-```bash
-php bin/gpui run showcase --probe-events
-```
+它读的那几件事现在各自有硬门主人：`open_change`/`confirm`/`dismiss` 在 `examples/choices`，
+`step` 在 `examples/input`，`ui::Cancel` 关框在 `examples/overlay`，指针族送达与 CSV 值形状在
+`examples/text`。唯一还**没有**硬门的是 `resize` 的送达——`examples/layout` 里那条是
+`(读数)`，不参与 rc，因为它要的是物理按住拖动（见 #56）。
 
 三条踩过的坑，写在源头免得再踩：
 
@@ -181,7 +183,7 @@ $app->realKey(9, 'g');          // kVK_ANSI_G → 打给当前聚焦的输入框
 $app->inputProbe();             // ['n'=>paint 登记了几颗真 Input, x/y/w/h=>最后一颗的框]
 ```
 
-返回值 = "这一趟 PHP 队列里确实多出了事件"。`showcase --selftest` 用它断言三件事：
+返回值 = "这一趟 PHP 队列里确实多出了事件"。示例的 `--selftest` 用它断言三件事：
 点导航能换节、hover 能打中 `onHover` 的元素、点输入框后打字能回到 PHP。
 `inputProbe()['n'] > 0` 单独断言"输入框是真的 Input，不是静默降级出来的 Div"。
 
@@ -197,7 +199,7 @@ $p = $app->hitProbe();          // ['n'=>命中矩形条数]
 $h = $app->hitProbe($i);        // + x/y/w/h、id、path、click(0/1)、parent
 ```
 
-`showcase` 的导航验收因此改成表驱动：先量出 13 颗按钮各自的矩形，再逐颗点自己的中心，
+`examples/chrome` 的导航验收因此是表驱动：先量出每一行各自的矩形，再逐行点自己的中心，
 断言"13 条矩形、13 次都进 PHP、到达 13 个不同节号"。
 
 最后那种成因踩过一次真的：渲染过带 WebView 的那一节之后，侧栏上面 6 行再也点不动，
@@ -217,14 +219,17 @@ RetainedEntry 本地 id，shim 反查回 elementId + 读当前值入队：
 
 ```php
 $app->render(El::input()->id('name')->placeholder('Your name')->onChange());
-$app->on('name', 'change', fn ($v) => $app->text('name'));   // $v 即新文本
-$app->setInput('name', 'prefill');                            // 程序化设值
+$app->on('name', 'change', static function (array $event): void {
+    ExampleState::$v['name'] = $event['value'];
+});
+$app->setInput('name', 'prefill');
+$text = $app->text('name');
 ```
 
 ## 3. 定时器
 
 ```php
-$app->on('tick', 'timer', function (): void { $frame++; });
+$app->on('tick', 'timer', static function (): void { ExampleState::$v['ticks']++; });
 $app->setTimer('tick', 1000);   // 每 1000ms 入队一条 timer 事件；setTimer('tick', 0) 取消
 ```
 
@@ -254,7 +259,7 @@ $app->on('dd-new', 'click', function (): void { /* 菜单项被点 */ });
 ```php
 $app->on('api', 'http', function () use ($app): void {
     $r = $app->httpResponse('api');   // ['ok','status','body','contentType']，读一次即销毁
-    if ($r !== null && $r['ok']) { $state['json'] = $r['body']; }
+    if ($r !== null && $r['ok']) { ExampleState::$v['json'] = $r['body']; }
 });
 $app->httpGet('https://example.com/api', 'api');
 
@@ -287,7 +292,7 @@ $app->on('saved', 'click', function () use ($app): void {
     $app->openSheet($detailSheet, 'right');   // 点卡片跳到详情
 });
 $app->on('saved', 'close', function () use ($app): void {
-    unset($state['pending']['saved']);       // 自己记下"这条已经没了"
+    ExampleState::$v['savedClosed'] = true;
 });
 $app->notify('已保存', '3 个文件写好了', 'success', 'top_right', 5000, 'saved');
 ```
@@ -369,16 +374,16 @@ $app->onAny('action', function (array $e): void {
 ## 真输入还差一步：应用得是"前台应用"
 
 ```bash
-php bin/gpui run showcase --wait-key 150     # 人按一下，命令自己给结论
+php bin/gpui run input --wait-key 150     # 人按一下，命令自己给结论
 ```
 
 `--wait-key [秒]` 是给 #56/#62 那一格用的：屏幕上写明"先点窗口、再按字母键、然后 Escape"，
 每帧把 `key_down / key_up / click / 焦点 id / active / key` 画出来，按到键就多收 8 秒让
 Escape 与连续按键都进读数，最后打印一行 `WAIT-KEY …` 并以退出码给结论（0=按到了，1=没按到）。
-为什么要人做：前台归属是跟 IDE/终端**竞争**来的，自动化拿不到——用 Qoder computer use
+为什么仍要人验：前台归属是跟 IDE/终端**竞争**来的，自动化不保证拿到——用 Qoder computer use
 （无障碍层）量过一轮，`click(elementIndex)` 能穿过 AppKit → gpui → 补丁 → PHP
 （trace 里 `click id=nav-2`），但 `pressKey`/`typeText` 之后 HUD 仍是"按键 0"，
-因为 AX 元素点击不改变系统的激活归属，窗口不是 key window 就没有 firstResponder。
+这次 AX 点击没有取得所需的激活状态；不能把单次观测推广成自动化永远无法激活窗口。键盘派发仍需合适的 key window 与 responder。
 所以这一格既不能当硬门（OS 竞争态），也不该让人去猜"我这一下到没到"——命令自己说。
 
 
@@ -390,18 +395,20 @@ Escape 与连续按键都进读数，最后打印一行 `WAIT-KEY …` 并以退
 `postEvent → nextEventMatchingMask → -[NSApp sendEvent:]` 的条数）。
 
 `php bin/gpui run`/`selftest` 会把构建产物包进 `.app` 再启动，就是因为裸二进制即使调了
-`TransformProcessType` 也起不来 `isActive`。showcase 在非前台时还会直接把这条画在窗口顶上
+`TransformProcessType` 也起不来 `isActive`。过去的画廊在非前台时还会直接把这条画在窗口顶上
 （`front` 状态，每帧由 `windowState()` 量出来），"是不是系统那一步没成立"不必靠猜。
 
 ## 首帧的命中表：为什么"刚启动那几下"点不进去
 
 真实点击要先过 hit-test（gpui 的 `paint.hits` 矩形表），再轮得到 behavior 解析与回调。
-实测：`--liveclick` 里只跑 1 帧时，38 个采样点产生 **0** 个事件；跑到第 2 帧起稳定 18/38
+实测（画廊时代）：`--liveclick` 里只跑 1 帧时，38 个采样点产生 **0** 个事件；跑到第 2 帧起稳定 18/38
 且 `nav-*` 真的到达 PHP。也就是说首帧把画面画出来了，却没把命中表建起来——用户看到界面正常、
-点了没反应，就是这一格。
+点了没反应，就是这一格。今天这一格由 `examples/chrome` 的 `navRowsReachable` 把住：它**只跑一帧**
+就逐行真点，点不到就 rc=1。
 
 `App::view()` 因此**注册时就先 materialize 一遍**（`run()` 也走这条路），把命中表在第一帧就
-备齐；对应的回归位是 `examples/showcase --liveclick`（首帧事件数为 0 就 rc=1，CI 已跑）。
+备齐；对应的回归位是 `examples/chrome` 的 `navRowsReachable`（只跑一帧就要逐行点中，
+首帧点不动就 rc=1，CI 的域循环已经跑到它）。
 写自定义循环时要注意：`view()` 的回调现在会被立刻调一次，帧数统计要扣掉这趟预热。
 
 ### 键事件走的是 view 层的宿主钩子，不是 QuickJS
@@ -416,14 +423,14 @@ PHP 宿主没有脚本引擎，于是"给元素挂了 onKeyDown 之后一按真�
 `value` 的取材按 `KeyEvent` 的定义分两种，因为它的 `vk` 与 `ch` 是**互斥**的（`gpui.h` 里写明
 `vk` 是 "0 for a typed character"、`ch` 是 "0 for key down/up"）：`key_down` / `key_up` 给的是
 键名 `KeyName(vk)`（如 `1`、`backspace`、`f5`），输入字符那一路给的才是码点转成的 UTF-8。
-`--livetyping` 两种都钉住，读数 `key_down=[in-key] value=[—1]`——那个 `1` 就是 keycode 18 的键名。
+画廊的 `--livetyping`（已随画廊删除）两种都钉住，读数 `key_down=[in-key] value=[—1]`——那个 `1` 就是 keycode 18 的键名。
 
-这条路由 `examples/showcase --livetyping` 逐颗输入框验：读数
+这条路由 `examples/input` 的 `--selftest` 逐颗输入框验：读数
 `合计=9/9 key_down=[in-key]`（每一颗都收得进字符，且挂了 `onKeyDown` 的那颗确实收到
 `key_down`）——它同时是回归位：键路再断，这条就红。
 
 顺带一条同类陷阱：`El::vFlex([...])->itemsStart()` 里的按钮只占**文字宽度**，不是整行。
-showcase 的导航实测可点带只有 x=12..132（侧栏宽 210），点行右半截什么都没发生；
+画廊时代实测的导航可点带只有 x=12..132（侧栏宽 210），点行右半截什么都没发生；
 给满 `->w(194.0)` 之后实测 12..196。`--selftest` 的 `navBand` 断言盯着这件事。
 
 还有一条在 AppKit 那一侧：上游的 tracking area 原本写的是 `NSTrackingActiveInKeyWindow`，
@@ -440,7 +447,7 @@ showcase 的导航实测可点带只有 x=12..132（侧栏宽 210），点行右
 
 | 判据 | 为什么 |
 |---|---|
-| 每轮 `loop()` 的首帧 | 首帧的 materialize 建不出命中表，必须有一帧"画完"才有可点的东西（见下节） |
+| 每轮 `loop()` 的首帧 | `view()` 已先 materialize，循环仍需完成一帧可交互的绘制 |
 | 这一圈派发过事件 | 点击/输入/定时器改了状态 |
 | `windowState()` 的 active/key/visible/main 变了 | HUD 与"当前不是前台应用"那条横幅就是它的函数 |
 | `$app->invalidate()` | app 自己改了状态但没有任何事件（外部定时器、跨窗口联动等） |

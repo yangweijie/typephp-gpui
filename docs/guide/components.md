@@ -127,14 +127,13 @@ El::catalog('Accordion', ['acc-1'])->child(El::catalog('AccordionItem', ['i1']))
 静默丢弃那一格，于是这五个糖一个像素都不改变（见 `cmd/check-upstream-parity.php` 那条门）。
 
 一个实测到的坑：**catalog Button 会把标签居中并按盒子裁字**。所以"宽度固定、文案可能很长"
-的位置（侧栏导航就是这种）不要用它——`examples/showcase` 的导航行因此保留 base Button，
+的位置（侧栏导航就是这种）不要用它——`examples/chrome` 的导航行因此保留 base Button，
 选中态改用 `->bold()` 表达。另外构造器里的 id 与 `->id()` 要一致：事件按元素 id 路由，
 只给构造器不给 `->id()` 的话点击会落到空 id 上（`El::catalogButton()` 把这两件事一起做了）。
 
-样式糖只覆盖上游 137 个 nullary 关键字里的 25 个，且 `style()` / `paramStyle()` / `method()` /
-`callback()` 都是 private —— 没有"发一个没写糖的名字"的公开口子。缺的名字（`grid`、`self_*`、
-`whitespace_nowrap`、`text_ellipsis`、`line_through`、`aspect_square`、`cursor_*` 等）目前只能用
-已有糖拼出来，拼不出来就是没有。
+样式糖覆盖上游 137 个 nullary 关键字里的 72 个，且 `style()` / `paramStyle()` / `method()` /
+`callback()` 都是 private —— 没有“发一个没写糖的名字”的公开口子。
+`grid`、`self_*`、`whitespace_nowrap` 等已补齐的名字见下；其余缺口见[上游覆盖](./upstream-coverage)。
 
 
 ### 补齐的样式关键字（47 个）
@@ -168,7 +167,7 @@ El::text('…')->textXs()->textSm()->textBase()->textLg()->textXl()->text2xl()->
 3. 这 47 个糖在**编出来的产物**里逐个调一遍的门住在 `php bin/gpui selftest style`
    （`nullaryStyles — 发出=47/47 去重后=47`）。放这里是有意为之：nano 里调用一个没编进去的
    方法是 SIGABRT 而不是异常，只有跑产物排得掉，而它一崩需要看见的是"崩在哪一个糖上"，
-   不是画廊那份只在末尾打印一次的总报告。
+   不是那种只在末尾打印一次的总报告。
 
 ### 读屏与键盘：`role()` / `aria_*` / `tab_*`
 这一族全是 behavior op，**不改变像素**，只改变读屏软件和键盘轮询看到的树。
@@ -176,7 +175,7 @@ El::text('…')->textXs()->textSm()->textBase()->textLg()->textXl()->text2xl()->
 
 ```php
 El::vFlex($items)->role('list')->ariaLabel('可滚动列表')
-    ->tabIndex(0)->tabStop()->keyContext('ShowcaseDataList');
+    ->tabIndex(0)->tabStop()->keyContext('GpuiDataList');
 El::text('列表项 3')->role('list_item')->ariaSelected(true);
 El::text('表格、列表与进度')->role('heading')->ariaLevel(2);
 ```
@@ -194,6 +193,68 @@ El::text('表格、列表与进度')->role('heading')->ariaLevel(2);
 
 `track_focus` / `content_focus_handle` 没有 PHP 糖：它们的实参是 `Bridged` 焦点句柄，
 只有 bridge 那侧造得出来（retained 输入与 Select 由 bridge 自动发）。
+
+## 虚拟列表：按可见区间同步渲染
+
+`El::list($id, $count)` 测量每行高度；`El::uniformList($id, $count)` 只测一行，适合等高数据。
+不要给列表直接附加 children；先用 `App::listRenderer()` 登记行构造器，GPUI 才能按滚动位置索取 `[start,end)`。
+登记可以在创建窗口前进行，与事件接线一样。
+
+```php
+$app->listRenderer('items', static function (int $start, int $end): array {
+    $rows = [];
+    for ($i = $start; $i < $end; $i++) {
+        $rows[] = El::text("第 {$i} 行")->font(12.0)->truncate()->id("item-{$i}");
+    }
+    return $rows;
+});
+$list = El::uniformList('items', 10000)->w(260.0)->h(90.0)
+    ->onItemClick()->onItemSecondaryClick();
+```
+
+- 必须返回正好 `end-start` 个 Element；缺行、多行、错误类型和闭包异常会被拒绝。
+  PHP 异常原因在 `App::lastError()`，原生缺行诊断在 `registeredError()`。
+- 行闭包只描述元素。它在原生绘制途中同步运行，不能重入窗口 API（例如 render、loop、close）。
+- `uniform_list` 的测量约束是 MinContent：不换行文字用 `truncate()`/`whitespaceNowrap()`，
+  或为行容器显式指定高度；否则窄约束下的逐字换行会增大行高。
+- 行自己的事件仍然可用；列表级 `item_click` 的 `value` 是行根 id，缺 id 时为全局行号字符串。
+  右键 `item_secondary_click` 还携带 button、click_count、position、local_position、modifiers。
+- 真惰性与滚动由 `examples/table` 的 `virtualListLazy`、`virtualListScroll`、`virtualVariableRows` 验证；
+  行事件由 `virtualRowListeners`、`virtualItemEvents` 验证，不只看构建成功。
+
+`cmd/patch-host-list.sh` 让上游 `RenderVirtualItems` 的宿主回调走 C ABI 函数指针到 bridge 的
+`php::call`。临时描述 arena 借用帧内存，既避免改动正在读取的主树，也让字符串活到布局和绘制结束。
+这不是 PHP 估算滚动偏移的近似窗口化。
+
+## Dock：原生保留态布局
+
+先创建窗口，再创建 Dock 和面板；`El::dockArea()` 只挂载已有 Dock，不能用 children 填充它。
+面板内容由 PHP 描述，面板之间的布局、标签切换、关闭和拖拽由原生 `DockState` 与上游主题 chrome 管理。
+
+```php
+$app->create();
+$app->createWindow('Dock', 820, 620);
+$app->createDock('area');
+$app->addDockPanel('area', 'editor', '编辑器', El::text('编辑器内容'));
+$app->addDockPanel('area', 'console', '控制台', El::text('控制台内容'));
+$app->addDockPanel('area', 'files', '文件', El::text('文件列表'), 'left', 180.0);
+$app->render(El::dockArea('area')->sizeFull());
+$app->selectDockPanel('area', 'editor');
+$layout = $app->dockLayout('area');
+$app->removeDockPanel('area', 'console');
+$app->loadDockLayout('area', $layout);
+```
+
+- 同一面板名再次 `addDockPanel()` 更新标题/内容，不重复添加，也不覆盖用户调整的布局。
+  更新描述先暂存，验证通过后才提交；失败的新建不进入注册表，失败更新保留原面板。
+- placement 只认 center/left/right/bottom，size 必须是有限非负数；面板关闭受原生关闭约束控制。
+- `dockLayout()` 是完整 JSON 字符串；恢复只允许已注册面板。无效 JSON 或未知面板返回 false，旧布局保留。
+- `dockProbe()` 返回 registered/open/active/nodes/x/y/w/h；active 是中央组的原生面板索引。
+- 布局变化以 `dock_change` 回 PHP（value 为 null），需要保存时用 `dockLayout()` 取值，不把大 JSON 塞进定长事件缓冲。
+- `php bin/gpui run layout -- --dock` 进入交互演示；`selftest layout` 验原生标签点击、面板按钮、布局往返及关闭回收。
+  重复布局恢复另有 C++ 门。拖拽依赖物理按住状态，真人 HID 验收仍保留为独立待办。
+
+此接口使用上游默认 `DockSkin`，不是 PHP 自绘的近似 Dock；尚未提供 PHP 自定义 chrome 回调。
 
 ## catalog 富组件（Registered 机制）
 
@@ -234,7 +295,8 @@ El::menuBar('File', [
    `WindowPost(..., ListenTo(owner, &ScriptView::OnComponentAppEffect, token))`，而那个函数读
    `self->runtime`——宿主实体是 `EntityNewRaw` 建的裸对象（我们是 8 字节的 `PhpView{Box2*}`），
    按 ScriptView 去读就是越界。补丁给宿主视图换了一个不看 ScriptView 的 trampoline。
-   没这一条时表现为**偶发 SIGSEGV**（实测 3 次崩 1；单一身份下 6 次崩 1），修后 `--liveclick` 连跑 20 次 0 崩。
+   没这一条时表现为**偶发 SIGSEGV**（实测 3 次崩 1；单一身份下 6 次崩 1），修后画廊的 `--liveclick`
+   连跑 20 次 0 崩（那条模式已随画廊删除，同一性质现在由 `examples/chrome` 的 `navRowsReachable` 把住）。
 
 菜单条与 `App::setAppMenus([...])` 是两条路：后者装的是**应用级**菜单（macOS 顶部菜单条），
 `El::menuBar()` 是元素树里的组件，两者都可用。**动作回 PHP 是同一个 `action` 事件**
@@ -283,7 +345,7 @@ $el::cb('click', 'routeId')           // 回调实参标记（DropdownMenu.item 
 （`component_shell/retained_forms/mod.cpp:538-554, 624`）。
 
 上游那颗实体的**创建**原本只存在于 JS 绑定函数里（`NativeRegisteredState` 要 live script scope
-才能拿到 Window/App 身份和 JS 错误通道），PHP 宿主两样都没有。第 15 个补丁
+才能拿到 Window/App 身份和 JS 错误通道），PHP 宿主两样都没有。
 `cmd/patch-host-state.sh` 补了宿主入口 `ShellRuntime::NewHostState(...)`，shim 经
 `gpui_shim_state` 用它，PHP 侧就是这两句：
 
@@ -305,8 +367,8 @@ El::state($kind, $key, $args);   // 实参标记；$args 按该 state 描述符�
 
 `examples/_shared/features/inputs.php` 里这一族与 kind 版并排画着，两件事一次看清：
 带不带框、以及**取值回读只覆盖 kind 版**——`App::text()`/`checked()` 读的是 shim 的
-`inputHandles` 表，catalog 那颗不在里面（要它的值得走 `change` 事件那条线，见
-[事件与回调](/guide/events)）。
+`inputHandles` 表，catalog 那颗不在里面。实体创建与像素验收不证明实时取值；
+catalog 各组件的取值/回调载荷尚未逐一验收，不能把构造绿色当作这条链的绿色。
 
 第二族（`examples/catalog` 的 tree 2）是同一条入口上的另一批：`catalogTextarea` /
 `catalogEditor`（`language` 只认 `rust`/`json`）/ `catalogDiff`（补丁文本必须是真的 unified
@@ -321,7 +383,7 @@ Carousel 那一组把**共享 key** 的意义摆在明面上：根、Content、�
 - **`$key` 是复用的身份**：PHP 每帧重建整棵树，宿主按 `(kind, key)` 缓存实体——用元素 id 就够。
   不缓存就是每帧往上游实体表塞一颗。仪表是 `App::stateCounts()['componentStates']`（上游表的长度），
   我方缓存条数分不了这个案：漏的时候是同一个 key 被覆盖，条数不变，而表长度每帧 +1。
-  `examples/input` 的 `catalogStateReuse` 门断的就是这个数在多帧之后仍恒为 1。
+  `examples/input` 的 `catalogStateReuse` 门断的是八颗表单实体在首帧及多帧之后均为 8。
 - **handle `0` 是一颗合法实体**：上游 `ComponentStateStore::nextHandle` 从 **0** 起
   （`component_registry.h:522`），所以第一颗实体的 handle 就是 0。跨层传它一律"状态码 + 出参"，
   别让同一个整数既当身份又当成功位——#81 首跑正是把"刚建成第一颗"读成了失败。
@@ -336,17 +398,15 @@ Carousel 那一组把**共享 key** 的意义摆在明面上：根、Content、�
 
 ## 已知限制
 
-- **MenuBar**：`AppEffects` 需 gpui 的 root-application（基座 `Root`），与 ShellRoot 根模型
-  互斥 → 暂不能成盒。`Menu/MenuItem/MenuSeparator` 作为数据节点可 materialize。见
-  [架构](/guide/architecture#渲染根模型-为什么是-shellroot)。
-- **VirtualList / Dock**：依赖"回调进脚本渲染"，属同一 root-app/ScriptView 类，暂缓。
+- **MenuBar**：已由宿主应用身份与 app-effect trampoline 接通；子节点必须遵守 Menu/Item 契约，不能用缺 Root 作为不可用理由。
+- **Dock**：默认原生 chrome、面板与布局读写已接通；PHP 自定义 chrome 和真人拖拽验收尚未提供。
 - **WebView / Inspector 面板 / 通知层**：已可用作元素——`El::webview($url, $id)` /
   `El::webviewHtml($html, $id)` / `El::inspector($id)` / `El::notifications($id)`，走
-  `ComponentKind::ChildView` + host 侧 nested-view 注册（第 7 个补丁）。webview 是盖在窗口上
+  `ComponentKind::ChildView` + host 侧 nested-view 注册（`cmd/patch-nested-view.sh`）。webview 是盖在窗口上
   的 OS 控件：它挡住元素树里排在它后面的东西、不随容器滚动、没有圆角，所以要给它自己的一块
   盒子。通知层反过来：它自己就是绝对定位的浮层，给它的那颗 `El::notifications()` 摆在哪、
   多大都不影响卡片位置（卡片按 `placement` 贴窗口边角），但**必须摆一颗**才画得出来——
-  ShellRoot 不挂它，见[系统能力](/guide/system-capabilities#六条硬约束)。推荐摆法
+  ShellRoot 不挂它，见[系统能力的运行约束第 4 条](/guide/system-capabilities#运行约束)。推荐摆法
   `El::notifications('notes')->sizeFull()->absolute()`（tree32 基线与交互 demo 用的就是这一形状）。
 - **Alert / Icon / SidebarMenuItem**：拒 children / 无样式——工厂里别 `->child()`。
 - **`El::icon($path)` 的名字错了不报错**：`AssetIconForPath` 要字面 `icons/<base>.svg`

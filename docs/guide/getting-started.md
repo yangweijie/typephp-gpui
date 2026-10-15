@@ -46,16 +46,18 @@ php bin/gpui build hello
 `cmd/build-shim.sh` 编 C++20 静态库 → `tpc --nano` 编 PHP+C++17 bridge 并链接。
 产物：`examples/hello/build/hello`。
 
-想看**全部**特性不必翻 API 表：`php bin/gpui run showcase` 起一个 13 节的目录 app
-（基础原语 / 输入 / 选择与开关 / 布局 / 表格列表 / catalog 富组件 / 侧栏表单菜单 /
-浮层 / 系统能力 / 服务 / WebView·Inspector / 样式图标 / mac 集成）。
-每一节都是真调用，而"有没有漏掉某个 API"由 `tests/ShowcaseTest.php` 反射 `src/Element.php`
+想看**全部**特性不必翻 API 表：`examples/` 下每一支都是一个功能域（基础原语 / 输入 /
+选择与开关 / 布局 / 表格列表 / catalog 富组件 / 侧栏表单菜单 / 浮层 / 系统能力 / 服务 /
+WebView·Inspector / 样式图标 / mac 集成），`php bin/gpui selftest <域>` 就跑这一域的门。
+每一处都是真调用，而"有没有漏掉某个 API"由 `tests/ExampleCoverageTest.php` 反射 `src/Element.php`
 与 `src/App.php` 逐名核对——少写一个 CI 就红，所以"展示了所有特性"是可断言的，不是自述。
+它还会逐支示例起一个无头进程，把每一棵树在 FakeBridge 上建一遍并核 handler 不是孤儿
+（`php cmd/headless-trees.php <域>` 就是那条门本体）。
 
 想只测**一个功能域**（改输入、改浮层这类）就跑按域拆出来的独立示例，比如
 `php bin/gpui selftest input`：它的 sources 只列 `examples/_shared/features/inputs.php`
 加共用状态表 `examples/_shared/state.php`，所以编译快、报告短，而且自检是**边跑边打**的
-（每步一行，崩在哪行就停在哪行）。同一份域源也被画廊的 yml 收录，所以不存在两份实现——
+（每步一行，崩在哪行就停在哪行）。同一份域源只有一份实现，被各支示例的 yml 各自收录——
 拆分的粒度是"编译单元"，不是"代码副本"。
 
 ## 4. 运行 / 自检 / 截图
@@ -81,9 +83,9 @@ php bin/gpui shot hello /tmp/x.png 0   # 渲染测试树存 PNG
 bundle：  startup active=true  key=true  visible=true  main=true
 ```
 
-所以手工验收真鼠标真键盘请用 `php bin/gpui run showcase --trace`，别直接跑 build 下那颗文件；
-`--trace` 会把每条到达 PHP 的事件追加进 `/tmp/showcase-events.log`，手点一次导航就该出现
-`click id=nav-N`。`gpui selftest` 同样走 bundle，并附 `--expect-bundle` 让产物硬断言
+所以手工验收真鼠标真键盘请用 `php bin/gpui run input --trace`，别直接跑 build 下那颗文件；
+`--trace` 会把每条到达 PHP 的事件追加进 `/tmp/input-events.log`，手点一下输入框就该出现
+`click id=…` / `change id=…`。`gpui selftest` 同样走 bundle，并附 `--expect-bundle` 让产物硬断言
 "我确实是从 bundle 里起的"（`bundled` 读数；信号只能走 argv，nano 里 `getenv()` 编译不过）。
 
 **但 `active` 是可以争不到的**：前台是和"当时握着焦点的那一方"竞争出来的状态。实测同一个
@@ -92,7 +94,7 @@ bundle 二进制，几次启动分别量到 `active=true key=true` 与 `active=f
 `SetFrontProcessWithOptions` 都不管用，后者实测直接否掉）。因此：
 
 - `App::activate()` 是**有界重试**用的（内部会让 runloop 走几拍，回执才落地），不是一次就成的开关；
-  showcase 的头 12 帧会自动重试，之后就不再抢（一直抢焦点比"第一下没反应"更糟）。
+  交互模式的示例头 12 帧会自动重试，之后就不再抢（一直抢焦点比"第一下没反应"更糟）。
 - `selftest` 报 `activateTries/bundled/frontmost/nsappDeliveries` 四个读数，但只把
   `bundled` 当硬门；`frontmost` 照实报告，不当随机红灯用。
 - 用户侧真正的判据是"点一下窗口之后事件到不到"：`--trace` 里出现 `click id=nav-N` 才算通。

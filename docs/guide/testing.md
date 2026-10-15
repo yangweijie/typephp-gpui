@@ -7,22 +7,24 @@
 |---|------|------|------|------------|
 | 1 | Pest | `composer test` | PHP 声明层：Element 序列化、App 路由、FakeBridge | 否 |
 | 2 | PHPStan | `composer analyse` | `src/` 类型/静态（level 5） | 否 |
-| 3 | C++ shim_test | `composer test:cpp` | shim 纯函数：kindFromString / AStr arena 拷贝 / toComponentArg schema / buildComponentArgs / ComponentKind 漂移警报（未登记值个数钉在 18） | 是（gpui.o） |
+| 3 | C++ shim_test | `composer test:cpp` | shim 纯函数：kindFromString / AStr arena 拷贝 / toComponentArg schema / buildComponentArgs / ComponentKind 漂移警报（排除 Registered/ChildView 后未映射值钉在 17） | 是（gpui.o） |
 | 4 | selftest | `php bin/gpui selftest hello` | 21 链路端到端：输入取值 / 点击 / 定时器 / dialog / catalog 回调 / 错误回传 / app 菜单 / 剪贴板 / url 白名单 / HUD / Sheet / WebView / 解压 / dirChange / http / 剪贴板完整一项 / 系统状态 / 通知中心 / mac 集成 / 授权文件系统 / 进程与存储 | 是（二进制） |
 | 5 | shotdiff | `php bin/gpui shotdiff check hello` | 视觉回归：逐树像素比对基线（18 棵） | 是（二进制） |
 | 6 | doctor | `php bin/gpui doctor` | 工具链 + 全部补丁 marker 校验（清单见 `GPUI.lock`） | 部分 |
-| 7 | C++17 可解析性 | `bash cmd/check-cxx17.sh` | 第 8 个补丁的门禁：`gpui.h` 在 `-std=c++17` 与 `-std=c++20` 下都要能解析，且 `EmitsEvent` 降级后判据**双向**正确（有特化为真、无特化为假） | 是（头文件） |
+| 7 | C++17 可解析性 | `bash cmd/check-cxx17.sh` | `cmd/patch-concepts.sh` 的门禁：`gpui.h` 在 `-std=c++17` 与 `-std=c++20` 下都要能解析，且 `EmitsEvent` 降级后判据**双向**正确（有特化为真、无特化为假） | 是（头文件） |
 | 8 | C ABI 纯 C | `bash cmd/check-c-abi.sh` | 防火墙的主张本身：`gpui_shim.h` 用 `clang -x c -std=c11 -Wall -Wextra` 编得过，且文本里没有 `namespace`/`template`/`std::`/非 C 标准头的 `#include <>`。头里漏进 C++ 时，报错原本要晚到几分钟后的链接期 | 否 |
-| 9 | 构建输入在册 | `php cmd/check-build-inputs.php` | 「克隆出来能不能构建」：bin/gpui 点名的每支补丁脚本都已跟踪、cmd/ 下每支 `patch-*.sh` 都在清单里、每个示例 yml 的 `sources:` 都在版本控制里。审核 P0-1 量到这三类输入当时全未跟踪，而本地跑起来一切正常 | 否 |
-| 10 | 三层契约 parity | `composer test`（`tests/ContractTest.php`） | stub ↔ FakeBridge ↔ `gpui_bridge.cc` 的名字与元数一一对齐；`src/App.php` 里调用的 `gpui_*` 必须在 stub 里声明过；Element 能发出的每个 kind 都必须在 shim 的 `kKindNames` 表里在册（静态解析表的 `{...}` 体内，不越界读后面的代码；三个走 bridge 的伪 kind 豁免）。`setAppMenus` 键名那族错就是四层各自"看着对"，编译期没人查 | 否 |
+| 9 | 构建输入在册 | `php cmd/check-build-inputs.php` | 「克隆出来能不能构建」：bin/gpui 点名的每支补丁脚本都已跟踪、cmd/ 下每支 `patch-*.sh` 都在清单里、每个示例 yml 的 `sources:` 都在版本控制里，外加一条全仓不变式——**索引里不许有"路径在册但 blob 是空的"的文件**。最后这条是 2026-10-15 补的：`git add -N`（intent-to-add，本仓库登记新文件的惯例）只记路径，索引里是空 blob（sha `e69de29…`），而 `git ls-files -- <path>` 照样把它列成"在册"，于是前三条会在"提交出去是 0 字节文件"的状态下全绿——实测当时有 13 个这种路径（含 4 支补丁脚本、整族英文指南、一份像素基线）。所以判"在版本控制里"要看 **内容 sha**，不是看名字；提交前必须先 `git add <路径>`。审核 P0-1 量到这三类输入当时全未跟踪，而本地跑起来一切正常。现在共六条：除上述三条 + 空 blob 不变式外，还核 **CI 点名的 `cmd/*.(php|sh)` 都在册**（新增步骤忘了 `git add` = runner 打不开文件）与 **`composer.json` scripts 点名的本地路径/示例名都存在**（删掉一个示例后最容易留下的就是这种坏入口）| 否 |
+| 10 | 三层契约 parity | `composer test`（`tests/ContractTest.php`） | stub ↔ FakeBridge ↔ `gpui_bridge.cc` 的名字与元数一一对齐；`src/App.php` 里调用的 `gpui_*` 必须在 stub 里声明过；Element 能发出的每个 kind 都必须在 shim 的 `kKindNames` 表里在册（静态解析表的 `{...}` 体内，不越界读后面的代码；webview/inspector/notifications/dock_area 四个专用 bridge 路径豁免）。`setAppMenus` 键名那族错就是四层各自"看着对"，编译期没人查 | 否 |
 | 11 | 上游词表 parity | `composer parity:upstream` / `php cmd/check-upstream-parity.php` | 我们发出的每个"上游按名字查表"的符号都必须在册：kind ↔ `ComponentKind` 枚举、method/callback/槽名 ↔ `materialize.cpp` 的 101 个 op 名与 prelude 槽表、catalog 导出名与方法名 ↔ descriptor 表（含 bridge 里硬编码的那两个）。上游对**带参未知名**是静默丢弃（`materialize.cpp:451-454` 链尾无 else），五层门禁都不报，这条是唯一的哨兵。取数端 `cmd/upstream-vocab.php` 读的是 vendored 的 `upstream/gpui-kit-cpp`，克隆即可跑 | 否 |
-| 12 | 示例覆盖率与拆分漂移 | `composer test`（`tests/ShowcaseTest.php`） | 反射出 `Element`/`App` 的每个公开成员与每个枚举取值，断言**任一示例**（`examples/**/*.php`）里真调用过，再静态核每次调用的实参个数。同一支文件里还有一条拆分自己引入的门：画廊节表里每个 builder 必须定义在画廊 yml 的 `sources:` 列出的某份源里，且 `examples/_shared/features/*.php` 每份都要被画廊收录——把一域搬去独立示例却忘记补 yml，无头 PHP 全绿、只有编译产物缺那个函数 | 否 |
+| 12 | 示例覆盖率与拆分漂移 | `composer test`（`tests/ExampleCoverageTest.php`） | 反射出 `Element`/`App` 的每个公开成员与每个枚举取值，断言**任一示例**（`examples/**/*.php`）里真调用过，再静态核每次调用的实参个数。同一支文件里还有三条防漂移的门：每支示例都有 `project.macos.yml` 且它列的源都在、`examples/_shared/features/*.php` 每份至少被一支收录、以及逐支起无头进程把每棵树在 FakeBridge 上建一遍并核 handler 不是孤儿（门本体是 `cmd/headless-trees.php`）——把一域搬去独立示例却忘记补 yml，无头 PHP 全绿、只有编译产物缺那个函数 | 否 |
+| 13 | 文档锚点解析 | `php cmd/check-doc-anchors.php`（CI docs job 里跟着 `docs:build` 跑） | 补上 `docs:build` 看不到的那一半：它**只查页面存在、不解析 `#fragment`**（实测放过一根指向已改名标题的真死锚）。这条门拿**产物里真实渲染出的 `id="…"`** 比对照料内链接的锚（比源码标题可靠：VitePress 生成 id 含中文转写与去重），当前扫 60 条站内链接 / 11 条带锚 / 0 问题；一条链接都没扫到就 rc=2，防空跑 | 否 |
 
 一键：`composer test:all`（Pest + PHPStan + 上游词表 parity + shim_test）。
 全量示例跑一遍：`composer examples:all` = `bash cmd/all-examples.sh`
 （清单就是 `examples/*/project.macos.yml`，新拆一支不用改脚本或 CI）。
-共享产物已建好时实测 **14 支自检 + 43 棵像素树 = 86 秒**；改了 `cpp-src/` 之后第一遍要
-用 `bash cmd/all-examples.sh first-native`（第一支走完整链，其余仍 `--no-native`）。
+示例与像素树数以目录及各产物的 `--sections` 为准，不沿用旧的总数与耗时。
+改了 `cpp-src/` 之后第一遍用 `bash cmd/all-examples.sh first-native`（第一支完整构建，其余 `--no-native`）；
+不要同时运行完整 sandbox 同步与依赖同一个 `gpui.o` 的 C++ 测试。
 
 > 在 composer 的脚本里写 shell 命令要用 `bash cmd/xxx.sh`，不能用 `@bash cmd/xxx.sh`：
 > composer 只把 `@php`/`@composer`/`@putenv` 当内置前缀，`@bash` 被解析成"另一个叫 bash 的脚本"，
@@ -45,12 +47,11 @@ headless、不开窗口，故任意环境可跑。`cmd/test-shim.sh` 两步编�
 
 它是 **bug #18（arena 字符串悬垂）** 的回归守卫：`AStr` 测试改写源缓冲后断言 arena 副本不变。
 
-还有一条**上游 kind 表漂移警报**：`kindFromString` 的词法表 `kKindNames`（46 项）在文件作用域，
-测试遍历它并数「`ComponentKind` 里没有名字的值」，把个数钉在 18。
-判据不是「每个枚举值都得有名字」——那 18 个里 `Registered` 走 `gpui_shim_registered`
-的描述符索引、`ChildView` 是 shim 内部挂原生子视图用的，本来就不可能靠 kind 字符串建，
-那样每条 CI 都会红。上游加/删一个 kind 时这个数必变，红一次是提醒去看「要不要给 PHP 暴露它」。
-反向对照：删掉表里 `{"text", K::Text},` → `✗ 未登记的 ComponentKind 从 18 变成 19`，rc=1。
+还有一条**上游 kind 表漂移警报**：`kKindNames` 当前 47 项；C++ 门排除 `Registered` 与
+`ChildView` 后，钉住剩余未映射值为 17。parity 信息行不作这两项排除，所以原始差集是 19。
+两个数都不是“PHP 不可用功能数”：例如 DockArea 仍在差集中，却已有专用宿主 ABI。
+上游增删 kind 或删掉表里已登记的条目会触发漂移门，要求明确决定是否暴露，不是强求每个
+特殊 kind 都能通过字符串构造。
 
 ## selftest（原生二进制）
 
@@ -149,46 +150,67 @@ alias list，不是 `public.file-url`，读回来永远是 `paths=0`，看着像
 
 它**不构建**，所以第一步先挡"量的是上一次构建的产物"：二进制比它 yml `sources:` 里任何一份
 输入旧就直接 rc=2 拒绝出数。这条 2026-10-14 加，因为当天真踩了一次——改了共享的 feature 源之后
-`shotdiff record showcase` 报"13 棵树的字节数与基线完全相同"，那看起来正好像
+`shotdiff record` 报"整批树的字节数与基线完全相同"，那看起来正好像
 "这次改动不影响像素"，而真实原因是那支二进制没重编；record 模式还会把旧图再写一遍，把假绿坐实。
 （同一族的老教训：`grep -c` 为 0 会吞掉 `&&` 链的后半条。）
 
 **快照前指针归位（2026-10-15）。** `--shot` 拍的是在屏窗口的当前绘制结果，而悬停态与
 Inspector 拾取高亮读的是窗口记下的指针坐标——窗口常常就开在物理光标底下，于是基线一度取决于
 "鼠标那一刻在哪"：`embedded` 整片蓝/白翻转（0.67751）、`hello` tree29/31 整张不同（1.0）、
-画廊几棵输入页 0.002 级的小差。`gpui_shim_snapshot` 现在拍之前做四步：窗口
+几支输入域的 0.002 级小差。`gpui_shim_snapshot` 现在拍之前做四步：窗口
 `ignoresMouseEvents=YES`（挡住 OS 之后再发来的真实移动）→ 排空队列 → 经 `WindowDispatchInput`
 **同步**把指针停到窗口外 (-40,-40)（那是 `win->mouseX` 唯一的写入点）→ 泵四帧。
 经 NSEvent 路由停指针的版本实测 6 次出 3 种图，同步版 8/8 逐字节相同。
 附带效果：多泵的几帧让 `hello` tree30 的 WebView 本地页**真的进了图**（旧基线那块是白的）——
 再一次说明"WebView 离屏截图必然空白"是错的，它只是当时还没上屏。
 
-**红了先复跑再定罪。** 这条门**不是逐字节确定的**（下面那句"同机逐字节确定"是 2026-10-14 之前
-写的，当天就被推翻了一次）：`chrome` 报过一次 `gdfrac=0.00767（worst=0.067）`，
-而自上次全绿以来唯一的改动是新增一个该示例根本不调用的方法；复跑 3 次全绿、
-`~/Library/Logs/DiagnosticReports` 里没有该进程的崩溃报告 ⇒ 判定为渲染抖动，不是回归。
-判红之前要有的两样东西：**复跑次数**与**一个独立信号**（崩溃报告有无、`git status`
-说哪几张图变了）。这条门的正确用法是先复跑再定罪，不是调容差。
-但**复跑变绿只够推迟定罪，不够结案**：同日 `embedded` 也红过一次
-（`gdfrac=0.67751`），当时按"抖动"记了账，第二次再红才去**看那张图**——右边那颗 WebView
-在红图里是空白的，绿图里印着 `example.com` 的正文。所以它不是渲染抖动，是基线像素里含着
-"外网页面这次加载进来没有"（详见上面 WebView 那一节；修完 5/5 逐字节相同）。
-量级也是线索：0.68/0.84 这种数不是抗锯齿漂一点的形状，它一直在说"这不是同一页内容"。**不要为了让它变绿而重录基线**——那等于把一次抖动洗成"这就是正确像素"，
-下一次真回归就再也报不出来。
+**快照绑到哪一扇窗（#90，2026-10-15）。** 上面那段治的是指针位置，没治选窗：
+`gpui_shim_snapshot` 当时用 `[NSApp keyWindow]`，拿不到就退化成 `[NSApp windows]` 的第一个，
+**传进来的窗口句柄根本没参与选窗** —— 前台归谁是 OS 仲裁的竞争态，于是 `hello` tree29/31
+一度整帧不同（`gdfrac=1.00000`）。现在它经 `cmd/patch-window-handle.sh` 新增的上游
+`WindowNativeHandle(Window*)`（定义只能落在看得见 `PlatWindow` 完整定义的那个 TU，
+返回 `(__bridge void*)` 的原生窗口）解析出**传入那一扇自己的**窗口，解析不到就失败，
+不再随手拍另一扇当标准答案。判别臂在 `hello --selftest` 的 `snaparm`：同进程再开一扇
+420×320 的窗，各按句柄取帧，断两张 PNG 的 IHDR 宽度不相等（自检里两扇画同一棵树，
+只有尺寸能区分）。两侧都实测过 —— 旧选窗 `A420px/B420px` 且 rc=1（两次拍到同一扇），
+修后 `A400px/B420px` 且 rc=0。
 
-同机 `--shot` 通常逐字节相同。它**首跑就抓到了** dialog double-free（tree13 未关就 close → SIGABRT）。
-跳过 tree 24（MenuBar 现报 root-app 错误节点，不纳入基线以免固化坏态）。
-tree 29（inspector）拍到的是整窗高亮描边——`WindowToggleInspector` 是拾取模式开关，
-不是面板；面板由 `El::inspector()` 摆（tree31：右侧 320px 的 Inspector 面板 + 拾取按钮）。
-WebView 那一节（现在是 `examples/embedded` 的 tree 1，画廊的 tree 30 已随 Phase 15 搬走）：
-旧文档写着"它那块在离屏截图里**必然是空白**（`cacheDisplayInRect` 合成不了跨进程表面）"——
-2026-10-14 实测推翻：**跨进程表面会进图**，`https://example.com` 的正文就那么印在基线里。
-这比"空白"糟得多：基线像素从此取决于"外网页面这次加载进来没有"（实测 5 次里 1 次不同，
-`gdfrac` 0.68/0.84），而且门禁每跑一次就打一次外部请求、在无网 CI 上必红。
-所以像素与自检路径**离线**（`ExampleState` 的 `offline` 位，那颗盒子换成同 id 同几何的本地页），
-真地址只在交互模式加载；这条基线仍然只量"webview 没把布局搞塌"，控件本身归第 12 步。
-tree 27 是**唯一非零残差**的基线（约 0.0002）：帧率 HUD 是活表，数字随帧变化，容差吸收得下；
-换台慢机器若超容差，应改判它的像素验收为"存在 HUD"而非"HUD 内容一致"。
+**焦点/HID 依赖的门必须写成"前提式"。** `focusedId()`、`focusTrap()` 这类读数要成立，
+前提是这扇窗真当上了 key/main window；托管 runner 上两次同 commit 的读数都是
+`active=false / key=false / main=false`、`focus=0`，所以任何直接把"焦点等于那颗"当硬断言的门
+在那台机器上**必红**，且红的含义不是回归，而是环境不给焦点（那属真人 HID 那一格）。
+写法与 `bundled`/`routeGreen` 同形：前提成立才断言，前提不成立在读数里打
+`applicable=false` / `focusHeld=false` 记"未验"；不依赖焦点的那一半（`focusElement()` 句柄非零、
+`trap !== 0`、`elementValue()` 回读链）照旧硬断。
+**并且要回验前提成立时断言仍完整执行**——否则"未验"会悄悄变成"永不执行"。
+本机三条都这样量过：`focusFollowsClick … applicable=true`（六颗各异）、
+`focusTrap … trap=993756471 focusedId=993756471 focusHeld=true`、
+`openChangeDelivered … 持有焦点=true`，各自 rc=0。
+
+**复跑变绿只够推迟定罪，不够结案。** 先保存并查看失败图，核对构建新鲜度，再控制内容与指针复测，
+用日志、崩溃报告或同一量的探针辅助归因。“三次变绿且无 crash”不能证明只是渲染抖动。
+`embedded` 曾出现 `gdfrac=0.67751`：红图右侧 WebView 空白，绿图却有外网页面正文，
+根因是网络加载时序，不是抗锯齿。不要为了变绿而重录基线或提高容差。
+
+这条门曾抓到 dialog double-free（tree13 未关就 close → SIGABRT）。各树的边界另列：
+
+- hello tree24 有 MenuBar builder，但不在固定基线表；宿主 MenuBar 集成已修，不能再用历史
+  root-app 报错解释当前状态。系统菜单条与窗口内容也不是同一截图对象。
+- tree29 是 Inspector 拾取高亮；真正的面板在 tree31。
+- hello tree30 **仍存在**，embedded 另有独立 tree1。跨进程 WebView 表面能进图，
+  本地 HTML 也已实际进图，不能说必空白；它不证明任意远程页面加载成功。
+  embedded 像素/自检路径已换同 id 同几何的离线 HTML，真实地址只在交互模式加载。
+- tree27 的 HUD 资源行（原 **#86**）已修：根因是 `runShot` 在 `showFpsHud()` 之后只泵 3 帧，
+  而 CPU/MEM 那两行要等采样器凑齐**第二次**样本才画——行数一变框就从 132 长到 150，
+  拍到哪一态取决于墙钟（改前同一支二进制 5 次出 5 张不同图，与基线差 0.01298）。
+  改法是泵到稳定态（120 帧）再拍：5 张同尺寸、两两只差 0.00013~0.00023（HUD 上的实时数字，
+  容差 0.001 之内），`check hello` 三遍全绿。**指针稳定不等于资源采样稳定**——这条当时被误当成
+  鼠标抖动，靠加容差或重录是掩盖不掉的。
+- 新开的一条同类风险（**#90**）：tree29/31 会**交替**报 `gdfrac=1.00000`（整帧不同，不是小残差）。
+  两棵树都只 `toggleInspector()` + `loop(3)` 就拍，而同一函数里 tree32 的注释已经写明"只跑 3 帧
+  等于拍在动画的 0 上"。撤掉一次顺手误重录的基线后连三遍又全绿，所以它是间歇性的。
+  处置边界：1.0 级的差异**不许**用重录或加容差解决，必须先抓到那一帧看过、判定是"面板没挂上"
+  还是"拍到了别的表面"。
 tree 32（通知层）**必须跑够墙钟才拍得到**：通知入场是动画，`Starting` 段的不透明度
 = `elapsedMs / 400`（`ui/notification.cpp:948`），而推它的是 50ms 的墙钟计时器——只泵
 3 帧等于拍在 0 上，图上只有宿主标题、两张卡一片透明，`SHOT OK` 却照样成立。现在跑
@@ -198,16 +220,17 @@ tree 32（通知层）**必须跑够墙钟才拍得到**：通知入场是动画
 
 ## CI
 
-`.github/workflows/ci.yml` 四个 job：
+`.github/workflows/ci.yml` 定义四个 job。下表是配置与历史耗时，**不是当前工作区/HEAD 已通过 CI 的证明**；
+当前版本的运行日志、bundle 路由及可用 GUI/self-hosted runner 仍需分别核查。
 
 | job | 跑什么 | runner | 实测 |
 | --- | --- | --- | --- |
 | `php` | `php -l` 全源 + Pest + PHPStan | ubuntu-24.04 / PHP 8.5 | ~14s |
 | `docs` | `npm ci` + `vitepress build`（顺带是死链门禁）+ 产物页数与 `base` 断言 | ubuntu-24.04 / Node 24 | ~12s |
-| `native` | `bin/gpui build hello`（同步沙箱→全部补丁→amalgam→shim 库→tpc nano）+ `cmd/check-cxx17.sh` + `cmd/test-shim.sh` + `hello --selftest` + `bin/gpui build showcase` + `showcase --selftest` + `--liveclick` + `--livetyping` + **Domain examples 循环**（`examples/*/project.macos.yml` 里除 hello/showcase 外每支 `build --no-native` 再 `--selftest`） | **macos-15** | ~3m27s + showcase 一轮 + 每支约 40 秒 |
+| `native` | `bin/gpui build hello`（同步沙箱→全部补丁→amalgam→shim 库→tpc nano）+ `cmd/check-cxx17.sh` + `cmd/test-shim.sh` + `hello --selftest` + **Domain examples 循环**（`examples/*/project.macos.yml` 里 hello 之外每支 `build --no-native` 再 `--selftest`） | **macos-15** | ~3m27s + 每支约 40 秒 |
 | `deploy` | 把 `docs` 的产物发到 GitHub Pages（只在 main 的 push） | ubuntu-24.04 | ~45s |
 
-`showcase --selftest` 还带一条**只认真实输入**的验收：`realClick` / `realMouseMove` /
+各支 `--selftest` 里还带**只认真实输入**的验收：`realClick` / `realMouseMove` /
 `realKey` 把事件交给 `-[NSWindow sendEvent:]`，于是 AppKit 的 hit-test、materialize 的
 behavior 解析、focus 迁移全部真的走一遍；`inputProbe()` 再证明 paint 里登记的是真 Input。
 导航那条是**命中表驱动**的：先用 `hitProbe($i)` 量出 13 颗按钮各自的矩形，再逐颗点自己的中心，
@@ -226,23 +249,24 @@ type 2/3 = 只按下/只抬起，中间按段发移动并在每段后跑一帧�
 `selftest layout` 的 `resizeDelivered(读数)` 量的就是这个（`按下=true 抬起=true 移动入队=0`）。
 需要真按住的东西归 #56 那一族（真人 HID）。
 
-`--livetyping` 的换节也走真点击（`navClickTo()` 从命中表取那一行的矩形再点它），不再用
+画廊的换节也走真点击（`navClickTo()` 从命中表取那一行的矩形再点它），不再用
 `ExampleState::$v['section'] = N` 直接改状态——改状态等于绕过 hit-test 假装"点过了"。
-那条常驻原生视图吃点击的**回归位是 `--selftest` 的 navProbe**：反向对照实测过，把
-"这帧没渲染到就隐藏"掐掉之后它红成 `afterAll=7/13`，而 `--livetyping` 的
-`ROUNDTRIP`（点进挂原生视图那节再点回来打字）在同样条件下仍然绿——
-一条门能不能抓住房 bug，只看它被否掉时会不会红，不看它长得像不像。
+那条常驻原生视图吃点击的**回归位**今天住在 `examples/embedded`：`clickAfterWebView`
+先画 WebView、再换走、再点原来那块区域，点不到就 rc=1。它当初是被反向对照选出来的——
+把"这帧没渲染到就隐藏"掐掉之后，画廊那条导航门红成 `afterAll=7/13`，而当时那条打字往返
+（点进挂原生视图那节再点回来打字）仍然绿。一条门能不能抓住房 bug，只看它被否掉时会不会红，
+不看它长得像不像。
 
-按功能域拆出去的独立示例（`ls examples/` 里除 hello/showcase 之外的那十二支，名字就是域）
+按功能域拆出去的独立示例（`ls examples/` 里 hello 之外的那十二支，名字就是域）
 各带一支自己的 `--selftest`，CI 里由 `Domain examples`
 那一步按 `examples/*/project.macos.yml` 自动发现并逐支编译（`--no-native`，只跑 tpc 那一段）+ 跑门。
-它们与画廊的分工是：**同一份 UI 源**（`examples/_shared/features/*.php`）两边都编译，
-所以不存在第二份实现；而"域自己的断言"搬到独立那支，因为画廊的总报告只在末尾打印一次，
+它们的分工是：**同一份 UI 源**（`examples/_shared/features/*.php`）被各支的 yml 各自编译，
+所以不存在第二份实现；而"域自己的断言"住在独立那支，因为总报告只在末尾打印一次，
 域的门一崩，外部看见的只是退出码非零、一个字没打——独立那支是边跑边打的，崩在哪行停在哪行。
-`showcase --selftest` 那条是第八道门禁的运行时那一半：`tests/ShowcaseTest.php`（在 `php job` 里）
+各支 `--selftest` 那一圈是第八道门禁的运行时那一半：`tests/ExampleCoverageTest.php`（在 `php job` 里）
 反射出 Element/App 的每个公开成员、断言**任一示例**真调用过、并静态核每次调用的实参个数；
 二进制再证明这些调用在原生侧不产出错误节点。**像素那一半不进 CI**——
-`php cmd/shotdiff.php check showcase` 的 13 张基线要抓真在屏 NSView，托管 runner 没有窗口会话，
+`php cmd/shotdiff.php check <域>` 那批基线要抓真在屏 NSView，托管 runner 没有窗口会话，
 与 hello 的 18 张同理，只在本地跑。
 
 **门禁 3/4 现在真的进 CI 了**——前提是 gpui-kit-cpp 已 vendored 进本仓库
@@ -258,15 +282,15 @@ type 2/3 = 只按下/只抬起，中间按段发移动并在每段后跑一帧�
 
 门禁全绿而人点不动，通常不是同一件事。按这三步走，5 秒内就能分出来：
 
-1. `php bin/gpui run showcase --trace`（走 `.app` bundle，别裸跑二进制）。
+1. `php bin/gpui run input --trace`（走 `.app` bundle，别裸跑二进制）。
 2. 看窗口顶部 HUD 那行的最后一段：`焦点 前台` 还是 `焦点 非前台`。
-3. 点一下左侧导航、再在输入框敲几个字，然后看 `tail -f /tmp/showcase-events.log`。
+3. 点一下左侧导航、再在输入框敲几个字，然后看 `tail -f /tmp/input-events.log`。
 
 读数怎么解释：
 
-- HUD 显示 **非前台**：键盘那一路缺的是 key window（`keyDown` 必须有落点），而鼠标不受影响
-  （`-[GpuiView acceptsFirstMouse:]` 返回 YES，第一下点击照样派发）。日志里会看到 `tick#N
-  active=false key=false` 一直刷，却没有 `key_down` 行——这是"点得动、打不进字"的形状。
+- HUD 显示 **非前台**：先核对 key window 与 responder；`acceptsFirstMouse=YES` 不能证明
+  鼠标、hover 与首次激活都不受前台状态影响。`active=false key=false` 且没有 `key_down`
+  只能定位系统状态这一层，不能一概判成监听器断线。
 - HUD 显示 **前台**，而日志里连 `click id=nav-N` 都没有：那是真派发链坏了（命中表、
   监听器、或被原生子视图挡住），用 `App::hitProbe()` 那一节的方法查。
 - 日志里有 `click id=nav-N` 但画面没换：路由到了 PHP，问题在状态或每帧回调，不在输入链。

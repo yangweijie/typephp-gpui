@@ -35,7 +35,7 @@ gpui.h 用了 C++20 的 `concept` / `requires`，而 TypePHP **nano 模式强制
 `gpui::` / `php::` 类型**绝不出现在边界上**。窗口句柄以 opaque `void*` 往返，bridge 用
 `php::Box` 子类 `WindowBox` 包成 PHP mixed 资源。
 
-> **第 8 个补丁之后，这道墙的理由从"必须"变成"划算"。** `cmd/patch-concepts.sh` 把
+> **打上 `cmd/patch-concepts.sh` 这支补丁之后，这道墙的理由从"必须"变成"划算"。** 它把
 > gpui.h 里 7 处 C++20 构造降级成 C++17 等价写法（1 个 `concept` → 偏序特化 trait、
 > 5 个 `requires` → `enable_if`、1 个 `PaintCtx paint = {}` → default-init），实测
 > 一个只 `#include "gpui.h"` 的 TU 在 `-std=c++17` 下从 **20 个 error 变成 0**，
@@ -49,6 +49,23 @@ gpui.h 用了 C++20 的 `concept` / `requires`，而 TypePHP **nano 模式强制
 > 我们自己的 ObjC/ARC 代码（`gpui_mac.mm`、mac 粘贴板读文件路径）必须有独立 TU、
 > 以及那份 C 契约让上游改动不至于直接打断桥接层。拆墙省下的只是样板，赔进的是编译增量
 > 与隔离性。**所以墙留着，但它的存在从此是可测的，不是信条。**
+
+## 同步的宿主行渲染
+
+C ABI 并不禁止同步回调。虚拟列表通过 `cmd/patch-host-list.sh` 从 `RenderVirtualItems`
+分叉到宿主函数指针，bridge 在同一线程调用 PHP 行闭包。行描述写入临时、借用帧内存的
+SpecArena，再 materialize；不能追加或重置正在读取的窗口主树。
+行 materialize 的 Ctx 必须带宿主视图 self，否则 prepaint 产生的行监听器无法派发。
+PHP 层对行闭包期间的窗口 API 重入做了显式拒绝，避免关闭或重建正在绘制的窗口。
+
+## Dock 保留态与面板描述
+
+`patch-host-dock.sh` 给宿主提供 retained Dock 创建/释放入口，并在布局替换前释放旧节点数组。
+面板各自持有独立 SpecArena，原生 Dock 渲染时 materialize 当前活动面板；窗口主树只保存 Dock 挂载节点。
+默认 chrome 直接复用上游 `DockSkin` 的完整函数表（包括分隔线和拖拽预览），不是只转接四个脚本钩子。
+面板新描述暂存于 pending arena，验证后再提交；未提交面板不能参与布局恢复。
+关闭窗口时先释放 retained Dock，再清理面板描述，
+因为原生状态仍持有面板 render/data 指针；恢复布局只接受已注册面板，解析 arena 保留到 Dock 释放。
 
 ## 构建产物链
 
@@ -68,8 +85,9 @@ gpui.h 用了 C++20 的 `concept` / `requires`，而 TypePHP **nano 模式强制
 
 窗口根用 `WindowOpenView(ShellRoot)` 直接开，而非 `KitOpenWindow`——后者会把内容包进
 基座 `Root`，令 `ShellRootOf(window)` 判定失败，Dialog/Toast 的 overlay 就找不到宿主。
-代价：基座 `Root` 才提供的 **root-application** 上下文（`AppEffects`）在 ShellRoot 下不可用，
-因此依赖它的 `MenuBar` 暂不能成盒（见 [组件 API](/guide/components) 的已知限制）。
+基座 `Root` 原本提供的 root-application 上下文不直接存在；宿主应用身份与 app-effect trampoline
+已由 `patch-host-application.sh` 补齐，所以 `MenuBar` 可 materialize 并把 action 回传 PHP。
+不能再把 ShellRoot 本身当成 MenuBar 的不可达理由。
 
 ## 关键不变量（改代码前必读）
 
@@ -81,7 +99,7 @@ gpui.h 用了 C++20 的 `concept` / `requires`，而 TypePHP **nano 模式强制
   写回错位 → 段错误。改 stub/C++ 后必跑原生 `--selftest`。
 - **Button/Link 标签是子元素**：gpui 的可见标签来自 `children`，不是 `component.text`。
 - **`ChildView` 的 entity 生命周期在宿主手里**：`gpui_shim_webview` / `gpui_shim_inspector`
-  用 `EntityNewRaw` 建包装 view、经 `RegisterHostView`（第 7 个补丁）拿 token、压一个
+  用 `EntityNewRaw` 建包装 view、经 `RegisterHostView`（`cmd/patch-nested-view.sh`）拿 token、压一个
   `ComponentKind::ChildView` 节点。gpui 侧 `ChildView` 每帧只是 `EntityRender`，**不接管
   生命周期**，`ReleaseOwnedEntities` 也按不到它（我们注册的 entry 里 `owner`/`policy` 留空）。
   所以 `gpui_shim_close` 必须在 `AppClose` **之前**显式 `EntityDrop`——WebView 的 OS 控件

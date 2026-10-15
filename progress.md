@@ -2150,3 +2150,132 @@ Calendar/ColorPicker/DatePicker/TimeField 不吃实参），页面上一族八�
 `WindowDispatchInput` 停到 (-40,-40) → 泵四帧。NSEvent 路由版 6 次 3 种图；同步版 8/8 相同；
 重录 embedded/hello29-31/showcase2 后三支 × 三遍 check 9/9 绿。hello tree30 的 WebView 本地页
 从此真的进图（旧基线是白的）。
+
+## 当前目标进展：真正的宿主 VirtualList（2026-10-15）
+
+用户要求先完成 task_plan 的真实余项，再从 examples、docs、tests 清除 showcase；检查表已纳入 Phase 17，未提前删除示例或将总目标标完成。
+
+新增 `patch-host-list.sh`、C ABI renderer、bridge `php::call` 与 App::listRenderer，行描述写进借用帧 arena 的临时 SpecArena，避免使主树节点指针失效。
+`list`/`uniform_list` 总条数进入描述，行只在 GPUI 请求区间时构造；恢复 rowCx.self 后行自己的 click/right 才可派发，列表级 item 事件另装行包装。
+右键事件保存 key、button、click_count、窗口/行内坐标与修饰键。Renderer 异常、错误类型/行数被拒绝并保留原因，禁止在绘制期间重入窗口 API。
+预登记 renderer 经 createWindow 接线；run 已统一走该入口。显式关闭和原生关窗后的 isOpen 检查清理 bridge 闭包。
+
+实测：10000 行只请求 10 行；滚轮后 start 0→17；行 click/right 同为 da-item-18；列表级右键读回同 key、窗口坐标 100,20，左键不触发右键事件；不等高列表另有门。
+摘掉 renderer 接线的对照为批次/行数 0/0，virtualListLazy 红且 rc=1。
+裸换行 Text 在 MinContent 下按一像素宽度测高，不能误判为 renderer 丢行；改用标准 truncate 后不必用定高容器掩盖。
+CGEvent 滚轮缺窗口身份，必须用目标窗口本地坐标并走 NSWindow 派发；错误全局坐标曾导致“已投递但 start 没变”，修后真实滚动成立。
+
+Pest、PHPStan、parity 与 C ABI 已通过；UniformList 新增映射使 kind 未登记数 18→17，补精确映射断言后 C++ 门通过。
+桌面 screencapture 为全黑，不能拿它宣称真人/普通交互视觉验收；native bundle 自检及窗口快照继续验证。
+Dock、英文正文、runner/当前 CI、HID 实测以及 showcase 独有门迁移仍未完成。
+
+本轮最终复验：Pest 108/589、PHPStan、C ABI、parity、C++、build-inputs、doctor、docs 构建通过；全量 native selftest 14/14 通过。
+仅列表相关 table/tree1 与 showcase/tree5 基线改变，重录后两个域像素门绿。其余独立域原生/像素检查绿，hello/tree27 单独存在 HUD 资源行差异：新帧比旧基线多 CPU/MEM 行，框变高。
+已开 #86，不把复跑或重录当结案；#35 的虚拟列表交付完成，总目标仍未完成，也未删除 showcase。
+
+## 当前目标进展：英文八页收口（2026-10-15）
+
+17-C/#88 完成：其余五篇（upstream-coverage / events / system-capabilities / testing / cli）正文落盘，
+英文 nav+sidebar 接满 8 页并把 outline/页脚/语言菜单标签英文化；Getting Started 的拼接残句、
+固定"seven patches"、"只有这一页英文"三处过期说法已订正为按 manifest 与实际覆盖面。
+
+验收全部打在**生产构建产物**上（`docs:build` + `docs:preview`），没有拿 dev server 冒充：
+构建绿；扫 dist 的路由与渲染后 id，60 条内部链接（11 条带锚点）0 问题；搜索命中/无结果/Esc 关闭；
+语言切换双向且停在同一页；390px 无页面级横向溢出、抽屉八页齐全；控制台无 error/warn；桌面与窄屏两张图都看过。
+
+顺带把一条**门禁盲区**查实：`vitepress build` 不校验 `#fragment`，所以中文
+`components.md:408` 那根指向已改名标题（六条硬约束 → 运行约束）的死锚一路放过构建，只有扫产物才看得见。
+已改锚并重建复扫。英文正文没有把未验的东西写成已验：独立示例尚缺的诊断开关不列命令，
+resize/HUD 资源行（#86）与物理拖拽仍按开放项表述。
+
+下一步按 17-F：先把 showcase 独有验收迁进各功能域，再谈删除；本轮未动 examples/showcase、未删基线、未提交。
+
+## 17-B Dock 收口与一条负控口径订正（2026-10-15）
+
+对**当前源码**重跑而不是沿用上轮日志：`bin/gpui selftest layout` rc=0，十六条门全绿（九条 Dock 门 +
+关窗 `dockReclaimed` 状态/面板 0/0）；`php cmd/shotdiff.php check layout` 两棵树 gdfrac=0.00000。
+三层齐：Pest `tests/AppTest.php:215`、C++ `tests/cpp/shim_test.cpp:594`（含 40× `DockLoad` 稳定性）、
+契约门 `tests/ContractTest.php:172` 认 `dock_area`。
+
+订正一条我自己写下的验收要求：#87 曾要求“旧补丁摘除对照”。这条**结构上做不到**——
+`cmd/patch-host-dock.sh` 自带硬断言（renderer 委托不完整就 `sys.exit`），而 `bin/gpui:222` 在
+`verifyPatches()` 失败时直接中止构建，所以“补丁没落”根本走不到运行期，不可能出现“补丁没落但门还绿”。
+真正跑过的行为对照是摘宿主 `wireDock` 接线（多门红、rc=1）。已按实情改口径，不保留做不到的那条当“未完成”。
+真人物理拖拽改尺寸仍归 #56，没算进 Dock 结案。
+
+## 17-F-1 画廊机器门迁移（2026-10-15）
+
+先跑画廊 `--selftest` 拿它自己的报告当权威清单，再拿门名去各域比对，得出"全仓只有画廊调过"的门；
+按功能域落地并**逐条在产物里跑绿**：
+hello（定时器同 id 重挂不涨键、onAny 通配送达、`isOpen/runFrames/frameCount/stop/lastError`、
+脏门两半 `idle=1/40 + wake`、`view()` 每帧重描述、缺失 id 读空串、`bundleGreen/routeGreen` nsapp=3）、
+text（181 角色在编出来的产物里扫 + 未知角色抛、mouse down/up/move 送达且值为宿主 CSV）、
+overlay（30× churn 与背板原生关框后 boxes/views 回基线）、chrome（menuRows 只含带动作行、
+三行导航逐行真点全到达）、embedded（显示 WebView→换走→点原位点击到达）。
+`composer test:all` rc=0，hello 18 棵 + 其余 8 支像素门 0 红。
+
+两处真错是在跑产物时才现形的：指针 handler 得在 render 之前挂（回调 id 在 materialize 定死），
+以及"最宽可点矩形"启发式挑错了元素。nano 侧另撞一次变量类型复用（`php -l` 不报，tpc 才报）。
+
+**没有删 showcase。** 剩下的 `--wait-key`（#56 唯一人机接口）、`--trace`（`cmd/real-input-probe.py`
+唯一生产者）、`--liveclick/--livetyping` 的跨节那一半，以及"未知开关必须拒绝"都还没落地；
+现在删会同时打断 CI 两条 step 和真人验收通路，也违反 17-G 自己写的"A–F 完成后"前置。
+顺带实测更正一条我上一轮的错判：`--liveclick/--livetyping` 在 `examples/input` 里只是注释提到，
+没有 argv 分支——未知开关被域示例静默忽略后落回交互 `run()`，直接跑会永久挂住（已停掉该任务）。
+本轮未提交、未 push、未注册 runner、未改 CI 之外的共享设施；两个文档服务已关掉。
+
+## 17-F 迁完 + 17-G 删除（2026-10-15）
+
+**真人/诊断通路落到 `examples/input`**：`--wait-key <秒>`（无人实测 `frames=318 seen=no rc=1`，
+6 秒自退，不挂人）、`--trace` 写 `/tmp/input-events.log`、未知开关 `rc=2`。
+`cmd/real-input-probe.py` 五处（LOG/BIN/窗口属主/osascript 进程名/pkill）改指 input。
+`--liveclick/--livetyping` 的跨节那一半拆成三处更强的门：chrome 的 `navRowsReachable` 改成
+**只跑一帧**就逐行真点（把"首帧可点"本身钉进门里，实测 3 行全到达）、input 的逐颗打字、
+embedded 的 `clickAfterWebView`。`--probe-events` 不再存在——它读的每件事在
+choices/input/overlay/text 都有硬门，唯一没有的是 `resize` 送达（layout 那条仍是读数，归 #56）。
+
+**删除**：`examples/showcase` 与 `tests/baseline/showcase`（13 张）已删，tracked，可从 HEAD 恢复。
+CI 摘掉 4 条 showcase step、排除表由 `hello|showcase` 收成 `hello`，注释写明四类证据各自的新主人。
+
+**测试**：`tests/ShowcaseTest.php` → `tests/ExampleCoverageTest.php`。4 条静态覆盖门与 arity 门
+原样保留为全域门；画廊的"每节建得出非空树 + handler 不许是孤儿"搬进新的 `cmd/headless-trees.php`
+（逐支起无头进程；13 支全 OK，hello 无 `*Trees()` 表所以如实报 `trees=0`）；节表自洽改成
+"每支都有 yml、yml 列的源都在、每份 `_shared/features/*.php` 至少被一支收录"。Pest 108/581 全绿。
+
+**删前救下一个真覆盖洞**：`ariaLevel` 全仓只有画廊壳里调过，删了那条"链式方法全覆盖"就会红。
+在 `examples/text` 补成真门（0 层必须抛——上游是静默夹成 1，这一抛是那条哑路唯一哨兵），
+实测 `发出=role/aria_level`。
+
+**引用清理**：中文 6 篇逐处订正（指向上游 gpui-kit 画廊的说法保留）；英文 `testing.md` 里
+4 处"aggregate 待迁"的过期说法改成已落地的事实；`_shared` 的 provenance 注释、
+`system.php`/`mac.php` 里带 Showcase 字样的活字面量、`keyContext('ShowcaseDataList')`
+（连同 `components.md` 那份）都改掉；`bin/gpui`、`cmd/` 三处注释同步。
+
+**待审计**：13 支逐支 `build --no-native` + `selftest` + `shotdiff check`、`composer test:all`、
+`check-build-inputs`、`check-upstream-parity`、`docs:build` 正在跑；`hello/tree27`（#86）预期仍红。
+
+## 17-H 收尾：矩阵、#86 结案、#90 根因与一次自我撤回（2026-10-15）
+
+**矩阵怎么才算可信**：第一版审计（独占沙箱）有效；后来两次"串行复验"被我自己的并发构建污染
+（`bin/gpui selftest` 走完整链会 rsync 沙箱，与 `--no-native` 互相抽走 `gpui.o`），
+那两份里的 BUILD/SELFTEST FAIL 一律作废，不当证据。最终有效形态是**一支完整链产出共享产物 +
+其余 12 支 `--no-native` + 直接调 bundle 跑 `--selftest --expect-bundle`**：13/13 全绿，
+且抽验过日志本体（text 的 `ariaLevelGuarded` 读数、hello 18 棵逐棵 gdfrac）不是空跑。
+
+**#86 结案**（判据是"多次一致"，不是"这次过了"）：`hello --shot 27` 改前 5 次 5 张不同图、
+与基线差 0.01298；根因是 HUD 的 CPU/MEM 行要等采样器第二次样本才画、行数一变框就变高。
+泵到 120 帧后 5 张同尺寸、两两只差 0.00013~0.00023（HUD 上实时数字，容差 0.001 内），
+连三遍 check 全绿（0.00035/0.00044/0.00016）。只重录 tree27 一棵。
+
+**#90 查到根因，但第一版修法被实测否掉并当场回退**：`gpui_shim_snapshot` 用
+`[NSApp keyWindow]`、拿不到就取 `[NSApp windows]` 第一个，`Box2` 没参与选窗 ⇒ 前台竞争时拍到别的窗口整帧
+（`gdfrac=1.00000`）。我改用 `Box2::viewPtr` 的 `-window` 绑定——**错了**：`PhpView` 是 C++ 视图
+不是 NSView，对它发 ObjC 消息是野指针，实测 hello 全部 18 棵 `--shot` **rc=139 SIGSEGV**。
+已回退（`snapshot` 段与 HEAD 逐字一致）并重跑：完整链 rc=0、hello 18 绿 0 红。
+两棵受影响基线（tree29/31）看过图，确认是真帧，错帧没被固化成标准答案。
+正解需要一条新补丁暴露 `Window*→NSWindow*`（`PlatWindow` 只有前向声明），#90 保持未结案。
+
+**两条入库的方法教训**：ARC 下 `void*`→ObjC 指针必须 `(__bridge …)`；判后台任务存活不能用窄
+`ps` 模式（它当时在跑 `bun cmd/build.ts`，一个都不匹配），误判"死了"就会起重复活并互相污染。
+
+

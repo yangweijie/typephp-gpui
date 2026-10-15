@@ -27,15 +27,37 @@ export default defineConfig({
       description:
         'Build cross-platform GPU-accelerated desktop apps with a declarative PHP API, compiled ahead-of-time to a native binary.',
       themeConfig: {
-        nav: [{ text: 'Guide', link: '/en/guide/getting-started' }],
+        nav: [
+          { text: 'Guide', link: '/en/guide/getting-started' },
+          { text: 'Architecture', link: '/en/guide/architecture' },
+          { text: 'Components', link: '/en/guide/components' },
+          { text: 'Upstream Coverage', link: '/en/guide/upstream-coverage' },
+          { text: 'System Capabilities', link: '/en/guide/system-capabilities' }
+        ],
         sidebar: {
           '/en/guide/': [
             {
               text: 'Guide',
-              items: [{ text: 'Getting Started', link: '/en/guide/getting-started' }]
+              items: [
+                { text: 'Getting Started', link: '/en/guide/getting-started' },
+                { text: 'Architecture and C ABI', link: '/en/guide/architecture' },
+                { text: 'Component API', link: '/en/guide/components' },
+                { text: 'Upstream Coverage', link: '/en/guide/upstream-coverage' },
+                { text: 'Events and Callbacks', link: '/en/guide/events' },
+                { text: 'System Capabilities', link: '/en/guide/system-capabilities' },
+                { text: 'Testing and Gates', link: '/en/guide/testing' },
+                { text: 'gpui CLI', link: '/en/guide/cli' }
+              ]
             }
           ]
-        }
+        },
+        outline: { label: 'On this page', level: [2, 3] },
+        docFooter: { prev: 'Previous page', next: 'Next page' },
+        lastUpdatedText: 'Last updated',
+        sidebarMenuLabel: 'Menu',
+        returnToTopLabel: 'Return to top',
+        darkModeSwitchLabel: 'Appearance',
+        langMenuLabel: 'Change language'
       }
     }
   },

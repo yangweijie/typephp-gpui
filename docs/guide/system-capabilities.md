@@ -99,7 +99,7 @@ $b = App::sysInfo(10);          // 这一次的 cpu 才是 200ms 窗口里的真
   前值（`FindPrevCpu`），而 `prevProcs` 是另一份完整数组。
 - 电池在没有电池的设备上 `batteryPresent=false`，此时 `batteryPct` 无意义。
 
-## 六条硬约束
+## 运行约束
 
 1. **`promptForPath` 只能在事件回调里调。** 原生对话框自带嵌套消息循环，一直跑到用户选完
    （头注释原文："they run their own loop until the user is done"）。在 `App::view()` 里调它，
@@ -193,9 +193,9 @@ mac 集成（`App::tray` / `onHotkey` / `dockBadge` / `osNotify`）已经接上�
 - 托盘图标在菜单栏里**看得见**；点一下 PHP 收到 `tray` 事件（带被点的 label）
 - 全局快捷键在**别的 app 有焦点时**仍能触发（否则等于没做"全局"）——自检里那条是**合成**事件，
   它只证明派发链通
-- 系统通知中心（OS 那个，不是 `El::notifications` 画在窗口里的卡片）出现条目。**前提**：产物是
-  裸 Mach-O、没有 bundle id，`NSUserNotification` 会被静默丢弃 ⇒ 这一条要先做 `.app` 打包
-  （`osNotify()` 返回 true 也不算过）
+- 系统通知中心（OS 那个，不是 `El::notifications` 画在窗口里的卡片）出现条目。CLI 已生成并从
+  `.app` 启动，打包不再是未实现项；仍要核对 bundle 身份、系统通知权限与实际可见条目，
+  `osNotify()` 返回 true 只代表交给系统，不算可见性通过。
 - Dock 角标显示数字 / 进度
 
 自动化的 `*_count()` 类断言读的是我们自己记的数，只能证明"没崩、没泄漏"，不能证明屏幕上
@@ -209,6 +209,6 @@ mac 集成（`App::tray` / `onHotkey` / `dockBadge` / `osNotify`）已经接上�
    `gpui_shim_pump` 每帧先 `gpui_mac_pump()`（`ReceiveNextEvent(…kEventDurationNoWait…)`
    + `SendEventToEventTarget`）。handler 与泵同在主线程，所以入队不需要锁。
    这条是 selftest #19 能成立的前提。
-2. **OS 通知要不要 bundle 身份？** 要。`file build/hello` = 裸 Mach-O，`build/` 下没有 `.app`，
-   所以 `NSUserNotification` 这一条在打包之前只能算"接上了、看不见"。托盘与 Dock 角标
-   不吃这个前提。
+2. **OS 通知要不要 bundle 身份？** 要。早期探针跑的是裸 Mach-O；当前 CLI 已生成 `.app`，
+   应从 bundle 跑再核对实际显示。历史“没有 .app”不代表当前产物，bundle 存在也不等于通知可见。
+   托盘与 Dock 角标不吃同一个通知身份前提。
