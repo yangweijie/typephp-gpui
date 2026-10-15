@@ -6,7 +6,7 @@
 
 ## 这是什么
 
-[gpui-kit-cpp](https://github.com/kjk/gpui-kit-cpp) 是 Zed 编辑器 GPUI 框架的 C++ port（703 个源文件），自带一套脚本绑定层（`src/shell/`）让 JavaScript 能描述界面。本项目把这条"脚本描述 → 原生渲染"通道接到 **PHP** 上：
+[gpui-kit-cpp](https://github.com/kjk/gpui-kit-cpp) 是 Zed 编辑器 GPUI 框架的 C++ port（本仓库 vendored 的子集：`upstream/gpui-kit-cpp` 共 1187 个文件，其中 `src/` 下 693 个 C/C++ 文件——上游整树没有 git 历史可查，所以这里只报数得到的），自带一套脚本绑定层（`src/shell/`）让 JavaScript 能描述界面。本项目把这条"脚本描述 → 原生渲染"通道接到 **PHP** 上：
 
 ```
 PHP（大脑，可单测）        C++ bridge c++17（极薄）   C++ shim c++20（唯一碰 gpui.h）      gpui-kit-cpp（脸）
@@ -48,12 +48,11 @@ php bin/gpui build hello               # 补丁→amalgam→shim 库→tpc nano�
 php bin/gpui run hello                 # 编译并运行
 php bin/gpui shot hello                # 编译并截图出 /tmp/hello.png
 php bin/gpui selftest hello            # 编译并跑 --selftest（输入回环+点击+定时器），rc=0=通过
-php bin/gpui run showcase              # 另一个示例：13 节把 PHP 面全部特性走一遍
-                                       # （Element 全部工厂/链式方法 + App 全部能力，
-                                       #  coverage 由 tests/ShowcaseTest.php 反射核对）
 php bin/gpui selftest input --no-native # 按功能域拆出的独立示例（ls examples/）：
                                        #  一支只装一域，编译与报告都只那一域的范围，
                                        #  自检边跑边打（一步一行，崩在哪行停在哪行）
+                                       # Element 全部工厂/链式方法 + App 全部能力的
+                                       #  coverage 由 tests/ExampleCoverageTest.php 反射核对
                                        # run/selftest 会把二进制包进 .app 再启动：没有
                                        # bundle 身份的进程在 macOS 不是前台应用，手点第一下
                                        # 被当成激活点击吃掉、keyDown 也没有 firstResponder，
@@ -82,7 +81,8 @@ php vendor/bin/tpc.php examples/hello/project.macos.yml --nano -f # AOT 产出 b
 ## 测试与自检
 
 ```bash
-composer test                    # Pest：13 个无头单测（Element builder + App 事件/取值/循环）
+composer test                    # Pest：108 项 / 583 断言的无头门（Element builder、App 事件/取值/循环、
+                                 # 上游词表 parity、示例覆盖与建树孤儿门等；数量随域增加会变，以命令输出为准）
 ./examples/hello/build/hello --selftest   # 真实二进制自检：输入取值回环 + 点击事件链路，rc=0=通过
 ```
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """真·OS 输入验收：用 WindowServer 的 session event tap 发鼠标/键盘事件，
-读 showcase --trace 写的事件日志。
+读 input --trace 写的事件日志。
 
 为什么还要这条：`App::realClick` 那条缝是把事件交给 `-[NSWindow sendEvent:]`，
 它跳过了 NSApplication 的事件队列与激活/钥匙窗口状态。用户手点的真实路径要经过
@@ -13,7 +13,7 @@ WindowServer → [NSApp nextEventMatchingMask:] → sendEvent:，中间任何一
 投递成功的会话里才有效：先确认投一条 move 后 `CGEventGetLocation` / 光标位置真的变了，
 再谈目标应用收到没收到。自证不过，就改回用 app 内的 `App::realClick/realKey` 缝
 （现已走真 NSApp 路由：postEvent → nextEventMatchingMask → -[NSApp sendEvent:]），
-或者让人手点一次 `php bin/gpui run showcase --trace`。
+或者让人手点一次 `php bin/gpui run input --trace`。
 另注：kCGHIDEventTap 在这类进程里会当场把解释器打成 SIGTRAP（exit 133）。
 """
 import json
@@ -24,15 +24,15 @@ import time
 
 import Quartz
 
-LOG = "/tmp/showcase-events.log"
-BIN = "./examples/showcase/build/showcase"
+LOG = "/tmp/input-events.log"
+BIN = "./examples/input/build/input"
 
 
 def window():
     infos = Quartz.CGWindowListCopyWindowInfo(
         Quartz.kCGWindowListOptionOnScreenOnly | Quartz.kCGWindowListExcludeDesktopElements, 0)
     for w in infos:
-        if (w.get("kCGWindowOwnerName") or "").lower() == "showcase":
+        if (w.get("kCGWindowOwnerName") or "").lower() == "input":
             b = w["kCGWindowBounds"]
             return b["X"], b["Y"], b["Width"], b["Height"]
     return None
@@ -40,7 +40,7 @@ def window():
 
 def frontmost():
     subprocess.run(["osascript", "-e",
-                    'tell application "System Events" to set frontmost of process "showcase" to true'],
+                    'tell application "System Events" to set frontmost of process "input" to true'],
                    capture_output=True)
 
 
@@ -143,7 +143,7 @@ def main():
               "本会话没有事件注入权限，后面的「零事件」不能当成应用的结论。" % (where,))
         return 2
     print("SELFPROOF OK：光标跟着投出去的 move 走了")
-    subprocess.run(["pkill", "-f", "showcase --trace"], check=False)
+    subprocess.run(["pkill", "-f", "input --trace"], check=False)
     if os.path.exists(LOG):
         os.remove(LOG)
     proc = subprocess.Popen([BIN, "--trace"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -201,7 +201,7 @@ def main():
                           "typing": len(changes) + len(keys)}, ensure_ascii=False))
         return 0 if ok else 1
     finally:
-        subprocess.run(["pkill", "-f", "showcase --trace"], check=False)
+        subprocess.run(["pkill", "-f", "input --trace"], check=False)
 
 
 if __name__ == "__main__":

@@ -83,6 +83,14 @@ jobs:
           cache: npm
           cache-dependency-path: docs/package-lock.json
 
+      # 锚点门是 PHP 脚本（cmd/check-doc-anchors.php），所以这个 job 也得有 PHP；
+      # 与 php job 同大版本，别在这儿引入新的解析差异。
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+          coverage: none
+
       - name: Install docs dependencies
         working-directory: docs
         run: npm ci
@@ -92,8 +100,9 @@ jobs:
         run: npm run docs:build
 
       # 构建产物是 docs/.vitepress/dist（gitignore 掉的那份）。config.mts 里没设
-      # ignoreDeadLinks ⇒ vitepress build 会因死链失败，所以 Build site 那一步
-      # 本身就是死链门禁；这一步只把"真的出了页"变成断言，别让空目录混过去。
+      # ignoreDeadLinks ⇒ vitepress build 会因**死页**失败，所以 Build site 那一步是死页门禁；
+      # 但它**不解析 `#fragment`**（2026-10-15 实测放过一根真死锚），锚点归后面那步管。
+      # 这一步只把"真的出了页"变成断言，别让空目录混过去。
       - name: Assert built pages
         working-directory: docs
         run: |
@@ -106,6 +115,12 @@ jobs:
       - name: Assert project-page base baked in
         working-directory: docs
         run: grep -q '/typephp-gpui/' .vitepress/dist/index.html
+
+      # vitepress build 查不到的那一半：站内链接的 `#锚点` 必须能在**产物里真实渲染出的
+      # id** 上找到（比源码标题字符串可靠：VitePress 生成 id 的规则含中文转写与去重）。
+      # 这条门自带防空跑：一条链接都没扫到就 rc=2，别把"没看"当成"看过且干净"。
+      - name: Doc anchors resolve against built ids
+        run: php cmd/check-doc-anchors.php
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v5
@@ -169,52 +184,54 @@ jobs:
       - name: Native selftest
         run: ./examples/hello/build/hello --selftest
 
-      # showcase 的覆盖率门禁（tests/ShowcaseTest.php）在 php job 里，反射只能证明
-      # "源码里调用过"；这一步证明这些调用在真产物里没产出错误节点、能力真有返回。
-      - name: Build showcase example
-        run: php bin/gpui build showcase
+      # 画廊（examples/showcase）已按功能域拆完并删除。它当年独占的四类证据各有主人：
+      #   · 覆盖率反射 → tests/ExampleCoverageTest.php（php job，不需要原生）
+      #   · 每支示例"没有错误节点、能力真有返回" → 下面 Domain examples 那圈循环
+      #   · 首帧可点 + 导航逐行可达 → examples/chrome 的 navRowsReachable
+      #   · 逐颗输入框打得进字 → examples/input 的 realTyping / keyDownRoute
+      # 真人那一按（--wait-key）与 --trace 不在 CI 里：前者要人，后者要辅助功能权限，
+      # 见 examples/input 的 --wait-key 与 cmd/real-input-probe.py。
 
-      - name: Showcase selftest
-        run: ./examples/showcase/build/showcase --selftest
-
-      # 首帧必须可点：这条直接盯住"启动后左侧点了没反应"。修之前实测 frames=1 时真点击
-      # 产生 0/38 个事件，跑到第二帧才有 18/38；App::view() 现在注册时就预热一帧。
-      - name: Live-click gate（首帧可点）
-        run: ./examples/showcase/build/showcase --liveclick
-
-      # 逐颗输入框真打字：点进 paint 登记的每一颗、按一个真实键，改到值才算过（实测 9/9，
-      # input / textarea / number_input / catalog 字段全覆盖，没有"跳过"的特例）。
-      # 挂 onKeyDown 的那颗曾经"一按真实键就段错误"（任务 #53）：现在键事件在 view 层就
-      # 交给宿主队列（cmd/patch-key-view.sh，形状与 OnClick 相同），这条门断言 key_down
-      # 真的到了 in-key，且 value 带回键名（key_down 给 KeyName(vk)，字符那一路才给码点；
-      # KeyEvent 的 vk/ch 互斥）。实测 value=[—1]，那个 1 就是 keycode 18 的键名。
-      - name: Live-typing gate（每颗输入框都打得进字）
-        run: ./examples/showcase/build/showcase --livetyping
-
-      # 按功能域拆出来的独立示例（examples/<域>，hello 与 showcase 之外）：一支一个二进制，
+      # 按功能域拆出来的独立示例（examples/<域>，hello 之外）：一支一个二进制，
       # yml 只列本域那一份源，所以它红的时候知道就是这一域的问题。
-      # 上面的 build hello / build showcase 已经把共用产物（补丁后的沙箱、gpui.o、
-      # libgpui_shim.a）建好了，所以这里用 --no-native 只跑 tpc 那一步——不加的话每支都会
+      # 上面的 build hello 已经把共用产物（补丁后的沙箱、gpui.o、libgpui_shim.a）建好了，
+      # 所以这里用 --no-native 只跑 tpc 那一步——不加的话每支都会
       # 把沙箱 rsync --delete 掉再重编一遍 amalgam（几分钟），十几支直接超 45 分钟预算。
       # 新拆一支示例不用改这里：循环按 examples/*/project.macos.yml 自己找到它。
       - name: Domain examples（逐支编译 + --selftest）
         run: |
-          set -e
+          # 这里**不用** `set -e`。教训来自 run 38682636928：那一步之前的画廊自检一红，
+          # 整个作业中断，后面 12 支域的循环直接变 skipped —— "一步红"于是吞掉了整批证据，
+          # 而从 run 页面看过去只看到一个红点，看不出还有十三个结论根本没跑。
+          # 逐支记录、末尾汇总：红一支只欠一支的结论，其余照常出数。
+          fails=""
           for yml in examples/*/project.macos.yml; do
             ex=$(basename "$(dirname "$yml")")
-            case "$ex" in hello|showcase) continue ;; esac
-            php bin/gpui build "$ex" --no-native
+            case "$ex" in hello) continue ;; esac
+            if ! php bin/gpui build "$ex" --no-native; then
+              fails="$fails $ex(build)"
+              continue
+            fi
             echo "::group::$ex --selftest"
-            "./examples/$ex/build/$ex" --selftest
+            if "./examples/$ex/build/$ex" --selftest; then
+              echo "DOMAIN OK $ex"
+            else
+              fails="$fails $ex(selftest)"
+            fi
             echo "::endgroup::"
           done
+          if [ -n "$fails" ]; then
+            echo "::error::域示例失败:$fails"
+            exit 1
+          fi
+          echo "DOMAIN LOOP OK"
 
       # 边界（不装）：这里跑的是**裸二进制**，所以 selftest 读数里 bundled=false，
       # bundleGreen/routeGreen 两道门在 CI 记为"未验"而不是"通过"——它们要的是
       # "有 .app 身份 → NSApp.isActive 起得来 → 事件缝走真 NSApp 路由"，而托管 runner
       # 能不能把 bundle 应用激活我没实测过，不该拿它赌 CI 绿。本地用
-      # `php bin/gpui selftest showcase`（走 bundle）覆盖这两道门，读数见 progress.md。
+      # `php bin/gpui selftest hello`（走 bundle）覆盖这两道门，读数见 progress.md。
 
-      # 注意：showcase 的 13 张像素基线（php cmd/shotdiff.php check showcase）**不进 CI**，
+      # 注意：各示例的像素基线（php cmd/shotdiff.php check <域>）**不进 CI**，
       # 与 hello 同理——--shot 抓的是真在屏 NSView，托管 runner 没有窗口会话。
-      # 覆盖率门禁（tests/ShowcaseTest.php）在 php job 里，它不需要原生。
+      # 覆盖率门禁（tests/ExampleCoverageTest.php）在 php job 里，它不需要原生。

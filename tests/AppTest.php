@@ -115,7 +115,8 @@ test('渲染是脏驱动的：预热 1 帧 + 每轮 loop 的首帧 + 事件/inva
 });
 
 // #71：指针事件在 PHP 侧的路由。类型是**短名**（bridge 剥掉 on_ 前缀，gpui_bridge.cc:49-51），
-// 值是一段 CSV —— 这条门量的是"到了 PHP 之后怎么发"，投递本身由 showcase 的真输入门量。
+// 值是一段 CSV —— 这条门量的是"到了 PHP 之后怎么发"，投递本身由 examples/text 的
+// pointerEventsDelivered（真点真扫 + 值形状）量。
 test('pointer events route by the short type and carry the CSV value', function (): void {
     $app = new App();
     $app->create();
@@ -147,4 +148,121 @@ test('focusElement 设得进去也读得回来，空 id 回 0', function (): voi
     $date = $app->focusElement('ch-date');
     expect($date)->not->toBe($sel, '两颗部件的焦点身份不能撞车');
     expect($date)->toBe($app->focusedId());
+});
+
+test('list renderers serialize only the requested range and replace per-window registrations', function (): void {
+    $app = new App();
+    $requested = [];
+    $app->listRenderer('items', function (int $start, int $end) use (&$requested): array {
+        $requested[] = [$start, $end];
+        $rows = [];
+        for ($i = $start; $i < $end; $i++) $rows[] = El::text((string) $i)->id('item-' . $i);
+        return $rows;
+    });
+    expect(FakeBridge::$listRenderers)->toBe([]);
+    $app->create();
+    $win = $app->createWindow('List', 400, 300);
+    $key = ((int) $win) . "\x1fitems";
+    $rows = FakeBridge::$listRenderers[$key](30, 33);
+    expect($requested)->toBe([[30, 33]])
+        ->and(array_column($rows, 'id'))->toBe(['item-30', 'item-31', 'item-32']);
+    $app->listRenderer('items', static fn (int $start, int $end): array => [El::text('replacement')]);
+    expect(FakeBridge::$listRenderers)->toHaveCount(1)
+        ->and(FakeBridge::$listRenderers[$key](10, 11)[0]['text'])->toBe('replacement');
+    $app->close();
+    expect(FakeBridge::$listRenderers)->toBe([]);
+});
+
+test('run installs list renderers registered before the window is created', function (): void {
+    $app = new App();
+    $app->listRenderer('items', static fn (int $start, int $end): array => [El::text('ready')]);
+    $value = '';
+    $app->run('List', 400, 300, function () use ($app, &$value): El {
+        $key = ((int) $app->handle()) . "\x1fitems";
+        $value = FakeBridge::$listRenderers[$key](0, 1)[0]['text'];
+        $app->close();
+        return El::div();
+    });
+    expect($value)->toBe('ready')->and(FakeBridge::$listRenderers)->toBe([]);
+});
+
+test('list renderer failures remain visible and release the window API guard', function (): void {
+    $app = new App();
+    $app->create();
+    $win = $app->createWindow('List', 400, 300);
+    $key = ((int) $win) . "\x1fitems";
+    foreach ([
+        static fn (int $start, int $end): array => [],
+        static fn (int $start, int $end): array => [El::text('extra'), El::text('extra')],
+        static fn (int $start, int $end): array => [null],
+        static fn (int $start, int $end) => null,
+        static fn (int $start, int $end): array => throw new RuntimeException('renderer failed'),
+        function (int $start, int $end) use ($app): array { $app->render(El::div()); return []; },
+        function (int $start, int $end) use ($app): array { $app->close(); return []; },
+        function (int $start, int $end) use ($app): array { $app->loop(1); return []; },
+        function (int $start, int $end) use ($app): array { $app->createWindow('bad'); return []; },
+    ] as $render) {
+        $app->listRenderer('items', $render);
+        expect(FakeBridge::$listRenderers[$key](0, 1))->toBe([])
+            ->and($app->lastError())->not->toBe('')
+            ->and($app->handle())->toBe($win)
+            ->and($app->isOpen())->toBeTrue();
+    }
+    $app->listRenderer('items', static fn (int $start, int $end): array => [El::text('ok')]);
+    expect(FakeBridge::$listRenderers[$key](0, 1)[0]['text'])->toBe('ok');
+    $app->close();
+});
+
+test('Dock retains named panels and restores a saved layout without duplication', function (): void {
+    $app = new App();
+    $app->create();
+    $app->createWindow('Dock', 600, 400);
+    expect($app->createDock('area'))->toBeTrue()->and($app->createDock('area'))->toBeTrue();
+    expect($app->addDockPanel('area', 'editor', '编辑器', El::text('one')))->toBeTrue();
+    expect($app->addDockPanel('area', 'console', '控制台', El::text('two')))->toBeTrue();
+    expect($app->addDockPanel('area', 'files', '文件', El::text('three'), 'left'))->toBeTrue();
+    $app->addDockPanel('area', 'console', '更新控制台', El::text('updated'));
+    expect($app->dockProbe('area')['registered'])->toBe(3)
+        ->and($app->stateCounts()['dockStates'])->toBe(1)
+        ->and($app->stateCounts()['dockPanels'])->toBe(3);
+    expect($app->selectDockPanel('area', 'editor'))->toBeTrue()
+        ->and($app->dockProbe('area')['active'])->toBe(0);
+    $layout = $app->dockLayout('area');
+    expect($layout)->not->toBe('');
+    expect($app->removeDockPanel('area', 'console'))->toBeTrue()
+        ->and($app->dockProbe('area')['open'])->toBe(2);
+    expect($app->loadDockLayout('area', $layout))->toBeTrue()
+        ->and($app->dockProbe('area')['open'])->toBe(3);
+    expect($app->loadDockLayout('area', 'not-json'))->toBeFalse()
+        ->and($app->loadDockLayout('area', str_replace('editor', 'unknown', $layout)))->toBeFalse()
+        ->and($app->dockLayout('area'))->toBe($layout);
+    $app->close();
+    expect($app->stateCounts()['dockStates'])->toBe(0)
+        ->and($app->stateCounts()['dockPanels'])->toBe(0);
+});
+
+test('Dock validates ids and geometry and isolates window registrations', function (): void {
+    $app = new App();
+    $app->create();
+    $app->createWindow('First', 400, 300);
+    expect(fn () => $app->createDock(''))->toThrow(InvalidArgumentException::class);
+    $app->createDock('same');
+    expect(fn () => $app->addDockPanel('same', '', 'x', El::text('x')))->toThrow(InvalidArgumentException::class);
+    expect(fn () => $app->addDockPanel('same', 'x', 'x', El::text('x'), 'top'))->toThrow(InvalidArgumentException::class);
+    foreach ([-1.0, INF, NAN] as $size) {
+        expect(fn () => $app->addDockPanel('same', 'x', 'x', El::text('x'), 'left', $size))
+            ->toThrow(InvalidArgumentException::class);
+    }
+    expect($app->dockProbe('missing'))->toBe([])
+        ->and($app->selectDockPanel('same', 'missing'))->toBeFalse()
+        ->and($app->removeDockPanel('same', 'missing'))->toBeFalse();
+    $other = new App();
+    $other->createWindow('Second', 400, 300);
+    $other->createDock('same');
+    $other->addDockPanel('same', 'other', 'other', El::text('other'));
+    expect($app->dockProbe('same')['registered'])->toBe(0)
+        ->and($other->dockProbe('same')['registered'])->toBe(1);
+    $app->close();
+    expect($other->stateCounts()['dockStates'])->toBe(1);
+    $other->close();
 });

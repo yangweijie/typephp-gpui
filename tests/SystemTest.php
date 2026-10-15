@@ -544,7 +544,7 @@ test('app menu rows carry the action ids PHP declared', function (): void {
         ->and($app->menuRows())->toBe(['file.new', 'edit.copy']);
 
     // 反方向锚点：键名写成 id（而不是 action）时装不出任何可路由的行——
-    // showcase 上一版就是这么写的，菜单看着在、点了没回音。
+    // 早先那版就是这么写的，菜单看着在、点了没回音。
     $app->setAppMenus([
         ['label' => 'File', 'items' => [['label' => 'New', 'id' => 'file.new']]],
     ]);

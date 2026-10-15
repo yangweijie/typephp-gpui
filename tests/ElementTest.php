@@ -18,6 +18,16 @@ test('text carries content', function (): void {
     expect($el->text)->toBe('Hello');
 });
 
+test('virtual lists record their total count without eagerly describing rows', function (): void {
+    foreach ([El::list('varying', 10000), El::uniformList('uniform', 10000)] as $list) {
+        $tree = $list->toArray();
+        expect($tree['listCount'])->toBe(10000)
+            ->and($tree['children'])->toBe([])
+            ->and($tree['id'])->not->toBe('');
+    }
+    expect(El::list('empty')->toArray()['listCount'])->toBe(0);
+});
+
 test('button records label as a child text element', function (): void {
     $el = El::button('Go');
     expect($el->kind)->toBe('button');
@@ -31,7 +41,7 @@ test('button records label as a child text element', function (): void {
 // 而上游的 Button 变体是 catalog 的**零参方法** primary()（`variant(enum)` 属于
 // DropdownButton/Tag/…）——名字两边都不认，带参未知 Method op 会被
 // materialize.cpp:451-454 那条链尾无 else 的行为链静默丢掉，于是五个变体糖
-// 一个像素都不改变（实测 tests/baseline/showcase/tree3.png 六颗按钮无差别）。
+// 一个像素都不改变（实测：同一棵树带/不带 variant 的截图逐字节相同）。
 // 现在：kind 节点上直接抛，catalog 节点上发 registered_method。
 test('variant sugar is loud on a kind node, not silently dropped', function (): void {
     expect(fn () => El::button('Go')->primary())

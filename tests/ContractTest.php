@@ -169,7 +169,9 @@ test('every kind Element.php can emit is registered in the shim kindFromString t
     $emitted = array_values(array_unique($m2[1]));
     expect($emitted)->not->toBe([]);
 
-    $pseudo = ['webview', 'inspector', 'notifications'];
+    $pseudo = ['webview', 'inspector', 'notifications', 'dock_area'];
+    $bridge = (string) file_get_contents(__DIR__ . '/../cpp-src/gpui_bridge.cc');
+    expect($bridge)->toContain('kind == "dock_area"', 'gpui_shim_push_dock(win, id.c_str())');
     $unknown = array_values(array_diff($emitted, $known, $pseudo));
     expect($unknown)->toBe([], '这些 kind 会被 gpui_shim_push 拒收（表里没有）：' . implode(',', $unknown));
 
