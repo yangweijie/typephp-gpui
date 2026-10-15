@@ -437,7 +437,9 @@ namespace {
     function gpui_window_state(mixed $window): array
     {
         return ['found' => 0, 'active' => false, 'key' => false, 'visible' => false,
-                'main' => false, 'nsappDeliveries' => 0, 'bundled' => false];
+                'main' => false, 'nsappDeliveries' => 0, 'bundled' => false,
+                'appkitDeliveries' => 0, 'onScreen' => false, 'onScreenPeers' => 0,
+                'onConsole' => false, 'sessionId' => 0];
     }
 
     function gpui_activate(mixed $window): int

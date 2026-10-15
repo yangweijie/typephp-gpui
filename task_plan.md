@@ -619,7 +619,16 @@ SIGSEGV 报成了它自己那一行，而它在画廊里时只是"某轮 rc=11�
       浏览器实测（生产 preview，非 dev）：搜索命中 VirtualList/gpui_shim/Dock、无结果文案、
       Esc 关闭；语言切换双向且停在同页（`/en/guide/cli` ⇄ `/guide/cli`，html lang 与侧栏同译）；
       390px 窄屏页面无横向溢出、抽屉八页齐全且当前页高亮；控制台无 error/warn。
-- [ ] **17-D** 当前原生 CI / self-hosted runner：核查实际 runner 资源与当前版本的原生门；未授权注册/没有 runner 的事实必须保持未完成。
+- [x] **17-D** 当前原生 CI / self-hosted runner：**已结案（2026-10-15 12:02 读到结论）**。
+      三支提交推送后（`815afe9..3d773b7`，C1 原生与门禁 / C2 删画廊+CI / C3 文档），
+      run `38723837690` = **`completed / success`**；native job 逐步全绿
+      （Build、C++17、C ABI、shim tests、Native selftest、**Domain examples**）。
+      域循环**第一次真跑到**并逐支点名：`DOMAIN OK catalog/choices/chrome/embedded/input/layout/mac/overlay/style/system/table/text`
+      共 12 行 + 末行 `DOMAIN LOOP OK` ⇒ 12 支迁移后的原生门在 CI 上有据了。
+      runner 侧结论：C++17 / C ABI / shim 测试 / hello selftest / 域循环都不需要 self-hosted；
+      **只有 `--shot` 像素那一路需要**（托管 runner 没有窗口会话），而它需要真人/本机跑，
+      注册 self-hosted runner 这件事**未做**（不在授权范围，也不该顺手做）。
+      本条以下方原始记录为过程证据（红→绿的完整因果）：
   **2026-10-15 04:39 已按授权 push**（`af52c71..815afe9`，纯 fast-forward，范围内无疑似密钥路径），
   run `38682636928` 实测：**native job 红在 `Showcase selftest`**（rc=1），
   红的就是 `valuePull` —— CI 日志里 `focus=0`、打字进了 `in-key/in-note/in-num` 却没进 `in-name`，
@@ -744,7 +753,195 @@ SIGSEGV 报成了它自己那一行，而它在画廊里时只是"某轮 rc=11�
       `WAIT-KEY seconds=5 frames=279 key_down=0 key_up=0 click=0 change=0 focus=0 seen=no`、**rc=1**，
       不挂不退化成静默成功；屏幕上四行提示写明"先点窗口带到前台、按几个字母键、最后按 Escape"。
       （`4` 打印成 `5` 不是错位，是 `max(5, min(600, $secs))` 的钳位，打印的是生效值。）
-      所以剩下的只是人手那一下：按到应当 rc=0 且 `key_down>0`。**这一项不能由我完成。**
+      **2026-10-15 12:00 真人跑了，结果是红的**：按满 150 秒回读
+      `WAIT-KEY seconds=150 frames=9175 key_down=0 key_up=0 click=0 change=0 focus=0 seen=no`，
+      屏上自述"按任何键无变化"，伴随两行 AppKit 噪声（`TSM AdjustCapsLockLEDForKeyTransitionHandling`、
+      `error messaging the mach port for IMKCFRunLoopWakeUpReliable`）。
+      ⇒ 合成路径（进程内 `realKey`，CI 上 `keyHits=2`）与物理 HID **不是一回事**，这一格正是为这个差别设的。
+      **已排除两条**（12:06 干净自报）：`WAIT-KEY-STATE@f12
+      {"found":1,"active":true,"key":true,"visible":true,"main":true,"bundled":true} trap=0 focus=0`
+      —— 窗口确实上屏、是 key 也是 main、应用是 active ⇒ "没上屏""没当上前台应用"都不成立，
+      丢的是**激活之后**那一段（AppKit 事件队列没被我们的泵取走，或 firstResponder 不在 gpui 视图上）。
+      **过程自纠**：第一次诊断把 windowState 打在**第一帧之前**（`OrderFrontOnce` 到首次 Redraw 才建
+      NSWindow，`found:0/visible:false` 是时序不是缺陷），且同一时刻用 `System Events`/`lsappinfo`
+      查窗口把前台抢走 ⇒ 那组读数当场作废；改成"泵满 12 帧后自报、期间不做外部查询"
+      （`screencapture` 是被动的，可留）。
+      **两条假设已判死**：① firstResponder —— 上游建窗时确实调了
+      `[window makeFirstResponder:view]`（`window_mac.cpp:2211`，就在建 `PlatWindow` 的同一函数里）；
+      ② 泵不取队列 —— 上游的泵在取（同文件 2235/2277/2314/2341 的 `nextEventMatchingMask` + `sendEvent:`），
+      而 CI 上进程内注入的 `realKey` 也确实收到了 `key_down{in-key}`。
+      **首要嫌疑换成输入管线**：本机 `AppleCurrentKeyboardLayoutInputSourceID =
+      com.apple.keylayout.PinyinKeyboard`（另启用 `com.apple.inputmethod.SCIM`，ABC 也在启用列表），
+      与真人那次运行打印的 `error messaging the mach port for IMKCFRunLoopWakeUpReliable` 对得上——
+      中文输入法下按键先经 TSM/IMK，而应用与 IMK 的连接失败 ⇒ 一条 keyDown 都进不来。
+      **已补上缺的那层仪表（12:14，两侧都验过）**：`windowState()` 多带一个
+      `appkitDeliveries` —— `NSEvent addLocalMonitorForEventsMatchingMask:(KeyDown|LeftMouseDown)`
+      在**本进程内**计数"AppKit 派发到本 app 的条数"，原样放行不吃事件。
+      它与 `nsappDeliveries` 的分工写进 `gpui_shim.h` 的注释：后者只数我们自己 `Deliver()` 注入的那条路，
+      前者数"到没过这个 app"。改动面很小（`gpui_mac.mm` 计数 + `gpui_bridge.cc` 的 `st[7]` +
+      `FakeBridge` 补键 + `gpui_shim.h` 注释），没新开 C ABI 函数。
+      自证臂：`input --selftest` 的真点击/真按键那圈之后读到 `appkitDeliveries=12`（6 击 + 6 键，数目对得上）；
+      无人按键的 `--wait-key 8` 读到 `0` ⇒ 计数不是空转，也不是恒正。
+      回归：`all-examples both` = `ALL EXAMPLES: OK`（26 条 rc=0）、`SHIM CPP TESTS OK`、`c-abi rc=0`、PHPStan 无错。
+      ⇒ 下一次真人那一按能直接二分：`appkitDeliveries=0` 而人确实按了 ⇒ OS 没送到本进程（激活/输入法管线）；
+      `appkitDeliveries>0` 而 PHP 的 `key_down=0` ⇒ 送到了、是我们的 view/派发丢了。
+      **仪表加到两端之后（12:20）**：`--wait-key` 现在在 f12 与**结束时**各报一次窗口态与两个计数。
+      两次直跑给出**相反**的读数：6 秒那次 `endState` 是 `active:false,key:false,main:false`，
+      8 秒那次全程 `active:true,key:true,main:true` ⇒ **激活是竞争来的、会飘**，不是稳定丢失
+      （与 10-12 那条"同一 bundle 两次启动分别量到 true 与 false"同族）。
+      同一次里 `appkitDeliveries` 从 1 涨到 7 而 PHP 侧 `key_down=0 click=0`——
+      **这不构成"派发丢了"的证据**：PHP 那两个计数只统计命中已接线元素的事件，
+      点在空白处或没有焦点时按键本来就该是 0。我不拿它当结论。
+      `open -W` 的对照**作废**：经 `open` 启动时应用 stdout 不回终端，日志为空，比较没做成。
+      **12:56 定案到具体一层（不需要手，全程我自己量）**：那三格自报值全为 true 的同时，
+      **WindowServer 的在屏账本里根本没有这扇窗**。四个互相独立的观察：
+      ① `CGWindowListCopyWindowInfo(OnScreenOnly)` 里我们 0 条、`All` 里 5 条（内容窗
+      `wid=8532 bounds=560x652+680+130 layer=0 alpha=1 sharing=1`，**独缺 `kCGWindowIsOnscreen`**）；
+      ② 按它自报的坐标 `screencapture -R680,130,560,652` 拍到的是别的应用；
+      ③ `System Events` 数到 `process "input"` 有 0 扇窗；④ 进程内 `occlusionState` 一直缺 Visible 位。
+      ⇒ 上面"窗口确实上屏 ⇒ '没上屏'不成立"那句**作废**：那是 AppKit 的**自报**，不是 WindowServer
+      的账本，而物理键鼠只按账本派发 ⇒ 零送达是**必然结果**。输入法/TSM 那条嫌疑一并作废——
+      它解释不了"窗都不在屏"。
+      **对照**（同一台机器、同一个会话、同一台 1920x1080@1x 显示器）：60 行的普通 AppKit 程序从
+      同一个终端直起，同样 `setActivationPolicy:Regular` + `finishLaunching` + `makeKeyAndOrderFront:`，
+      账本里 `kCGWindowIsOnscreen=1`。
+      **已逐一实测排除，别再重走**：手动泵 vs `[NSApp run]`（两臂都在屏）；非主线程建窗（AppKit 直接
+      `NSInternalInconsistencyException` 崩，我们没崩 ⇒ 确在主线程）；`setColorSpace:sRGB`；先 `display`
+      后 order；延后一帧再 order；`TransformProcessType`（本机恒 `rc=-50`，与在屏无关）；`[NSApp activate]`；
+      `Contents/MacOS/input` 是**符号链接**（`cp -RL` 解引用后仍不在屏）；`open` 起 vs 直起；
+      `sharingType` / 多显示器 / 最小化 / alpha / level（`onActiveSpace=true`，`occlusion=8192` 与对照窗口
+      **完全相同**，都不判别）。从 lldb 对活窗口补调 `orderFrontRegardless` + `makeKeyAndOrderFront:`
+      **仍然不上屏** ⇒ 不是"少调一次 order"，是这个进程被账本拒绝；剩下的差别只在 `GpuiView` /
+      窗口 delegate / 上游补丁那一层。下一手：用 lldb 在本进程里造一扇**普通** NSWindow
+      （`expr` 取不到 AppKit 类型，必须 `((*(*)(id,SEL,...))objc_msgSend)(...)` 强转）——
+      它在屏 ⇒ 问题在 gpui 那扇窗；它也不在屏 ⇒ 问题在进程/连接层。
+      **【13:52 撤回下面这条"已修"结论】**我把一个**会飘的状态**当成了确定性质。同一个已签名、
+      门 14 全绿的 bundle：13:28 与 13:41 两次 `onScreen=true`（150 秒那次还量到
+      `appkitDeliveries 0→2`），13:49–13:51 连五次（包括重跑当初给出 true 的同一条
+      `php bin/gpui run input --wait-key`）全是 `onScreen=false`。⇒ 两条签名条件是
+      **必要而非充分**，#56 **没有修好**，现状是"在屏资格会飘"。下面四象限里三条假侧的读数
+      仍可复现（symlink 让 codesign 直接拒签这条是真缺陷，已修），但"改完就能按"不成立。
+      **13:55 把"飘"量化了，并且拿到一条有用的负结果**：六次运行的 f12 读数排成两张表——
+      `onScreen=true` 的三次（13:28 run1、13:41 run2、13:41 起的 150 秒 hid150）与
+      `onScreen=false` 的五次（wk14、arm1、rp1 等，13:49–13:51）在**进程内任何信号上都无法区分**：
+      两边都是 `active=true key=true visible=true main=true fgTries=0 trap=0 focus=0`，
+      `onScreenPeers` 只差 37/38/39（别的 app 的窗口数），帧数 312–7730 两侧都有。
+      也就是说：**没有任何自家读数能预测这一格**，切换发生在应用之外。
+      另一条形状：它不是每次独立掷骰，而是**成段时间**——13:28~13:41 连续三次全 true，
+      13:49~13:51 连续五次全 false。所以下一手别再改 bundle 产法，要去量**启动时刻的环境**：
+      启动前谁是 frontmost、有没有过锁屏/远程会话事件、`lsappinfo` 的 ASN 状态、
+      以及把 `onScreen` 与这些外部读数同一时刻记下来（现在缺的正是这一列外部协变量）。
+      在这之前，#56 的诚实状态是"未修，且断点在进程之外、成段飘"。
+      **13:57 外部协变量已接上，第一条候选当场否掉**：`windowState()` 多出 `onConsole`
+      与 `sessionId`（`CGSessionCopyCurrentDictionary`，out[9]/out[10]）。
+      在 `onScreen=false` 的那一段里量到 **`onConsole=true`** ⇒ "会话离开控制台（锁屏/远程断开）"
+      这条解释**不成立**。顺带一条读数诚实性提醒：第一次跑这两个键时读到 `onConsole=false/0`，
+      那是**shim 编译失败**（`kCGSSessionOnConsoleKey` 在本 SDK 的 umbrella 头里已不导出）
+      导致 bridge 侧零值兜底——修成按字面量键名取之后才是真读数。
+      `sessionId=0` 仍可疑（同一字典里 onConsole 取到了、id 没取到），别拿它当结论。
+      复验：Pest 108/583、`INPUT SELFTEST OK`、`SHOTDIFF OK`、纯 C11 ABI OK、门 14 OK。
+      **14:03 "谁握着前台"这条候选也否掉了，且否得干净**：在 false 那一段里连采三次
+      "运行中的系统前台是谁"（`lsappinfo front` 在 app 活着时取），三次都是
+      **`system_front=input`**（我们自己的 ASN 也在册）。⇒ 不是"远程客户端挡前台"：
+      LaunchServices 认定我们的 app **就是**前台、AppKit 也报 active/key/main 全真，
+      WindowServer 仍不给这扇窗在屏资格。外部候选里"前台归属"一类**全部排除**
+      （运行中 front、会话 onConsole、启动前 frontmost 三个读数都指向"我们就是前台"）。
+      剩下未解释的只有 WindowServer 自己的合成决定，本项目内已无可再记的协变量：
+      要么等它自己翻 true 时**当场**存下全套读数做对照（true 段只有 13:28/13:41 三次，
+      当时没记外部列），要么换机器/换显示链路复现。
+      对 17-E 的实操含义：让真人"先点标题栏"**未必**能翻 true（前台本来就在我们手里），
+      但那一按仍是唯一能证明"能不能打字"的记录；若按了仍 `key_down=0`，
+      就把它定性成"本机环境下不可验收"，别再当代码回归反复查。
+      下一手（不在本轮内）：把 `onScreen` 与**启动前**的外部状态同时记下来
+      （frontmost 是谁、`onScreenPeers` 趋势、是否刚发生过显示器/会话事件），
+      跨时段采几组才有机会把成段切换的原因钉住。
+      **14:01 那组采样做了，第一次拿到一个有名字的外部状态**：连续六次（21:59:41–22:01:07，
+      每次隔 ~17s）全是 `onScreen=false`、`peers=38`、`onConsole=true`、无残留实例，
+      而**每次启动前的 frontmost 都是 `UU远程`**（远程桌面客户端）——这台 Mac mini 现在
+      是被人远程看着用的。于是新候选：**远程客户端握着前台的那一段，我们的窗不被合成**。
+      诚实边界：true 那一段（13:28/13:41）当时**没记** frontmost，所以这条只是候选，
+      不能拿"现在全是 UU远程 + 全是 false"当因果。
+      能一步钉死的实验（也正好就是 17-E 那一格）：跑 `--wait-key` 时**先点一下我们自己的
+      标题栏**（让 frontmost 变成 `input` 而不是 `UU远程`）再打字——
+      若 `onScreen` 翻 true 且 `key_down>0`，切换原因就是"谁握着前台"，
+      且这一按同时把 17-E 结案；若仍 false，则候选排除、要往显示链路（远程会话的
+      显存/镜像）那边走。
+      **13:33 当时以为修好（原话，已被上面撤回）**：四象限实测把条件钉成两条——
+      bundle 的**主可执行文件必须是正规文件**（本机 `link()` 不可用，退化成 `copy()`）
+      **且 bundle 要 ad-hoc 签名把 Info.plist 绑进签名**（`codesign -s - --force X.app`，
+      验据是 `codesign -dvv` 出 `Info.plist entries=8`、`codesign --verify` 两行 OK）。
+      符号链接（codesign 直接拒签："must be a regular file"）/ 正规文件未签 / 硬链接未签
+      三种都 `onScreen=false`；正规文件 + 已签绑 plist ⇒ **`onScreen=true`、`onScreenPeers=38`**，
+      且 `appkitDeliveries` 开始自然增长（一次无人按键的运行里 0→5）——事件真进得来了。
+      反向对照也记下免得再翻案：**裸二进制（无 bundle）在本机 `onScreen=true`**，
+      所以"必须从 bundle 跑才有真输入"要拆两半：bundle 管的是 `NSApp.isActive`/keyWindow 那组
+      **自报**，在屏资格管的是**签名有没有绑定 Info.plist**，不是一回事。
+      改动在 `bin/gpui`：`appBundle()` 由 symlink 改成"正规文件 + 签一次"；且因为复制不再自动
+      跟新产物，**`build` 也立刻重链重签**（否则 `.app` 里躺着旧二进制，症状是"改了没生效"而非报错）。
+      已复验：`build input --no-native` rc=0、`selftest input`（走 bundle + `--expect-bundle`）rc=0、
+      `gpui doctor` rc=0 且 ✗ 0 条、Pest 108/583、`ALL EXAMPLES: OK`（26 行 rc=0）、
+      13/13 个 bundle `codesign --verify` 过。
+      **并补了门 14（`cmd/check-bundle-signature.php`，`composer check:bundle` + CI 原生 job 一步）**：
+      硬断这两条**产物属性**（正规文件主程序 + 签名绑定 Info.plist），四象限都量过：
+      绿侧 13 个 bundle 全过 rc=0；红侧 symlink 与"真文件未签"各 rc=1；扫零个 .app 与未知开关各 rc=2
+      （"产物没建"不算通过）。为什么必须常驻：这两条坏掉时进程内自报与像素门**全都看不出来**，
+      只有真人那一按撞得上——正是 #56 的来路。
+      **当前唯一红灯是这条门抓到自己**：`cmd/check-bundle-signature.php` 还没进版本控制，
+      而 CI 点名它 ⇒ `check-build-inputs` rc=1（"CI 点名但不在版本控制里"）。
+      这不是要改的代码，是要**提交授权**：`git add cmd/check-bundle-signature.php` 之后立刻转绿。
+      **仍欠的只剩真人那一格**：现在按得动了，需要一次 `php bin/gpui run input --wait-key 150`
+      的实测记录（rc=0 且 `key_down>0`）结案 17-E，外加物理 resize / Dock 拖拽。
+      **13:44 一次 150 秒无人值守窗口把梯子往上推了一格**（本仓库第一次拿到 OS 投递的物理事件）：
+      `WAIT-KEY seconds=150 frames=7730 key_down=0 click=0 focus=0 seen=no`
+      而 `appkitDeliveries` **0 → 2**、`onScreen=true` 全程成立（`onScreenPeers=39`）、
+      结论行自动变成"送到了本进程，但没有任何元素拿到焦点——点击没命中输入框"。
+      修法之前的形态是"OS 没送到本进程"且增量恒 0，两种读数的处置完全不同，
+      所以这条既是修好的正向证据，也是"送达 ≠ 命中"的下一层断点。
+      那 2 条不是我们注入的（`nsappDeliveries=0`），是 WindowServer 自己派发到本进程的
+      真实 keyDown/leftMouseDown——**这是本项目第一次量到物理输入进门**。
+      结案仍要人：点进"你的名字"那颗框再打字，`focus` 要变非零、`key_down>0`、rc=0。
+      另记一条时序事实（别再当成回归）：`endState` 里 `active/key/main` 会塌回 false——
+      150 秒足够焦点被别的应用拿走，前台是竞争态；判"能不能按"要读 f12 那一行 + `onScreen`。
+      **新仪表（已实现，两侧都验过）**：`windowState()['onScreen']`（`out[7]`，按窗口号查在屏账本）
+      与自证臂 `onScreenPeers`（`out[8]`，同一账本的在屏总数；只查一次并缓存，因为 windowState 每帧都读）。
+      本机实测 `onScreen=false, onScreenPeers=37` ⇒ 那个零是判决，不是查询失效。
+      `--wait-key` 的结论梯级把它排在最前：不在屏就直说"物理按键不可能到位、不必再试输入法"，
+      不再让人白按 150 秒。回归：`input --selftest` rc=0（`appkitDeliveries=12` 自证臂照旧）、
+      `shotdiff check input` rc=0、Pest 108 项 583 断数全过。
+      **对证据分级的一条后果**：像素门走 `[view cacheDisplayInRect:]`（进程内渲染），窗口不在屏也照样
+      出正确 PNG ⇒ 整个像素证据类**从不**证明"用户看得见"，`--shot` 全绿与 17-E 这一格互不背书。
+      **13:02 二分做完了，方向定死**：用 lldb 的 `objc_msgSend` 强转（`expr` 取不到 AppKit 类型，
+      必须 `((id (*)(id,SEL))objc_msgSend)(...)`）在**我们自己的进程里**造了一扇**普通** NSWindow：
+      `[[NSWindow alloc] init]` → `orderFront:` → `isVisible=1`、`windowNumber=8657`（账本里有号，
+      连接是活的），但 `CGWindowListCopyWindowInfo(OnScreenOnly)` 对它同样**零条记录**。
+      ⇒ 断点**不在** gpui 那扇窗（`GpuiView`、窗口 delegate、上游补丁这一整条线可以不用再查），
+      而在**这个进程的 WindowServer 连接层**：本进程新造的任意窗口都拿不到"在屏"资格。
+      这条是本项目前能做到的尽头——它把"下一手该查什么"从"gpui 的建窗代码"改成了
+      "为什么这个进程被账本拒绝"（候选：静态链入的 WebKit/Metal/Speech/Carbon 之一、
+      nano 运行时的启动路径、进程与 Dock 的注册关系），并给了可复用的判别法：
+      **在同一进程里造一扇普通窗口，看它在不在 OnScreenOnly**——在 ⇒ 查 gpui 的窗；
+      不在 ⇒ 查进程层（本次是后者）。
+      ⇒ 需要一次**受控**真人运行才能二分：点进"你的名字"那颗输入框、再打几个字母。
+      届时看：`appkitDeliveries` 是否随按键增长（OS 到没到本进程）＋ `focus` 是否变成非零
+      （点击有没有命中输入框）＋ `key_down` 是否非零（到了 PHP 没有）。三者分开，才谈得上定位。
+      **坐标镜像假设已查否**：合成点击走 `[contentView convertPoint:… toView:nil]`，
+      与 `mouseDown:` 里 `gpuiPoint:` 的 `convertPoint:fromView:nil` 正好互逆，两条路在
+      `-[GpuiView mouseDown:]` 汇合——不是坐标问题，没去"修"一个不存在的东西。
+      **仪表已做成自解释（12:25）**：`--wait-key` 末尾多一行 `WAIT-KEY-VERDICT`，按
+      "增量=0 → OS 没送到本进程"／"增量>0 但 focus=0 → 点击没命中输入框"／
+      "有 focus 但 key_down=0 → 派发到 PHP 那层丢了"三段分别下结论，
+      并把计数改成**与 f12 基线比增量**——因为我先写的绝对值判据被自己的读数证伪了
+      （一度以为计数器会自己涨）。基线噪声实测：两次无人交互都是 `0 → 0`，
+      ⇒ 先前那次 `1→7` 是**真有 7 条事件到了本进程**（来源不可考，可能就是你当时在按）；
+      若真是你按的，那它落在第三支"到了但没派发"，与输入法无关。下一次受控运行能定这个案。
+      回归：`input --selftest` OK、`shotdiff check input rc=0`。
+      **判别（要真人，很便宜）**：先 `php bin/gpui run input --wait-key 60`，
+      **点进"你的名字"那颗输入框**，再按几个字母键；然后把输入源切到 **ABC** 重复一遍。
+      并按几个字母键、顺手在窗口里点一次。
+      · 若 ABC 下 `key_down>0` ⇒ 缺陷定位为"PHP 宿主与输入法管线不兼容"，属**新功能缺口**（真实用户打中文会踩），
+        另开一条并写进 `docs/guide/upstream-coverage.md` 的已知边界，17-E 的"能打字"这一格按 ABC 结案；
+      · 若 ABC 下仍 `key_down=0` ⇒ 回到宿主事件环本身（`gpui_mac.mm` 只跑 `runMode:beforeDate:` 那条），
+        届时在 shim 里加一条"每帧从 NSApp 队列取到几条事件"的计数当判别臂。
       需要用户的手：本轮 layout 自检里 `resizeDelivered` 的读数仍是「按下=true 移动入队=0 抬起=true split=—」，
       Dock 面板尺寸物理拖拽同理。合成事件与真人 HID 的界限已写进 `docs/guide/testing.md`，不拿前者冒充后者。
 
@@ -833,6 +1030,35 @@ SIGSEGV 报成了它自己那一行，而它在画廊里时只是"某轮 rc=11�
         早先写的"6 处"是本会话新增那条之前数的，口径已更新。`composer.json`/`GPUI.lock`/`.gitignore` **0 处**；
         文件名含 showcase 的第一方残留 0 个（只有 `vendor/ajaxray/ansikit/` 里第三方自己的
         `showcase.php`/`showcase.png`，与本仓库无关）；其余命中全在 findings/progress/task_plan 三份日志里。
+      **13:07 在"含 onScreen 仪表"的当前产物上重跑整套审计**（不沿用 05:17 那批日志）：
+      `composer test:all` rc=0（Pest `108 passed (583 assertions)` → PHPStan `[OK] No errors` →
+      `UPSTREAM PARITY OK` → `SHIM CPP TESTS OK`）；`cmd/check-cxx17.sh` `CXX17 GATE OK`；
+      `cmd/check-c-abi.sh` rc=0（`gpui_shim.h: 纯 C11 编得过，且无 C++ 记号`）；
+      `php bin/gpui doctor` rc=0 且 `✗` **0 条**；`cmd/check-build-inputs.php` `BUILD INPUTS OK`
+      （含 composer scripts 14 个本地目标在册）；`npm run docs:build` rc=0 +
+      `cmd/check-doc-anchors.php` `DOC ANCHORS OK — 60 条站内链接 / 11 个带锚全解析`；
+      `cmd/all-examples.sh both` **`ALL EXAMPLES: OK`**（26 行 = 13 支 × selftest+像素，
+      `rc=[1-9]` 命中 **0** 行，hello 18 棵 / catalog 2 / layout 2 / system 2 / 其余各 1）。
+      showcase 复扫同口径再来一遍：第一方只剩 **3 处讲由来的注释**
+      （`ci.yml:187`、`cmd/check-build-inputs.php:140` 那条"别留着 `selftest showcase`"的反例说明、
+      `examples/input/src/main.php:426` 记 CI 那次红的出处），源码目录 / 基线目录 / docs 正文 /
+      CI 步骤 / tests 全部 0 处 ⇒ "没有 showcase 源、没有死引用"这一半成立。
+      **17-H 仍不勾，理由收窄成一条**：审计本身全绿，卡的是 17-E 那一格的验收记录——
+      进程层那条根因**已修**（见 13:33），所以这一格不再需要"换一台 Mac"，只差一次
+      有意的"点进输入框再打字"。
+      **13:47 在"含门 14 + bin/gpui 改 bundle 产法 + 中英文档订正"的当前树上重跑整套审计**
+      （不沿用 13:07 那批）：`cmd/all-examples.sh both` = **`ALL EXAMPLES: OK`**
+      （26 行 = 13 支 × selftest+像素，`rc=[1-9]` 命中 0）；`composer test:all` rc=0
+      （Pest 108/583 → PHPStan `[OK] No errors` → `UPSTREAM PARITY OK` → `SHIM CPP TESTS OK`）；
+      `docs:build` rc=0（20 页）+ `DOC ANCHORS OK`（60 链接 / 11 锚）+
+      `BUNDLE SIGNATURE GATE OK`（13 个 bundle）。
+      showcase 全仓复扫（排除 upstream/build/dist/node_modules/vendor，**不加扩展名过滤**）
+      只剩 6 个文件：第一方代码/CI 3 处讲由来的注释（`ci.yml`、`cmd/check-build-inputs.php`、
+      `examples/input/src/main.php`）+ 三份日志（findings/progress/task_plan）——
+      画廊源码、13 张基线、docs 正文、tests 目录全 0 处。
+      **当前唯一红灯**：`check-build-inputs` rc=1，指名 `cmd/check-bundle-signature.php`
+      未进版本控制而 CI 点名它——这是门 14 自己触发的正确红灯，`git add` 该文件即转绿，
+      等提交授权；在此之前 17-H 的"所有实际待办有证据"这一条不能算勾。
         顺带修一处口径：旧条目写"`cmd/check-build-inputs.php` 的注释说 tests/ShowcaseTest.php
         与 13 张基线未跟踪"——那半句现在已失真（这两类都在索引里了，本轮 05:24 又补齐了内容），
         注释本身已在 17-G 改成指向新主人。
@@ -894,9 +1120,13 @@ SIGSEGV 报成了它自己那一行，而它在画廊里时只是"某轮 rc=11�
         ——即"失败要如实回传、回调真进、形状对"，不是"HTTP 成功"那一类证据（后者需要真服务器，
         属另一类，本仓库没有把它混进硬门）。因为这句话容易让人重走我这段复查，标签已改成
         `http拒连回环 ok=false/status=0`，改后重链复跑 rc=0。
-      · 未闭合项如实列出（2026-10-15 05:28 更新）：**17-D**——push 已授权并已执行（`815afe9`），
-        缺的是**提交授权**（HEAD 仍含画廊 ⇒ CI 红在它即将被删的那一步，并连带跳过域门）；
-        **17-E/#56**——需真人手点手敲（仪器负分支已自证 rc=1）。
+      · 未闭合项如实列出（2026-10-15 05:28 更新；**13:04 再更新**）：**17-D 已结案**（push 已执行，
+        run 38723837690 全绿，域循环 12 支逐条 DOMAIN OK）；
+        **17-E/#56**——**不再"等人按一下"**：已实测本进程内新造的普通 NSWindow 也进不了在屏账本，
+        所以那一按在这台机器上必然零送达，按了也只是重复测量。剩下的是一台机器/连接层的问题
+        （候选：静态链入的 WebKit/Metal/Speech/Carbon、nano 启动路径、与 Dock 的注册关系），
+        判别法与已排除清单见 17-E 那一节。本仓库侧能交付的都已交付：仪表（`onScreen` + 自证臂）、
+        `--wait-key` 的结论梯级、中英两侧文档的边界说明。
         ~~#90~~ **已结案**：新补丁 `cmd/patch-window-handle.sh` 露出 `WindowNativeHandle`，
         快照绑到传入那一扇，判别臂红绿两侧都实测（旧选窗 A420/B420 rc=1 ⇒ 修后 A400/B420 rc=0），
         像素门三遍 18 棵全 0.00000——见本文件 #90 结案段。
@@ -920,16 +1150,37 @@ intent-to-add（索引里是空 blob）的路径已 `git add` 补全内容；HEA
    **下一步需要的是提交授权**（HEAD 里 showcase 还在：63 个文件、ci.yml 引用 13 处），
    把工作区提交并推上去，CI 才会真的跑到那个循环；若还要 `--shot`/shotdiff 进 CI，
    才需要一台 macOS self-hosted runner（当前 `total_count=0`）。在此之前不要把 17-D 当完成。
-2. **17-E / #56（要你的手）**：`php bin/gpui run input --wait-key 150` —— 屏幕上会写清
-   "先点窗口带到前台再按几个字母键"，按到 rc=0、没按到 rc=1；
+2. **17-E / #56（不再要你的手，13:04 改）**：`--wait-key` 那一按在这台机器上**必然**零送达——
+   已实测本进程内新造的普通 NSWindow 也进不了 WindowServer 的在屏账本（`wid=8657`、
+   `isVisible=1`、`OnScreenOnly` 零条），所以再按只是重复同一测量。跑它是为了在**别的机器**上
+   拿绿：`php bin/gpui run input --wait-key 150`，屏上会写"先点窗口带到前台再按几个字母键"，
+   按到 rc=0、没按到 rc=1，结论行会直接说明断点在哪一层（`onScreen` 为 false 时不再让人试输入法）。
    另一条是 `php bin/gpui run input --trace` 后手点，读 `/tmp/input-events.log`。
    物理按住 resize / Dock 拖拽也在这一格。
-   **补一条边界（06:19 实测得出）**：runner 上窗口恒 `key=false/main=false`，
-   所以焦点这一类**不可能**由 CI 变绿结案——17-D 完成后仍留着这一格，别把域循环绿误当成它过了。
+   **补一条边界（06:19 实测得出，13:04 加严）**：runner 上窗口恒 `key=false/main=false`，
+   本机则是 `key=true` 而 `onScreen=false` —— 焦点/真人这一类**不可能**由 CI 或本机自报变绿结案，
+   17-D 完成后仍留着这一格，别把域循环绿误当成它过了。
 
 ### Phase 17 当前实况（06:21 收口审计，全部本轮现跑，不用记忆）
 
-- **计划未勾只剩 3 条**：17-D（CI 域循环证据）、17-E/#56（真人 HID）、17-H（依赖前两条）。
+- **计划未勾只剩 2 条**（14:05 更正；**这条原来写着"修法已落地、窗口现在能上屏"，那句已于
+  13:52 撤回，别再照它行动**）：
+  **17-E / #56**——未修。`onScreen` 成段飘；已排除：gpui 建窗代码（本进程内造普通
+  NSWindow 同样不上屏）、bundle 签名两条（必要非充分）、`onConsole`、前台归属
+  （false 段里 `lsappinfo front` 三次都是我们自己）、多显示器/Space/occlusion/alpha/level、
+  主线程、泵 vs `[NSApp run]`。仪表已齐：`windowState()` 现有
+  `onScreen` / `onScreenPeers` / `onConsole` / `sessionId` 四格新读数。
+  下一手不在代码里：等它自己翻 true 的**当场**存全套读数与外部状态做对照
+  （true 段只有 13:28/13:41 三次，当时没记外部列），或换机器/换显示链路复现。
+  **17-H**——依赖 17-E；审计本身 13:47 在当前产物上全绿（见上面那块）。
+- **本轮留下的未提交面**（等提交授权，共 15 改 + 1 新）：
+  `bin/gpui`（bundle 主程序改正规文件 + 签一次 + `build` 也重签）、
+  `cmd/check-bundle-signature.php`（**新文件，未 `git add`**）、`composer.json`（`check:bundle`）、
+  `.github/workflows/ci.yml`（门 14 一步）、`cpp-src/{gpui_mac.mm,gpui_bridge.cc,gpui_shim.h,gpui_shim_services.inc}`
+  （`appkitDeliveries`/`onScreen`/`onScreenPeers`/`onConsole`/`sessionId`）、`src/FakeBridge.php`、
+  `examples/input/src/main.php`（结论梯级 + `focusElement` 预放臂，实测返 0 未生效）、
+  中英 `testing.md`/`events.md`/`getting-started.md`、`task_plan.md`。
+  **一盏正确红灯**：`check-build-inputs` rc=1 指名那个未入库的新门文件——`git add` 即绿。
 - **showcase 移除复验**：源码目录 0、`tests/baseline/showcase` 0、`docs/**` 正文 0、CI 步骤 0；
   第一方命中 7 处**有意注释**（含本轮我自己加的反例说明 `cmd/check-build-inputs.php:140`）。
 - **门禁全绿（逐条显式调用，rc 现收）**：`check-build-inputs 0`、`upstream-parity 0`、

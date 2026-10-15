@@ -391,11 +391,23 @@ Escape 与连续按键都进读数，最后打印一行 `WAIT-KEY …` 并以退
 `NSApp.isActive` 与 `window.isKeyWindow`。这两个数不成立时——第一次点击被系统当成"激活这扇
 窗口"的点击吃掉，`keyDown` 根本没有 firstResponder 可去——现象是**代码全绿而手里点不动**。
 `App::windowState()` 就是把这四个数读出来（`active/key/visible/main`），外加
-`bundled`（进程有没有 `.app` 身份）和 `nsappDeliveries`（事件缝里走过真
-`postEvent → nextEventMatchingMask → -[NSApp sendEvent:]` 的条数）。
+`bundled`（进程有没有 `.app` 身份）、`nsappDeliveries`（事件缝里走过真
+`postEvent → nextEventMatchingMask → -[NSApp sendEvent:]` 的条数）、
+`appkitDeliveries`（AppKit 派发到本进程的 keyDown/leftMouseDown 条数，local monitor 计数）、
+`onScreen`（WindowServer 的**在屏账本**里有没有这扇窗）与它的自证臂 `onScreenPeers`
+（同一账本的在屏窗口总数）。
 
 `php bin/gpui run`/`selftest` 会把构建产物包进 `.app` 再启动，就是因为裸二进制即使调了
-`TransformProcessType` 也起不来 `isActive`。过去的画廊在非前台时还会直接把这条画在窗口顶上
+`TransformProcessType` 也起不来 `isActive`。**但 bundle 身份只买到"自报"那一半**：
+实测 `.app` 起的应用可以 `active/key/visible/main` 全真而 `onScreen=false`——窗口在窗口服务里有号、
+有画面，却从不上屏，于是真人键鼠零送达（`--shot` 走进程内 `cacheDisplayInRect`，照样出正确 PNG，
+所以像素门也看不出来）。拿到在屏资格要两条同时成立：**`Contents/MacOS/<exe>` 是正规文件**
+（符号链接会让 `codesign` 拒签）**且 bundle 的签名把 `Info.plist` 绑进去**
+（`codesign -dvv` 出 `Info.plist entries=N`）。**这两件是必要条件，不是充分条件**：
+满足后本机 `onScreen` 仍会飘（同一产物两次 true、隔 20 分钟连五次 false），
+所以"人按不动"要先读 `onScreen` 再说别的。反过来裸二进制在本机 `onScreen=true`
+——两件事各自独立，别拿其中一个当另一个的替身。常驻检查是门 14（`composer check:bundle`）。
+过去的画廊在非前台时还会直接把这条画在窗口顶上
 （`front` 状态，每帧由 `windowState()` 量出来），"是不是系统那一步没成立"不必靠猜。
 
 ## 首帧的命中表：为什么"刚启动那几下"点不进去

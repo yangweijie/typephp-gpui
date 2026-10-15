@@ -452,9 +452,30 @@ int gpui_mac_activate(void) {
     return (w && [NSApp isActive] && w == [NSApp keyWindow]) ? 1 : 0;
 }
 
+/* 物理 HID 的到达计数。local monitor 只对「AppKit 已经派发到本进程」的事件触发，
+ * 所以它能把两件以前分不开的事分开：OS 根本没送到本 app（激活/输入法管线），
+ * 与 送到了但我们的 view/派发丢了。
+ * 它和 g_nsappDeliveries 不是一回事：后者只数我们自己经 Deliver() 注入走真路由的条数，
+ * 物理事件走上游的 nextEventMatchingMask 泵，不经过那条缝。 */
+static unsigned long long g_appkitDeliveries = 0;
+static id g_appkitMonitor = nil;
+
+static void EnsureAppkitDeliveryMonitor(void) {
+    if (g_appkitMonitor) {
+        return;
+    }
+    g_appkitMonitor = [NSEvent addLocalMonitorForEventsMatchingMask:
+                                    (NSEventMaskKeyDown | NSEventMaskLeftMouseDown)
+                                                            handler:^NSEvent* _Nullable(NSEvent* ev) {
+        g_appkitDeliveries++;
+        return ev;                     // 原样放行：这是计数，不是拦截
+    }];
+}
+
 int gpui_mac_window_state(double* out) {
     NSWindow* w = GpuiWindow();
     if (!w || !out) return 0;
+    EnsureAppkitDeliveryMonitor();
     out[0] = [NSApp isActive] ? 1 : 0;
     out[1] = (w == [NSApp keyWindow]) ? 1 : 0;
     out[2] = w.isVisible ? 1 : 0;
@@ -463,6 +484,65 @@ int gpui_mac_window_state(double* out) {
     /* bundle 身份是"系统会不会把你当正规前台应用"的判据，且与 runloop 有没有被 pump 无关
      * ——用它当门，才不会像 [NSApp isActive] 那样被自己那条缝的副作用牵着走。 */
     out[5] = ([[NSBundle mainBundle] bundleIdentifier] != nil) ? 1 : 0;
+    out[6] = (double) g_appkitDeliveries;
+    /* WindowServer 的"在屏"账本：kCGWindowListOptionIncludingWindow 只列在屏窗口，
+     * 不在屏就返回 0 条记录。同一 API、同一会话的实测对照：本 app 的窗口 0 条，
+     * 一个 60 行的普通 AppKit 程序（终端直起、同样 makeKeyAndOrderFront、同样先 display
+     * 后 order、同样泵 nextEventMatchingMask）1 条且 kCGWindowIsOnscreen=1。
+     * 为什么要有这一格：上面 0..3 全是**进程内** AppKit 的自报，实测它们可以在
+     * active/key/visible/main 全为 true 的同时这一格为 0——而物理键盘鼠标只按
+     * WindowServer 的账本派发。于是"真人按键没反应"从前只能靠人报，现在是一条读数。
+     * 顺手量过的其它自报值都不判别：alpha=1、level=0、未最小化、onActiveSpace=true，
+     * 连 occlusionState=8192 也与那个能收到按键的对照窗口一致。 */
+    out[7] = 0;
+    /* 自证臂：同一套账本查询"在屏窗口总数"。它非零而 out[7] 为零，才说明 out[7] 的零
+     * 是"你这扇不在屏"这个判决，不是查询本身坏了（空清单/权限失败都会伪装成 0）。
+     * 这条只查一次并留到进程生命周期——它要证的是"账本查得动"，不是每帧的窗口状态；
+     * 全量清单每帧拷一遍不划算（windowState() 是每帧都读的）。 */
+    static double s_onScreenPeers = -1.0;
+    CGWindowID wid = (CGWindowID) w.windowNumber;
+    if (wid != 0) {
+        CFArrayRef onScreen =
+            CGWindowListCopyWindowInfo(kCGWindowListOptionIncludingWindow, wid);
+        if (onScreen) {
+            out[7] = CFArrayGetCount(onScreen) > 0 ? 1 : 0;
+            CFRelease(onScreen);
+        }
+        if (s_onScreenPeers < 0.0) {
+            s_onScreenPeers = 0.0;
+            CFArrayRef peers = CGWindowListCopyWindowInfo(
+                kCGWindowListOptionOnScreenOnly, kCGNullWindowID);
+            if (peers) {
+                s_onScreenPeers = (double) CFArrayGetCount(peers);
+                CFRelease(peers);
+            }
+        }
+        out[8] = s_onScreenPeers;
+    }
+    /* 外部协变量：本进程所在的 GUI session 此刻**在不在控制台上**。
+     * `onScreen` 实测成段地飘（连续三次 true / 连续五次 false），而进程内所有自报
+     * （active/key/visible/main/fgTries/trap/focus/peers）两侧完全一样 ⇒ 切换发生在进程外。
+     * 会话离开控制台（锁屏、快速用户切换、远程会话断开）正是这种"成段"的外部状态：
+     * 那时窗口仍在窗口存储里、AppKit 仍自报 ordered-in，但不会被合成上屏。
+     * 记两列：out[9]=onConsole(1/0)，out[10]=session id（0=查不到字典）。 */
+    out[9] = 0;
+    out[10] = 0;
+    CFDictionaryRef sess = CGSessionCopyCurrentDictionary();
+    if (sess) {
+        // 键名走字面量：这组 CGSession 常量在本 SDK 的 umbrella 头里已不再导出，
+        // 而字典本身的键一直是这两个名字（`screencapture`/`loginwindow` 也按名字取）。
+        const void *onConsole = CFDictionaryGetValue(sess, CFSTR("kCGSSessionOnConsoleKey"));
+        if (onConsole && CFGetTypeID(onConsole) == CFBooleanGetTypeID()) {
+            out[9] = CFBooleanGetValue((CFBooleanRef)onConsole) ? 1 : 0;
+        }
+        const void *sid = CFDictionaryGetValue(sess, CFSTR("kCGSSessionIDKey"));
+        int v = 0;
+        if (sid && CFGetTypeID(sid) == CFNumberGetTypeID() &&
+            CFNumberGetValue((CFNumberRef)sid, kCFNumberIntType, &v)) {
+            out[10] = v;
+        }
+        CFRelease(sess);
+    }
     return 1;
 }
 

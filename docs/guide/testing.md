@@ -18,6 +18,7 @@
 | 11 | 上游词表 parity | `composer parity:upstream` / `php cmd/check-upstream-parity.php` | 我们发出的每个"上游按名字查表"的符号都必须在册：kind ↔ `ComponentKind` 枚举、method/callback/槽名 ↔ `materialize.cpp` 的 101 个 op 名与 prelude 槽表、catalog 导出名与方法名 ↔ descriptor 表（含 bridge 里硬编码的那两个）。上游对**带参未知名**是静默丢弃（`materialize.cpp:451-454` 链尾无 else），五层门禁都不报，这条是唯一的哨兵。取数端 `cmd/upstream-vocab.php` 读的是 vendored 的 `upstream/gpui-kit-cpp`，克隆即可跑 | 否 |
 | 12 | 示例覆盖率与拆分漂移 | `composer test`（`tests/ExampleCoverageTest.php`） | 反射出 `Element`/`App` 的每个公开成员与每个枚举取值，断言**任一示例**（`examples/**/*.php`）里真调用过，再静态核每次调用的实参个数。同一支文件里还有三条防漂移的门：每支示例都有 `project.macos.yml` 且它列的源都在、`examples/_shared/features/*.php` 每份至少被一支收录、以及逐支起无头进程把每棵树在 FakeBridge 上建一遍并核 handler 不是孤儿（门本体是 `cmd/headless-trees.php`）——把一域搬去独立示例却忘记补 yml，无头 PHP 全绿、只有编译产物缺那个函数 | 否 |
 | 13 | 文档锚点解析 | `php cmd/check-doc-anchors.php`（CI docs job 里跟着 `docs:build` 跑） | 补上 `docs:build` 看不到的那一半：它**只查页面存在、不解析 `#fragment`**（实测放过一根指向已改名标题的真死锚）。这条门拿**产物里真实渲染出的 `id="…"`** 比对照料内链接的锚（比源码标题可靠：VitePress 生成 id 含中文转写与去重），当前扫 60 条站内链接 / 11 条带锚 / 0 问题；一条链接都没扫到就 rc=2，防空跑 | 否 |
+| 14 | bundle 在屏资格 | `php cmd/check-bundle-signature.php`（`composer check:bundle`；CI 原生 job 里跟着 `Native selftest` 跑） | #56 的常驻哨兵。断两件**产物属性**（不是 OS 竞争态，所以能硬断）：① `Contents/MacOS/<CFBundleExecutable>` 必须是**正规文件**——符号链接会让 `codesign` 直接拒签（"the main executable or Info.plist must be a regular file"）；② bundle 签名必须把 Info.plist 绑进去（`codesign -dvv` 出 `Info.plist entries=N`，再过 `codesign --verify --strict`）。这两条坏掉时**窗口从不在 WindowServer 的在屏账本里**，而 `windowState()` 的 active/key/visible/main 全真、像素门全绿（`--shot` 走进程内 `cacheDisplayInRect`），只有真人手点才撞得上——所以它必须在 CI 里，不能靠人记着查。实测四象限：symlink / 真文件未签 / 硬链接未签 ⇒ `onScreen=false`；真文件 + 绑定 plist 的签名当时读到 `onScreen=true`，但同一产物隔 20 分钟连五次读到 `false` ⇒ 这两条是**必要而非充分**条件，本门保证的是"bundle 造得可签、身份齐"，不保证"这扇窗一定上屏"（在屏资格在本机仍会飘，见 17-E）。一个 `.app` 都没扫到就 rc=2（"产物没建"不算通过），未知开关也 rc=2 | 否 |
 
 一键：`composer test:all`（Pest + PHPStan + 上游词表 parity + shim_test）。
 全量示例跑一遍：`composer examples:all` = `bash cmd/all-examples.sh`
@@ -186,6 +187,16 @@ Inspector 拾取高亮读的是窗口记下的指针坐标——窗口常常就�
 本机三条都这样量过：`focusFollowsClick … applicable=true`（六颗各异）、
 `focusTrap … trap=993756471 focusedId=993756471 focusHeld=true`、
 `openChangeDelivered … 持有焦点=true`，各自 rc=0。
+
+**但 `active/key/main` 只是应用自己的说法，不是物理输入能否到位的判据。** 实测（本机，2026-10-15）：
+`--wait-key` 全程 `active=true key=true visible=true main=true`，而 WindowServer 的**在屏账本**
+里没有这扇窗（`CGWindowListCopyWindowInfo(OnScreenOnly)` 零条，`All` 里那条缺 `kCGWindowIsOnscreen`），
+同一会话里一个 60 行的普通 AppKit 程序却在屏——物理键鼠只按账本派发，于是真人按键零送达。
+所以 `windowState()` 另有两格：`onScreen`（按窗口号查在屏账本）与自证臂 `onScreenPeers`
+（同一账本的在屏总数；非零才说明 `onScreen=false` 是判决而非查询失效，实测 `false` / `37`）。
+判"人为什么按不动"看 `onScreen`，不要看 0..3。
+**同一件事对像素门的含义**：`--shot` 走 `[view cacheDisplayInRect:]`，是进程内渲染，窗口不在屏
+也照样出正确 PNG——像素证据从不证明"用户看得见"，它和真人 HID 那一格互不背书。
 
 **复跑变绿只够推迟定罪，不够结案。** 先保存并查看失败图，核对构建新鲜度，再控制内容与指针复测，
 用日志、崩溃报告或同一量的探针辅助归因。“三次变绿且无 crash”不能证明只是渲染抖动。

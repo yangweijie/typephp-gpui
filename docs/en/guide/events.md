@@ -398,8 +398,24 @@ OS menu click. Preserve that distinction in test reports.
 ## Foreground state and human input
 
 Use the `.app` launch path from `php bin/gpui run` or `selftest`. Inspect
-`App::windowState()` for `active`, `key`, `visible`, `main`, `bundled`, and
-`nsappDeliveries`.
+`App::windowState()` for `active`, `key`, `visible`, `main`, `bundled`,
+`nsappDeliveries`, `appkitDeliveries` (keyDown/leftMouseDown that AppKit dispatched
+into this process), `onScreen` (is this window in WindowServer's on-screen ledger at
+all?) and its self-proof arm `onScreenPeers` (how many windows that ledger lists).
+
+**Bundle identity only buys the self-report half.** Measured: an app launched from a
+`.app` can report `active/key/visible/main` all true while `onScreen=false` — the window
+exists in the window store with a real surface yet is never composited, so hardware
+keyboard and mouse deliver nothing. Pixel gates cannot see this either, because `--shot`
+renders in-process through `cacheDisplayInRect`. On-screen qualification needs both
+conditions: `Contents/MacOS/<exe>` must be a **regular file** (a symlink makes `codesign`
+refuse the bundle) **and** the bundle signature must bind `Info.plist`
+(`codesign -dvv` shows `Info.plist entries=N`). **Both are necessary, not sufficient**:
+after satisfying them `onScreen` still fluctuates on this machine — the same artifact read
+true twice, then false five times in a row 20 minutes later — so read `onScreen` before
+blaming any layer below it. Conversely a bare binary measured
+`onScreen=true` on this machine — the two properties are independent, so never substitute
+one for the other. Gate 14 (`composer check:bundle`) keeps that checked in CI.
 
 Keyboard delivery needs a suitable key window and responder. Initial clicks may
 be used for activation; `acceptsFirstMouse` is not proof that all pointer and

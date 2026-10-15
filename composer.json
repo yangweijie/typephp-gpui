@@ -42,6 +42,7 @@
         "analyse": "@php vendor/bin/phpstan analyse --no-progress",
         "test:cpp": "bash cmd/test-shim.sh",
         "parity:upstream": "@php cmd/check-upstream-parity.php",
+        "check:bundle": "@php cmd/check-bundle-signature.php",
         "test:all": [
             "@php vendor/bin/pest",
             "@php vendor/bin/phpstan analyse --no-progress",

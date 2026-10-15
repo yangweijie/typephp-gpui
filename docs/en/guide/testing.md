@@ -24,6 +24,7 @@ four different claims. Report which one a check actually establishes.
 | Upstream vocabulary | `composer parity:upstream` | Kinds, methods, callbacks, slots, catalog names, state kinds, and style vocabulary | Vendored sources only |
 | Example coverage | `composer test` | Public API/enum usage and argument counts across examples; source-list consistency | No |
 | Doc anchor ids | `php cmd/check-doc-anchors.php` (runs in the CI docs job after `docs:build`) | Covers what `docs:build` cannot see: the build checks that pages exist but never resolves `#fragment` (it shipped a real dead anchor to a renamed heading). This gate resolves every in-site anchor against the `id="…"` values actually rendered in the built output — safer than matching source headings, since VitePress' id generation transliterates CJK and de-duplicates. Currently 60 in-site links / 11 with anchors / 0 problems; exits 2 when zero links were scanned, so "not looked at" can't pass as "checked and clean". | No |
+| Bundle on-screen qualification | `php cmd/check-bundle-signature.php` (`composer check:bundle`; runs in the CI native job right after `Native selftest`) | The standing sentinel for #56. It asserts two **artifact properties** (not OS-contested state, so they can be hard-asserted): ① `Contents/MacOS/<CFBundleExecutable>` must be a **regular file** — a symlink makes `codesign` refuse outright ("the main executable or Info.plist must be a regular file"); ② the bundle signature must bind `Info.plist` (`codesign -dvv` shows `Info.plist entries=N`, and `codesign --verify --strict` passes). When either breaks, the window **never enters WindowServer's on-screen ledger** while `windowState()`'s active/key/visible/main all read true and every pixel gate stays green (`--shot` renders in-process via `cacheDisplayInRect`) — only a human pressing keys hits it, which is exactly why it belongs in CI. Measured across four combinations: symlink / regular file unsigned / hardlink unsigned ⇒ `onScreen=false`; regular file + plist-bound signature ⇒ read `onScreen=true` at the time, but the same artifact measured `false` five consecutive times 20 minutes later — these are **necessary, not sufficient** conditions, so this gate proves the bundle is signable and correctly shaped, not that its window will be on screen. Exits 2 when no `.app` was found ("artifacts not built" is not a pass) and on unknown flags | No |
 
 Combined PHP and C++ checks:
 
@@ -235,6 +236,20 @@ where the precondition *is* met, that the assertion still fully executes** — o
 defect were checked that way: `focusFollowsClick … applicable=true`,
 `focusTrap … trap=993756471 focusedId=993756471 focusHeld=true`,
 `openChangeDelivered … 持有焦点=true`, each rc=0.
+
+**`active/key/main` is only the app's own claim, not proof that physical input can arrive.**
+Measured on this machine (2026-10-15): `--wait-key` reported `active=true key=true visible=true
+main=true` for the whole run while the window was absent from WindowServer's **on-screen ledger**
+(`CGWindowListCopyWindowInfo(OnScreenOnly)` returned zero records; the entry in the full list
+lacked `kCGWindowIsOnscreen`), whereas a 60-line plain AppKit program in the same session did map
+on-screen. Hardware keyboard and mouse are dispatched strictly from that ledger, so a human
+press delivered nothing. `windowState()` therefore also carries `onScreen` (our window number
+looked up in that ledger) plus its self-proof arm `onScreenPeers` (how many windows the same
+ledger does list; non-zero is what makes `onScreen=false` a verdict rather than a broken query —
+measured `false` / `37`). Ask `onScreen`, not slots 0..3, when a human cannot type.
+**Same fact, pixel side:** `--shot` captures through `[view cacheDisplayInRect:]`, which renders
+in-process, so a correct PNG comes out even when the window is not on screen at all — pixel
+evidence never proves "the user can see it", and it does not vouch for the human-HID check.
 
 That fix stabilized pointer-dependent captures; it is not proof that every source
 of timing variation is gone. **hello tree 27 was a separate, now-closed issue**:

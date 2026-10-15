@@ -119,8 +119,14 @@ function verifyPatches(): bool {
  * keyDown 更根本没有 firstResponder 可去。画面上就是"点了没反应、输入框打不进字"。
  * 同一颗二进制放进 bundle 后读数翻成 active=true key=true main=true。
  *
- * 用 symlink 而不是复制：重建只换 build/$example 的内容，bundle 永远指向最新那颗，
- * 不会出现"跑了个旧的"。
+ * 主可执行文件放**正规文件**（先试硬链接，链接不可用就复制——本机实测走到复制），
+ * 不用符号链接：`codesign` 拒绝签主可执行文件是符号链接的 bundle
+ * （"the main executable or Info.plist must be a regular file"），而签名没把 Info.plist 绑进去
+ * 的 bundle 应用拿不到 WindowServer 的**在屏**资格
+ * ——实测三种组合：符号链接（签不了）/ 真文件未签 / 硬链接未签 ⇒ `windowState()['onScreen']`
+ * 恒 false，窗口在窗口服务里有号、有画面，却从不上屏，于是真人键盘鼠标零送达；
+ * 只有"硬链接 + `codesign -s - --force`（Info.plist entries 进签名）"⇒ onScreen=true。
+ * 每次 build 都重建这条链接，所以不会指向旧产物。
  */
 function appBundle(string $root, string $example): string
 {
@@ -135,10 +141,11 @@ function appBundle(string $root, string $example): string
     if (is_link($link) || is_file($link)) {
         @unlink($link);
     }
-    if (!symlink($bin, $link)) {
-        err("无法建立 bundle 可执行链接：$link");
+    if (!@link($bin, $link) && !copy($bin, $link)) {
+        err("无法把可执行文件放进 bundle：$link");
         exit(1);
     }
+    @chmod($link, 0755);
     file_put_contents("$appDir/Contents/Info.plist", <<<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -154,6 +161,15 @@ function appBundle(string $root, string $example): string
 </dict></plist>
 
 PLIST);
+    // 绑上 Info.plist 的签名才拿得到在屏资格（见函数头）。没有 codesign（非 mac 或
+    // 裁掉工具链）不阻断构建，但必须出声——静默产出一个"点不动"的 bundle 比报错难查得多。
+    $signOut = [];
+    $signRc = 0;
+    @exec('codesign -s - --force ' . escapeshellarg($appDir) . ' 2>&1', $signOut, $signRc);
+    if ($signRc !== 0) {
+        err('bundle 未签名（codesign rc=' . $signRc . '：' . ($signOut[0] ?? '无输出')
+            . '）——窗口可能拿不到在屏资格：真人键鼠零送达，见 windowState()[\'onScreen\']。');
+    }
     return $link;
 }
 
@@ -251,6 +267,12 @@ switch ($cmd) {
         if ($rc !== 0) { err('tpc 编译失败'); exit($rc); }
         $bin = "$root/examples/$example/build/$example";
         ok("构建完成：$bin");
+        if ($cmd === 'build') {
+            // bundle 里放的是硬链接而不是符号链接（见 appBundle 的头），它不会像 symlink
+            // 那样自动跟到新产物上——重链换了 inode，bundle 里就还是那颗旧的。所以 build
+            // 也要立刻刷新 bundle，否则"`build` 之后直接跑 .app"会静默跑旧二进制。
+            appBundle($root, $example);
+        }
 
         if ($cmd === 'run') {
             $exe = appBundle($root, $example);

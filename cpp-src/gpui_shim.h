@@ -105,6 +105,17 @@ long long gpui_shim_component_failure(char* out, int outlen);
  * 而事件数用来说明 selftest 的绿是从真路由来的、还是从直投兜底来的。
  * out[5]=进程有没有 bundle 身份：没有 bundle 身份的进程在 macOS 眼里不是正规前台应用，
  * 手点的第一下会被当成"激活这扇窗口"的点击吃掉，keyDown 也没有 firstResponder 可去。
+ * out[6]=appkitDeliveries：AppKit 已经**派发到本进程**的 keyDown/leftMouseDown 条数
+ * （NSEvent local monitor 计数）。它与 out[4] 的分工：out[4] 只数我们自己经 Deliver()
+ * 注入的那条路，out[6] 数"到没过这个 app"——真人按键而 out[6] 仍为 0，说明事件根本没
+ * 送到本进程（激活/输入法管线），不为 0 而 PHP 侧计数为 0，才轮到我们的 view/派发。
+ * out[7]=WindowServer 说这扇窗**在不在屏**（按窗口号查在屏账本，0 条记录 = 不在屏）。
+ * 0..3 都是进程内 AppKit 的自报，实测可以在全为 true 时 out[7] 仍为 0，而物理键鼠
+ * 只按 WindowServer 的账本派发 —— 所以"真人按键没反应"要看 out[7]，不看 0..3。
+ * out[8]=账本里在屏窗口的总条数（out[7] 的自证臂：非零才说明 out[7]=0 是判决而非查询失效）。
+ * out[9]/out[10]=外部协变量：本进程所在 GUI session 的 onConsole 与 session id。
+ * 记这两列是因为 out[7] 实测成段地飘（连三次 true / 连五次 false），而 0..8 两侧读数一模一样，
+ * ⇒ 切换不在进程内。会话离开控制台（锁屏/切换用户/远程断开）是那种成段的外部状态。
  * 返回 1 = 找到窗口。 */
 int   gpui_shim_window_state(void* win, double* out);
 

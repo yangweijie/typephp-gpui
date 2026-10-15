@@ -71,8 +71,9 @@ php bin/gpui shot hello /tmp/x.png 0   # 渲染测试树存 PNG
 ### `run`/`selftest` 会把二进制包进 `.app` 再启动（这不是包装，是前提）
 
 `php bin/gpui run <示例>` 实际执行的是
-`examples/<示例>/build/<示例>.app/Contents/MacOS/<示例>`（里面是指向构建产物的 symlink，
-重建后 bundle 自动跟着新）。为什么要这一层：macOS 只把"有 bundle 身份"的进程当正规前台
+`examples/<示例>/build/<示例>.app/Contents/MacOS/<示例>`（**正规文件**，不是符号链接——
+符号链接会让 `codesign` 直接拒签这个 bundle，而每次 `build`/`run` 都会重新放文件并重签一次，
+所以不会跑到旧产物）。为什么要这一层：macOS 只把"有 bundle 身份"的进程当正规前台
 应用。直接跑 `examples/<示例>/build/<示例>` 这颗裸二进制时 `NSApp.isActive` 起不来，
 手点的第一下被系统当成"激活这扇窗口"的点击吃掉，`keyDown` 也没有 firstResponder 可去——
 画面上就是**点了没反应、输入框打不进字**，而代码里的一切看起来都正常。实测两份读数只差
@@ -82,6 +83,14 @@ php bin/gpui shot hello /tmp/x.png 0   # 渲染测试树存 PNG
 裸：      startup active=false key=false visible=true  main=false
 bundle：  startup active=true  key=true  visible=true  main=true
 ```
+
+**但 bundle 身份只买到上面这组"自报"，它不等于窗口真的在屏。** 实测同一颗产物：
+`.app` 起的应用可以 `active/key/visible/main` 全真而 `windowState()['onScreen']=false`
+——窗口在窗口服务里有号、有画面，却从不上屏，于是真人键鼠零送达；反倒是裸二进制
+`onScreen=true`。少了这两件一定按不动：**主可执行文件是正规文件** +
+**签名把 `Info.plist` 绑进去**（`codesign -dvv` 出 `Info.plist entries=N`）。
+`bin/gpui` 现在就按这两条产 bundle，门 14（`composer check:bundle`）在 CI 里常驻检查它。
+详见《测试与验收》里的"bundle 在屏资格"那一行与 `guide/events` 的对应小节。
 
 所以手工验收真鼠标真键盘请用 `php bin/gpui run input --trace`，别直接跑 build 下那颗文件；
 `--trace` 会把每条到达 PHP 的事件追加进 `/tmp/input-events.log`，手点一下输入框就该出现

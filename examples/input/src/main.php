@@ -168,13 +168,14 @@ function runWaitKey(int $seconds): void
     $app->view(static function () use ($app): El {
         $st = $app->windowState();
         return El::vFlex([
-            El::text('键盘人工验收：先点一下这扇窗口把它带到前台，再按几个字母键，最后按 Escape')
+            El::text('键盘人工验收：焦点已自动放到"你的名字"那颗框，直接按几个字母键，最后按 Escape')
                 ->font(17.0)->semibold()->p(14.0),
             El::text('key_down=' . inEvCount('key_down') . ' · key_up=' . inEvCount('key_up')
                 . ' · click=' . inEvCount('click') . ' · change=' . inEvCount('change'))
                 ->font(15.0)->px(14.0),
             El::text('active=' . var_export($st['active'] ?? null, true)
                     . ' key=' . var_export($st['key'] ?? null, true)
+                    . ' 在屏=' . var_export($st['onScreen'] ?? null, true)
                     . ' 焦点 id=' . $app->focusedId() . ' 陷阱 id=' . $app->focusTrap())
                 ->font(12.0)->px(14.0)->pt(8.0),
             El::text('按到键或计时结束就自己退出；结论也写在终端里。')
@@ -184,20 +185,66 @@ function runWaitKey(int $seconds): void
     $deadline = microtime(true) + $seconds;
     $frames = 0;
     $sawKey = false;
+    // 窗口状态打进终端，但**必须在泵够帧之后**：NSWindow 是 OrderFrontOnce 到首次 Redraw 才建的，
+    // 第一帧之前读到的 found:0/visible:false 是时序而非缺陷（2026-10-15 就这么误判过一次）。
+    // 也不在这期间用 System Events / lsappinfo 查窗口——那会把前台抢走，探针毁掉被测量。
+    $stateDumped = false;
+    $baseAppkit = 0;
     while (microtime(true) < $deadline) {
         $app->loop(1);
         $frames++;
+        if (! $stateDumped && $frames >= 12) {
+            $stateDumped = true;
+            $baseAppkit = (int) ($app->windowState()['appkitDeliveries'] ?? 0);
+            echo 'WAIT-KEY-STATE@f' . $frames . ' ' . json_encode($app->windowState())
+                . ' fgTries=' . $app->foregroundTries() . ' trap=' . $app->focusTrap()
+                . ' focus=' . $app->focusedId() . "\n";
+            // 自己把焦点放上那颗框。真人这一格要验的是"物理 keyDown 能不能进 PHP"，
+            // 而"点击命中输入框"已由 selftest 的 focusFollowsClick 覆盖（合成路）——
+            // 不预放焦点就要人同时点准 + 打字，任一没中都读成 0，分不出断在哪一段。
+            if ($app->focusedId() === 0) {
+                echo 'WAIT-KEY-ARM focusElement(in-name)=' . $app->focusElement('in-name')
+                    . ' focus=' . $app->focusedId() . "\n";
+            }
+        }
         if (inEvCount('key_down') > 0 || inEvCount('key_up') > 0) {
             $sawKey = true;
             // 按到了再多收几帧，让 Escape / 连续按键都进读数。
             $deadline = min($deadline, microtime(true) + 8);
         }
     }
+    $stEnd = $app->windowState();
     echo 'WAIT-KEY seconds=' . $seconds . ' frames=' . $frames
         . ' key_down=' . inEvCount('key_down') . ' key_up=' . inEvCount('key_up')
         . ' click=' . inEvCount('click') . ' change=' . inEvCount('change')
         . ' focus=' . $app->focusedId() . ' seen=' . ($sawKey ? 'yes' : 'no')
+        // 结束时再报一次窗口态与两个计数：f12 那次只说明"开局窗口是 key"，
+        // 人要分辨的是"我按的那几下有没有进到本进程"（appkitDeliveries）与
+        // "进来了有没有派发到 PHP"（上面的 key_down/click）。
+        . ' endState=' . json_encode($stEnd)
         . ' evSeen=' . inEvSeenSummary() . "\n";
+    // 结论自己说，别让人去比对三段 JSON 谁涨谁没涨：断在哪一段，处置完全不同。
+    $endAppkit = (int) ($stEnd['appkitDeliveries'] ?? 0);
+    // 判"到没过本进程"要用**增量**：实测没人按键时这个计数也会自己涨（8 秒那次 1→7），
+    // 绝对值为 0 不是有效信号——开局基线之后的差值才是。
+    $deltaAppkit = $endAppkit - $baseAppkit;
+    $verdict = 'OK';
+    if (! ($stEnd['onScreen'] ?? false)) {
+        // 这一条排在最前，因为它让后面几条失去意义：物理键鼠按 WindowServer 的**在屏**
+        // 账本派发，不在屏就一条都到不了，与输入法、与"人有没有按"都无关。
+        // 实测（2026-10-15 本机）：本 app 恒 onScreen=false 而 active/key/visible/main
+        // 全为 true；同一台机器、同一个会话里一个 60 行的普通 AppKit 程序 onScreen=true。
+        $verdict = 'WindowServer 没把这扇窗放上屏（onScreen=false）⇒ 物理按键不可能到位，'
+            . '不必再试输入法；断点在宿主侧（#56），合成路径不受影响';
+    } elseif ($deltaAppkit === 0) {
+        $verdict = 'OS 没送到本进程（激活/输入法管线）——先切 ABC 再试，仍 0 就是宿主事件环';
+    } elseif ($app->focusedId() === 0) {
+        $verdict = '送到了本进程，但没有任何元素拿到焦点——点击没命中输入框（查命中/布局）';
+    } elseif (inEvCount('key_down') === 0) {
+        $verdict = '有焦点却没收到 key_down——派发那一层丢了（查 keyDown→宿主入队）';
+    }
+    echo 'WAIT-KEY-VERDICT ' . $verdict . ' 事件增量=' . $deltaAppkit
+        . '（开局 ' . $baseAppkit . ' → 结束 ' . $endAppkit . "）\n";
     $app->close();
     exit($sawKey ? 0 : 1);
 }
@@ -401,7 +448,10 @@ function runSelfTest(): void
     $focusApplicable = (bool) ($winFocus['key'] ?? false) || (bool) ($winFocus['main'] ?? false);
     $focusOk = ! $focusApplicable || count($focReal) >= 2;
     step('focusFollowsClick', $focusOk, '点过 ' . $focTried . ' 颗，拿到焦点的不同实体 id '
-        . count($focReal) . ' 个 [' . $focDump . '] applicable=' . var_export($focusApplicable, true));
+        . count($focReal) . ' 个 [' . $focDump . '] applicable=' . var_export($focusApplicable, true)
+        // 仪表自证臂：上面那圈真点击/真按键是经 AppKit 派发到本进程的，
+        // appkitDeliveries 若仍为 0，说明这条计数是空转的（不能拿它去判真人那一按）。
+        . ' appkitDeliveries=' . (int) ($app->windowState()['appkitDeliveries'] ?? -1));
     $ok = $ok && $focusOk;
 
     // 值回读门（审核 P0-4 的回归位）：elementValue() 读的是 shim 随 change 事件留下的

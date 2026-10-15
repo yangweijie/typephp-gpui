@@ -668,7 +668,7 @@ Array php_gpui_hit_probe(Variant boxVar, Int index) {
 Array php_gpui_window_state(Variant boxVar) {
     Array out;
     void* win = winOf(boxVar);
-    double st[6] = {0, 0, 0, 0, 0, 0};
+    double st[11] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
     int found = win ? gpui_shim_window_state(win, st) : 0;
     out["found"] = found;
     out["active"] = (Bool)(st[0] != 0);
@@ -677,6 +677,14 @@ Array php_gpui_window_state(Variant boxVar) {
     out["main"] = (Bool)(st[3] != 0);
     out["nsappDeliveries"] = (Int) st[4];
     out["bundled"] = (Bool)(st[5] != 0);
+    out["appkitDeliveries"] = (Int) st[6];
+    // WindowServer 的在屏账本：物理键鼠只按它派发，0 时真人输入不可能到位。
+    out["onScreen"] = (Bool)(st[7] != 0);
+    // onScreen 的自证臂：账本里在屏窗口的总条数（非零 = 查询本身查得动）。
+    out["onScreenPeers"] = (Int) st[8];
+    // 外部协变量：本进程所在 GUI session 此刻在不在控制台上（onScreen 飘的候选解释）。
+    out["onConsole"] = (Bool)(st[9] != 0);
+    out["sessionId"] = (Int) st[10];
     return out;
 }
 

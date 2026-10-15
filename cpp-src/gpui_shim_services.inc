@@ -294,7 +294,7 @@ void gpui_shim_method(void* win, uint32_t spec, const char* name,
 int gpui_shim_window_state(void* win, double* out) {
     auto* box = static_cast<Box2*>(win);
     if (!box || !out) return 0;
-    for (int i = 0; i < 6; i++) out[i] = 0;
+    for (int i = 0; i < 11; i++) out[i] = 0;
     return gpui_mac_window_state(out);
 }
 
