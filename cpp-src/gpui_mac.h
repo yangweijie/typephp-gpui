@@ -71,8 +71,9 @@ int gpui_mac_os_notify(const char* title, const char* body);
  * 后者按 callbackId 直接入队，**绕过"监听器到底挂没挂"**——on_ 前缀那次失配（真实点击
  * 一个都到不了 PHP）就是被它掩盖的。
  * x/y 是 gpui 视图坐标（左上原点、逻辑点），与 snapshot 同一套。
- * type: 0=move 1=left-down 2=left-up。返回 1=已投递，0=找不到窗口。 */
+ * type: 0=move 1=left-down 2=left-up 3=right-down 4=right-up。返回 1=已投递。 */
 int gpui_mac_send_mouse(double x, double y, int type, int click_count);
+int gpui_mac_send_scroll(double x, double y, int delta_y, int delta_x);
 /* keycode 是 kVK_*；chars 是 UTF-8 字符（可空串）。 */
 int gpui_mac_send_key(unsigned short keycode, const char* chars);
 

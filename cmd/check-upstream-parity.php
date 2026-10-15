@@ -195,7 +195,15 @@ function upstreamParityProblems(string $repo, string $tree): array
         foreach ($m4[1] as $n) { $usedExports[$n] = true; }
     }
     // 通用工厂 El::catalog('Name', …) 与示例里的直接用法也算"我们发出的名字"。
-    foreach (glob($repo . '/examples/*/src/*.php') ?: [] as $f) {
+    // 范围必须含 examples/_shared/**：那份文件被每支示例的 yml `sources:` 编进产物，
+    // 只扫 examples/*/src 就会漏掉它——这里拼一个导出名照样 build 不出来（降级成 Div），
+    // 而这条门一句话都不会说。（state kind 不在这里扩，见上面那段反向对照的注释。）
+    $exFiles = array_merge(
+        glob($repo . '/examples/*/src/*.php') ?: [],
+        glob($repo . '/examples/_shared/*.php') ?: [],
+        glob($repo . '/examples/_shared/*/*.php') ?: []
+    );
+    foreach ($exFiles as $f) {
         if (preg_match_all("/El::catalog\(\s*'([A-Z][A-Za-z0-9]*)'/", (string) file_get_contents($f), $m5)) {
             foreach ($m5[1] as $n) { $usedExports[$n] = true; }
         }
@@ -227,6 +235,19 @@ function upstreamParityProblems(string $repo, string $tree): array
     $info[] = sprintf('state kind：%d 个上游在册（SchemaEntity 声明），PHP 侧用到 %d 个：%s',
         count($validStates), count($usedStateKinds),
         implode(', ', array_keys($usedStateKinds)) ?: '（无）');
+    // 上面那句的"用到"只数 src，因为示例侧留了一颗故意的 NoSuchState 当反向对照。
+    // 但真实可达性看的是全体：示例侧（含 _shared）里多出来的那些也得报出来，
+    // 否则"CarouselState 只在 _shared 用"这种事实会被这句掩盖成"上游 15 里只用了 11"。
+    $exStates = [];
+    foreach ($exFiles as $f) {
+        if (preg_match_all("/state\(\s*'([A-Z][A-Za-z0-9]*)'/", (string) file_get_contents($f), $mEx)) {
+            foreach ($mEx[1] as $n) { $exStates[$n] = true; }
+        }
+    }
+    $exExtra = array_values(array_diff(array_keys($exStates), array_keys($usedStateKinds)));
+    sort($exExtra);
+    $info[] = sprintf('state kind 示例侧另出现 %d 个（不判定，含反向对照）：%s',
+        count($exExtra), implode(', ', $exExtra) ?: '（无）');
     $rmNames = [];
     // 名字来源有两处：直接 ->rm('x')，以及 catalog 糖里的 catalogMethod('x', …)。
     // 只扫前者会在"糖改成统一分发器"之后静默失去覆盖——那正是这条门要防的那类事。
@@ -237,7 +258,7 @@ function upstreamParityProblems(string $repo, string $tree): array
             if (preg_match_all($re, $t, $m6)) { $rmNames = array_merge($rmNames, $m6[1]); }
         }
     }
-    foreach (glob($repo . '/examples/*/src/*.php') ?: [] as $f) {
+    foreach ($exFiles as $f) {
         $t = (string) file_get_contents($f);
         foreach ($rmPatterns as $re) {
             if (preg_match_all($re, $t, $m7)) { $rmNames = array_merge($rmNames, $m7[1]); }

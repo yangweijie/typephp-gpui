@@ -146,6 +146,41 @@ function runEmbeddedSelfTest(): void
     $ok = $ok && $insOk;
     $app->toggleInspector();
 
+    // 8) WebView 切走之后，原来那块区域必须重新点得动（从画廊迁来的回归位）。
+    //    常驻的 WKWebView 是盖在窗口上的 OS 控件，会吃掉排在它后面那一区的点击——
+    //    画廊当年"上半区点了没反应"就是这个原因，而它只在"先显示 webview、再换走、
+    //    再点原位"这个顺序下才现形，所以把这三步钉成一条门。
+    $awayBox = $app->webviewProbe('em-html');
+    $awayW = (int) ($awayBox['w'] ?? 0);
+    $awayH = (int) ($awayBox['h'] ?? 0);
+    $app->on('em-after-webview', 'click', static function (): void {
+        ExampleState::$v['afterWebview'] = true;
+    });
+    $app->render(El::vFlex([
+        El::catalogButton('em-after-webview', 'webview 已切走')->onClick()->sizeFull(),
+    ])->sizeFull()->p(12.0));
+    $app->loop(4);
+    $hitW = 0;
+    $hitX = 0;
+    $hitY = 0;
+    $emHits = (int) ($app->hitProbe()['n'] ?? 0);
+    for ($emI = 1; $emI < $emHits; $emI++) {
+        $emHit = $app->hitProbe($emI);
+        if ((int) $emHit['click'] === 1 && (int) $emHit['w'] > $hitW) {
+            $hitW = (int) $emHit['w'];
+            $hitX = (int) $emHit['x'] + intdiv((int) $emHit['w'], 2);
+            $hitY = (int) $emHit['y'] + intdiv((int) $emHit['h'], 2);
+        }
+    }
+    $app->realClick($hitX, $hitY);
+    $app->loop(3);
+    $awayReached = (bool) (ExampleState::$v['afterWebview'] ?? false);
+    $awayOk = $awayW > 0 && $awayH > 0 && $hitW > 0 && $awayReached;
+    step('clickAfterWebView', $awayOk, 'webview 盒子=' . $awayW . 'x' . $awayH
+        . ' 原位按钮=' . $hitW . 'px@' . $hitX . ',' . $hitY
+        . ' 点击到达=' . var_export($awayReached, true));
+    $ok = $ok && $awayOk;
+
     $app->close();
     echo ($ok ? 'EMBEDDED SELFTEST OK' : 'EMBEDDED SELFTEST FAIL') . "\n";
     exit($ok ? 0 : 1);

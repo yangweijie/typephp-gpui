@@ -64,7 +64,17 @@ function gpui_selftest_fire_registered(mixed $window, string $id, string $type):
 function gpui_snapshot(mixed $window, string $path, int $w, int $h): bool {}
 /** 真输入验收缝：type 0=移动 1=左键单击 2=只按下 3=只抬起（2/3 组合起来才是拖）。返回 1 = PHP 队列里确实多出一条事件。 */
 function gpui_real_mouse(mixed $window, int $x, int $y, int $type): int {}
+/** 宿主渲染虚拟列表：登记 (窗口, 列表 id) 的行渲染闭包 fn(int $start, int $end): array。 */
+function gpui_set_list_renderer(mixed $window, string $id, mixed $fn): void {}
+function gpui_dock_create(mixed $window, string $id): bool {}
+function gpui_dock_panel(mixed $window, string $id, string $name, string $title, array $tree, string $placement, float $size): bool {}
+function gpui_dock_select(mixed $window, string $id, string $name): bool {}
+function gpui_dock_remove(mixed $window, string $id, string $name): bool {}
+function gpui_dock_layout(mixed $window, string $id): string {}
+function gpui_dock_load(mixed $window, string $id, string $json): bool {}
+function gpui_dock_probe(mixed $window, string $id): array {}
 function gpui_real_key(mixed $window, int $keycode, string $chars): int {}
+function gpui_real_scroll(mixed $window, int $x, int $y, int $deltaY, int $deltaX): bool {}
 /** 合成一次 ShellAction 派发（按名字）：1 = 被监听接住。 */
 function gpui_dispatch_action(mixed $window, string $name): int {}
 /** 当前持有焦点的 gpui 实体 id；0 = 没有焦点，-1 = 窗口不可用。 */

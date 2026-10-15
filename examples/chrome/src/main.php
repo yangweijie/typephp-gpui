@@ -181,6 +181,78 @@ function runChromeSelfTest(): void
         . ' lastBtn:' . $before . '→' . $after);
     $ok = $ok && $menuOk;
 
+    // 6) 应用菜单那张表里只该出现"带动作"的那一行（从画廊迁来）。分隔符与无动作行混进来，
+    //    说明读表读歪了——而歪掉的表在画面上看不出来，只是点了没反应。
+    //    真点原生菜单行那一跳进程内够不到（NSMenu 属于系统菜单条那个窗口，注入的 NSEvent
+    //    只 Deliver 给自己的窗口），所以这条与上一条合起来才是整条路：①表里装的是这些 id，
+    //    ②该 id 的动作会回到 PHP。
+    $appMenuCount = $app->setAppMenus([
+        ['name' => 'Selftest', 'items' => [
+            ['label' => '带动作', 'action' => 'cr-m-new'],
+            ['separator' => true],
+            ['label' => '无动作项'],
+        ]],
+    ]);
+    $rows = $app->menuRows();
+    $rowsOk = $appMenuCount > 0 && in_array('cr-m-new', $rows, true) && count($rows) === 1;
+    step('menuRowsOnlyActionable', $rowsOk, '装出的菜单=' . $appMenuCount
+        . ' rows=' . implode(',', $rows) . '（分隔符与无动作行不得在册）');
+    $ok = $ok && $rowsOk;
+
+    // 7) 一排导航行的可达性（画廊那 13 行是这条证据过去的唯一来源）。要点不是"有 13 行"，
+    //    而是：等高、同宽、纵向铺开的可点击行，每一行都要能被**自己的矩形**点中。
+    //    过去那类"点了没反应"（常驻 WKWebView 吃掉上半区、首帧没有命中表）只有在
+    //    "逐行真点、并数到达数"时才现形；只点第一行会全绿。
+    $navIds = ['cr-nav-1', 'cr-nav-2', 'cr-nav-3'];
+    $navReached = [];
+    foreach ($navIds as $navK => $navId) {
+        $navKey = 'nav-' . $navK;
+        $app->on($navId, 'click', static function () use (&$navReached, $navKey): void {
+            $navReached[$navKey] = true;
+        });
+    }
+    $navRows = [];
+    foreach ($navIds as $navId2) {
+        $navRows[] = El::catalogButton($navId2, '行 ' . $navId2)->onClick()->w(194.0)->p(10.0);
+    }
+    $app->render(El::hFlex([
+        El::vFlex($navRows)->w(220.0)->gap(10.0)->p(12.0),
+        El::text('内容区')->font(18.0)->flex1(),
+    ])->sizeFull()->bg(0xF7F4EF));
+    // 只跑一帧就要逐行点得中——这条同时钉住"首帧可点"。修之前 frames=1 时真点击产生
+    // 0/38 个事件、跑到第二帧才有 18/38（App::view() 现在注册时就预热一帧）。
+    // 先 loop(4) 再点会把这件事糊过去，所以帧数本身就是这条门的一部分。
+    $app->loop(1);
+    $navBand = [];
+    $navHits = (int) ($app->hitProbe()['n'] ?? 0);
+    for ($navI = 1; $navI < $navHits; $navI++) {
+        $navHit = $app->hitProbe($navI);
+        if ((int) $navHit['click'] === 1 && (int) $navHit['w'] >= 150) {
+            $navBand[] = $navHit;
+        }
+    }
+    foreach ($navBand as $navHit2) {
+        $app->realClick((int) $navHit2['x'] + intdiv((int) $navHit2['w'], 2),
+                        (int) $navHit2['y'] + intdiv((int) $navHit2['h'], 2));
+        $app->loop(2);
+    }
+    $bandMin = 0;
+    $bandMax = 0;
+    foreach ($navBand as $navIdx => $navHit3) {
+        $navY = (int) $navHit3['y'];
+        if ($navIdx === 0 || $navY < $bandMin) {
+            $bandMin = $navY;
+        }
+        if ($navIdx === 0 || $navY > $bandMax) {
+            $bandMax = $navY;
+        }
+    }
+    $navOk = count($navBand) >= 3 && count($navReached) === count($navIds) && $bandMax > $bandMin;
+    step('navRowsReachable', $navOk, '像样行=' . count($navBand)
+        . ' 到达=' . implode('/', array_keys($navReached))
+        . ' 纵向带=' . $bandMin . '..' . $bandMax);
+    $ok = $ok && $navOk;
+
     $app->close();
     echo ($ok ? 'CHROME SELFTEST OK' : 'CHROME SELFTEST FAIL') . "\n";
     exit($ok ? 0 : 1);

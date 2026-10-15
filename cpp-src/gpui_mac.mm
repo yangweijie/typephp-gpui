@@ -335,12 +335,14 @@ NSEventMask MaskFor(NSEventType t) {
         case NSEventTypeKeyDown:        return NSEventMaskKeyDown;
         case NSEventTypeKeyUp:          return NSEventMaskKeyUp;
         case NSEventTypeFlagsChanged:   return NSEventMaskFlagsChanged;
+        case NSEventTypeScrollWheel:    return NSEventMaskScrollWheel;
         default:                        return NSEventMaskAny;
     }
 }
 
 void Deliver(NSWindow* w, NSEvent* ev) {
-    if (g_postMode && [NSApp isActive] && w == [NSApp keyWindow]) {
+    if (g_postMode && [NSApp isActive] && w == [NSApp keyWindow]
+        && ev.windowNumber == w.windowNumber) {
         /* 真路由：入队 → 自己 nextEventMatchingMask 取出 → 交 -[NSApplication sendEvent:]。
          * 这三步就是手点事件在 NSApplication 里的完整走法（WindowServer 只负责入队），
          * 所以激活判定、keyWindow/firstResponder 归属、hitTest 全都按真实规则走一遍。
@@ -372,7 +374,9 @@ int gpui_mac_send_mouse(double x, double y, int type, int click_count) {
     // 按视图是否 flipped 换算，别自己减高度。
     NSPoint p = [w.contentView convertPoint:NSMakePoint(x, y) toView:nil];
     NSEventType t = type == 0 ? NSEventTypeMouseMoved
-                : (type == 1 ? NSEventTypeLeftMouseDown : NSEventTypeLeftMouseUp);
+                : type == 1 ? NSEventTypeLeftMouseDown
+                : type == 2 ? NSEventTypeLeftMouseUp
+                : type == 3 ? NSEventTypeRightMouseDown : NSEventTypeRightMouseUp;
     int clicks = t == NSEventTypeMouseMoved ? 0 : (click_count > 0 ? click_count : 1);
     NSEvent* e = [NSEvent mouseEventWithType:t location:p modifierFlags:0
                                    timestamp:[NSProcessInfo processInfo].systemUptime
@@ -381,6 +385,24 @@ int gpui_mac_send_mouse(double x, double y, int type, int click_count) {
                                     pressure:t == NSEventTypeMouseMoved ? 0.0 : 1.0];
     if (!e) return 0;
     Deliver(w, e);
+    return 1;
+}
+
+int gpui_mac_send_scroll(double x, double y, int delta_y, int delta_x) {
+    NSWindow* w = GpuiWindow();
+    if (!w) return 0;
+    MakeKey(w);
+    NSPoint local = [w.contentView convertPoint:NSMakePoint(x, y) toView:nil];
+    CGEventRef cg = CGEventCreateScrollWheelEvent(nullptr, kCGScrollEventUnitPixel,
+                                                 2, delta_y, delta_x);
+    if (!cg) return 0;
+    // eventWithCGEvent 没有窗口身份，交给目标 NSWindow 时 locationInWindow 必须是本地坐标。
+    CGEventSetLocation(cg, CGPointMake(local.x,
+        NSMaxY([NSScreen screens][0].frame) - local.y));
+    NSEvent* event = [NSEvent eventWithCGEvent:cg];
+    CFRelease(cg);
+    if (!event) return 0;
+    Deliver(w, event);
     return 1;
 }
 

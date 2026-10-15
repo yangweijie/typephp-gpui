@@ -12,9 +12,11 @@
 
 #include "gpui_shim.h"
 
+#include <cstdio>
 #include <cstdlib>
 #include <deque>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 using php::Array;
@@ -24,6 +26,8 @@ using php::Float;
 using php::Int;
 using php::String;
 using php::Variant;
+
+static void forgetListRenderers(void* win);
 
 namespace {
 
@@ -264,6 +268,14 @@ uint32_t emitTree(void* win, Array node) {
         // 通知层。gpui 的基座 Root 自己挂它，我们的根是 ShellRoot（只挂 Toast），
         // 所以没这颗节点时 push 依然成功、只是看不见。
         spec = gpui_shim_notification_list(win, id.c_str());
+    } else if (kind == "dock_area") {
+        spec = gpui_shim_push_dock(win, id.c_str());
+    } else if (kind == "list" || kind == "uniform_list") {
+        // 行不在树里：它们由 App::listRenderer() 登记的 PHP 闭包在 materialize 途中给
+        // （见 renderListRows 与 cmd/patch-host-list.sh）。树上只带条数。
+        Variant cv = node.get("listCount");
+        int count = (cv.isInt() || cv.isFloat()) ? (int)cv.toFloat() : 0;
+        spec = gpui_shim_push_list(win, id.c_str(), kind == "uniform_list" ? 1 : 0, count);
     } else if (registered) {
         // catalog 组件：kind 是导出名，ctorArgs 按声明顺序的扁平实参。
         std::deque<std::string> strPool;
@@ -402,7 +414,10 @@ void php_gpui_render(Variant boxVar, Array tree) {
 
 Bool php_gpui_window_is_open(Variant boxVar) {
     void* win = winOf(boxVar);
-    return win && gpui_shim_is_open(win) != 0;
+    if (!win) return false;
+    bool open = gpui_shim_is_open(win) != 0;
+    if (!open) forgetListRenderers(win);
+    return open;
 }
 
 void php_gpui_pump_events(Variant boxVar) {
@@ -426,12 +441,156 @@ Array php_gpui_poll_event(Variant boxVar) {
         default: break;  // NIL
     }
     out.set("value", value);
+    if (std::strcmp(ev.type, "item_secondary_click") == 0) {
+        Array position;
+        position.set("x", Variant(ev.itemPointer[0]));
+        position.set("y", Variant(ev.itemPointer[1]));
+        Array local;
+        local.set("x", Variant(ev.itemPointer[2]));
+        local.set("y", Variant(ev.itemPointer[3]));
+        Array modifiers;
+        int mask = (int)ev.itemPointer[5];
+        modifiers.set("control", Variant((mask & 1) != 0));
+        modifiers.set("alt", Variant((mask & 2) != 0));
+        modifiers.set("shift", Variant((mask & 4) != 0));
+        modifiers.set("platform", Variant((mask & 8) != 0));
+        modifiers.set("function", Variant((mask & 16) != 0));
+        out.set("button", Variant("right"));
+        out.set("click_count", Variant((Int)ev.itemPointer[4]));
+        out.set("position", Variant(position));
+        out.set("local_position", Variant(local));
+        out.set("modifiers", Variant(modifiers));
+    }
     return out;
+}
+
+Bool php_gpui_dock_create(Variant boxVar, String id) {
+    void* win = winOf(boxVar);
+    std::string dock(id.data(), id.length());
+    return win && gpui_shim_dock_create(win, dock.c_str()) == 1;
+}
+
+Bool php_gpui_dock_panel(Variant boxVar, String id, String name, String title,
+                         Array tree, String placement, Float size) {
+    void* win = winOf(boxVar);
+    if (!win) return false;
+    std::string dock(id.data(), id.length());
+    std::string panel(name.data(), name.length());
+    std::string label(title.data(), title.length());
+    std::string side(placement.data(), placement.length());
+    if (!gpui_shim_dock_panel_begin(win, dock.c_str(), panel.c_str(), label.c_str())) return false;
+    uint32_t root = emitTree(win, tree);
+    return gpui_shim_dock_panel_end(win, dock.c_str(), panel.c_str(), side.c_str(),
+                                   (double)size, root) == 1;
+}
+
+Bool php_gpui_dock_select(Variant boxVar, String id, String name) {
+    std::string dock(id.data(), id.length());
+    std::string panel(name.data(), name.length());
+    void* win = winOf(boxVar);
+    return win && gpui_shim_dock_select(win, dock.c_str(), panel.c_str()) == 1;
+}
+
+Bool php_gpui_dock_remove(Variant boxVar, String id, String name) {
+    std::string dock(id.data(), id.length());
+    std::string panel(name.data(), name.length());
+    void* win = winOf(boxVar);
+    return win && gpui_shim_dock_remove(win, dock.c_str(), panel.c_str()) == 1;
+}
+
+String php_gpui_dock_layout(Variant boxVar, String id) {
+    void* win = winOf(boxVar);
+    if (!win) return String();
+    std::string dock(id.data(), id.length());
+    int n = gpui_shim_dock_layout(win, dock.c_str(), nullptr, 0);
+    if (n <= 0) return String();
+    std::vector<char> buffer((size_t)n);
+    gpui_shim_dock_layout(win, dock.c_str(), buffer.data(), n);
+    return String(buffer.data(), n);
+}
+
+Bool php_gpui_dock_load(Variant boxVar, String id, String json) {
+    void* win = winOf(boxVar);
+    std::string dock(id.data(), id.length());
+    std::string layout(json.data(), json.length());
+    return win && gpui_shim_dock_load(win, dock.c_str(), layout.c_str()) == 1;
+}
+
+Array php_gpui_dock_probe(Variant boxVar, String id) {
+    Array out;
+    double data[8] = {};
+    std::string dock(id.data(), id.length());
+    void* win = winOf(boxVar);
+    if (!win || gpui_shim_dock_probe(win, dock.c_str(), data, 8) != 8) return out;
+    const char* names[] = {"registered", "open", "active", "nodes", "w", "h", "x", "y"};
+    for (int i = 0; i < 8; i++) {
+        if (i < 4) out.set(names[i], Variant((Int)data[i]));
+        else out.set(names[i], Variant(data[i]));
+    }
+    return out;
+}
+
+// ── 宿主渲染的虚拟列表（#29/#35）────────────────────────────────────────────
+// (窗口, 列表 id) → PHP 闭包。闭包签名 fn(int $start, int $end): array，返回值是一组
+// Element::toArray() 结果（App::listRenderer 包了这一层）。持有 Variant 即持有一份引用，
+// 闭包活到被替换或窗口关闭。
+static std::unordered_map<std::string, Variant> g_listFns;
+
+static std::string listKey(void* win, const char* id) {
+    char p[32];
+    std::snprintf(p, sizeof(p), "%p|", win);
+    return std::string(p) + (id ? id : "");
+}
+
+// 由 shim 在 materialize 途中同步调用（gpuiRenderShimItems）。这里就是那条"C++ 同步
+// 回调 PHP"的路：php::call 在本线程、本 zend 执行栈上跑闭包——外层 PHP 此刻正阻塞在
+// pump/snapshot 的调用里，所以是普通的重入调用（同 usort 回调），不是并发。
+static int renderListRows(void* win, const char* id, int first, int end,
+                          uint32_t* out, int cap) {
+    auto it = g_listFns.find(listKey(win, id));
+    if (it == g_listFns.end()) return 0;
+    Variant renderer = it->second;
+    Array args;
+    args.append(Variant((Int)first));
+    args.append(Variant((Int)end));
+    Variant r = php::call(renderer, args);
+    if (!r.isArray()) return 0;
+    Array rows = r.toArray();
+    if (rows.count() != (size_t)(end - first)) return 0;
+    int n = 0;
+    for (size_t i = 0; i < rows.count() && n < cap; ++i) {
+        Variant row = rows.get(i);
+        if (!row.isArray()) break;
+        out[n++] = emitTree(win, row.toArray());
+    }
+    return n;
+}
+
+void php_gpui_set_list_renderer(Variant boxVar, String id, Variant fn) {
+    void* win = winOf(boxVar);
+    if (!win) return;
+    static bool hooked = false;
+    if (!hooked) {
+        gpui_shim_set_list_renderer(&renderListRows);
+        hooked = true;
+    }
+    std::string i(id.data(), id.length());
+    g_listFns[listKey(win, i.c_str())] = fn;
+}
+
+static void forgetListRenderers(void* win) {
+    const std::string prefix = listKey(win, "");
+    for (auto it = g_listFns.begin(); it != g_listFns.end();) {
+        if (it->first.compare(0, prefix.size(), prefix) == 0) it = g_listFns.erase(it);
+        else ++it;
+    }
 }
 
 void php_gpui_window_close(Variant boxVar) {
     void* win = winOf(boxVar);
-    if (win) gpui_shim_close(win);
+    if (!win) return;
+    forgetListRenderers(win);
+    gpui_shim_close(win);
 }
 
 String php_gpui_input_value(Variant boxVar, String id) {
@@ -553,6 +712,11 @@ Int php_gpui_real_mouse(Variant boxVar, Int x, Int y, Int type) {
     void* win = winOf(boxVar);
     if (!win) return 0;
     return gpui_shim_real_mouse(win, (int) x, (int) y, (int) type);
+}
+
+Bool php_gpui_real_scroll(Variant boxVar, Int x, Int y, Int deltaY, Int deltaX) {
+    void* win = winOf(boxVar);
+    return win && gpui_shim_real_scroll(win, (int)x, (int)y, (int)deltaY, (int)deltaX) == 1;
 }
 
 Int php_gpui_dispatch_action(Variant boxVar, String name) {
@@ -683,7 +847,7 @@ Array php_gpui_state_counts(Variant boxVar) {
         "timerKeys", "timerIds", "callbacks", "cbByKey", "shimCallbacks",
         "inputHandles", "lastValues", "webviews", "inspectors", "notifyLists",
         "dialogs", "watchCtx", "httpResponses", "boxesAlive", "viewsAlive",
-        "componentStates",
+        "listCalls", "listItems", "componentStates", "dockStates", "dockPanels",
     };
     Array out;
     long long c[32] = {0};

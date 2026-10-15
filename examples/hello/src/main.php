@@ -13,7 +13,7 @@ use TypePHP\Gpui\Element as El;
 function main(int $argc, array $argv): void
 {
     if (in_array('--selftest', $argv, true)) {
-        runSelfTest();
+        runSelfTest(in_array('--expect-bundle', $argv, true));
         return;
     }
     if (in_array('--caps', $argv, true)) {
@@ -156,7 +156,21 @@ function main(int $argc, array $argv): void
  * --selftest：无需用户交互，验证 retained 取值 + 点击事件两条链路。
  * 退出码 0=通过。
  */
-function runSelfTest(): void
+/** 读 PNG 的 IHDR 宽度（第 16..19 字节，大端）。文件不存在或过短返回 0。 */
+function armPngWidth(string $path): int
+{
+    if (!is_file($path)) {
+        return 0;
+    }
+    $raw = file_get_contents($path);
+    if (!is_string($raw) || strlen($raw) < 20) {
+        return 0;
+    }
+    $hdr = substr($raw, 16, 4);
+    return (ord($hdr[0]) << 24) + (ord($hdr[1]) << 16) + (ord($hdr[2]) << 8) + ord($hdr[3]);
+}
+
+function runSelfTest(bool $expectBundle = false): void
 {
     $app = new App();
     $app->create();
@@ -449,10 +463,155 @@ function runSelfTest(): void
         && $storeDenied === false && $storeOkPath && $set && $get === 'dark' && $len === 1;
     $ok = $ok && $svcOk;
 
+    // 22) 定时器按 id 幂等重挂：同一个 id 挂 50 次，键表只许多一条。
+    //     修之前每挂一次净发一个新号、旧号没人收（0→51），长会话就是只增不减的表。
+    //     取数点在本组之前，所以基线是当时的实际条数，不假设 hello 自己没挂过定时器。
+    $tk0 = (int) ($app->stateCounts()['timerKeys'] ?? -1);
+    for ($grow = 0; $grow < 50; $grow++) {
+        $app->setTimer('grow-check', 40);
+    }
+    $tk1 = (int) ($app->stateCounts()['timerKeys'] ?? -2);
+    $app->setTimer('grow-check', 0);
+    $timerNoGrow = $tk1 === $tk0 + 1;
+    $ok = $ok && $timerNoGrow;
+
+    // 23) onAny 通配缝：按类型收所有 id 的事件，handler 拿的是**整个 event 数组**
+    //     （不是 value——那是 id-specific 的另一套读法）。画廊里它是 `any=71`，
+    //     量的是"通配 handler 真被喂到、且认得出来源 id"，注册不报错不算。
+    $anyHits = 0;
+    $anyId = '';
+    $app->onAny('click', static function (array $e) use (&$anyHits, &$anyId): void {
+        $anyHits++;
+        $anyId = (string) ($e['id'] ?? '');
+    });
+    if (\gpui_selftest_fire($win, 'inc', 'click')) {
+        $anyEvent = \gpui_poll_event($win);
+        if (!empty($anyEvent)) {
+            $app->dispatch($anyEvent);
+        }
+    }
+    $anyOk = $anyHits >= 1 && $anyId === 'inc';
+    $ok = $ok && $anyOk;
+
+    // 24) 生命周期、脏门与每帧重描述（从画廊迁来）。这几颗 API 在全仓只有画廊调过
+    //     （invalidate / runFrames / frameCount / stop / isOpen / lastError / activate /
+    //     foregroundTries），删掉画廊又不搬过来就是**静默**丢覆盖。
+    //     顺序有讲究：帧数只在有 view 回调时才计，所以先注册计数 view 再 runFrames；
+    //     会自己叫停的那颗必须最后注册——早装就把后面所有读数截断成一帧。
+    $openBefore = $app->isOpen();
+    $lifeFrames = 0;
+    $lifeText = 'lifecycle-A';
+    $app->view(static function () use (&$lifeFrames, &$lifeText): El {
+        $lifeFrames++;
+        return El::text($lifeText)->font(12.0);
+    });
+    $app->runFrames(3);
+    $frames3 = $app->frameCount();
+    $lifeOk = $openBefore && $frames3 === 3;
+
+    // 脏门两半都要（只测一半能靠"永远不画"或"永远都画"蒙过去）：
+    // 反半——把所有定时器撤掉再空转 40 帧，只许画 1 次（重进循环必补一帧是留着语义的，
+    //        画廊第一版漏撤一个 tick 计时器就红在 idle=1，红得对）；
+    // 正半——真塞一条事件进去，渲染计数必须增加。
+    $app->setTimer('tick', 0);
+    $rendersBefore = $app->renderCount();
+    $app->runFrames(40);
+    $idleRenders = $app->renderCount() - $rendersBefore;
+    if (\gpui_selftest_fire($win, 'inc', 'click')) {
+        $wakeEvent = \gpui_poll_event($win);
+        if (!empty($wakeEvent)) {
+            $app->dispatch($wakeEvent);
+        }
+    }
+    $app->loop(2);
+    $wakesOnEvent = $app->renderCount() > $rendersBefore + $idleRenders;
+    $dirtyGate = $idleRenders === 1 && $wakesOnEvent;
+
+    // view() 每帧真的重新描述：改状态 + 显式标脏之后，debug_tree 要出现新文案。
+    // 不标脏的话空帧被跳过，读到的还是旧节——那这条门量的就成了"没画"，不是"画错了"。
+    $lifeText = 'lifecycle-B';
+    $app->invalidate();
+    $app->loop(2);
+    $treeAfter = \gpui_debug_tree($app->handle());
+    $rerenderOk = str_contains($treeAfter, 'lifecycle-B');
+    $stopFrames = 0;
+    $app->view(static function () use ($app, &$stopFrames): El {
+        $stopFrames++;
+        $app->stop();
+        return El::text('stopped')->font(12.0);
+    });
+    // view() 注册时预热一帧（首帧没有命中表），那一帧不算进"循环里的帧"。
+    $primed = $stopFrames;
+    $app->loop(50);
+    $stoppedAfterOneFrame = ($stopFrames - $primed) === 1;
+    $lastErr = $app->lastError();
+    // 取一个不存在的 id：必须是空串，不能是垃圾，也不能抛。
+    $missingText = $app->text('no-such-input');
+    $lifeOk = $lifeOk && $dirtyGate && $rerenderOk && $stoppedAfterOneFrame
+        && $lastErr === '' && $missingText === '';
+    $ok = $ok && $lifeOk;
+
+    // 25) bundle 身份与事件路由（两半都要说清自己是哪条路给的绿）：
+    //     - bundleGreen：从 .app 起进程（`bin/gpui selftest` 会带 --expect-bundle）时
+    //       bundled 必须为真，这是产物属性。裸二进制记为"未验"，不装成验过。
+    //     - routeGreen：已经拿到前台时，事件缝不许退回直投 -[NSWindow sendEvent:]，
+    //       走真 NSApp 路由（postEvent → nextEventMatchingMask → -[NSApp sendEvent:]）
+    //       的计数必须 > 0。
+    //     上面 1)~24) 全走 \gpui_selftest_fire 那条直投缝，它不经过 NSApp 路由，
+    //     所以这里必须真投一次鼠标事件才量得到这条门——不补这一跳 routeGreen 是恒假，
+    //     不是"路不通"。别拿窗口边角当落点：resize 边上 AppKit 的迟滞判定会不返回。
+    //     frontmost **不当硬门**：前台是和当时握着焦点的一方竞争出来的状态，
+    //     macOS 会正当拒绝后台进程抢焦点，拿它当门就变成随机红灯；所以只报读数。
+    $app->activate();
+    $app->realMouseMove(200, 150);
+    $app->realClick(200, 150);
+    $app->loop(3);
+    $winEnd = $app->windowState();
+    $bundled = (bool) $winEnd['bundled'];
+    $frontmost = (bool) $winEnd['active'] && (bool) $winEnd['key'];
+    $nsappDeliveries = (int) $winEnd['nsappDeliveries'];
+    $fgTries = $app->foregroundTries();
+    $bundleGreen = !$expectBundle || $bundled;
+    $routeGreen = !($bundled && $frontmost) || $nsappDeliveries > 0;
+    $ok = $ok && $bundleGreen && $routeGreen;
+
+    // #90 的判别臂：取帧必须绑到**传进去的那一扇**，不是 OS 当前偏爱的那一扇。
+    // 做法：同进程再开一扇尺寸不同的窗口（新窗口会接走 key），然后各按自己的句柄取帧。
+    // 绑对了 ⇒ 两张 PNG 的 IHDR 宽度必然不同；绑错（旧实现先 [NSApp keyWindow]、拿不到
+    // 再退化成 [NSApp windows] 的第一个，传进来的窗口根本没参与选窗）⇒ 两次拍到同一扇
+    // ⇒ 宽度相等 ⇒ 红。断宽度不断内容：自检里两扇画的是同一棵树，能区分它们的只有尺寸。
+    $armWinA = $app->handle();
+    $armWinB = $app->createWindow('typephp-gpui snapshot binding arm', 420, 320);
+    $app->runFrames(6);
+    $armPathA = '/tmp/gpui-arm-a.png';
+    $armPathB = '/tmp/gpui-arm-b.png';
+    $armShotA = \gpui_snapshot($armWinA, $armPathA, 800, 600);
+    $armShotB = \gpui_snapshot($armWinB, $armPathB, 420, 320);
+    $armWA = armPngWidth($armPathA);
+    $armWB = armPngWidth($armPathB);
+    $armBound = $armShotA && $armShotB && $armWA > 0 && $armWB > 0 && $armWA !== $armWB;
+    $ok = $ok && $armBound;
+
+    echo 'EXTRA'
+        . " snaparm=" . var_export($armBound, true)
+        . "/A{$armWA}px/B{$armWB}px shot=" . var_export((bool) $armShotA, true)
+        . ',' . var_export((bool) $armShotB, true)
+        . " timerKeys={$tk0}->{$tk1} noGrow=" . var_export($timerNoGrow, true)
+        . " any={$anyHits}/{$anyId}"
+        . " life open=" . var_export($openBefore, true) . "/frames={$frames3}"
+            . "/dirty idle={$idleRenders}/40 wake=" . var_export($wakesOnEvent, true)
+            . "/rerender=" . var_export($rerenderOk, true)
+            . "/stopped=" . var_export($stoppedAfterOneFrame, true)
+            . "/err='{$lastErr}' missing='" . $missingText . "'"
+        . " win bundled=" . var_export($bundled, true) . "/frontmost=" . var_export($frontmost, true)
+            . "/nsapp={$nsappDeliveries}/fgTries={$fgTries}"
+            . "/bundleGreen=" . var_export($bundleGreen, true)
+            . "/routeGreen=" . var_export($routeGreen, true) . "\n";
+
     echo $ok
         ? sprintf("SELFTEST OK (input + click + timer hits=%d + dialog + registered-cb + err-channel"
             . " + appmenu + clipboard + urlgate + fps + sheet + webview %.0fx%.0f"
-            . " + inflate + dirChange x%d + http ok=%s/%d + clipboard-item"
+            . " + inflate + dirChange x%d + http拒连回环 ok=%s/status=%d + clipboard-item"
             . " + sys cpu=%.1f%% mem=%.0f%% procs=%d"
             . " + notify x%d→%d %s + mac=%d fs=%d svc=%d)\n",
             $timerHits,
@@ -761,7 +920,11 @@ function runShot(string $path, int $tree = 0): void
         $shown = $app->showFpsHud('top_right');
         echo 'fps_shown=' . ($shown ? '1' : '0')
             . ' visible=' . ($app->fpsHudVisible() ? '1' : '0') . "\n";
-        $app->loop(3);
+        // 必须泵到"资源行已经出现"那个稳定态再拍：HUD 的 CPU/MEM 行要等采样器凑齐
+        // 第二次样本才画，行数一变框就变高——只跑 3 帧时"拍到了没"取决于墙钟，
+        // 同一条命令两次跑出两张图（#86 就是这个）。所以这里给足帧数，让基线总是
+        // 落在含资源行的那一态，而不是靠容差或重录把差异咽下去。
+        $app->loop(120);
     }
     if ($tree === 28) {
         $n = $app->openSheet(

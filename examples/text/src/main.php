@@ -97,6 +97,16 @@ function runTextSelfTest(): void
     $app->create();
     $app->createWindow('Text Selftest', TEXT_W, TEXT_H);
     wirePrimitives($app);
+    // 指针事件族的 handler 必须在 render **之前**挂：回调 id 是 materialize 那一步定下来的，
+    // 树都画完了再挂，shim 那边登记的还是渲染时那份，事件永远不落地。
+    $mouseSeen = [];
+    $mouseVals = [];
+    foreach (['mouse_down_left', 'mouse_up_left', 'mouse_move'] as $mt) {
+        $app->on('pr-hover', $mt, static function (array $e) use (&$mouseSeen, &$mouseVals, $mt): void {
+            $mouseSeen[$mt] = (int) ($mouseSeen[$mt] ?? 0) + 1;
+            $mouseVals[$mt] = (string) ($e['value'] ?? '');
+        });
+    }
     $app->render(textTree());
     $app->loop(4);
 
@@ -151,6 +161,108 @@ function runTextSelfTest(): void
     }
     step('hoverProbeHasRect', $boxes > 0, '命中表=' . $total . ' 条，其中像样矩形=' . $boxes);
     $ok = $ok && $boxes > 0;
+
+    // 6) 181 个角色名要在**编出来的产物**里逐个 role() 一遍，未知角色必须当场抛。
+    //    两头都要：上游对未知角色是 `if (role != None) element->Role(role)`（静默不加），
+    //    所以 PHP 侧这一抛是那条哑路唯一的哨兵；而 `in_array` 在 nano 里对 181 个常量名
+    //    的行为，只有跑产物才排得掉——PHP 层绿不代表编出来还绿。
+    //    （画廊时代这条只在画廊跑，删了它就是静默丢覆盖，所以搬到这里。）
+    $roleAllOk = true;
+    $roleBad = '';
+    foreach (El::ROLES as $r) {
+        try {
+            El::div()->role($r);
+        } catch (\Throwable $t) {
+            $roleAllOk = false;
+            $roleBad = $r . ': ' . $t->getMessage();
+            break;
+        }
+    }
+    $roleThrows = false;
+    try {
+        El::div()->role('Heading');   // 上游表里就是这么拼的，但匹配只按 snake_case
+    } catch (\Throwable $t) {
+        $roleThrows = true;
+    }
+    step('rolesInArtifact', $roleAllOk && $roleThrows,
+        '角色=' . count(El::ROLES) . '/allOk=' . var_export($roleAllOk, true)
+        . ' unknownThrows=' . var_export($roleThrows, true)
+        . ($roleBad === '' ? '' : ' 首个失败=' . $roleBad));
+    $ok = $ok && $roleAllOk && $roleThrows;
+
+    // 7) 指针事件族的**送达**（#71 那条缝的回归位，从画廊迁来）：pr-hover 那颗探针上挂着
+    //    onMouseDownLeft / onMouseUpLeft / onMouseMove / onHover，这里真点真扫一遍，
+    //    要求三类都到货，而且**值**是宿主拼出来的 CSV（x,y,button,clickCount,mods）。
+    //    只看"到了没有"不够——形状不对说明走错了通道，而上游对未知事件是静默丢弃。
+    //    tests/AppTest 那半边只把手工 CSV 过一遍 PHP，量不到送达；这条是产物里的送达位。
+    $mouseSeen = [];
+    $mouseVals = [];
+    foreach (['mouse_down_left', 'mouse_up_left', 'mouse_move'] as $mt) {
+        $app->on('pr-hover', $mt, static function (array $e) use (&$mouseSeen, &$mouseVals, $mt): void {
+            $mouseSeen[$mt] = (int) ($mouseSeen[$mt] ?? 0) + 1;
+            $mouseVals[$mt] = (string) ($e['value'] ?? '');
+        });
+    }
+    // 命中表里逐颗试：只有 pr-hover 挂了指针回调，所以"hover 落到哪"就是它自己的位置，
+    // 不必猜宽度（上一版拿"最宽的可点矩形"当探针，挑到的是 31px 的正文，0 事件到货）。
+    $hoverX = 0;
+    $hoverY = 0;
+    $boxDump = '';
+    for ($i = 1; $i < $total; $i++) {
+        $h = $app->hitProbe($i);
+        $cx = (int) $h['x'] + intdiv((int) $h['w'], 2);
+        $cy = (int) $h['y'] + intdiv((int) $h['h'], 2);
+        $boxDump .= $i . ':' . (int) $h['x'] . ',' . (int) $h['y'] . 'x' . (int) $h['w']
+            . 'x' . (int) $h['h'] . '/c' . (int) $h['click'] . ' ';
+        if ((int) $h['w'] <= 4 || (int) $h['h'] <= 4) {
+            continue;
+        }
+        $app->realMouseMove($cx, $cy);
+        $app->loop(2);
+        if ((string) (ExampleState::$v['hover'] ?? '') === 'pr-hover') {
+            $hoverX = $cx;
+            $hoverY = $cy;
+            break;
+        }
+    }
+    $app->realMouseMove($hoverX + 6, $hoverY);
+    $app->loop(2);
+    $app->realClick($hoverX, $hoverY);
+    $app->loop(4);
+    // 不用 preg：形状判据就是"五个字段、第三位是按下计数 0、前两位带小数"，
+    // 少编一个扩展就少一条 nano 里 catch 不住的 SIGABRT 路。
+    $shape = explode(',', isset($mouseVals['mouse_down_left']) ? $mouseVals['mouse_down_left'] : '');
+    $mouseShape = count($shape) === 5 && $shape[2] === '0'
+        && str_contains($shape[0], '.') && str_contains($shape[1], '.');
+    $hoverRouted = (string) (ExampleState::$v['hover'] ?? '') === 'pr-hover';
+    $mouseOk = $hoverX > 0 && (int) ($mouseSeen['mouse_down_left'] ?? 0) > 0
+        && (int) ($mouseSeen['mouse_up_left'] ?? 0) > 0
+        && (int) ($mouseSeen['mouse_move'] ?? 0) > 0 && $mouseShape && $hoverRouted;
+    step('pointerEventsDelivered', $mouseOk,
+        '探针=' . $hoverX . ',' . $hoverY . ' hover=' . (string) (ExampleState::$v['hover'] ?? '—')
+        . ' down=' . (int) ($mouseSeen['mouse_down_left'] ?? 0)
+        . ' up=' . (int) ($mouseSeen['mouse_up_left'] ?? 0)
+        . ' move=' . (int) ($mouseSeen['mouse_move'] ?? 0)
+        . ' down值=' . ($mouseVals['mouse_down_left'] ?? '—')
+        . ' 表=[' . trim($boxDump) . ']');
+    $ok = $ok && $mouseOk;
+
+    // 8) ariaLevel 的边界（同族的可访问性 op，过去只在画廊的壳里被顺带调到）。
+    //    上游 base 的默认是 3，并且会把 <1 的层级**夹成 1**（materialize.cpp aria_level）——
+    //    夹取是静默的，画面上什么都看不出来，所以 PHP 侧这一拒是那条哑路唯一的哨兵。
+    $levelThrew = false;
+    $levelWhy = '';
+    try {
+        El::div()->ariaLevel(0);
+    } catch (\Throwable $t) {
+        $levelThrew = true;
+        $levelWhy = $t->getMessage();
+    }
+    $levelOps = opNames(El::div()->role('heading')->ariaLevel(2), 'method');
+    $levelOk = $levelThrew && $levelOps === ['role', 'aria_level'];
+    step('ariaLevelGuarded', $levelOk, '0 层抛=' . var_export($levelThrew, true)
+        . '（' . ($levelWhy === '' ? '没抛' : $levelWhy) . '） 发出=' . implode('/', $levelOps));
+    $ok = $ok && $levelOk;
 
     $app->close();
     echo ($ok ? 'TEXT SELFTEST OK' : 'TEXT SELFTEST FAIL') . "\n";

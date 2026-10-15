@@ -63,6 +63,24 @@ static int g_boxAlive = 0;
 // 一个窗口的全部状态。对 bridge 是 opaque void*。
 struct WebViewView;  // 定义在 PhpView 之后；Box2 只存它的指针。
 struct WatchCtx;     // 同上：目录监听的一条 watch 上下文。
+class Box2;
+
+struct HostDockPanel {
+    Box2* box = nullptr;
+    std::unique_ptr<gpui::shell::SpecArena> specs;
+    std::unique_ptr<gpui::shell::SpecArena> pending;
+    gpui::shell::SpecId root = 0;
+    std::string name;
+    std::string title;
+    std::string pendingTitle;
+    int index = -1;
+};
+
+struct HostDock {
+    std::string id;
+    uint64_t handle = 0;
+    std::unordered_map<std::string, std::unique_ptr<HostDockPanel>> panels;
+};
 
 class Box2 {
   public:
@@ -75,6 +93,16 @@ class Box2 {
     gpui::EntityId viewEntity = {};
     gpui::EntityId shellRoot = {};  // 窗口根：包 viewEntity，拥有 dialog/sheet/toast overlay
     gpui::shell::SpecArena specs;   // 常驻：本窗口当前描述
+    // 正在被描述的那一块 arena。平时就是 specs；虚拟列表在 materialize **途中**向 PHP
+    // 要一批行时指向一块临时 arena——往 specs 里追加会让 nodes 扩容，而 materialize
+    // 正拿着那些节点的指针（见 gpuiRenderShimItems）。所有"建树"入口都经 arena() 取。
+    gpui::shell::SpecArena* building = nullptr;
+    gpui::shell::SpecArena& arena() { return building ? *building : specs; }
+    std::unordered_map<std::string, std::unique_ptr<HostDock>> docks;
+    HostDockPanel* buildingDockPanel = nullptr;
+    // 宿主渲染的虚拟列表仪表：向 PHP 要过几批、一共要了几行（"真惰性"只能这样证明）。
+    long long listCalls = 0;
+    long long listItems = 0;
     gpui::shell::SpecId rootId = 0;
     uint64_t nextCallback = 1;
 
@@ -339,6 +367,7 @@ static void MacEventSink(void* owner, const char* type, const char* elemId,
 static void gpui_mac_pump(void) {}
 static void gpui_mac_release_owner(void*) {}
 static int gpui_mac_send_mouse(double, double, int, int) { return 0; }
+static int gpui_mac_send_scroll(double, double, int, int) { return 0; }
 static int gpui_mac_send_key(unsigned short, const char*) { return 0; }
 #endif
 
@@ -453,6 +482,7 @@ static const KindName kKindNames[] = {
     {"table_row", K::TableRow},
     {"table_cell", K::TableCell},
     {"list", K::List},
+    {"uniform_list", K::UniformList},
     {"tabs", K::Tabs},
     {"tab", K::Tab},
     {"scrollbar", K::Scrollbar},
@@ -708,7 +738,7 @@ uint32_t pushErrorNode(Box2* box, gpui::Arena* a, const std::string& msg) {
     gpui::shell::Component c;
     c.kind = gpui::shell::ComponentKind::Text;
     c.text = AStr(a, msg.c_str());
-    return box->specs.Push(c);
+    return box->arena().Push(c);
 }
 
 // 每帧的 webview 可见性收放：materialize 前清零"这帧渲染到了"，materialize 后据此
@@ -1112,6 +1142,9 @@ void gpui_shim_close(void* win) {
         if (it->second.box == box) it = g_notifyKeys.erase(it);
         else ++it;
     }
+    // 先释放 Dock 状态，再释放面板描述；状态的 render/data 仍引用这些描述。
+    for (auto& dock : box->docks) g_runtime->ReleaseHostDock(dock.second->handle);
+    box->docks.clear();
     if (box->window) {
         g_windowBoxes.erase(box->window);  // Window* 会被后面的窗口复用，留着就是野指针
         gpui::AppClose(box->window);
@@ -1187,10 +1220,14 @@ int gpui_shim_state_counts(void* win, long long* out, int cap) {
         box->httpResponses.size(),  // 12
         (size_t)(g_boxAlive < 0 ? 0 : g_boxAlive),  // 13 进程级：活着的 Box2
         g_views.size(),                             // 14 进程级：g_views 键数
-        // 15 进程级：上游保留态实体表的长度。#81 起宿主也能造实体（脚本域外），
+        (size_t)box->listCalls,     // 15 宿主渲染虚拟列表：要过几批
+        (size_t)box->listItems,     // 16 一共渲染了几行
+        // 17 进程级：上游保留态实体表的长度。#81 起宿主也能造实体（脚本域外），
         // "每帧复用同一颗"与"每帧漏一颗"只有这个长度能分开——我方 stateHandles 缓存
         // 的条数分不开，因为漏的时候是按同一个 key 覆盖。
         (size_t)(g_runtime ? g_runtime->ComponentStateCount() : 0),
+        box->docks.size(),
+        [&]() { size_t n = 0; for (const auto& dock : box->docks) n += dock.second->panels.size(); return n; }(),
     };
     int n = (int)(sizeof(all) / sizeof(all[0]));
     if (n > cap) n = cap;
@@ -1216,6 +1253,33 @@ int gpui_shim_element_value(void* win, const char* id, double* out_num,
     return v.vkind;
 }
 
+// 宿主渲染虚拟列表的 renderer（bridge 登记，进程唯一）。见 gpuiRenderShimItems。
+static GpuiListRenderFn g_listRender = nullptr;
+
+void gpui_shim_set_list_renderer(GpuiListRenderFn fn) { g_listRender = fn; }
+
+uint32_t gpui_shim_push_list(void* win, const char* id, int uniform, int count) {
+    auto* box = static_cast<Box2*>(win);
+    if (!box) return 0;
+    if (!id || !*id) {
+        // 行回调按 (id, "render_items") 登记、按 id 找 PHP 侧的 renderer——没 id 等于
+        // 这张表永远空着，上游只会画一个 0 行的列表，什么也不报。
+        noteError(box, "list: 缺 id，宿主 renderer 无从查起（会画成 0 行）");
+        return 0;
+    }
+    uint64_t cb = gpui_shim_new_callback(win, id, "render_items");
+    gpui::shell::ListSpec ls;
+    ls.id = cppStr(id);
+    ls.itemCount = count < 0 ? 0 : count;
+    ls.getKey = cb;
+    ls.renderItems = cb;
+    gpui::shell::Component c;
+    c.kind = uniform ? gpui::shell::ComponentKind::UniformList
+                     : gpui::shell::ComponentKind::List;
+    c.list = &ls;  // Push → CopyComponent 把它连同 id 拷进 arena（spec.cpp）
+    return box->arena().Push(c);
+}
+
 uint32_t gpui_shim_push(void* win, const char* kind, const char* text,
                         const char* value, const char* id, unsigned index) {
     auto* box = static_cast<Box2*>(win);
@@ -1237,7 +1301,7 @@ uint32_t gpui_shim_push(void* win, const char* kind, const char* text,
         auto it = box->inputHandles.find(id);
         if (it != box->inputHandles.end()) c.handle = it->second;
     }
-    return box->specs.Push(c);
+    return box->arena().Push(c);
 }
 
 int gpui_shim_spec_index_by_id(void* win, const char* id, unsigned* out_index) {
@@ -1424,12 +1488,15 @@ int gpui_shim_snapshot(void* win, const char* path, int dip_w, int dip_h) {
     // 抓真实在屏窗口的已布局内容（cacheDisplayInRect 用 view 当前绘制结果），
     // 而非离屏 WindowDrawFrame——后者不跑完整布局，位置会错。
     @autoreleasepool {
-        NSWindow* nswin = [NSApp keyWindow];
-        if (!nswin) {
-            for (NSWindow* w in [NSApp windows]) {
-                if (w) { nswin = w; break; }
-            }
-        }
+        // 选窗只认传进来的那一扇：Box2::window → 它自己的 NSWindow（由
+        // cmd/patch-window-handle.sh 在上游侧露的口）。解析不到就**失败**，不再退化成
+        // [NSApp keyWindow]、拿不到再取 [NSApp windows] 的第一个——那两条都由 OS 的前台
+        // 仲裁决定，于是同一条命令会偶尔拍到另一扇窗的整帧（hello tree29/31 实测
+        // gdfrac=1.00000）。拍不到正确窗口宁可红，也不能拍错当标准答案。
+        // 判别臂的实测（hello --selftest 的 snaparm）：旧选窗下两扇各自取帧回同一个宽度
+        // A420px/B420px 且 SELFTEST FAIL rc=1；本实现 A400px/B420px 且 rc=0。
+        void* nat = box->window ? gpui::WindowNativeHandle(box->window) : nullptr;
+        NSWindow* nswin = nat ? (__bridge NSWindow*)nat : nullptr;
         if (!nswin) return 0;
         // 指针归位：拍的是在屏窗口的当前绘制结果，而悬停态与 Inspector 拾取高亮读的是
         // 窗口记下的指针坐标——不归位，基线就取决于物理鼠标那一刻在哪（实测：embedded 整片
@@ -1843,7 +1910,7 @@ uint32_t gpui_shim_webview(void* win, const char* id, const char* url,
     gpui::shell::Component c;
     c.kind = gpui::shell::ComponentKind::ChildView;
     c.handle = e.token;
-    return box->specs.Push(c);
+    return box->arena().Push(c);
 }
 
 int gpui_shim_webview_probe(void* win, const char* id, char* outUrl, int outlen,
@@ -1891,7 +1958,7 @@ uint32_t gpui_shim_inspector(void* win, const char* id) {
     gpui::shell::Component c;
     c.kind = gpui::shell::ComponentKind::ChildView;
     c.handle = e.token;
-    return box->specs.Push(c);
+    return box->arena().Push(c);
 }
 
 #include "gpui_shim_services.inc"  // HTTP / 目录监听 / 解压（文本切片）

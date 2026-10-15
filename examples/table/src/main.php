@@ -49,7 +49,7 @@ function tableDispatch(array $argv): void
     }
     ExampleState::boot(['section' => 5]);
     $app = new App();
-    // 这一域没有点击接线（行/格 id 只是 specIndex 回读的键），所以只有 render。
+    wireData($app);
     $app->run('Table · 表格、列表与进度', TABLE_W, TABLE_H, 'tableTree');
 }
 
@@ -69,6 +69,7 @@ function runTableShot(string $path, int $tree): void
     $app = new App();
     $app->create();
     $app->createWindow('Table Shot', TABLE_W, TABLE_H);
+    wireData($app);
     $app->render(tableTree());
     $app->loop(20);
     echo '--- debug tree (table ' . (int) $tree . ') ---'
@@ -85,14 +86,14 @@ function runTableSelfTest(): void
     $app = new App();
     $app->create();
     $app->createWindow('Table Selftest', TABLE_W, TABLE_H);
+    wireData($app);
     $app->render(tableTree());
     $app->loop(3);
 
     $ok = true;
     echo "TABLE SELFTEST\n";
 
-    // 1) 整棵 §5 树在原生侧没有报错节点。List 那颗是**故意**留的：上游会丢它的 children
-    //    （renderer 未接，task #29/#35），丢 children 不是建不出来，所以这里仍应全空。
+    // 1) 整棵 §5 树在原生侧没有报错节点（虚拟列表的行若少给，也会在这里报出来）。
     $err = $app->registeredError();
     step('registeredError', $err === '', $err === '' ? '空' : $err);
     $ok = $ok && $err === '';
@@ -144,6 +145,88 @@ function runTableSelfTest(): void
     step('indexGuard', $guardOk, '该抛没抛=' . ($guards === [] ? '无' : implode('/', $guards))
         . ' 合法(0)建得出=' . var_export($legalOk, true));
     $ok = $ok && $guardOk;
+
+    // 虚拟列表真惰性（#29/#35）：一万行的 uniformList，PHP 闭包只该被要可见那一段。
+    // 两个独立仪表对账：PHP 侧自己记的（ExampleState）与 shim 记的（stateCounts 的
+    // listCalls/listItems）——只看一边，"闭包被调了"与"行真的进了 materialize"分不开。
+    // 断"远小于总数"而不断具体数：可见几行取决于行高与盒高，改个字号就会挪。
+    $app->loop(3);
+    $sc = $app->stateCounts();
+    $nCalls = (int) ($sc['listCalls'] ?? -1);
+    $nItems = (int) ($sc['listItems'] ?? -1);
+    $phpRows = (int) ExampleState::$v['listRows'];
+    $lazyOk = $nCalls > 0 && $nItems > 0 && $nItems <= DATA_LIST_ROWS / 100
+        && $phpRows >= $nItems && (bool) ExampleState::$v['listSawFirst'];
+    step('virtualListLazy', $lazyOk, 'shim 批次=' . $nCalls . ' 行=' . $nItems
+        . ' PHP 批次=' . (int) ExampleState::$v['listBatches'] . ' 行=' . $phpRows
+        . ' 总数=' . DATA_LIST_ROWS . ' 区间=' . (string) ExampleState::$v['listRanges'] . ' 见过第 0 行=' . var_export((bool) ExampleState::$v['listSawFirst'], true));
+    $ok = $ok && $lazyOk;
+
+    $app->render(El::vFlex([
+        El::uniformList('da-vlist', DATA_LIST_ROWS)->w(260.0)->h(90.0),
+    ])->sizeFull());
+    $app->loop(3);
+    $startBefore = (int) ExampleState::$v['listMaxStart'];
+    $delivered = $app->realScroll(100, 40, -440);
+    $app->loop(4);
+    $startAfter = (int) ExampleState::$v['listMaxStart'];
+    $scScroll = $app->stateCounts();
+    $scrollOk = $delivered && $startAfter > $startBefore
+        && (int) $scScroll['listItems'] < DATA_LIST_ROWS / 10;
+    step('virtualListScroll', $scrollOk, '投递=' . var_export($delivered, true)
+        . ' 最大 start=' . $startBefore . '→' . $startAfter
+        . ' 最后区间=' . (string) ExampleState::$v['listRanges']);
+    $ok = $ok && $scrollOk;
+
+    $app->realClick(100, 20);
+    $app->realRightClick(100, 20);
+    $app->loop(3);
+    $rowClick = (string) ExampleState::$v['listClicked'];
+    $rowRight = (string) ExampleState::$v['listRight'];
+    $rowsWired = str_starts_with($rowClick, 'da-item-') && $rowRight === $rowClick;
+    step('virtualRowListeners', $rowsWired, 'click=' . $rowClick . ' right=' . $rowRight);
+    $ok = $ok && $rowsWired;
+
+    ExampleState::$v['listRowHandlers'] = false;
+    $app->render(El::vFlex([
+        El::uniformList('da-vlist', DATA_LIST_ROWS)->w(260.0)->h(90.0)
+            ->onItemClick()->onItemSecondaryClick(),
+    ])->sizeFull());
+    $app->loop(3);
+    $app->realClick(100, 20);
+    $app->loop(2);
+    $leftExcluded = ExampleState::$v['listSecondary'] === [];
+    $app->realRightClick(100, 20);
+    $app->loop(2);
+    $secondary = (array) ExampleState::$v['listSecondary'];
+    $key = (string) ExampleState::$v['listItem'];
+    $itemsWired = str_starts_with($key, 'da-item-') && $leftExcluded
+        && ($secondary['value'] ?? '') === $key && ($secondary['button'] ?? '') === 'right'
+        && (int) ($secondary['click_count'] ?? 0) === 1
+        && (float) ($secondary['position']['x'] ?? -1) === 100.0
+        && (float) ($secondary['position']['y'] ?? -1) === 20.0
+        && (float) ($secondary['local_position']['x'] ?? -1) >= 0
+        && (float) ($secondary['local_position']['y'] ?? -1) >= 0;
+    step('virtualItemEvents', $itemsWired, 'key=' . $key . ' secondary=' . var_export($secondary, true)
+        . ' 左键排除=' . var_export($leftExcluded, true));
+    $ok = $ok && $itemsWired;
+
+    ExampleState::$v['varyingRows'] = 0;
+    $app->listRenderer('da-variable', static function (int $start, int $end): array {
+        ExampleState::$v['varyingRows'] = (int) ExampleState::$v['varyingRows'] + ($end - $start);
+        $rows = [];
+        for ($i = $start; $i < $end; $i++) {
+            $rows[] = El::div()->h($i % 2 === 0 ? 20.0 : 30.0)
+                ->child(El::text('不等高行 ' . $i)->font(12.0));
+        }
+        return $rows;
+    });
+    $app->render(El::vFlex([El::list('da-variable', DATA_LIST_ROWS)->w(260.0)->h(90.0)])->sizeFull());
+    $app->loop(3);
+    $varying = (int) ExampleState::$v['varyingRows'];
+    $variableOk = $varying > 1 && $varying < DATA_LIST_ROWS / 10 && $app->registeredError() === '';
+    step('virtualVariableRows', $variableOk, '不等高列表请求行数=' . $varying . ' 总数=' . DATA_LIST_ROWS);
+    $ok = $ok && $variableOk;
 
     $app->close();
     echo ($ok ? 'TABLE SELFTEST OK' : 'TABLE SELFTEST FAIL') . "\n";

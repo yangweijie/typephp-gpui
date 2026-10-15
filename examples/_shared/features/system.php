@@ -5,7 +5,7 @@ declare(strict_types=1);
 /**
  * examples/_shared/features/system.php — 功能域「系统能力」+「服务」（两节一域）。
  *
- * 从 showcase 的 §9（剪贴板 · url · 文件系统 · 进程 · 存储）与 §10（http · 目录监听 · 解压 ·
+ * 从原画廊（已删除）的 §9（剪贴板 · url · 文件系统 · 进程 · 存储）与 §10（http · 目录监听 · 解压 ·
  * 系统状态 · 主题）搬来。它们合成一支独立示例的理由：这两节的能力全部受同一张
  * Capabilities 授权表约束（grantRoot 之后才允许遍历，逐级 openat + O_NOFOLLOW），
  * 一起测才能把"授了根才读得到、没授的根读不到"这个双向门钉在同一个进程里。
@@ -101,7 +101,7 @@ function fmtBytes(int $n): string
 function wireSystem(App $app): void
 {
     $app->on('sy-clip-set', 'click', function () use ($app): void {
-        $app->setClipboardText('showcase 写入的文本 ' . $app->notificationCount());
+        $app->setClipboardText('gpui 写入的文本 ' . $app->notificationCount());
     });
     $app->on('sy-clip-get', 'click', function () use ($app): void {
         $t = $app->clipboardText();
@@ -131,7 +131,7 @@ function wireSystem(App $app): void
         // 授权根必须是**已存在**的目录：Capabilities::ResolvePath 只做前缀判断，
         // 不会替你把根建出来，授一个还不存在的目录会让后面每一步都吃"不在根里"。
         $root = '/tmp';
-        $work = '/tmp/gpui-showcase/nest';
+        $work = '/tmp/gpui-system/nest';
         App::grantRoot($root, true);
         $log = [];
         $log[] = 'mkdir=' . var_export(App::fsMkdir($work, true), true);
@@ -152,7 +152,7 @@ function wireSystem(App $app): void
     });
     $app->on('sy-proc', 'click', function (): void {
         App::grantExecute(['/bin/echo']);
-        $r = App::processRun('/bin/echo', ['showcase 的输出']);
+        $r = App::processRun('/bin/echo', ['gpui 的输出']);
         $denied = App::processRun('/bin/cat', ['/etc/passwd']);
         ExampleState::$v['sysLog'] = array_merge(ExampleState::$v['sysLog'], [
             'echo=' . ($r === null ? 'null' : 'code=' . $r['code'] . ' out=' . trim($r['out'])),
@@ -162,7 +162,7 @@ function wireSystem(App $app): void
     $app->on('sy-store', 'click', function (): void {
         $before = App::storageSet('k', 'v');
         App::grantStorage(true);
-        App::storagePath('/tmp/gpui-showcase-store.json');
+        App::storagePath('/tmp/gpui-system-store.json');
         $set = App::storageSet('theme', 'dark');
         ExampleState::$v['sysLog'] = array_merge(ExampleState::$v['sysLog'], [
             '未授权 set=' . var_export($before, true),

@@ -5,7 +5,7 @@ declare(strict_types=1);
 /**
  * examples/_shared/features/mac.php — 功能域「mac 系统集成：托盘 · 全局快捷键 · Dock · OS 通知」。
  *
- * 从 showcase 的 §13 搬来（builder + 全部 mc-* 接线 + 自报的像素树号）。
+ * 从原画廊（已删除）的 §13 搬来（builder + 全部 mc-* 接线 + 自报的像素树号）。
  * 这一域的"对不对"大部分在系统界面之外（菜单栏在屏幕顶、Dock 角标在程序坞、
  * OS 通知通知中心），--shot 拍不到，所以它的证据是读数与状态：
  * trayCount / hotkeyCount / fireHotkeyForTest / appMenuCount / menuRows。
@@ -63,7 +63,7 @@ function sectionMac(array $s): El
 function wireMac(App $app): void
 {
     $app->on('mc-tray', 'click', function () use ($app): void {
-        ExampleState::$v['trayId'] = $app->tray(['新建', '打开…', '退出'], 'mc-tray-item', 'Showcase 托盘');
+        ExampleState::$v['trayId'] = $app->tray(['新建', '打开…', '退出'], 'mc-tray-item', 'GPUI 托盘');
     });
     $app->on('mc-tray-off', 'click', function () use ($app): void {
         if (ExampleState::$v['trayId'] > 0) {
@@ -117,13 +117,13 @@ function wireMac(App $app): void
         ExampleState::$v['dock'] = '（清空）';
     });
     $app->on('mc-osn', 'click', function (): void {
-        ExampleState::$v['osNotify'] = var_export(App::osNotify('Showcase', '这是操作系统通知中心的一条'), true);
+        ExampleState::$v['osNotify'] = var_export(App::osNotify('GPUI', '这是操作系统通知中心的一条'), true);
     });
     $app->on('mc-menus', 'click', function () use ($app): void {
         // 键名要跟 bridge 对齐：菜单条用 name（不是 label），行用 action（不是 id）。
         // 写错不报错，只是那一行的动作永远是 0——点了没有任何回音。
         ExampleState::$v['menuCount'] = $app->setAppMenus([
-            ['name' => 'Showcase', 'items' => [
+            ['name' => 'GPUI', 'items' => [
                 ['label' => '关于', 'action' => 'menu-about'],
                 ['separator' => true],
                 ['label' => '退出', 'action' => 'menu-quit'],

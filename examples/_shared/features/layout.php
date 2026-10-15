@@ -5,7 +5,7 @@ declare(strict_types=1);
 /**
  * examples/_shared/features/layout.php — 功能域「容器、布局与滚动」。
  *
- * 从 showcase 的 §4 搬来。这一域目前没有 PHP 侧 handler：`on_resize` 的 op 挂在组上
+ * 从原画廊（已删除）的 §4 搬来。这一域目前没有 PHP 侧 handler：`on_resize` 的 op 挂在组上
  * （见下面那段的注释），但送达仍未量到——宿主钩子与"按住再拖"的自检缝都还缺。
  * 所以只有 builder 与自报的像素树号。
  */
@@ -16,7 +16,10 @@ use TypePHP\Gpui\Element as El;
 /** 本域的像素树清单：树号 → [标题, builder]。 */
 function layoutTrees(): array
 {
-    return [1 => ['容器、布局与滚动', 'sectionLayout']];
+    return [
+        1 => ['容器、布局与滚动', 'sectionLayout'],
+        2 => ['Dock 保留态布局', 'sectionDock'],
+    ];
 }
 
 function sectionLayout(array $s): El
@@ -63,6 +66,36 @@ function sectionLayout(array $s): El
             El::tab('明细')->child(El::text('tab 内容二')->font(12.0)->p(8.0)),
         ])->h(90.0),
     ])->sizeFull()->gap(10.0)->p(16.0)->overflowYScroll();
+}
+
+function sectionDock(array $s): El
+{
+    return El::vFlex([
+        El::text('Dock 保留态布局')->font(22.0)->semibold(),
+        El::text('原生标签切换、关闭与拖拽；面板内容由 PHP 描述，布局由 DockState 持有')->font(12.0)->truncate(),
+        El::dockArea('ld-area')->flex1(),
+    ])->sizeFull()->gap(10.0)->p(16.0);
+}
+
+function wireDock(App $app): void
+{
+    $app->createDock('ld-area');
+    $app->addDockPanel('ld-area', 'ld-editor', '编辑器', El::vFlex([
+        El::text('编辑器面板')->font(18.0),
+        El::text('点击原生标签切换面板')->font(12.0),
+    ])->p(12.0));
+    $app->addDockPanel('ld-area', 'ld-console', '控制台', El::vFlex([
+        El::text('控制台面板')->font(18.0),
+        El::catalogButton('ld-panel-button', '面板内按钮')->onClick(),
+    ])->p(12.0));
+    $app->addDockPanel('ld-area', 'ld-files', '文件', El::text('文件树面板')->font(14.0)->p(12.0), 'left', 180.0);
+    $app->addDockPanel('ld-area', 'ld-log', '日志', El::text('日志面板')->font(14.0)->p(12.0), 'bottom', 150.0);
+    $app->on('ld-area', 'dock_change', static function (): void {
+        ExampleState::$v['dockChanges'] = (int) ExampleState::$v['dockChanges'] + 1;
+    });
+    $app->on('ld-panel-button', 'click', static function (): void {
+        ExampleState::$v['dockButton'] = true;
+    });
 }
 
 /** 本域元素的接线。 */

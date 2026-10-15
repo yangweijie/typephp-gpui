@@ -50,6 +50,8 @@ typedef struct {
     double vnum;
     int vbool;
     char vstr[256];
+    /* item_secondary_click：x/y、行内 x/y、连击数、修饰键位掩码；value 仍为行 key。 */
+    double itemPointer[6];
 } GpuiEvent;
 
 /* 生命周期 / 窗口。句柄对 bridge 不透明（shim 内部是 GpuiBox*）。 */
@@ -61,7 +63,7 @@ void  gpui_shim_pump(void* win, double max_wait_secs);
 int   gpui_shim_poll(void* win, GpuiEvent* out);
 
 /* 真输入验收缝（见 gpui_mac.h 的 gpui_mac_send_mouse）。
- * type: 0=移动 1=左键单击（按下+抬起） 2=只按下 3=只抬起。
+ * type: 0=移动 1=左键单击（按下+抬起） 2=只按下 3=只抬起 4=右键单击。
  * 2/3 分开是为了能拖：可伸缩面板的分隔条只在"按住 + 移动"时才改尺寸，
  * 一次同点单击不会动它（宿主侧的组合口是 App::realDrag）。
  * 返回 1 = 这一趟在 PHP 队列里确实多出一条事件，即"元素真的挂上了监听器"；
@@ -69,6 +71,8 @@ int   gpui_shim_poll(void* win, GpuiEvent* out);
  * x/y 是视图坐标（左上原点、整数逻辑点），与 snapshot 同一套。 */
 int   gpui_shim_real_mouse(void* win, int x, int y, int type);
 int   gpui_shim_real_key(void* win, int keycode, const char* chars);
+/* 通过 AppKit 派发滚轮；返回已投递，不以 PHP 队列增长判断，delta 单位为像素。 */
+int   gpui_shim_real_scroll(void* win, int x, int y, int delta_y, int delta_x);
 /* 合成一次 ShellAction 派发（按名字）：原生菜单条在窗口之外，真点击缝够不到，
  * 而菜单动作回到宿主的整条路（AppOnAction → shim 钩子 → PHP 的 `action` 事件）
  * 需要能被门禁覆盖。返回 1 = 派发被某个监听接住。 */
@@ -157,9 +161,10 @@ int gpui_shim_last_error(void* win, char* out, int outlen);
  * 按 kind 只填对应出参：NUM→*out_num，BOOL→*out_bool，STR→out_str（NUL 结尾）。 */
 /* 各容器条数（内存增长仪表）。顺序与 gpui_shim.cpp 里一致：
  * timerKeys/timerIds/callbacks/cbByKey/shimCallbacks/inputHandles/lastValues/
- * webviews/inspectors/notifyLists/dialogs/watchCtx/httpResponses，接着三项是**进程级**：
- * boxesAlive（活着的 Box2 数）、viewsAlive（g_views 键数）与 componentStates
- * （上游保留态实体表的长度，#81 起宿主也会往里造）。返回写入条数。 */
+ * webviews/inspectors/notifyLists/dialogs/watchCtx/httpResponses，然后 boxesAlive（进程级，
+ * 活着的 Box2 数）、viewsAlive（进程级，g_views 键数）、listCalls/listItems（宿主渲染
+ * 虚拟列表向 PHP 要过几批、几行）、componentStates（进程级，上游保留态实体表的长度，
+ * #81 起宿主也会往里造）。返回写入条数。 */
 int gpui_shim_state_counts(void* win, long long* out, int cap);
 
 int gpui_shim_element_value(void* win, const char* id, double* out_num,
@@ -446,6 +451,30 @@ uint64_t gpui_shim_new_callback(void* win, const char* elem_id,
  * 见 cmd/patch-host-state.sh。 */
 int gpui_shim_state(void* win, const char* kind, const char* key,
                     const GpuiArg* args, int argc, uint64_t* handle);
+
+/* 宿主渲染的虚拟列表（#29/#35）。push_list 压一个 list / uniform_list 节点，它的行不在
+ * 描述里：materialize 到它时，上游 RenderVirtualItems（cmd/patch-host-list.sh 改过）
+ * 回调宿主，shim 切到一块临时 arena，调这里登记的 renderer 要 [first,end) 那一批行的
+ * 描述（renderer 照常经 push/style/attach 建树，返回每行根 spec id，写进 out_roots，
+ * 至多 cap 个），再把它们 materialize 成行。renderer 在 **materialize 途中** 被调用：
+ * 它只能描述，不能 render_begin/render_end。 */
+typedef int (*GpuiListRenderFn)(void* win, const char* list_id, int first, int end,
+                                uint32_t* out_roots, int cap);
+void gpui_shim_set_list_renderer(GpuiListRenderFn fn);
+uint32_t gpui_shim_push_list(void* win, const char* id, int uniform, int count);
+
+/* Dock 面板描述独立持有 arena；begin/end 之间只描述树，不泵帧或重入窗口 API。 */
+int gpui_shim_dock_create(void* win, const char* id);
+uint32_t gpui_shim_push_dock(void* win, const char* id);
+int gpui_shim_dock_panel_begin(void* win, const char* id, const char* panel,
+                               const char* title);
+int gpui_shim_dock_panel_end(void* win, const char* id, const char* panel,
+                             const char* placement, double size, uint32_t root);
+int gpui_shim_dock_select(void* win, const char* id, const char* panel);
+int gpui_shim_dock_remove(void* win, const char* id, const char* panel);
+int gpui_shim_dock_layout(void* win, const char* id, char* out, int cap);
+int gpui_shim_dock_load(void* win, const char* id, const char* json);
+int gpui_shim_dock_probe(void* win, const char* id, double* out, int cap);
 
 /* 指定根 spec id 并请求下一帧重绘。 */
 void gpui_shim_render_end(void* win, uint32_t root_id);

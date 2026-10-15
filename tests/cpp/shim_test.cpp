@@ -49,6 +49,7 @@ void testKindFromString() {
     known = true; CHECK(kindFromString("otp_input", &known) == K::OtpInput && known);
     known = true; CHECK(kindFromString("resizable_panel", &known) == K::ResizablePanel && known);
     known = true; CHECK(kindFromString("toggle_group", &known) == K::ToggleGroup && known);
+    known = true; CHECK(kindFromString("uniform_list", &known) == K::UniformList && known);
     // 兜底：值仍是 Div（不新增枚举，避免动 C ABI 结构），但 known 必须翻成 false。
     known = true; CHECK(kindFromString("totally_unknown", &known) == K::Div && !known);
     known = true; CHECK(kindFromString(nullptr, &known) == K::Div && !known);
@@ -56,11 +57,7 @@ void testKindFromString() {
     CHECK(kindFromString("div") == K::Div);
 
     // 漂移警报：上游动了 ComponentKind 表就必须注意到。
-    // 判据不是"每个枚举值都得有名字"——我们只登记 PHP 能表达的那些，剩下 18 个
-    // （VirtualList 轴、DockContent、Registered/ChildView 等）本来就没有名字，
-    // 那样每条 CI 都会红。这里量的是**未登记值的个数**：上游加/删一个 kind，
-    // 这个数就会变，红的那次提醒去看一眼"要不要给 PHP 暴露它"。
-    // 今天的事实：表里 46 个名字，值域里未被覆盖的有 18 个。
+    // 只检查未登记值的个数；UniformList 已加入，剩余 17 个不能按普通 kind 构造。
     bool covered[256] = {};
     for (const KindName& e : kKindNames) {
         covered[(unsigned)e.kind] = true;
@@ -69,7 +66,7 @@ void testKindFromString() {
     // （按描述符索引），ChildView 是 shim 内部挂原生子视图用的。
     const K unnameable[] = {K::Registered, K::ChildView};
 
-    const int kExpectedUnnamed = 18;
+    const int kExpectedUnnamed = 17;
     int unnamed = 0;
     for (unsigned v = 0; v <= (unsigned)K::Registered; v++) {
         if (covered[v]) continue;
@@ -594,6 +591,42 @@ void testEnqueueRouting() {
     CHECK(box.lastValues.size() == 1);
 }
 
+void testDockLayoutRoundtrip() {
+    std::puts("Dock layout roundtrip");
+    gpui::DockState state;
+    gpui::DockPanelDef editor;
+    editor.name = StrL("editor");
+    gpui::DockPanelDef console;
+    console.name = StrL("console");
+    int first = gpui::DockAddPanelDef(&state, editor);
+    int second = gpui::DockAddPanelDef(&state, console);
+    state.center = gpui::DockNewTabs(&state);
+    gpui::DockTabsAdd(&state, state.center, first);
+    gpui::DockTabsAdd(&state, state.center, second);
+    gpui::DockAreaState saved;
+    gpui::DockDump(&state, &saved);
+    gpui::StrBuilder writer;
+    gpui::DockAreaStateWrite(&saved, &writer);
+    gpui::Str json = writer.TakeStr();
+    gpui::Arena* arena = gpui::ArenaNew();
+    gpui::DockAreaState parsed;
+    CHECK(gpui::DockAreaStateParse(arena, json, &parsed));
+    int nodes = state.nodes.len;
+    for (int i = 0; i < 40; i++) CHECK(gpui::DockLoad(&state, &parsed, arena));
+    CHECK(state.panels.len == 2);
+    CHECK(state.nodes.len == nodes);
+    CHECK(state.nodes[state.center].panel.len == 2);
+    gpui::DockAreaState after;
+    gpui::DockDump(&state, &after);
+    gpui::StrBuilder writerAfter;
+    gpui::DockAreaStateWrite(&after, &writerAfter);
+    gpui::Str jsonAfter = writerAfter.TakeStr();
+    CHECK(gpui::StrEq(json, jsonAfter));
+    gpui::StrFree(json);
+    gpui::StrFree(jsonAfter);
+    gpui::ArenaDelete(arena);
+}
+
 } // namespace
 
 int main() {
@@ -608,6 +641,7 @@ int main() {
     testGapServices();
     testCapabilityServices();
     testEnqueueRouting();
+    testDockLayoutRoundtrip();
     if (g_failures) {
         std::fprintf(stderr, "SHIM CPP TESTS FAIL (%d)\n", g_failures);
         return 1;

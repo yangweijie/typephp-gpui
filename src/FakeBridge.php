@@ -54,6 +54,11 @@ namespace TypePHP\Gpui {
         /** @var array<string,mixed> "windowId\x1felementId" → 最近一次随事件上报的值 */
         public static array $lastValues = [];
 
+        /** @var array<string,callable> "windowId\x1flistId" → App::listRenderer 包好的行闭包 */
+        public static array $listRenderers = [];
+        /** @var array<string,array> */
+        public static array $docks = [];
+
         /** @var string|null 模拟系统粘贴板（null = 空剪贴板） */
         public static ?string $clipboard = null;
 
@@ -151,6 +156,8 @@ namespace TypePHP\Gpui {
             self::$appMenuCount = 0;
             self::$menuRows = [];
             self::$lastValues = [];
+            self::$listRenderers = [];
+            self::$docks = [];
             self::$clipboard = null;
             self::$clipboardImage = null;
             self::$clipboardPaths = [];
@@ -394,6 +401,13 @@ namespace {
 
     function gpui_window_close(mixed $window): void
     {
+        $prefix = ((int) $window) . "\x1f";
+        foreach (array_keys(FakeBridge::$listRenderers) as $key) {
+            if (str_starts_with($key, $prefix)) unset(FakeBridge::$listRenderers[$key]);
+        }
+        foreach (array_keys(FakeBridge::$docks) as $key) {
+            if (str_starts_with($key, $prefix)) unset(FakeBridge::$docks[$key]);
+        }
         FakeBridge::$windowOpen = false;
     }
 
@@ -472,6 +486,96 @@ namespace {
         FakeBridge::$focusedId = (int) crc32($id);
 
         return FakeBridge::$focusedId;
+    }
+
+    function gpui_set_list_renderer(mixed $window, string $id, mixed $fn): void
+    {
+        // 替身没有 gpui 画帧，就记下来；测试按需自己调它，模拟"要 [start,end) 那一批"。
+        FakeBridge::$listRenderers[((int) $window) . "\x1f" . $id] = $fn;
+    }
+
+    function gpui_dock_create(mixed $window, string $id): bool
+    {
+        if ($id === '') return false;
+        $key = ((int) $window) . "\x1f" . $id;
+        FakeBridge::$docks[$key] ??= ['panels' => [], 'active' => -1];
+        return true;
+    }
+
+    function gpui_dock_panel(mixed $window, string $id, string $name, string $title,
+                              array $tree, string $placement, float $size): bool
+    {
+        $key = ((int) $window) . "\x1f" . $id;
+        if (!isset(FakeBridge::$docks[$key]) || $name === '') return false;
+        $dock = &FakeBridge::$docks[$key];
+        if (!isset($dock['panels'][$name])) {
+            $index = count($dock['panels']);
+            $dock['panels'][$name] = ['index' => $index, 'placement' => $placement,
+                                     'size' => $size, 'open' => true];
+            if ($placement === 'center') $dock['active'] = $index;
+        }
+        $dock['panels'][$name]['title'] = $title;
+        $dock['panels'][$name]['tree'] = $tree;
+        return true;
+    }
+
+    function gpui_dock_select(mixed $window, string $id, string $name): bool
+    {
+        $key = ((int) $window) . "\x1f" . $id;
+        $panel = FakeBridge::$docks[$key]['panels'][$name] ?? null;
+        if ($panel === null || !$panel['open']) return false;
+        if ($panel['placement'] === 'center') FakeBridge::$docks[$key]['active'] = $panel['index'];
+        return true;
+    }
+
+    function gpui_dock_remove(mixed $window, string $id, string $name): bool
+    {
+        $key = ((int) $window) . "\x1f" . $id;
+        $panel = FakeBridge::$docks[$key]['panels'][$name] ?? null;
+        if ($panel === null || !$panel['open']) return false;
+        $dock = &FakeBridge::$docks[$key];
+        $centers = array_filter($dock['panels'], static fn (array $p): bool => $p['open'] && $p['placement'] === 'center');
+        if ($panel['placement'] === 'center' && count($centers) === 1) return false;
+        $dock['panels'][$name]['open'] = false;
+        if ($dock['active'] === $panel['index']) {
+            foreach ($dock['panels'] as $p) {
+                if ($p['open'] && $p['placement'] === 'center') { $dock['active'] = $p['index']; break; }
+            }
+        }
+        return true;
+    }
+
+    function gpui_dock_layout(mixed $window, string $id): string
+    {
+        $dock = FakeBridge::$docks[((int) $window) . "\x1f" . $id] ?? null;
+        return $dock === null ? '' : (string) json_encode($dock, JSON_UNESCAPED_UNICODE);
+    }
+
+    function gpui_dock_load(mixed $window, string $id, string $json): bool
+    {
+        $key = ((int) $window) . "\x1f" . $id;
+        $parsed = json_decode($json, true);
+        if (!isset(FakeBridge::$docks[$key]) || !is_array($parsed) || !isset($parsed['panels'], $parsed['active'])
+            || !is_array($parsed['panels'])) return false;
+        foreach (array_keys($parsed['panels']) as $name) {
+            if (!isset(FakeBridge::$docks[$key]['panels'][$name])) return false;
+        }
+        FakeBridge::$docks[$key] = $parsed;
+        return true;
+    }
+
+    function gpui_dock_probe(mixed $window, string $id): array
+    {
+        $dock = FakeBridge::$docks[((int) $window) . "\x1f" . $id] ?? null;
+        if ($dock === null) return [];
+        return ['registered' => count($dock['panels']), 'open' => count(array_filter($dock['panels'],
+            static fn (array $p): bool => $p['open'])), 'active' => $dock['active'], 'nodes' => 1,
+            'w' => 0.0, 'h' => 0.0, 'x' => 0.0, 'y' => 0.0];
+    }
+
+    function gpui_real_scroll(mixed $window, int $x, int $y, int $deltaY, int $deltaX): bool
+    {
+        return false;
     }
 
     function gpui_real_mouse(mixed $window, int $x, int $y, int $type): int
@@ -559,7 +663,14 @@ namespace {
 
     function gpui_state_counts(mixed $window): array
     {
-        // 替身只有菜单行这张真表；其余容器在假侧不存在，一律报 0。
+        $prefix = ((int) $window) . "\x1f";
+        $dockStates = 0;
+        $dockPanels = 0;
+        foreach (FakeBridge::$docks as $key => $dock) {
+            if (!str_starts_with($key, $prefix)) continue;
+            $dockStates++;
+            $dockPanels += count($dock['panels']);
+        }
         return [
             'timerKeys' => 0, 'timerIds' => 0, 'callbacks' => 0, 'cbByKey' => 0,
             'shimCallbacks' => 0, 'inputHandles' => 0, 'lastValues' => count(FakeBridge::$lastValues),
@@ -567,7 +678,8 @@ namespace {
             'watchCtx' => 0, 'httpResponses' => 0,
             'boxesAlive' => 0, 'viewsAlive' => 0,
             // 真侧第 15 项是上游保留态实体表的长度（#81）。假侧没有那张表。
-            'componentStates' => 0,
+            'componentStates' => 0, 'listCalls' => 0, 'listItems' => 0,
+            'dockStates' => $dockStates, 'dockPanels' => $dockPanels,
         ];
     }
 

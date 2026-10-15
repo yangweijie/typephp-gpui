@@ -68,8 +68,16 @@ function patchManifest(): array {
         ['patch-host-application.sh', "$gpui/src/shell/runtime.cpp", 'HostApplyComponentAppEffect'],
         ['patch-host-state.sh',      "$gpui/src/shell/runtime.cpp", 'typephp-gpui: host-side retained component state'],
         ['patch-host-state.sh',      "$gpui/src/shell/runtime.h",   'NewHostState'],
+        ['patch-host-list.sh',       "$gpui/src/shell/runtime.cpp", 'typephp-gpui: host-rendered virtual list'],
+        ['patch-host-dock.sh',       "$gpui/src/shell/runtime.cpp", 'ShellRuntime::CreateHostDock'],
+        ['patch-host-dock.sh',       "$gpui/src/shell/runtime.h",   'bool ReleaseHostDock(shell::EntityHandle handle);'],
+        ['patch-host-dock.sh',       "$gpui/src/base/dock_state.cpp", 'typephp-gpui: release Dock layout node arrays'],
+        ['patch-host-dock.sh',       "$gpui/src/shell/dock.h",      'const DockRenderer* hostRenderer = nullptr;'],
+        ['patch-host-dock.sh',       "$gpui/src/shell/dock.cpp",    'typephp-gpui: delegate the complete native Dock renderer.'],
         ['patch-concepts.sh',      "$gpui/src/gpui/gpui.h",          'EmitsEventV'],
         ['patch-hover-always.sh',  "$gpui/src/gpui/window_mac.cpp",  'NSTrackingActiveAlways'],
+        ['patch-window-handle.sh', "$gpui/src/gpui/platform.h",      'WindowNativeHandle'],
+        ['patch-window-handle.sh', "$gpui/src/gpui/window_mac.cpp",  'typephp-gpui: expose the owning NSWindow'],
         ['patch-key-view.sh',      "$gpui/src/shell/view.cpp",       'typephp-gpui: gpuiEnqueueKey'],
         ['patch-mouse-view.sh',    "$gpui/src/shell/view.cpp",       'typephp-gpui: gpuiEnqueueMouse'],
         ['patch-select-view.sh',   "$gpui/src/shell/view.cpp",       'typephp-gpui: gpuiEnqueueSignal'],
@@ -248,7 +256,7 @@ switch ($cmd) {
             $exe = appBundle($root, $example);
             ok("已包成 bundle（真前台应用）：$exe");
             // 把示例自己的开关（--trace / --sections / --selftest）原样转给 bundle 里的
-            // 二进制：没有这条转发，"php bin/gpui run showcase --trace" 会静默丢掉 trace，
+            // 二进制：没有这条转发，"php bin/gpui run input --trace" 会静默丢掉 trace，
             // 而那正是量"手点有没有到"的唯一外部手段。
             $extra = array_values(array_filter(array_slice($args, 1),
                 static fn ($a): bool => $a !== '--no-native'));

@@ -32,7 +32,7 @@ if (!is_file($bin)) {
 }
 
 // 二进制比它的构建输入旧 ⇒ 这次量的是上一次构建的产物。这条门是 2026-10-14 真踩出来的：
-// 改了 examples/_shared/features/inputs.php 之后直接 `shotdiff record showcase`，
+// 改了 examples/_shared/features/inputs.php 之后直接 `shotdiff record input`，
 // 13 棵树全报"字节数与基线相同"，看起来正好像"这次改动不影响像素"，
 // 而真实原因是那支二进制没重编——record 模式还会把旧图重新写一遍，把假绿坐实。
 $binAge = filemtime($bin);
@@ -69,7 +69,7 @@ if ($newest > $binAge) {
 // 32 = 通知层（El::notifications + 两条不自动退场的通知）。
 $trees = [0, 10, 11, 12, 13, 14, 20, 21, 22, 23, 25, 26, 27, 28, 29, 30, 31, 32];
 if ($example !== 'hello') {
-    // 其他示例（如 showcase：一节一棵树）不自报树号集就不比对——宁缺毋滥，
+    // 不自报树号集的示例就不比对——宁缺毋滥，
     // 免得把"没截图"当成"截了但一致"。
     $trees = [];
     $list = (string) shell_exec($bin . ' --sections 2>/dev/null');

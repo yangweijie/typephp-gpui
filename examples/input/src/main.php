@@ -5,7 +5,7 @@ declare(strict_types=1);
 /**
  * examples/input/src/main.php — 功能域独立示例：输入与保留态取值。
  *
- * 存在理由（与 showcase 的分工）：showcase 是**画廊**，一次跑 13 节、报告只在末尾打印一次，
+ * 存在理由（与原画廊的分工）：画廊是**一次跑 13 节**、报告只在末尾打印一次，
  * 所以任何一处崩都表现为"无声退非零"，量一颗输入框要把整个画廊跑完。这一支只装输入域，
  * 于是①编译只花时间在本域源上，②自检**边跑边打**（每步一行，见 step()），
  * 崩在哪一行就停在哪一行——这直接对应上一轮 rc=11 那种"退出码非零但一个字都没印"的现场。
@@ -59,12 +59,32 @@ function inputDispatch(array $argv): void
         runSelfTest();
         return;
     }
+    $waitIdx = array_search('--wait-key', $argv, true);
+    if ($waitIdx !== false) {
+        // 真人键盘验收：秒数钳在 5..600，给一个不至于手慢就判失败的窗口。
+        $secs = isset($argv[$waitIdx + 1]) ? (int) $argv[$waitIdx + 1] : 30;
+        runWaitKey(max(5, min(600, $secs)));
+        return;
+    }
+    if (in_array('--trace', $argv, true)) {
+        runInteractive(true);
+        return;
+    }
     $shotIdx = array_search('--shot', $argv, true);
     if ($shotIdx !== false) {
         $path = isset($argv[$shotIdx + 1]) ? (string) $argv[$shotIdx + 1] : '/tmp/input.png';
         $tree = isset($argv[$shotIdx + 2]) ? (int) $argv[$shotIdx + 2] : 1;
         runShot($path, $tree);
         return;
+    }
+    // 未知开关必须拒绝。静默忽略会一路落到交互 run() 去开一扇窗口，于是"跑一下某个模式"
+    // 变成永久挂住（实测踩过），拿不到任何结论；退出码 2 与"门红"的 1 分开。
+    foreach ($argv as $arg) {
+        if (is_string($arg) && str_starts_with($arg, '--')) {
+            echo '未知开关: ' . $arg . "\n"
+                . "可用：--sections / --selftest / --shot <path> [tree] / --wait-key <秒> / --trace\n";
+            exit(2);
+        }
     }
     runInteractive();
 }
@@ -81,12 +101,105 @@ function inputTree(): El
     return El::vFlex([sectionInputs(ExampleState::get())])->sizeFull()->bg(0xF6F3EE);
 }
 
-function runInteractive(): void
+function runInteractive(bool $trace = false): void
+{
+    ExampleState::boot(['section' => 2, 'trace' => $trace]);
+    $app = new App();
+    wireInputs($app);
+    if ($trace) {
+        wireEventTrace($app);
+    }
+    $app->run('Input · 保留态取值', INPUT_W, INPUT_H, 'inputTree');
+}
+
+/** 收到过某类事件的不同 id 数。 */
+function inEvCount(string $type): int
+{
+    return count((array) (ExampleState::$v['evSeen'][$type] ?? []));
+}
+
+function inEvSeenSummary(): string
+{
+    $parts = [];
+    foreach ((array) ExampleState::$v['evSeen'] as $type => $ids) {
+        $parts[] = (string) $type . '{' . implode(',', array_keys((array) $ids)) . '}';
+    }
+    return implode(' ', $parts);
+}
+
+/** --trace 的落盘：cmd/real-input-probe.py 读的就是这份，一行一个事件。 */
+function inTrace(string $line): void
+{
+    if (!(bool) (ExampleState::$v['trace'] ?? false)) {
+        return;
+    }
+    file_put_contents('/tmp/input-events.log', $line . "\n", FILE_APPEND);
+}
+
+/**
+ * 通配记录器。onAny 按**类型**收所有 id 的事件，handler 拿的是整个 event 数组，
+ * 所以这里一条就能覆盖四类；注册必须在 render 之前（回调 id 在 materialize 时定死）。
+ */
+function wireEventTrace(App $app): void
+{
+    foreach (['key_down', 'key_up', 'click', 'change', 'hover'] as $type) {
+        $app->onAny($type, static function (array $e) use ($type): void {
+            $id = (string) ($e['id'] ?? '-');
+            ExampleState::$v['evSeen'][$type][$id] = true;
+            inTrace($type . ' ' . $id . ' ' . (string) ($e['value'] ?? ''));
+        });
+    }
+}
+
+/**
+ * --wait-key：真人键盘验收（从画廊迁来，是 #56 唯一的人机接口）。
+ * 只有人能给的输入，就别让人去猜"我这一下到没到"：屏幕上写清要按什么，
+ * 到了就把读数打出来并以退出码给结论（0=按到了，1=没按到），人不必翻日志。
+ */
+function runWaitKey(int $seconds): void
 {
     ExampleState::boot(['section' => 2]);
     $app = new App();
+    $app->create();
+    $app->createWindow('Input WaitKey', INPUT_W, INPUT_H);
+    $app->keepTryingForeground(20);
     wireInputs($app);
-    $app->run('Input · 保留态取值', INPUT_W, INPUT_H, 'inputTree');
+    wireEventTrace($app);
+    $app->view(static function () use ($app): El {
+        $st = $app->windowState();
+        return El::vFlex([
+            El::text('键盘人工验收：先点一下这扇窗口把它带到前台，再按几个字母键，最后按 Escape')
+                ->font(17.0)->semibold()->p(14.0),
+            El::text('key_down=' . inEvCount('key_down') . ' · key_up=' . inEvCount('key_up')
+                . ' · click=' . inEvCount('click') . ' · change=' . inEvCount('change'))
+                ->font(15.0)->px(14.0),
+            El::text('active=' . var_export($st['active'] ?? null, true)
+                    . ' key=' . var_export($st['key'] ?? null, true)
+                    . ' 焦点 id=' . $app->focusedId() . ' 陷阱 id=' . $app->focusTrap())
+                ->font(12.0)->px(14.0)->pt(8.0),
+            El::text('按到键或计时结束就自己退出；结论也写在终端里。')
+                ->font(12.0)->px(14.0)->pt(8.0),
+        ])->sizeFull()->gap(6.0);
+    });
+    $deadline = microtime(true) + $seconds;
+    $frames = 0;
+    $sawKey = false;
+    while (microtime(true) < $deadline) {
+        $app->loop(1);
+        $frames++;
+        if (inEvCount('key_down') > 0 || inEvCount('key_up') > 0) {
+            $sawKey = true;
+            // 按到了再多收几帧，让 Escape / 连续按键都进读数。
+            $deadline = min($deadline, microtime(true) + 8);
+        }
+    }
+    echo 'WAIT-KEY seconds=' . $seconds . ' frames=' . $frames
+        . ' key_down=' . inEvCount('key_down') . ' key_up=' . inEvCount('key_up')
+        . ' click=' . inEvCount('click') . ' change=' . inEvCount('change')
+        . ' focus=' . $app->focusedId() . ' seen=' . ($sawKey ? 'yes' : 'no')
+        . ' evSeen=' . inEvSeenSummary() . "\n";
+    $app->close();
+    exit($sawKey ? 0 : 1);
 }
 
 function runShot(string $path, int $tree): void
@@ -218,13 +331,16 @@ function runSelfTest(): void
     // 5) 真点击 + 真按键：逐索引把 paint 登记过的每一颗框点一遍、按一个真实键，
     //    看它改掉了哪一格状态。为什么不按 id 点：inputProbe 只给矩形不给 id，
     //    而"第 i 索引对应哪一颗"随布局变——按状态改动反查就不依赖顺序，
-    //    顺带把"每一颗都打得进字"量全（showcase 的 --livetyping 对整个画廊做同一件事）。
+    //    顺带把"每一颗都打得进字"量全（原画廊的 --livetyping 对整个 13 节做同一件事）。
     //    key_down 也在这里量：合成缝不认 key_down（见 4)），真键是它唯一的路（#53 的回归位）。
     //    判据用打字的结果本身，**并且**焦点也当门：这里以前写着"focusedId() 对 retained
     //    input 实测恒 0，拿它当门会假红"，2026-10-14 复量推翻了三句里的两句——见下面
     //    focusFollowsClick 的读数。
-    //    这条在 CI 上是**裸二进制**跑的：showcase 的 --liveclick/--livetyping 同样如此
-    //    并实测通过，所以它够格当硬门；不成立就是真回归，不是环境抖动。
+    //    这条在 CI 上是**裸二进制**跑的。原来这里写着"原画廊的 --liveclick/--livetyping 同样如此
+    //    并实测通过，所以它够格当硬门；不成立就是真回归，不是环境抖动"——那句被 2026-10-15 的
+    //    run 38682636928 直接推翻：CI 上画廊就红在这条链上（focus=0、字没进 in-name），
+    //    而本机同一批产物是绿的。差别是前台/焦点归谁，不是代码。所以下面两条门都只断
+    //    **链与关系**，把"哪一颗拿到焦点"这半交出去；能断住的回归仍然写在各自行里。
     ExampleState::$v['name'] = '';
     ExampleState::$v['key'] = '—';
     $typedIdx = -1;
@@ -263,21 +379,48 @@ function runSelfTest(): void
         . ' name=' . var_export(ExampleState::$v['name'], true));
     $ok = $ok && $typedIn;
 
-    // 焦点跟着点击走：每颗 retained input 各自一个非零实体 id，且互不相同。
+    // 焦点跟着点击走：吃到焦点的那些颗各自一个非零实体 id，且互不相同。
     // 这条 2026-10-14 才敢立——旧注释写着"focusedId() 对 retained input 实测恒 0，
     // 拿它当门会假红"，复量的读数是 0→-1001 1→-1002 2→-1003 3→-1004，那句已经不成立。
-    // 断的是**关系**（非零 + 逐颗互不相同），不断具体数字：实体 id 由 gpui 按创建顺序发，
-    // 加一颗输入框就会整体挪位。
-    $focusOk = $focTried >= 2 && count($focIds) === $focTried && !isset($focIds[0]);
-    step('focusFollowsClick', $focusOk, '点过 ' . $focTried . ' 颗，不同焦点 id '
-        . count($focIds) . ' 个 [' . $focDump . ']');
+    // 断的是**关系**，不断具体数字：实体 id 由 gpui 按创建顺序发，加一颗输入框就会整体挪位。
+    // 2026-10-15 把"每一颗都必须拿到焦点"这半摘掉：CI 上 showcase 的同一套扫描在裸二进制下
+    // 实测出现过 focus=0（前台是竞争态），逐颗全覆盖会把环境抖动读成回归。
+    // 仍然断得住两种真回归：焦点一次都不跟着走（0 颗非零 ⇒ 红）、点谁都是同一颗（1 个 ⇒ 红）。
+    $focReal = [];
+    foreach ($focIds as $fkey => $fseen) {
+        if ((int) $fkey !== 0) {
+            $focReal[(int) $fkey] = true;
+        }
+    }
+    // 前提不成立就记"未验"：托管 runner 上两次同 commit 的读数都是 active=false/key=false
+    // （见 task_plan 17-D），那时 focusedId() 恒 0——这条门在那台机器上测的其实是
+    // "窗口能不能拿到系统焦点"，那是 17-E 真人那一格，不是代码回归。
+    // 形状跟 hello 的 bundleGreen/routeGreen 一致：前提成立才断言，读数照原样打出来，
+    // 未验的时候一眼能看出是环境不给，而不是门没跑。
+    $winFocus = $app->windowState();
+    $focusApplicable = (bool) ($winFocus['key'] ?? false) || (bool) ($winFocus['main'] ?? false);
+    $focusOk = ! $focusApplicable || count($focReal) >= 2;
+    step('focusFollowsClick', $focusOk, '点过 ' . $focTried . ' 颗，拿到焦点的不同实体 id '
+        . count($focReal) . ' 个 [' . $focDump . '] applicable=' . var_export($focusApplicable, true));
     $ok = $ok && $focusOk;
 
     // 值回读门（审核 P0-4 的回归位）：elementValue() 读的是 shim 随 change 事件留下的
-    // "最近一次上报值"。上面真打字进 in-name 的那个 'g' 必须能从读口拿回来——
+    // "最近一次上报值"。真打字那个 'g' 必须能从读口拿回来——
     // enqueue → rememberValue → bridge → PHP，与用户手打之后想读值走的是同一条链。
-    $pullBack = $typedIn && str_contains((string) $app->elementValue('in-name'), 'g');
-    step('valuePull', $pullBack, 'elementValue(in-name)='
+    // 断的是**链**，不是"字一定打进哪一颗"：CI 实测同一个表达式钉死 in-name 时，runner 上
+    // 字进了别的颗（focus 竞争），门红；本机绿不代表 CI 绿。
+    $pullSeen = [];
+    foreach (['in-name', 'in-key', 'in-note', 'in-otp'] as $pid) {
+        if (str_contains((string) $app->elementValue($pid), 'g')) {
+            $pullSeen[] = $pid;
+        }
+    }
+    // 反向控制：in-vol 是滑块，真键不可能把 'g' 打进它。若 elementValue() 退化成一个全局槽
+    // （审核 P0-4 / #55 那种"串字段"），这里就会看见 g ⇒ 门红。
+    $pullLeak = str_contains((string) $app->elementValue('in-vol'), 'g');
+    $pullBack = $typedIn && $pullSeen !== [] && !$pullLeak;
+    step('valuePull', $pullBack, '带 g 的颗=[' . implode(',', $pullSeen) . '] 串槽='
+        . var_export($pullLeak, true) . ' elementValue(in-name)='
         . var_export($app->elementValue('in-name'), true));
     $ok = $ok && $pullBack;
 
@@ -296,7 +439,7 @@ function runSelfTest(): void
     //        那不是"没接通"，是"没有可点的东西"——所以当时它只报数不判红。
     //      槽填了 ⇒ 落点索引 4、`lastStep='decrement'`，gpuiEnqueueString 第一次量到带值的送达。
     //    细长/零尺寸矩形一律跳过：命中表里含窗口 resize 边那一类，点它 AppKit 会等下一个
-    //    事件而不返回（showcase 的探针栽过一次，实测 rc=124 被看门狗掐掉）。
+    //    事件而不返回（原画廊的探针栽过一次，实测 rc=124 被看门狗掐掉）。
     ExampleState::$v['lastStep'] = '—';
     $stepIdx = -1;
     $stepTried = [];

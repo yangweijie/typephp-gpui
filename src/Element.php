@@ -59,6 +59,9 @@ class Element
      */
     public int $index = 0;
 
+    /** list / uniform_list 的总条数（行本身不进树，见 App::listRenderer）。 */
+    public int $listCount = 0;
+
     // ── catalog 枚举白名单（严格对齐 component_shell descriptor 的字面量表）──
     // 用途：sugar 方法在 render 前预校验，拼错的枚举立刻抛异常，而非等到 debug_tree。
 
@@ -316,10 +319,39 @@ class Element
         return $e;
     }
 
-    public static function list(string $id = ''): self
+    /**
+     * 虚拟列表（行高各自测量）。**行不在树里**：只给总条数，行由
+     * `App::listRenderer($id, fn(int $start, int $end): array)` 登记的闭包在需要时给——
+     * gpui 只为可见的那一段（加少量预取）要行，滚到哪儿要到哪儿。
+     *
+     * 机制：上游 RenderVirtualItems 在 materialize 途中同步要行，cmd/patch-host-list.sh
+     * 把宿主登记的那种回调分叉给 shim，shim 再经 bridge 的 php::call 调到这个闭包。
+     * 行点击可挂在行上；list 的 onItemClick/onItemSecondaryClick 用行根 id 为 key，缺 id 时用行号。
+     */
+    public static function list(string $id, int $count = 0): self
     {
         $e = new self();
         $e->kind = 'list';
+        $e->id = $id;
+        $e->listCount = max(0, $count);
+        return $e;
+    }
+
+    /** 等高虚拟列表：只量一行（第一行）就排所有行，比 list() 更省。其余同 list()。 */
+    public static function uniformList(string $id, int $count = 0): self
+    {
+        $e = new self();
+        $e->kind = 'uniform_list';
+        $e->id = $id;
+        $e->listCount = max(0, $count);
+        return $e;
+    }
+
+    /** Dock 由 App::createDock/addDockPanel 管理保留态；此节点只挂载已有布局。 */
+    public static function dockArea(string $id): self
+    {
+        $e = new self();
+        $e->kind = 'dock_area';
         $e->id = $id;
         return $e;
     }
@@ -1435,6 +1467,9 @@ class Element
             'index' => $this->index,
             'ops' => $ops,
         ];
+        if ($this->kind === 'list' || $this->kind === 'uniform_list') {
+            $node['listCount'] = $this->listCount;
+        }
         $kids = [];
         foreach ($this->children as $c) {
             if ($c instanceof self) { $kids[] = $c->toArray(); }

@@ -5,8 +5,8 @@ declare(strict_types=1);
 /**
  * examples/_shared/state.php — 所有示例共用的可变状态表。
  *
- * 为什么单独一支文件：showcase 与按功能域拆出来的独立示例（examples/input 等）要共用同一批
- * 节构造器（examples/_shared/features/*.php），而构造器读的就是这张表。表在 showcase 目录里，
+ * 为什么单独一支文件：各功能域独立示例（examples/input 等）要共用同一批
+ * 节构造器（examples/_shared/features/*.php），而构造器读的就是这张表。表在示例目录里，
  * 独立示例就得把整个画廊拖进编译；放在 _shared，两边都只列自己需要的那几份源。
  * nano 不支持 require/include，"共用"完全靠 yml 的 sources 列表体现——所以这张表必须能被
  * 任意子集单独编译，它也确实可以：这里只有函数与类声明，顶层不调任何 gpui_* 原生函数。
@@ -42,6 +42,11 @@ function exampleState(): array
         // 基线里不能含"外网页面这次加载进来没有"——那既不确定，又让门禁每跑一次
         // 就打一次外部请求（见 examples/embedded 的 runShot 注释）。
         'offline' => false,
+        // data 域的虚拟列表：PHP 闭包被要过几批、几行、是否要过第 0 行。
+        'listBatches' => 0, 'listRows' => 0, 'listSawFirst' => false, 'listRanges' => '',
+        'dockChanges' => 0, 'dockButton' => false,
+        'listMaxStart' => 0, 'listRowHandlers' => true,
+        'listClicked' => '', 'listRight' => '', 'listItem' => '', 'listSecondary' => [],
     ];
 }
 

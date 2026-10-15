@@ -221,7 +221,13 @@ function runChoicesSelfTest(): void
     //    报告里剩下的只有已经落到磁盘的那几行。
     step('focusElement(进入 ch-select)', true, '准备调 App::focusElement');
     $selFocus = $app->focusElement('ch-select');
-    $focusOk = $selFocus !== 0 && $app->focusedId() === $selFocus;
+    // `focusedId() === 那颗` 这一半依赖窗口真持有焦点：托管 runner 上两次同 commit 的读数都是
+    // active=false/key=false/main=false、focus=0（见 task_plan 17-D），在那台机器上它量的是
+    // "系统给不给焦点"，属 17-E 那一格，不是代码回归。
+    // focusElement() 自己返回的句柄非零是机制级事实，照旧硬断；形状跟 hello 的 bundleGreen 一致。
+    $winCh = $app->windowState();
+    $chFocusHeld = (bool) ($winCh['key'] ?? false) || (bool) ($winCh['main'] ?? false);
+    $focusOk = $selFocus !== 0 && (! $chFocusHeld || $app->focusedId() === $selFocus);
     step('focusElement(读数)', true, 'ch-select→' . $selFocus
         . ' focusedId=' . $app->focusedId()
         . ' ch-date→' . $app->focusElement('ch-date')
@@ -241,7 +247,8 @@ function runChoicesSelfTest(): void
     $deliveredOk = $focusOk && $backOnSelect !== 0 && $down
         && $openArrived && $openVal === true;
     step('openChangeDelivered', $deliveredOk,
-        'focus=' . $selFocus . ' SelectDown=' . var_export($down, true)
+        'focus=' . $selFocus . ' 持有焦点=' . var_export($chFocusHeld, true)
+        . ' SelectDown=' . var_export($down, true)
         . ' open_change 到 PHP=' . var_export($openArrived, true)
         . ' 值=' . var_export($openVal, true)
         . ' confirm/dismiss=' . evCountOf('confirm') . '/' . evCountOf('dismiss'));

@@ -5,12 +5,12 @@ declare(strict_types=1);
 /**
  * examples/_shared/features/overlays.php — 功能域「浮层：dialog / sheet / toast / 通知」。
  *
- * 从 showcase 的 §8 原样搬来（builder + 接线 + 自报的像素树号），画廊与独立示例
+ * 从原画廊（已删除）的 §8 原样搬来（builder + 接线 + 自报的像素树号），各示例
  * examples/overlay 共用这一份。搬动只改了一处字面量：dialog 标题里的 "Showcase" 换成中性的
  * "浮层"——那棵树只在点开之后才存在，画廊的基线树 8 里根本没有它，所以像素不受影响
- * （搬完跑了 shotdiff check showcase 核对）。
+ * （搬完跑了 shotdiff check <域> 核对）。
  *
- * 约定同 showcase：id 前缀 `ov-` 是事件路由键，全域唯一。
+ * 约定同原画廊：id 前缀 `ov-` 是事件路由键，全域唯一。
  */
 
 use TypePHP\Gpui\App;

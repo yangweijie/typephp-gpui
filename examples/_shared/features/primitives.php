@@ -5,7 +5,7 @@ declare(strict_types=1);
 /**
  * examples/_shared/features/primitives.php — 功能域「基础原语」（文本 / 链接 / 图 / Markdown / hover 探针）。
  *
- * 从 showcase 的 §1 搬来。`pr-hover` 那颗是整条指针事件族的探针（#71 的现场），
+ * 从原画廊（已删除）的 §1 搬来。`pr-hover` 那颗是整条指针事件族的探针（#71 的现场），
  * 它的 hover handler 也一起搬过来——画廊与 examples/text 共用同一颗、同一条线。
  */
 

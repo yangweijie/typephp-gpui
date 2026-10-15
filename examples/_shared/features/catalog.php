@@ -5,7 +5,7 @@ declare(strict_types=1);
 /**
  * examples/_shared/features/catalog.php — 功能域「catalog 富组件（Registered 机制）」。
  *
- * 从 showcase 的 §6 搬来：builder + 那两条下拉项的接线 + 自报的像素树号。
+ * 从原画廊（已删除）的 §6 搬来：builder + 那两条下拉项的接线 + 自报的像素树号。
  * 这一域是 registered 分发那条路最密的一页（alert / breadcrumb / icon / avatar / collapsible /
  * popover / hoverCard / accordionItem / dropdownMenu 各吃一份 catalog descriptor），
  * 所以"哪一颗组件建不出来"值得有一支只渲染它自己的二进制来回答。

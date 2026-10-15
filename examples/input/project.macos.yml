@@ -4,7 +4,7 @@ output: build/input
 
 # TypePHP GPUI — macOS arm64，nano 模式。功能域独立示例：输入与保留态取值。
 #
-# 与 showcase 的差别只在 sources：这里只列本域那一份 feature 源
+# 差别只在 sources：这里只列本域那一份 feature 源
 # （../_shared/features/inputs.php）+ 共用状态表，所以改输入相关的东西只编译这一支，
 # 而且 selftest 只跑输入相关的门——一处崩了报告停在那一行，不用把 13 节重跑一遍。
 #

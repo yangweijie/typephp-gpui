@@ -5,8 +5,8 @@ declare(strict_types=1);
 /**
  * examples/_shared/features/inputs.php — 功能域「输入与保留态取值」。
  *
- * 从 showcase 的 §2 原样搬来：一棵树（builder）+ 接这棵树的线（wiring）+ 自报的像素树号表。
- * showcase 的 yml 与本域独立示例（examples/input）的 yml 都列这一份文件，所以
+ * 从原画廊（已删除）的 §2 原样搬来：一棵树（builder）+ 接这棵树的线（wiring）+ 自报的像素树号表。
+ * 原画廊的 yml 与本域独立示例（examples/input）的 yml 都列这一份文件，所以
  * "展示了 input/textarea/numberInput/otpInput/slider/checkbox/switch 的保留态" 只有一份真源。
  *
  * id 前缀 `in-` 是事件路由键，全域唯一，别在别的域里复用。

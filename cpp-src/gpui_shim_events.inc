@@ -149,6 +149,99 @@ void gpuiEnqueueTimer(ScriptView* self, Ctx*, const void* /*ev*/, int64_t arg) {
     box->enqueueRaw("timer", it->second.c_str(), GPUI_ARG_NIL, 0, 0, nullptr);
 }
 
+struct HostListItem {
+    uint64_t callback;
+    Str key;
+};
+
+static void HostListClick(PhpView* self, Ctx*, const ClickEvent*, int64_t arg) {
+    auto* item = reinterpret_cast<HostListItem*>(arg);
+    std::string key(item->key.s, (size_t)item->key.len);
+    self->box->enqueue(item->callback, GPUI_ARG_STR, 0, 0, key.c_str());
+}
+
+static void HostListSecondary(PhpView* self, Ctx*, const MouseDownEvent* event,
+                              int64_t arg) {
+    if (event->button != MouseButton::Right) return;
+    auto* item = reinterpret_cast<HostListItem*>(arg);
+    std::string key(item->key.s, (size_t)item->key.len);
+    const size_t before = self->box->queue.size();
+    self->box->enqueue(item->callback, GPUI_ARG_STR, 0, 0, key.c_str());
+    if (self->box->queue.size() == before) return;
+    double* data = self->box->queue.back().itemPointer;
+    data[0] = event->x;
+    data[1] = event->y;
+    data[2] = event->x - event->el.x;
+    data[3] = event->y - event->el.y;
+    data[4] = event->clickCount;
+    const Modifiers& mods = event->modifiers;
+    data[5] = (mods.control ? 1 : 0) | (mods.alt ? 2 : 0) | (mods.shift ? 4 : 0)
+              | (mods.platform ? 8 : 0) | (mods.function ? 16 : 0);
+}
+
+void gpuiRenderShimItems(App* app, EntityId view, uint64_t shimId,
+                         uint64_t onItemClick, uint64_t onItemSecondaryClick,
+                         int first, int end, Ctx* cx, El** out) {
+    if (!cx || !out || end <= first) return;
+    for (int i = 0; i < end - first; i++) out[i] = nullptr;
+    auto* pv = (PhpView*)EntityGet(app, view);
+    if (!pv) return;
+    Box2* box = boxForView((void*)pv);
+    if (!box || !g_listRender) return;
+    auto it = box->callbacks.find(shimId);
+    if (it == box->callbacks.end()) return;
+    // building 只有一层，避免嵌套描述行时复用外层 arena。
+    if (box->building) return;
+    const std::string listId = it->second.first;
+    const int want = end - first;
+    std::vector<uint32_t> roots((size_t)want, 0);
+    // 独立描述行，避免修改正在 materialize 的 specs；字符串借帧 arena 存活到画帧结束。
+    auto* batch = new shell::SpecArena(cx->a);
+    box->building = batch;
+    int got = g_listRender(box, listId.c_str(), first, end, roots.data(), want);
+    box->building = nullptr;
+    if (got < 0) got = 0;
+    if (got > want) got = want;
+    box->listCalls++;
+    box->listItems += got;
+    // VirtualList 的 prepaint Ctx 没有 self；行监听器必须绑定宿主视图才能收到事件。
+    Ctx rowCx = *cx;
+    rowCx.self = view;
+    for (int i = 0; i < got; i++) {
+        ShellError err = {};
+        out[i] = ShellMaterializeSpec(&rowCx, g_runtime, batch, roots[(size_t)i], &err);
+        if (err.IsSet()) {
+            noteError(box, listId + ": " + std::string(err.message.s ? err.message.s : "",
+                                                        (size_t)(err.message.len > 0 ? err.message.len : 0)));
+            ShellErrorClear(&err);
+        }
+        if (out[i] && (onItemClick || onItemSecondaryClick)) {
+            Str key = out[i]->id;
+            if (!len(key)) key = StrDup(cx->a, Str(std::to_string(first + i).c_str()));
+            Str rowId = StrDup(cx->a, fmt("host-list:%s:%s", Str(listId.c_str()), key));
+            El* row = Div(cx->a)->PathClick(rowId)->SizeFull()->Child(out[i]);
+            if (onItemClick) {
+                auto* item = ArenaNew<HostListItem>(cx->a);
+                item->callback = onItemClick;
+                item->key = key;
+                row->OnClick(ListenTo(Entity<PhpView>{view}, &HostListClick, (int64_t)item));
+            }
+            if (onItemSecondaryClick) {
+                auto* item = ArenaNew<HostListItem>(cx->a);
+                item->callback = onItemSecondaryClick;
+                item->key = key;
+                row->OnMouseDown(ListenTo(Entity<PhpView>{view}, &HostListSecondary, (int64_t)item));
+            }
+            out[i] = row;
+        }
+    }
+    if (got < want) {
+        noteError(box, listId + ": renderer 给了 " + std::to_string(got) + " 行，要的是 " +
+                           std::to_string(want) + " 行（缺的画成空行）");
+    }
+    delete batch;
+}
+
 // catalog 组件回调旁路：runtime 的 InvokeWith 命中 shimId 时调此（覆盖 runtime.cpp
 // 的弱符号）。view 是注册回调时的 EntityId，EntityGet 取回 PhpView* 再经 g_views 反查
 // Box2；shimId 即 box 侧 callbackId，enqueue 复用其 (elemId,type) 组一条事件。

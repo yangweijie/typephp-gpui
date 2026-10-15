@@ -162,15 +162,21 @@ function runSelfTest(): void
         . ' last=' . (string) $cf['last']);
     $ok = $ok && (int) $cf['count'] === 0;
 
-    // 2) dialog 的焦点陷阱：开框 → 推进几帧 → 陷阱非零 **且** 窗口焦点就是那颗陷阱。
+    // 2) dialog 的焦点陷阱：开框 → 推进几帧 → 陷阱非零；**窗口真持有焦点时**再断焦点就是那颗陷阱。
     //    （#62：机制级实测通。反控做过——把 loop(10) 挪到读数之后会 trap=0/focus 负数。）
+    //    "$focus === $trap" 这一半依赖窗口能当上 key/main：托管 runner 两次同 commit 都是
+    //    active=false/key=false（task_plan 17-D），在那里它量的是"系统给不给焦点"，属 17-E 那一格，
+    //    不是回归。所以跟 hello 的 bundleGreen 同一个形状：前提不成立记"未验"，trap 注册仍硬断。
     $opened = $app->openDialog(El::text('浮层 selftest 框')->p(12.0));
     $app->loop(10);
     $trap = $app->focusTrap();
     $focus = $app->focusedId();
-    $trapOk = $opened >= 1 && $trap !== 0 && $focus === $trap;
+    $winOv = $app->windowState();
+    $focusHeld = (bool) ($winOv['key'] ?? false) || (bool) ($winOv['main'] ?? false);
+    $trapOk = $opened >= 1 && $trap !== 0 && (! $focusHeld || $focus === $trap);
     step('focusTrap', $trapOk, 'opened=' . $opened . ' dialogCount=' . $app->dialogCount()
-        . ' trap=' . $trap . ' focusedId=' . $focus);
+        . ' trap=' . $trap . ' focusedId=' . $focus
+        . ' focusHeld=' . var_export($focusHeld, true));
     $ok = $ok && $trapOk;
 
     // 3) ui::Cancel 关框（#74 的回归位）：动作名有**两张表**——菜单/脚本声明的动作被 intern 成
@@ -260,6 +266,55 @@ function runSelfTest(): void
     $tailOk = $tailErr === '' && (int) App::componentFailure()['count'] === 0;
     step('teardownClean', $tailOk, 'err=' . ($tailErr === '' ? '空' : $tailErr));
     $ok = $ok && $tailOk;
+
+    // 10) overlay 回收（审核第 5 步③的回归位，从画廊迁来）：反复开/关 dialog、反复换 sheet，
+    //     包装条数必须回到基线。修之前每次开关都净增一条 Box2 包装与一条 g_views 键，
+    //     而那条键指向的 PhpView 早已被上游的层析构释放——长会话里就是只增不减的悬垂表。
+    $baseCounts = $app->stateCounts();
+    $boxesBase = (int) ($baseCounts['boxesAlive'] ?? 0);
+    $viewsBase = (int) ($baseCounts['viewsAlive'] ?? 0);
+    $churnOpened = 0;
+    for ($i = 0; $i < 30; $i++) {
+        if ($app->openDialog(El::text('churn ' . $i)->p(10.0)) <= 0) {
+            break;
+        }
+        $churnOpened++;
+        $app->closeDialog();
+    }
+    for ($i = 0; $i < 10; $i++) {
+        $app->openSheet(El::text('churn sheet ' . $i)->p(10.0), 'right');
+    }
+    $app->closeSheet();
+    // 量"回收"必须看进程级的存活数，不能看 dialogs 那条 vector 长度——pop 在调用方做，
+    // 回收与否它都是 0（第一版门就是这么假绿的，反向对照才暴露）。
+    $churnAfter = $app->stateCounts();
+    $churnOk = $churnOpened >= 25 && (int) ($churnAfter['dialogs'] ?? -1) === 0
+        && (int) ($churnAfter['boxesAlive'] ?? -1) === $boxesBase
+        && (int) ($churnAfter['viewsAlive'] ?? -1) === $viewsBase;
+    step('overlayChurnReclaim', $churnOk, '开过=' . $churnOpened
+        . ' boxes=' . $boxesBase . '→' . (int) ($churnAfter['boxesAlive'] ?? -1)
+        . ' views=' . $viewsBase . '→' . (int) ($churnAfter['viewsAlive'] ?? -1)
+        . ' dialogs=' . (int) ($churnAfter['dialogs'] ?? -1));
+    $ok = $ok && $churnOk;
+
+    // 11) 原生关掉的那一条路（点背板 → ShellDialogLayer::OnBackdrop → Close）不经过本 shim 的
+    //     closeDialog，所以包装栈会与上游脱钩：多出来的那份包装对应的 PhpView 已被上游层
+    //     析构释放（root.cpp:209），留着就是"下次同地址复用时 boxForView 交出已死 Box2"。
+    //     这条量的是下一次 dialogCount() 轮询必须把它对齐收掉。
+    //     落点取内容区偏上（surface 在正中，那里只能是背板）；别拿窗口边角当背板：
+    //     窗口 resize 边上 AppKit 的 _mouseHysteresisCheck: 会等下一个事件而不返回。
+    $app->openDialog(El::text('bd-dismiss me')->p(10.0), false, true);
+    $app->loop(2);
+    $app->realClick(intdiv(OVERLAY_W, 2) + 120, 120);
+    $app->loop(2);
+    $bdClosed = $app->dialogCount() === 0;
+    $bdCounts = $app->stateCounts();
+    $bdOk = $bdClosed && (int) ($bdCounts['boxesAlive'] ?? -1) === $boxesBase
+        && (int) ($bdCounts['viewsAlive'] ?? -1) === $viewsBase;
+    step('backdropNativeClose', $bdOk, 'nativeClosed=' . var_export($bdClosed, true)
+        . ' boxes=' . (int) ($bdCounts['boxesAlive'] ?? -1) . '/' . $boxesBase
+        . ' views=' . (int) ($bdCounts['viewsAlive'] ?? -1) . '/' . $viewsBase);
+    $ok = $ok && $bdOk;
 
     $app->close();
     echo ($ok ? 'OVERLAY SELFTEST OK' : 'OVERLAY SELFTEST FAIL') . "\n";

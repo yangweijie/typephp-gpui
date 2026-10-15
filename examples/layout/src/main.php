@@ -44,13 +44,19 @@ function layoutDispatch(array $argv): void
     $shotIdx = array_search('--shot', $argv, true);
     if ($shotIdx !== false) {
         $path = isset($argv[$shotIdx + 1]) ? (string) $argv[$shotIdx + 1] : '/tmp/layout.png';
-        runLayoutShot($path);
+        $tree = isset($argv[$shotIdx + 2]) ? (int) $argv[$shotIdx + 2] : 1;
+        runLayoutShot($path, $tree);
         return;
     }
     ExampleState::boot(['section' => 4]);
     $app = new App();
-    // 这一域没有事件接线（tabs/resizable 的回调另有归属），所以只有 render。
-    $app->run('Layout · 容器、布局与滚动', LAYOUT_W, LAYOUT_H, 'layoutTree');
+    $showDock = in_array('--dock', $argv, true);
+    $app->create();
+    $app->createWindow('Layout · 容器与 Dock', LAYOUT_W, LAYOUT_H);
+    wireLayout($app);
+    if ($showDock) wireDock($app);
+    $app->view(static fn (): El => layoutTree($showDock ? 2 : 1));
+    $app->loop();
 }
 
 function step(string $name, bool $ok, string $detail): void
@@ -58,22 +64,25 @@ function step(string $name, bool $ok, string $detail): void
     echo ($ok ? '  ok   ' : '  FAIL ') . $name . ' — ' . $detail . "\n";
 }
 
-function layoutTree(): El
+function layoutTree(int $tree = 1): El
 {
-    return El::vFlex([sectionLayout(ExampleState::get())])->sizeFull()->bg(0xF6F3EE);
+    $content = $tree === 2 ? sectionDock(ExampleState::get()) : sectionLayout(ExampleState::get());
+    return El::vFlex([$content])->sizeFull()->bg(0xF6F3EE);
 }
 
-function runLayoutShot(string $path): void
+function runLayoutShot(string $path, int $tree): void
 {
     ExampleState::boot(['section' => 4]);
     $app = new App();
     $app->create();
     $app->createWindow('Layout Shot', LAYOUT_W, LAYOUT_H);
-    $app->render(layoutTree());
+    $tree = isset(layoutTrees()[$tree]) ? $tree : 1;
+    if ($tree === 2) wireDock($app);
+    $app->render(layoutTree($tree));
     $app->loop(20);
-    echo '--- debug tree (layout 1) ---' . "\n" . \gpui_debug_tree($app->handle()) . "\n---\n";
+    echo '--- debug tree (layout ' . $tree . ') ---' . "\n" . \gpui_debug_tree($app->handle()) . "\n---\n";
     $shotOk = $app->snapshot($path, LAYOUT_W, LAYOUT_H);
-    echo $shotOk ? "SHOT OK tree=1 {$path}\n" : "SHOT FAIL tree=1 {$path}\n";
+    echo $shotOk ? "SHOT OK tree={$tree} {$path}\n" : "SHOT FAIL tree={$tree} {$path}\n";
     $app->close();
     exit($shotOk ? 0 : 1);
 }
@@ -195,7 +204,110 @@ function runLayoutSelfTest(): void
         . ' split=' . var_export((string) ExampleState::$v['split'], true)
         . '（打之前=' . var_export($splitBefore, true) . '）');
 
+    $dockOk = runDockSelfTest($app);
+    $ok = $ok && $dockOk;
     $app->close();
+    $closed = $app->stateCounts();
+    $reclaimed = (int) $closed['dockStates'] === 0 && (int) $closed['dockPanels'] === 0;
+    step('dockReclaimed', $reclaimed, '状态/面板=' . $closed['dockStates'] . '/' . $closed['dockPanels']);
+    $ok = $ok && $reclaimed;
     echo ($ok ? 'LAYOUT SELFTEST OK' : 'LAYOUT SELFTEST FAIL') . "\n";
     exit($ok ? 0 : 1);
+}
+
+function runDockSelfTest(App $app): bool
+{
+    wireDock($app);
+    $app->render(layoutTree(2));
+    $app->loop(4);
+    $probe = $app->dockProbe('ld-area');
+    $made = (int) ($probe['registered'] ?? 0) === 4 && (int) ($probe['open'] ?? 0) === 4
+        && (float) ($probe['w'] ?? 0) > 100 && (float) ($probe['h'] ?? 0) > 100
+        && $app->registeredError() === '' && (int) App::componentFailure()['count'] === 0;
+    step('dockMaterialized', $made, 'probe=' . var_export($probe, true) . ' err=' . $app->registeredError());
+
+    $selected = $app->selectDockPanel('ld-area', 'ld-editor');
+    $app->loop(2);
+    $editor = $app->dockProbe('ld-area');
+    $selectOk = $selected && (int) ($editor['active'] ?? -1) === 0;
+    step('dockSelect', $selectOk, 'editor active=' . (int) ($editor['active'] ?? -1));
+
+    $tabReached = false;
+    $hits = (int) ($app->hitProbe()['n'] ?? 0);
+    for ($i = 0; $i < $hits && !$tabReached; $i++) {
+        $hit = $app->hitProbe($i);
+        if ((int) $hit['click'] !== 1 || (int) $hit['w'] < 40 || (int) $hit['h'] < 16
+            || (int) $hit['x'] < (int) ($probe['x'] ?? 0) + 180
+            || (int) $hit['y'] < (int) ($probe['y'] ?? 0)
+            || (int) $hit['y'] > (int) ($probe['y'] ?? 0) + 35) continue;
+        $app->realClick((int) $hit['x'] + (int) $hit['w'] / 2,
+                         (int) $hit['y'] + (int) $hit['h'] / 2);
+        $app->loop(2);
+        $now = $app->dockProbe('ld-area');
+        $tabReached = (int) ($now['active'] ?? -1) === 1;
+    }
+    step('dockNativeTabClick', $tabReached, '切到控制台=' . var_export($tabReached, true)
+        . ' change=' . (int) ExampleState::$v['dockChanges']);
+
+    $badPanel = El::text('不应提交的面板');
+    $badPanel->kind = 'invalid_dock_panel';
+    $failedNew = !$app->addDockPanel('ld-area', 'ld-bad', '失败新面板', $badPanel);
+    $failedUpdate = !$app->addDockPanel('ld-area', 'ld-console', '失败更新标题', $badPanel);
+    $afterBadPanel = $app->stateCounts();
+    $atomic = $failedNew && $failedUpdate && (int) $afterBadPanel['dockPanels'] === 4
+        && !$app->loadDockLayout('ld-area', str_replace('ld-editor', 'ld-bad', $app->dockLayout('ld-area')));
+    step('dockAtomicPanelUpdate', $atomic, '拒绝新建/更新=' . var_export($failedNew, true) . '/'
+        . var_export($failedUpdate, true) . ' 描述数=' . $afterBadPanel['dockPanels']);
+    $app->render(layoutTree(2));
+    $app->loop(3);
+
+    $buttonReached = false;
+    $hitsButton = (int) ($app->hitProbe()['n'] ?? 0);
+    for ($i = 0; $i < $hitsButton && !$buttonReached; $i++) {
+        $hit = $app->hitProbe($i);
+        if ((int) $hit['click'] !== 1 || (int) $hit['w'] < 60 || (int) $hit['h'] < 16
+            || (int) $hit['y'] <= (int) ($probe['y'] ?? 0) + 40
+            || (int) $hit['x'] < (int) ($probe['x'] ?? 0) + 180) continue;
+        $app->realClick((int) $hit['x'] + (int) $hit['w'] / 2,
+                         (int) $hit['y'] + (int) $hit['h'] / 2);
+        $app->loop(2);
+        $buttonReached = (bool) ExampleState::$v['dockButton'];
+    }
+    step('dockPanelCallback', $buttonReached, '面板按钮=' . var_export($buttonReached, true));
+
+    $layout = $app->dockLayout('ld-area');
+    $removed = $app->removeDockPanel('ld-area', 'ld-console');
+    $afterRemove = $app->dockProbe('ld-area');
+    $restored = $app->loadDockLayout('ld-area', $layout);
+    $restoredProbe = $app->dockProbe('ld-area');
+    $roundtrip = $layout !== '' && str_contains($layout, 'ld-editor') && $removed
+        && (int) ($afterRemove['open'] ?? 0) === 3 && $restored
+        && (int) ($restoredProbe['open'] ?? 0) === 4;
+    step('dockLayoutRoundtrip', $roundtrip, 'dump字节=' . strlen($layout)
+        . ' remove=' . var_export($removed, true) . ' restore=' . var_export($restored, true));
+
+    $beforeBad = $app->dockLayout('ld-area');
+    $badRejected = !$app->loadDockLayout('ld-area', 'not-json')
+        && !$app->loadDockLayout('ld-area', str_replace('ld-editor', 'unregistered-panel', $layout))
+        && $app->dockLayout('ld-area') === $beforeBad
+        && !$app->selectDockPanel('ld-area', 'missing') && $app->dockProbe('missing') === [];
+    step('dockInvalidLayout', $badRejected, '无效/未注册面板不改变布局=' . var_export($badRejected, true));
+
+    $reused = true;
+    $nodesBefore = (int) ($restoredProbe['nodes'] ?? -1);
+    for ($i = 0; $i < 40; $i++) {
+        $reused = $app->loadDockLayout('ld-area', $layout) && $reused;
+        $app->addDockPanel('ld-area', 'ld-console', '控制台', El::text('更新后的控制台')->font(14.0));
+    }
+    $app->loop(3);
+    $lastProbe = $app->dockProbe('ld-area');
+    $counts = $app->stateCounts();
+    $reused = $reused && (int) ($lastProbe['nodes'] ?? -2) === $nodesBefore
+        && (int) ($lastProbe['registered'] ?? 0) === 4 && (int) $counts['dockStates'] === 1
+        && (int) $counts['dockPanels'] === 4;
+    step('dockRetainedReuse', $reused, '节点=' . $nodesBefore . '→' . (int) ($lastProbe['nodes'] ?? -2)
+        . ' 状态/描述=' . $counts['dockStates'] . '/' . $counts['dockPanels']);
+    $changes = (int) ExampleState::$v['dockChanges'];
+    step('dockLayoutEvent', $changes > 0, '布局事件数=' . $changes);
+    return $made && $selectOk && $tabReached && $atomic && $buttonReached && $roundtrip && $badRejected && $reused && $changes > 0;
 }

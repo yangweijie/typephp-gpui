@@ -5,7 +5,7 @@ declare(strict_types=1);
 /**
  * examples/_shared/features/embedded.php — 功能域「WebView 与 Inspector」
  *
- * 从 showcase 的 §11 原样搬来（builder + 接线 + 自报的像素树号），画廊与独立示例共用这一份。
+ * 从原画廊（已删除）的 §11 原样搬来（builder + 接线 + 自报的像素树号），各示例共用这一份。
  */
 
 use TypePHP\Gpui\App;

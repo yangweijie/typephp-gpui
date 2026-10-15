@@ -35,6 +35,9 @@ final class App
     private int $foregroundBudget = 0;
     private int $foregroundUsed = 0;
     private string $lastError = '';
+    private bool $buildingList = false;
+    /** @var array<string, callable> */
+    private array $listRenderers = [];
 
     /** Sheet 可滑出的边。 */
     public const SHEET_ANCHORS = ['top', 'bottom', 'left', 'right'];
@@ -61,8 +64,8 @@ final class App
      */
     public function run(string $title, int $width, int $height, callable $view): void
     {
-        \gpui_app_create();
-        $this->window = \gpui_window_open($title, $width, $height);
+        $this->create();
+        $this->createWindow($title, $width, $height);
         // 走 view() 而不是直接压数组：那里有"首帧多渲染一遍把命中表备齐"这一步。
         $this->view($view);
         $this->loop();
@@ -76,12 +79,21 @@ final class App
 
     public function createWindow(string $title, int $width = 800, int $height = 600): mixed
     {
+        if ($this->buildingList) {
+            throw new \LogicException('List renderers must not create windows.');
+        }
         $this->window = \gpui_window_open($title, $width, $height);
+        foreach ($this->listRenderers as $id => $render) {
+            \gpui_set_list_renderer($this->window, $id, $render);
+        }
         return $this->window;
     }
 
     public function handle(): mixed
     {
+        if ($this->buildingList) {
+            throw new \LogicException('List renderers may describe Elements but must not call window APIs.');
+        }
         if ($this->window === null) {
             throw new \RuntimeException('No window created. Call run() or createWindow() first.');
         }
@@ -112,6 +124,87 @@ final class App
     }
 
     /**
+     * 为 `El::list()` / `El::uniformList()` 登记 `$render(int $start, int $end): Element[]`，
+     * 必须正好返回 `$end - $start` 个元素。
+     * 闭包在 gpui 画帧中同步调用，只描述行，不调用窗口 API。
+     * 异常记入 lastError()，避免跨越 C++ 帧。
+     */
+    public function listRenderer(string $id, callable $render): void
+    {
+        $app = $this;
+        $this->listRenderers[$id] = static function (int $start, int $end) use ($render, $app): array {
+            $rows = [];
+            $app->buildingList = true;
+            try {
+                $elements = $render($start, $end);
+                if (!is_array($elements)) {
+                    throw new \UnexpectedValueException('List renderer must return an array of Elements.');
+                }
+                foreach ($elements as $el) {
+                    if (!$el instanceof Element) {
+                        throw new \UnexpectedValueException('List renderer items must be Elements.');
+                    }
+                    $rows[] = $el->toArray();
+                }
+                if (count($rows) !== $end - $start) {
+                    throw new \UnexpectedValueException('List renderer must return one Element per requested item.');
+                }
+            } catch (\Throwable $e) {
+                $app->lastError = $e->getMessage();
+                return [];
+            } finally {
+                $app->buildingList = false;
+            }
+            return $rows;
+        };
+        if ($this->window !== null) {
+            \gpui_set_list_renderer($this->handle(), $id, $this->listRenderers[$id]);
+        }
+    }
+
+    public function createDock(string $id): bool
+    {
+        if ($id === '') throw new \InvalidArgumentException('Dock id must not be empty.');
+        return \gpui_dock_create($this->handle(), $id);
+    }
+
+    /** 同一面板名更新内容而不重复添加；布局由原生 DockState 持有。 */
+    public function addDockPanel(string $id, string $name, string $title, Element $tree,
+                                 string $placement = 'center', float $size = 180.0): bool
+    {
+        self::oneOf('Dock placement', $placement, ['center', 'left', 'right', 'bottom']);
+        if ($name === '') throw new \InvalidArgumentException('Dock panel name must not be empty.');
+        if (!is_finite($size) || $size < 0) throw new \InvalidArgumentException('Dock size must be finite and nonnegative.');
+        return \gpui_dock_panel($this->handle(), $id, $name, $title, $tree->toArray(), $placement, $size);
+    }
+
+    public function selectDockPanel(string $id, string $name): bool
+    {
+        return \gpui_dock_select($this->handle(), $id, $name);
+    }
+
+    public function removeDockPanel(string $id, string $name): bool
+    {
+        return \gpui_dock_remove($this->handle(), $id, $name);
+    }
+
+    public function dockLayout(string $id): string
+    {
+        return \gpui_dock_layout($this->handle(), $id);
+    }
+
+    /** 只恢复已注册的面板；未知面板或无效 JSON 返回 false，保留原布局。 */
+    public function loadDockLayout(string $id, string $json): bool
+    {
+        return \gpui_dock_load($this->handle(), $id, $json);
+    }
+
+    public function dockProbe(string $id): array
+    {
+        return \gpui_dock_probe($this->handle(), $id);
+    }
+
+    /**
      * 真输入验收缝：把一次点击/移动/按键交给 AppKit 的正常派发路径
      * （-[NSWindow sendEvent:]），于是 hit-test、behavior 解析、focus 迁移都真的走一遍。
      * 返回 true 表示这一趟 PHP 队列里确实多出了事件——也就是"元素真的挂上了监听器"。
@@ -132,6 +225,17 @@ final class App
     public function realMouseMove(int $x, int $y): bool
     {
         return \gpui_real_mouse($this->handle(), $x, $y, 0) === 1;
+    }
+
+    public function realRightClick(int $x, int $y): bool
+    {
+        return \gpui_real_mouse($this->handle(), $x, $y, 4) === 1;
+    }
+
+    /** AppKit 滚轮派发；delta 单位为像素，返回已投递，不表示产生了 PHP 回调。 */
+    public function realScroll(int $x, int $y, int $deltaY, int $deltaX = 0): bool
+    {
+        return \gpui_real_scroll($this->handle(), $x, $y, $deltaY, $deltaX);
     }
 
     /**

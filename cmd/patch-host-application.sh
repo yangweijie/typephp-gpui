@@ -26,7 +26,7 @@
 # 我们（PHP 宿主）的视图是 `EntityNewRaw` 建的，没有 ScriptView object，于是
 # AppEffects 直接失败，materialize.cpp:2178 打
 #     shell: failed to materialize `MenuBar`: component app effects require a root application snapshot
-# 并在画面上渲染成 "Failed to render MenuBar"（showcase 第 7 节实测每条活帧都刷一遍）。
+# 并在画面上渲染成 "Failed to render MenuBar"（装菜单条那一域实测每条活帧都刷一遍）。
 #
 # 菜单安装本身是**纯原生**的（`effect.run = &InstallMenus`、`drop = &DropOwnedMenus`），
 # 全程不碰 JS；那个 application 指针只被当**世代 key** 用

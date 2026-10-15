@@ -5,7 +5,7 @@ declare(strict_types=1);
 /**
  * examples/_shared/features/choices.php — 功能域「选择、开关与按钮变体」。
  *
- * 从 showcase 的 §3 搬来：builder + 那六颗按钮的接线 + 自报的像素树号。
+ * 从原画廊（已删除）的 §3 搬来：builder + 那六颗按钮的接线 + 自报的像素树号。
  * 这一域是 #66（variant 那批糖一个像素都不改）的现场，也是 #73（部件自己发的那批事件）
  * 唯一挂着 onOpenChange/onConfirm/onDismiss 三颗糖的一页——所以"弹层到底开没开、
  * 事件到底回没回 PHP"这两件事，值得有一支只渲染它自己的二进制来回答。

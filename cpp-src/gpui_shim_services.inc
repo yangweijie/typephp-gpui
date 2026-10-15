@@ -237,7 +237,7 @@ uint32_t gpui_shim_notification_list(void* win, const char* id) {
     gpui::shell::Component c;
     c.kind = gpui::shell::ComponentKind::ChildView;
     c.handle = e.token;
-    return box->specs.Push(c);
+    return box->arena().Push(c);
 }
 
 int gpui_shim_webview_nav(void* win, const char* id, int dir) {
@@ -258,13 +258,13 @@ void gpui_shim_nullary_style(void* win, uint32_t spec, const char* name) {
     gpui::shell::SpecOp so;
     so.kind = gpui::shell::SpecOpKind::NullaryStyle;
     so.name = cppStr(name);
-    box->specs.PushOp(spec, so);
+    box->arena().PushOp(spec, so);
 }
 
 void gpui_shim_param_style(void* win, uint32_t spec, const char* name,
                            const GpuiArg* args, int argc) {
     auto* box = static_cast<Box2*>(win);
-    gpui::Arena* a = box->specs.Storage();
+    gpui::Arena* a = box->arena().Storage();
     std::vector<gpui::shell::Bridged> tmp;
     tmp.reserve(argc);
     for (int i = 0; i < argc; ++i) tmp.push_back(toBridged(args[i], a));
@@ -273,13 +273,13 @@ void gpui_shim_param_style(void* win, uint32_t spec, const char* name,
     so.name = cppStr(name);
     so.args = tmp.data();
     so.argCount = argc;
-    box->specs.PushOp(spec, so);
+    box->arena().PushOp(spec, so);
 }
 
 void gpui_shim_method(void* win, uint32_t spec, const char* name,
                       const GpuiArg* args, int argc) {
     auto* box = static_cast<Box2*>(win);
-    gpui::Arena* a = box->specs.Storage();
+    gpui::Arena* a = box->arena().Storage();
     std::vector<gpui::shell::Bridged> tmp;
     tmp.reserve(argc);
     for (int i = 0; i < argc; ++i) tmp.push_back(toBridged(args[i], a));
@@ -288,7 +288,7 @@ void gpui_shim_method(void* win, uint32_t spec, const char* name,
     so.name = cppStr(name);
     so.args = tmp.data();
     so.argCount = argc;
-    box->specs.PushOp(spec, so);
+    box->arena().PushOp(spec, so);
 }
 
 int gpui_shim_window_state(void* win, double* out) {
@@ -374,6 +374,9 @@ int gpui_shim_real_mouse(void* win, int x, int y, int type) {
     if (type == 1) {
         if (!gpui_mac_send_mouse(x, y, 1, 1)) return 0;
         gpui_mac_send_mouse(x, y, 2, 1);
+    } else if (type == 4) {
+        if (!gpui_mac_send_mouse(x, y, 3, 1)) return 0;
+        gpui_mac_send_mouse(x, y, 4, 1);
     } else if (type == 2) {
         // 只按下（不抬起）：拖拽的前半。gpui_mac_send_mouse 的 type 1/2 就是
         // LeftMouseDown/Up，这里只是不再把它们焊成一次单击。
@@ -386,6 +389,11 @@ int gpui_shim_real_mouse(void* win, int x, int y, int type) {
         return 0;
     }
     return box->queue.size() > before ? 1 : 0;
+}
+
+int gpui_shim_real_scroll(void* win, int x, int y, int delta_y, int delta_x) {
+    if (!win) return 0;
+    return gpui_mac_send_scroll(x, y, delta_y, delta_x);
 }
 
 int gpui_shim_dispatch_action(void* win, const char* name) {
@@ -433,31 +441,31 @@ uint64_t gpui_shim_callback(void* win, uint32_t spec, const char* elem_id,
     if (opName.rfind("on_", 0) != 0) opName.insert(0, "on_");
     so.name = cppStr(opName.c_str());
     so.callback = cb;
-    box->specs.PushOp(spec, so);
+    box->arena().PushOp(spec, so);
     return cb;
 }
 
 void gpui_shim_attach(void* win, uint32_t parent, uint32_t child) {
     auto* box = static_cast<Box2*>(win);
-    box->specs.Attach(parent, child);
+    box->arena().Attach(parent, child);
 }
 
 void gpui_shim_slot(void* win, uint32_t parent, uint32_t child,
                     const char* slot_name) {
     auto* box = static_cast<Box2*>(win);
     // 命名槽：先 Claim 子节点（单次使用，之后不能再被 Attach），再以 op.node 引用它。
-    box->specs.Claim(child);
+    box->arena().Claim(child);
     gpui::shell::SpecOp so;
     so.kind = gpui::shell::SpecOpKind::Slot;
     so.name = cppStr(slot_name);
     so.node = child;
-    box->specs.PushOp(parent, so);
+    box->arena().PushOp(parent, so);
 }
 
 uint32_t gpui_shim_registered(void* win, const char* export_name,
                               const GpuiArg* args, int argc) {
     auto* box = static_cast<Box2*>(win);
-    gpui::Arena* a = box->specs.Storage();
+    gpui::Arena* a = box->arena().Storage();
     CtorRef ref{};
     const gpui::shell::ComponentDescriptor* desc = nullptr;
     std::string err;
@@ -498,14 +506,14 @@ uint32_t gpui_shim_registered(void* win, const char* export_name,
     c.payload.factory = ctor.factory;
     c.payload.arguments = arguments;
     c.payload.argumentCount = schemaN;
-    return box->specs.Push(c);
+    return box->arena().Push(c);
 }
 
 void gpui_shim_registered_method(void* win, uint32_t spec, const char* name,
                                  const GpuiArg* args, int argc) {
     auto* box = static_cast<Box2*>(win);
-    gpui::Arena* a = box->specs.Storage();
-    const gpui::shell::SpecNode* node = box->specs.Node(spec);
+    gpui::Arena* a = box->arena().Storage();
+    const gpui::shell::SpecNode* node = box->arena().Node(spec);
     if (!node) return;
     const gpui::shell::FrozenComponentRegistry* comps =
         g_runtime ? g_runtime->Components() : nullptr;
@@ -537,7 +545,7 @@ void gpui_shim_registered_method(void* win, uint32_t spec, const char* name,
     so.payload.factory = m->recorder;
     so.payload.arguments = arguments;
     so.payload.argumentCount = schemaN;
-    box->specs.PushOp(spec, so);
+    box->arena().PushOp(spec, so);
 }
 
 uint64_t gpui_shim_new_callback(void* win, const char* elem_id,
@@ -600,7 +608,7 @@ int gpui_shim_state(void* win, const char* kind, const char* key,
         noteError(box, std::string("unknown component state '") + kind + "'");
         return 0;
     }
-    gpui::Arena* a = box->specs.Storage();
+    gpui::Arena* a = box->arena().Storage();
     std::string err;
     gpui::shell::ComponentArgument* arguments = nullptr;
     int n = buildComponentArgs(a, desc->arguments, args, argc, &arguments, &err);
@@ -635,6 +643,242 @@ int gpui_shim_selftest_fire_registered(void* win, const char* elem_id,
     gpui::shell::ComponentCallback cb;
     cb.id = it->second;
     return cb.InvokeWith(g_runtime, nullptr, 0, box->window, g_app) ? 1 : 0;
+}
+
+static gpui::DockState* hostDockState(Box2* box, const char* id, HostDock** host = nullptr) {
+    if (!box || !g_runtime || !id) return nullptr;
+    auto it = box->docks.find(id);
+    if (it == box->docks.end()) return nullptr;
+    auto* entry = g_runtime->Retained(it->second->handle);
+    if (!entry || entry->kind != gpui::shell::RetainedKind::Dock) return nullptr;
+    if (host) *host = it->second.get();
+    return entry->dock.Get(g_app);
+}
+
+static gpui::El* renderHostDockPanel(gpui::Ctx* cx, void* data) {
+    auto* panel = static_cast<HostDockPanel*>(data);
+    gpui::Ctx host = *cx;
+    host.self = panel->box->viewEntity;
+    return gpui::ShellMaterializeSpec(&host, g_runtime, panel->specs.get(), panel->root);
+}
+
+static void hostDockChanged(PhpView* self, gpui::Ctx*, const gpui::DockEvent*, int64_t arg) {
+    auto* host = reinterpret_cast<HostDock*>(arg);
+    self->box->enqueueRaw("dock_change", host->id.c_str(), GPUI_ARG_NIL, 0, 0, nullptr);
+}
+
+int gpui_shim_dock_create(void* win, const char* id) {
+    auto* box = static_cast<Box2*>(win);
+    if (!box || !box->window || !id || !*id || box->building) return 0;
+    if (box->docks.find(id) != box->docks.end()) return 1;
+    gpui::Ctx cx;
+    cx.app = g_app;
+    cx.win = box->window;
+    cx.a = box->specs.Storage();
+    cx.self = box->viewEntity;
+    auto host = std::make_unique<HostDock>();
+    host->id = id;
+    host->handle = g_runtime->CreateHostDock(cppStr(id), &cx, box->viewEntity, hostAppToken());
+    if (!host->handle) {
+        noteError(box, "could not create retained Dock");
+        return 0;
+    }
+    auto* entry = g_runtime->Retained(host->handle);
+    auto* state = entry->dock.Get(g_app);
+    state->center = gpui::DockNewTabs(state);
+    state->closeButtonVisible = true;
+    auto skin = gpui::component::DockSkin::New(entry->dock);
+    entry->dockSkin->hostRenderer = skin.Renderer();
+    state->onEvent = gpui::ListenTo(gpui::Entity<PhpView>{box->viewEntity},
+                                    &hostDockChanged, (int64_t)host.get());
+    box->docks[id] = std::move(host);
+    return 1;
+}
+
+uint32_t gpui_shim_push_dock(void* win, const char* id) {
+    auto* box = static_cast<Box2*>(win);
+    if (!box) return 0;
+    HostDock* host = nullptr;
+    if (!hostDockState(box, id, &host)) {
+        return pushErrorNode(box, box->arena().Storage(), "Dock must be created before it is rendered");
+    }
+    uint32_t root = 0;
+    gpui::shell::SpecError err;
+    if (!box->arena().PushDockArea(host->handle, &root, &err)) {
+        return pushErrorNode(box, box->arena().Storage(), "Dock is already mounted in this tree");
+    }
+    return root;
+}
+
+int gpui_shim_dock_panel_begin(void* win, const char* id, const char* name, const char* title) {
+    auto* box = static_cast<Box2*>(win);
+    HostDock* host = nullptr;
+    if (!hostDockState(box, id, &host) || !name || !*name || !title || box->building) return 0;
+    auto& panel = host->panels[name];
+    if (!panel) {
+        panel = std::make_unique<HostDockPanel>();
+        panel->box = box;
+        panel->name = name;
+    }
+    panel->pendingTitle = title;
+    panel->pending = std::make_unique<gpui::shell::SpecArena>();
+    box->building = panel->pending.get();
+    box->buildingDockPanel = panel.get();
+    return 1;
+}
+
+int gpui_shim_dock_panel_end(void* win, const char* id, const char* name,
+                             const char* placement, double size, uint32_t root) {
+    auto* box = static_cast<Box2*>(win);
+    if (!box) return 0;
+    HostDockPanel* panel = box->buildingDockPanel;
+    box->building = nullptr;
+    box->buildingDockPanel = nullptr;
+    HostDock* host = nullptr;
+    auto* state = hostDockState(box, id, &host);
+    gpui::DockPlacement sideAt = gpui::DockPlacement::Center;
+    bool validSide = placement != nullptr;
+    if (placement) {
+        if (std::strcmp(placement, "left") == 0) sideAt = gpui::DockPlacement::Left;
+        else if (std::strcmp(placement, "right") == 0) sideAt = gpui::DockPlacement::Right;
+        else if (std::strcmp(placement, "bottom") == 0) sideAt = gpui::DockPlacement::Bottom;
+        else if (std::strcmp(placement, "center") != 0) validSide = false;
+    }
+    if (!state || !panel || !name || panel->name != name || !panel->pending
+        || !panel->pending->Node(root) || !std::isfinite(size) || size < 0 || !validSide) {
+        if (panel) {
+            panel->pending.reset();
+            if (host && panel->index < 0) {
+                std::string failedName = panel->name;
+                host->panels.erase(failedName);
+            }
+        }
+        return 0;
+    }
+    panel->root = root;
+    panel->specs = std::move(panel->pending);
+    panel->title = std::move(panel->pendingTitle);
+    if (panel->index < 0) {
+        gpui::DockPanelDef def;
+        def.name = cppStr(panel->name);
+        def.title = cppStr(panel->title);
+        def.render = &renderHostDockPanel;
+        def.data = panel;
+        panel->index = gpui::DockAddPanelDef(state, def);
+        gpui::DockSide* side = gpui::DockSideOf(state, sideAt);
+        int node = side ? side->node : state->center;
+        if (node < 0) {
+            node = gpui::DockNewTabs(state);
+            if (side) side->node = node;
+            else state->center = node;
+        }
+        while (state->nodes[node].split && state->nodes[node].child.len > 0)
+            node = state->nodes[node].child[0];
+        gpui::DockTabsAdd(state, node, panel->index);
+        state->nodes[node].activeIx = state->nodes[node].panel.len - 1;
+        if (side) side->size = (float)size;
+    } else {
+        state->panels[panel->index].title = cppStr(panel->title);
+    }
+    gpui::AppInvalidate(box->window);
+    return 1;
+}
+
+int gpui_shim_dock_select(void* win, const char* id, const char* name) {
+    auto* box = static_cast<Box2*>(win);
+    HostDock* host = nullptr;
+    auto* state = hostDockState(box, id, &host);
+    if (!state || !name) return 0;
+    auto it = host->panels.find(name);
+    if (it == host->panels.end() || gpui::DockNodeOfPanel(state, it->second->index) < 0) return 0;
+    gpui::Ctx cx;
+    cx.app = g_app;
+    cx.win = box->window;
+    cx.a = box->specs.Storage();
+    gpui::DockSelectPanel(state, &cx, state->panels[it->second->index].id);
+    return 1;
+}
+
+int gpui_shim_dock_remove(void* win, const char* id, const char* name) {
+    auto* box = static_cast<Box2*>(win);
+    HostDock* host = nullptr;
+    auto* state = hostDockState(box, id, &host);
+    if (!state || !name) return 0;
+    auto it = host->panels.find(name);
+    if (it == host->panels.end()) return 0;
+    int at = it->second->index;
+    int node = gpui::DockNodeOfPanel(state, at);
+    if (node < 0) return 0;
+    gpui::Ctx cx;
+    cx.app = g_app;
+    cx.win = box->window;
+    cx.a = box->specs.Storage();
+    for (int i = 0; i < state->nodes[node].panel.len; i++) {
+        if (state->nodes[node].panel[i] != at) continue;
+        gpui::DockClosePanel(state, &cx, node, i);
+        return gpui::DockNodeOfPanel(state, at) < 0 ? 1 : 0;
+    }
+    return 0;
+}
+
+int gpui_shim_dock_layout(void* win, const char* id, char* out, int cap) {
+    auto* state = hostDockState(static_cast<Box2*>(win), id);
+    if (!state) return 0;
+    gpui::DockAreaState saved;
+    gpui::DockDump(state, &saved);
+    gpui::StrBuilder writer;
+    gpui::DockAreaStateWrite(&saved, &writer);
+    gpui::Str json = writer.TakeStr();
+    int n = copyBounded(out, cap, json.s, json.len);
+    gpui::StrFree(json);
+    return n;
+}
+
+int gpui_shim_dock_load(void* win, const char* id, const char* json) {
+    auto* box = static_cast<Box2*>(win);
+    HostDock* host = nullptr;
+    auto* state = hostDockState(box, id, &host);
+    if (!state || !json || box->building) return 0;
+    gpui::Arena* arena = gpui::ArenaNew();
+    gpui::DockAreaState saved;
+    bool ok = gpui::DockAreaStateParse(arena, gpui::StrDup(arena, cppStr(json)), &saved);
+    for (const auto& node : saved.nodes) {
+        if (node.kind != gpui::PanelInfoKind::Panel) continue;
+        std::string name(node.panelName.s ? node.panelName.s : "", (size_t)node.panelName.len);
+        auto panel = host->panels.find(name);
+        if (panel == host->panels.end() || panel->second->index < 0
+            || panel->second->index >= state->panels.len
+            || !gpui::StrEq(state->panels[panel->second->index].name, node.panelName)) ok = false;
+    }
+    auto* entry = g_runtime->Retained(host->handle);
+    if (ok) ok = gpui::DockLoad(state, &saved, arena, &gpui::component::DockInvalidPanelRender,
+                                g_app, box->window, entry->dock);
+    if (!ok) {
+        gpui::ArenaDelete(arena);
+        return 0;
+    }
+    if (entry->dockArena) gpui::ArenaDelete(entry->dockArena);
+    entry->dockArena = arena;
+    gpui::AppInvalidate(box->window);
+    return 1;
+}
+
+int gpui_shim_dock_probe(void* win, const char* id, double* out, int cap) {
+    auto* state = hostDockState(static_cast<Box2*>(win), id);
+    if (!state || !out || cap < 8) return 0;
+    out[0] = state->panels.len;
+    out[1] = 0;
+    for (int n = 0; n < state->nodes.len; n++) {
+        if (state->nodes[n].used && !state->nodes[n].split) out[1] += state->nodes[n].panel.len;
+    }
+    int active = gpui::DockActiveIx(state, state->center);
+    out[2] = active >= 0 ? state->nodes[state->center].panel[active] : -1;
+    out[3] = state->nodes.len;
+    out[4] = state->bounds.w;
+    out[5] = state->bounds.h;
+    out[6] = state->bounds.x;
+    out[7] = state->bounds.y;
+    return 8;
 }
 
 void gpui_shim_render_end(void* win, uint32_t root_id) {

@@ -5,11 +5,57 @@ declare(strict_types=1);
 /**
  * examples/_shared/features/data.php — 功能域「表格、列表与进度」。
  *
- * 从 showcase 的 §5 搬来。这一域没有点击接线（行/格的 id 只是 specIndex 回读的键），
- * 所以这里只有 builder 与自报的像素树号，没有 wire 函数。
+ * 从原画廊（已删除）的 §5 搬来。表格行/格的 id 只是 specIndex 回读的键；唯一的接线是
+ * 虚拟列表的行渲染闭包（wireData）。
  */
 
+use TypePHP\Gpui\App;
 use TypePHP\Gpui\Element as El;
+
+/** da-vlist 的总条数：大到"全描述一遍"与"只描述可见几行"在耗时上天差地别。 */
+const DATA_LIST_ROWS = 10000;
+
+/**
+ * 虚拟列表的行渲染闭包。gpui 在画帧途中按可见区间 [start, end) 同步来要；
+ * 每要一批就在 ExampleState 里记一笔，自检拿它与 shim 自己的计数对账。
+ */
+function wireData(App $app): void
+{
+    $app->listRenderer('da-vlist', static function (int $start, int $end): array {
+        ExampleState::$v['listBatches'] = (int) ExampleState::$v['listBatches'] + 1;
+        ExampleState::$v['listRows'] = (int) ExampleState::$v['listRows'] + ($end - $start);
+        if ($start === 0) {
+            ExampleState::$v['listSawFirst'] = true;
+        }
+        ExampleState::$v['listRanges'] = "[{$start},{$end})";
+        ExampleState::$v['listMaxStart'] = max((int) ExampleState::$v['listMaxStart'], $start);
+        $rows = [];
+        for ($i = $start; $i < $end; $i++) {
+            // uniform_list 以 MinContent 测高；不换行才能避免文本按一像素宽度逐字换行。
+            $row = El::text("第 {$i} 行")->font(12.0)->truncate()->px(8.0)->py(3.0)
+                ->id('da-item-' . $i);
+            if ((bool) ExampleState::$v['listRowHandlers']) {
+                $row->onClick()->onMouseDownRight();
+            }
+            $rows[] = $row;
+        }
+        return $rows;
+    });
+    $app->onAny('click', static function (array $e): void {
+        $id = (string) ($e['id'] ?? '');
+        if (str_starts_with($id, 'da-item-')) ExampleState::$v['listClicked'] = $id;
+    });
+    $app->onAny('mouse_down_right', static function (array $e): void {
+        $id = (string) ($e['id'] ?? '');
+        if (str_starts_with($id, 'da-item-')) ExampleState::$v['listRight'] = $id;
+    });
+    $app->on('da-vlist', 'item_click', static function (array $e): void {
+        ExampleState::$v['listItem'] = (string) ($e['value'] ?? '');
+    });
+    $app->on('da-vlist', 'item_secondary_click', static function (array $e): void {
+        ExampleState::$v['listSecondary'] = $e;
+    });
+}
 
 /** 本域的像素树清单：树号 → [标题, builder]。 */
 function dataTrees(): array
@@ -47,12 +93,12 @@ function sectionData(array $s): El
                 ])->id('da-row-2')->rowIndex(2)->flexRow()->gap(18.0),
             ]),
         ])->w(340.0),
-        // El::list 是 catalog 的 List 组件，内容由 item renderer 决定，直接塞 children 会被
-        // 丢掉（gpui 自己在控制台说 "children are dropped on a list"）。桥这边还没接 renderer
-        // （task #29/#35 VirtualList），所以这里留一颗 List 证明 API 在，
-        // 真正能滚的列表用 vFlex + overflowYScroll 画。
-        El::list('da-list')->w(240.0)->h(16.0),
-        El::text('List 的 children 被上游丢弃（renderer 未接）；下面这排是 vFlex 近似的可滚动列表：')->font(11.0)->truncate(),
+        // 真虚拟列表（#29/#35）：一万行，只给条数；行由 wireData() 登记的闭包按需给，
+        // gpui 只为可见那一段要行。门在 examples/data 的 virtualListLazy：要过的行数
+        // 必须远小于总数——"一万行全描述一遍"与"只描述可见的几行"在画面上看不出区别。
+        El::text('uniformList：' . DATA_LIST_ROWS . ' 行，行由 PHP 闭包按可见区间给')->font(11.0)->truncate(),
+        El::uniformList('da-vlist', DATA_LIST_ROWS)->w(260.0)->h(90.0)->border()->borderColor(0xCCC6BD),
+        El::text('下面这排是 vFlex 近似的可滚动列表（读屏语义演示）：')->font(11.0)->truncate(),
         // 读屏侧的语义：容器是 list、每项是 list_item，第 3 项标 aria-selected。
         // 这一族全是 behavior op（materialize 认 role / aria_* / tab_* / key_context / selectable），
         // 不画像素——所以 shotdiff 逐字节不变本身就是"只改读屏树"的证据。
@@ -64,7 +110,7 @@ function sectionData(array $s): El
             range(1, 12)
         ))->h(110.0)->overflowYScroll()
             ->role('list')->ariaLabel('可滚动列表')
-            ->tabIndex(0)->tabStop()->keyContext('ShowcaseDataList')
+            ->tabIndex(0)->tabStop()->keyContext('GpuiDataList')
             ->ariaActiveDescendant()->selectable(false),
         El::text('progress / progressTrack + progressIndicator')->font(12.0),
         El::progress(0.65)->w(240.0),
