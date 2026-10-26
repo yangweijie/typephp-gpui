@@ -2623,7 +2623,9 @@ static void DispatchMouseUp(Window* win, const MouseUpEvent& in) {
     int upId = hit ? hit->id : 0;
     if (ClickFromRelease(win->pressPending, win->pressedId, win->pressedButton,
                          dragged, upId, in.button)) {
-        ClickEvent ev = {in.x, in.y, in.button, win->pressedId};
+        // typephp-gpui: checkbox click id = callback id：click 事件的 id 用当前 hit id
+        // （clickId 已对齐 cbid），不是 pressedId（mouse-down 时缓存的路径哈希，没跟上）。
+        ClickEvent ev = {in.x, in.y, in.button, upId};
         ev.clickCount = win->pressedCount;
         ev.modifiers = win->pressedModifiers;
         if (hit) {

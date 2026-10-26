@@ -18,6 +18,8 @@ declare(strict_types=1);
  */
 
 $root = dirname(__DIR__);
+// 交付身份的解析是纯函数、且要被 Pest 单测覆盖，所以放 cmd/ 下当库文件。
+require_once __DIR__ . '/../cmd/bundle-identity.php';
 $argvv = $argv;
 array_shift($argvv);
 $cmd = $argvv[0] ?? 'help';
@@ -81,6 +83,20 @@ function patchManifest(): array {
         ['patch-key-view.sh',      "$gpui/src/shell/view.cpp",       'typephp-gpui: gpuiEnqueueKey'],
         ['patch-mouse-view.sh',    "$gpui/src/shell/view.cpp",       'typephp-gpui: gpuiEnqueueMouse'],
         ['patch-select-view.sh',   "$gpui/src/shell/view.cpp",       'typephp-gpui: gpuiEnqueueSignal'],
+        ['patch-resize-handle.sh', "$gpui/src/base/resizable.cpp",   'typephp-gpui: resize probe'],
+        ['patch-resize-handle.sh', "$gpui/src/shell/materialize.cpp", 'typephp-gpui: host resize route'],
+        ['patch-resize-handle.sh', "$gpui/src/base/resizable.h",      'typephp-gpui: wide grab band'],
+        ['patch-resize-handle.sh', "$gpui/src/gpui/window_mac.cpp",   'typephp-gpui: resize down probe'],
+        ['patch-input-focus.sh',   "$gpui/src/shell/materialize.cpp",  'typephp-gpui: input takes press'],
+        ['patch-input-focus.sh',   "$gpui/src/ui/input.cpp",           'typephp-gpui: input takes press'],
+        ['patch-time-field-press.sh', "$gpui/src/base/time_field.cpp", 'typephp-gpui: time field takes press'],
+        ['patch-popup-occlude.sh', "$gpui/src/ui/popover.cpp",         'typephp-gpui: popup occludes'],
+        ['patch-popup-occlude.sh', "$gpui/src/ui/time.cpp",            'typephp-gpui: popup occludes'],
+        ['patch-popup-same-frame.sh', "$gpui/src/base/popup.cpp",      'typephp-gpui: popup mounts same frame'],
+        ['patch-number-center.sh', "$gpui/src/shell/materialize.cpp",  'typephp-gpui: number input centers digits'],
+        ['patch-shell-checkbox.sh', "$gpui/src/shell/materialize.cpp", 'typephp-gpui: checkbox/switch use themed component'],
+        ['patch-checkbox-click-id.sh', "$gpui/src/shell/materialize.cpp", 'typephp-gpui: checkbox click id = callback id'],
+        ['patch-shell-textarea-frame.sh', "$gpui/src/shell/materialize.cpp", 'typephp-gpui: shell textarea themed frame'],
     ];
 }
 
@@ -146,15 +162,38 @@ function appBundle(string $root, string $example): string
         exit(1);
     }
     @chmod($link, 0755);
+
+    // 交付身份（bundle id / 名称 / 版本 / 图标）来自 example 自己的 project.macos.yml，
+    // 缺省值等于这里原先的硬编码——所以没写这三项的示例行为一点没变。解析在
+    // cmd/bundle-identity.php（纯函数、可单测），这里只负责填 plist 与搬图标。
+    $id = bundle_identity("$root/examples/$example");
+    foreach ($id['warnings'] as $w) {
+        err("bundle 身份：$w");
+    }
+    $iconPlist = '';
+    if ($id['icon_src'] !== null) {
+        // 目标名是库里净化过的 basename（路径里的 ../ 逃不出 bundle 外）。
+        $resources = "$appDir/Contents/Resources";
+        if (!is_dir($resources) && !mkdir($resources, 0755, true) && !is_dir($resources)) {
+            err("无法创建 Resources 目录：$resources");
+            exit(1);
+        }
+        if (!copy($id['icon_src'], "$resources/{$id['icon_name']}")) {
+            err("图标复制失败：{$id['icon_src']}（bundle 将无图标）");
+        } else {
+            $iconPlist = "\n<key>CFBundleIconFile</key><string>{$id['icon_name']}</string>";
+        }
+    }
+
     file_put_contents("$appDir/Contents/Info.plist", <<<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
 <key>CFBundleExecutable</key><string>$example</string>
-<key>CFBundleIdentifier</key><string>top.typephp.gpui.$example</string>
-<key>CFBundleName</key><string>$example</string>
+<key>CFBundleIdentifier</key><string>{$id['id']}</string>
+<key>CFBundleName</key><string>{$id['name']}</string>
 <key>CFBundlePackageType</key><string>APPL</string>
-<key>CFBundleShortVersionString</key><string>1.0</string>
+<key>CFBundleShortVersionString</key><string>{$id['version']}</string>$iconPlist
 <key>LSMinimumSystemVersion</key><string>11.0</string>
 <key>NSHighResolutionCapable</key><true/>
 <key>NSPrincipalClass</key><string>NSApplication</string>
@@ -216,12 +255,11 @@ switch ($cmd) {
         //     跟踪的源码树不被弄脏。顺序要紧——补丁要在沙箱存在之后才找得到文件。
         //
         // --no-native 跳过共用的前三步（同步→补丁→amalgam→shim 库），只跑 tpc 那一步。
-        // 为什么要这个开关：cmd/sync-upstream.sh 的 rsync --delete 会把沙箱里的 .work/ 与
-        // out/ 一起清掉，所以"同步→补丁→amalgam→shim"每调一次 build 就整个重来一次——
-        // 实测一次完整 amalgam 编译要好几分钟，而那几分钟建出来的 gpui.o 与
-        // libgpui_shim.a 是**所有示例共用**的。按功能域拆出独立示例之后
-        // （task_plan.md Phase 15），"每支都重编一遍 gpui.o"会让本地全量与 CI 都超预算。
-        // 用法：第一支跑完整链，其余支 --no-native。它只在"本轮已经建过共享产物"时成立，
+        // 它现在是"只改了 PHP"的快路径，不再是"避免重编"的开关：cmd/sync-upstream.sh 有
+        // 上游指纹闸门，上游没变就整个跳过同步，.work/ 与 out/ 不会被删，amalgam 于是命中
+        // 增量（2026-10-19 实测完整链 6.52s：sync 0.10 + patch 1.27 + amalgam 1.41
+        // + shim 3.40 + tpc 2.08 + bundle ~0.2）。留给它的位置是连 shim 那 3.40s 也不想再付时
+        // （每支约 2s，见 cmd/all-examples.sh 的批量跑法）。它只在"本轮已经建过共享产物"时成立，
         // 所以下面先验那两个文件在不在——宁可拒绝，也不要静默链接到陈旧产物上量出一个假绿。
         $noNative = in_array('--no-native', $args, true);
         $gpui = gpuiDir();
@@ -276,12 +314,27 @@ switch ($cmd) {
 
         if ($cmd === 'run') {
             $exe = appBundle($root, $example);
-            ok("已包成 bundle（真前台应用）：$exe");
-            // 把示例自己的开关（--trace / --sections / --selftest）原样转给 bundle 里的
-            // 二进制：没有这条转发，"php bin/gpui run input --trace" 会静默丢掉 trace，
+            ok("已包成 bundle（产物身份用）：$exe");
+            /* 默认跑**裸二进制**，不再默认跑 bundle 里那一颗。
+             * 实测（同一秒、同一份字节、同一台机器）：
+             *   裸：  onScreen=true  active=true key=true bundled=false
+             *   bundle：onScreen=false active=true key=true bundled=true
+             * 也就是说 bundle 那一颗的窗口根本不被 WindowServer 合成——人看不见、
+             * 也按不动，而这正是 `run` 这个交互入口唯一要给出的东西。
+             * （旧结论"裸二进制起不来 isActive"是前台重试那条补丁之前量的，已不成立：
+             * 这一行同时纠正 docs 里"run 必须走 bundle"的说法。）
+             * 需要验证 bundle 身份本身时用 `--bundle` 显式走那条路（selftest 的
+             * `--expect-bundle` 仍固定走 bundle，那是产物属性断言，不是交互验收）。 */
+            if (!in_array('--bundle', array_slice($args, 1), true)) {
+                $exe = $bin;
+            }
+            out('执行：' . $exe . (in_array('--bundle', array_slice($args, 1), true)
+                ? '（bundle 路径：窗口可能不被合成）' : '（裸二进制路径：窗口可合成）'));
+            // 把示例自己的开关（--trace / --sections / --selftest）原样转给产物：
+            // 没有这条转发，"php bin/gpui run input --trace" 会静默丢掉 trace，
             // 而那正是量"手点有没有到"的唯一外部手段。
             $extra = array_values(array_filter(array_slice($args, 1),
-                static fn ($a): bool => $a !== '--no-native'));
+                static fn ($a): bool => $a !== '--no-native' && $a !== '--bundle'));
             $quoted = [];
             foreach ($extra as $a) {
                 $quoted[] = escapeshellarg((string) $a);
@@ -335,6 +388,18 @@ switch ($cmd) {
         if (is_dir($dir)) { err("已存在：$dir"); exit(1); }
         mkdir("$dir/src", 0755, true);
         $yml = str_replace('gpui-hello', "gpui-$app", file_get_contents("$root/examples/hello/project.macos.yml"));
+        // 交付身份三项连注释一起写进脚手架：没注释的键等于不存在，新人不会知道能配。
+        $yml = (string) preg_replace(
+            '/^name: .*$/m',
+            "name: gpui-$app\n\n"
+            . "# 交付身份（都可选；缺省值见 cmd/bundle-identity.php）：\n"
+            . "#   bundle-id:     com.example.$app\n"
+            . "#   bundle-name:   $app\n"
+            . "#   bundle-version: 1.0.0\n"
+            . "#   icon:          assets/App.icns   # 发布质量用 .icns，.png 开发期也收",
+            $yml,
+            1
+        );
         file_put_contents("$dir/project.macos.yml", $yml);
         file_put_contents("$dir/src/main.php", <<<PHP
 <?php

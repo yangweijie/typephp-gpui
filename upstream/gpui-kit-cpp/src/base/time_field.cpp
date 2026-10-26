@@ -540,7 +540,17 @@ El* TimeField::IntoEl() {
                    ->PathId(id)
                    ->Role(AccessibilityRole::TimeInput)
                    ->AriaValue(TimeFormat(a, format, editor.time))
+                   // typephp-gpui: time field takes press: root 有 PathId
+                   // （clickFromPath ⇒ 有命中矩形、focusId 挂 st->focus），但窗口通用
+                   // 路径的 FocusIdTakesPress 只认 focusOnPress 这一个旗标——段内的
+                   // 点击有部件自己的 OnMouseDown→OnSegmentDown 自聚焦，段间（冒号
+                   // 死区）没有任何监听器，缺这个旗标按死区不迁移焦点。disabled 的
+                   // 字段不给（上游语义：按住 disabled 控件焦点不动）。
+                   // TrackFocus 必须留着：PathId 把 focusFromPath 置真，IdCollect 会把
+                   // focusId 覆盖成路径哈希，焦点就落到与 OnSegmentDown 聚的那颗
+                   // FocusHandle 不同的 id 上了（两 id 不一致正是上游注释警告的坑）。
                    ->TrackFocus(st->focus)
+                   ->FocusOnPress(!disabled)
                    ->TabStop(!disabled);
     if (!disabled) {
         Listener onAction = ListenTo(state, &TimeFieldState::OnAction);

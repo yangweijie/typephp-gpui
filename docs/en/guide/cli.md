@@ -35,9 +35,10 @@ The full build runs in this order:
 4. Build the C++20 shim archive with `cmd/build-shim.sh`.
 5. Compile PHP and the C++17 bridge with `tpc --nano`, then link the native binary.
 
-The binary is `examples/hello/build/hello`. CLI execution uses the generated
-`.app` bundle so the process has application identity; a raw Mach-O launch is not
-an equivalent foreground/input test.
+The binary is `examples/hello/build/hello`. `gpui run` executes that bare binary
+by default (`--bundle` opts into the generated `.app`); `selftest` still goes
+through the bundle, asserting the artifact carries application identity
+(`--expect-bundle`).
 
 ### Reusing shared native artifacts
 
@@ -109,11 +110,16 @@ php bin/gpui run hello --clip
   clipboard data before interpreting the output.
 
 The independent `input` example performs native typing checks inside its
-`--selftest` and owns the two human-facing modes: `--wait-key <sec>` (prints a
-verdict, exits 0 only if a real key arrived) and `--trace` (appends every event
-that reaches PHP to `/tmp/input-events.log`). `overlay --escape` and
+`--selftest` and owns the human-facing modes: `--wait-key <sec>` (prints a
+verdict, exits 0 only if a real key arrived), `--trace` (appends every event
+that reaches PHP to `/tmp/input-events.log`) and `--automation <dir>` (external
+commands drive the real window — usable on its own, no `--trace` needed; the
+verb table is in [Testing](./testing)). `overlay --escape` and
 `layout --dock` are the other two. Unknown flags are rejected with exit 2 rather
 than falling through to the interactive window, so a mistyped mode fails fast.
+That rejection message is the CLI's only user-facing manual, and a gate now
+insists that it lists exactly the flags the code reads — a flag read only behind
+that guard was rejected by its own CLI (`--automation`, fixed 2026-10-22).
 There is no `--liveclick`, `--livetyping`, or `--probe-events` any more: what
 they used to read is asserted by `chrome`'s `navRowsReachable` (first frame must
 already be clickable), `input`'s per-box typing, and the per-domain event gates in
@@ -148,6 +154,25 @@ php bin/gpui new myapp
 The scaffold copies a project yml and creates a minimal `main.php` under the new
 example directory. Keep all compilation sources in the yml: nano builds do not
 load arbitrary PHP `require`/`include` files at runtime.
+
+## Bundle identity (four optional keys in project.macos.yml)
+
+When `gpui build` / `run` / `selftest` package the `.app`, `CFBundleIdentifier`,
+`CFBundleName`, `CFBundleShortVersionString` and the icon all come from the example's
+own yml. **Omitting them is the old behaviour** (`top.typephp.gpui.<example>` /
+`gpui-<example>` / `1.0` / no icon), so existing examples need no change.
+
+```yaml
+name: gpui-hello
+bundle-id: com.example.hello      # A-Za-z0-9.- only; illegal values fall back with a warning
+bundle-name: Hello App            # defaults to name:; UTF-8 is fine
+bundle-version: 1.4.2             # dotted numbers; illegal values fall back to 1.0
+icon: assets/App.icns             # relative to this yml; .icns for shipping, .png works for dev
+```
+
+The `icon` file is copied into `Contents/Resources/` (basename only, so `../` cannot
+escape the bundle) and referenced by `CFBundleIconFile`. Removing the `icon:` key drops
+the reference; the stale file stays in `Resources/` — inert, delete it if you want tidy.
 
 ## Build environment
 

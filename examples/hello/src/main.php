@@ -39,6 +39,14 @@ function main(int $argc, array $argv): void
     $app->create();
     $app->createWindow('Hello GPUI', 800, 600);
 
+    // --automation <dir>：外部脚本把命令写成 <dir>/command-<n>.txt，本帧吃完在
+    // <dir>/snapshot.txt 里回执（动词见 App::automationExec）。无人值守真输入验收走这条，
+    // 不再需要人坐在机器前按——本地探针与 CI 都能驱动。见 task_plan.md Phase 18。
+    $autoIdx = array_search('--automation', $argv, true);
+    if ($autoIdx !== false && isset($argv[$autoIdx + 1]) && $argv[$autoIdx + 1] !== '') {
+        $app->automation((string) $argv[$autoIdx + 1]);
+    }
+
     // 每帧按 $state 重新描述界面
     $app->view(function () use (&$state): El {
         $greet = $state['name'] !== '' ? "Hello, {$state['name']}!" : 'Hello, World!';
@@ -74,16 +82,20 @@ function main(int $argc, array $argv): void
             ->justifyCenter();
     });
 
-    // 事件处理器只改状态；change 事件带 value（输入文本 / 滑块数值）
+    // 事件处理器只改状态；问候读 **state 当前文本**（参考 examples/input.cpp 的 OnChange），
+    // 不信事件载荷：合成 change 带过来的是 true，信载荷会把问候画成 "Hello, 1!"
+    // （2026-10-22 在 input 那一支用 automation + screenshot 实测到同一种形状）。
     $app->on('inc', 'click', function () use (&$state): void {
         $state['count']++;
     });
     $app->on('reset', 'click', function () use (&$state): void {
         $state['count'] = 0;
     });
-    $app->on('name', 'change', function (array $e) use (&$state): void {
-        $state['name'] = (string) ($e['value'] ?? '');
+    $app->on('name', 'change', function () use ($app, &$state): void {
+        $state['name'] = $app->text('name');
     });
+    // vol 没有 state 取值口（App 只有 text()/checked()，slider 不在 inputHandles 表里），
+    // 只能信载荷：合成 change 下它会读到 1。这是已知边界，input 那一支的 in-vol 同形状。
     $app->on('vol', 'change', function (array $e) use (&$state): void {
         $state['vol'] = (int) ($e['value'] ?? 0);
     });
@@ -924,6 +936,13 @@ function runShot(string $path, int $tree = 0): void
         // 第二次样本才画，行数一变框就变高——只跑 3 帧时"拍到了没"取决于墙钟，
         // 同一条命令两次跑出两张图（#86 就是这个）。所以这里给足帧数，让基线总是
         // 落在含资源行的那一态，而不是靠容差或重录把差异咽下去。
+        $app->loop(120);
+    }
+    if ($tree === 30) {
+        // WebView 的 HTML 是异步渲染进图层的：泵得太少会拍到"还没画"的那一态。
+        // 与 embedded 出图前的 `$app->loop(80)` 是同一条理由（那边注释写得更早）。
+        // 实测这一棵首跑 2/3 红、复跑绿，且两次红图的 gdfrac **完全相同**（0.56586）——
+        // 两个离散态，不是渲染噪声；所以这里给足帧数，而不是靠容差或重录咽下去。
         $app->loop(120);
     }
     if ($tree === 28) {

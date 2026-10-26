@@ -2279,3 +2279,189 @@ CI 摘掉 4 条 showcase step、排除表由 `hello|showcase` 收成 `hello`，�
 `ps` 模式（它当时在跑 `bun cmd/build.ts`，一个都不匹配），误判"死了"就会起重复活并互相污染。
 
 
+
+## Phase 18：自动化 dropbox 落地（2026-10-20）
+
+参照 native-0.11.0 的 `src/automation/protocol.zig`，把"外部驱动真实窗口"从一次性探针变成
+受治理的接口。**落点只在两个已有文件 + 一个新测试**：`src/App.php`（新文件要改 13 份 yml，
+不划算）、`examples/hello/src/main.php`（接 `--automation <dir>`）、`tests/AutomationTest.php`。
+
+- 形态：`<dir>/command-<n>.txt` 逐口消费，**严格下一号、缺号先等**；回执写 `<dir>/snapshot.txt`
+  （帧数/渲染数/窗口状态/focused/lastError/已消费命令数/每条命令结果行），**每口一写、不每帧写**。
+- 七动词：`widget-click` / `key` / `input` / `value` / `focus` / `screenshot` / `quit`。
+  `quit` 是 CI 能跑完的前提；`screenshot` 先强制渲染一帧再拍（否则拍到旧帧 = 假绿）；
+  截图标签净化（非 `[A-Za-z0-9._-]` 替换、限长 64）防 `../` 逃出目录。
+- 全量门：`pest` **115 通过 / 608 断言**（新增 8 项 27 断言），`phpstan` 0 错。
+- 红臂×2 实测：断开 loop 挂接 ⇒ 6/8 红；改回"取最小可用号" ⇒ 乱序门单独红。还原后全绿。
+- 真二进制两轮驱动全通（细节见 task_plan.md Phase 18）：
+  ① 6 口全按序消费、43KB 截图、`quit` 干净退出；
+  ② **反直觉发现**：`input` 只设值不发 `change` 事件（问候语不更新），改走 `key`×3 后
+     问候语变 `Hello, abc!`——真事件、真状态、真重渲染。`focus` 返回 `-1001`，焦点层仍是缺口。
+- 文档：`docs/guide/testing.md` 与 `docs/en/guide/testing.md` 各加一节（动词表 + 实测边界）。
+
+## Phase 19：帧/节点预算棘轮落地（2026-10-20）
+
+`cmd/bench-tree.php` + `cmd/bench-tree-budgets.txt`，挂 `composer bench:tree` 与 CI 的 php job。
+
+- 测 PHP 半边（view builder + `toArray()`），5 个规模 × 5 次取 **min** 为门看的数。
+  改口径的实锤：同机 A/B 证明中位数随机器状态漂（med 48ms 的序列里混着 max 94ms 的停顿），
+  min 在快/慢状态间只差 10~20%，与昨晚中位数几乎重合（25.75/59.51/133.85）。
+- 预算（min×~1.25 取整）：3001→8ms、6001→20ms、15001→30ms、30001→72ms、60001→165ms、
+  `us-per-node`≤2.6。每条预算的"守什么/怎么标定/怎么重标定"写在 budgets 文件注释里
+  （参照 native-0.11.0 的 bench-render-budgets.txt 纪律）。
+- 内存只报不门：20k 行峰值 168MB 超 PHP 默认 128MB，是框架特性（约 2.8KB/节点）不是回归信号。
+- 红臂：注入真 O(n²) ⇒ 大档全超（60001 302ms / µs 5.04）、小档仍 OK，rc=1；还原后全绿。
+- 逃生阀 `GPUI_SKIP_BENCH_TREE=1`（机器正忙时显式跳过，参考项目同设计）。
+- 门现状：`composer bench:tree` OK。`check-build-inputs` 因新文件未入库红 2 条
+  （bench-tree.php + 早前遗留的 patch-resize-handle.sh），`git add` 后即绿。
+
+## Phase 20：交付身份改由 yml 承载（2026-10-20）
+
+`cmd/bundle-identity.php`（纯函数库）+ `bin/gpui` 的 `appBundle()` 改造 + `gpui new` 脚手架 +
+`tests/BundleIdentityTest.php`（8 项 34 断言，红线实测过）+ 中英 cli.md 各加一节。
+
+- 三个可选键：`bundle-id` / `bundle-name` / `bundle-version`，外加 `icon`。
+  **一个都不写 = 今天的硬编码值**，现有示例零改动。
+- 非法 bundle id / 非点分版本号一律回落缺省并出声——Info.plist 的这两个字段不是
+  "能跑就行"的东西（codesign 与 LaunchServices 都按它认东西）。
+- 图标：源路径照解析但**目标名只取 basename**（净化放在库里、因此可被单测），
+  复制进 `Contents/Resources/`，plist 加 `CFBundleIconFile`。
+- 真 bundle A/B 全过（含 UTF-8 应用名、codesign、`--selftest` 151 timer hits）；
+  删掉 icon 键后 plist 干净，`Resources/` 里的旧文件留着（惰性、无害，已写进文档）。
+- 全量门：`pest` 124 通过 / 644 断言，`phpstan` 0 错，锚点门 OK。
+- 红线：取消 id 校验 ⇒ "malformed bundle id 回落"那条单独红，其余 7 项仍绿；还原后全绿。
+
+## 真人可运行性验收（2026-10-20，input 示例）
+
+**结论：能用。** 用户在 Terminal.app 里跑 `input --wait-key 8`，自报
+`typed=yes text='123123qqwev'`、`appkitDeliveries 0→21`、`change=1 evSeen=change{in-name}`，
+探针自己的判据行给的是 `OK：字已经进了输入框……键→输入框→PHP 这条链通了`。
+agent 侧（无 GUI session）同一颗二进制量到的是 0——两边的差就是 #96 记的方法论边界。
+
+顺带把自动化面补完整：
+- `src/App.php` 新增 `change <id> [文本]` 动词（设值 + 按类型合成 change）。它有明确缺口要补：
+  `input` 只设值不发事件（#93）、`key` 走 OS 路径在无会话进程树里投递为 0，
+  于是"change 能不能到 PHP"这一路在 agent/CI 环境里本来没有任何动词能验。
+- `examples/input/src/main.php` 接上 `--automation <dir>`（此前只有 hello 有）。
+- `tests/AutomationTest.php` 9 项 29 断言（新增 change 动词门）。
+- 真二进制复验：`change in-name 你好自动化` ⇒ snapshot 回执 `change in-name "你好自动化"`、
+  `value in-name -> input="你好自动化"`，且 `/tmp/input-events.log` 终于写出 `change in-name 1`
+  （此前从未写出来过）。值列显示 1 是 #97 记的"合成事件不带文本"，不是回归。
+
+## #96 纠正记录（2026-10-20 当晚）
+
+- 用户在我启动的实例里打了 `1231asdcxzazxa` ⇒ `/tmp/input-events.log` 16 行逐键 change，
+  值与键入一致；同一实例 `active=1 key=1 main=1 onScreen=1`。**#96“agent 树收不到 OS 输入”作废。**
+- 真实原因是当时无人输入（无人打 ⇒ deliveries=0），不是环境禁止。
+- 仍未关的小开放项：用户首次在 `--trace` 交互实例里打字未落日志——判据是“打字前先点窗口”
+  （窗口需被点成 key）。等用户复测一次即可结案。
+
+## 点击不聚焦：定位与修复（2026-10-20）
+
+- 逐跳：OS 投递 → 命中表 → 视图 mouseDown: 全部正常；断在第五跳 `takesPress=0`。
+- 根因：两条置焦点路同时断（脚本鼠标改道 + 输入框未登记 FocusOnPress）。
+- 修法：`cmd/patch-input-focus.sh`（materialize 的 retained 输入补 TrackFocus；ui/input.cpp 的
+  InputTrackFrameFocus 翻 true），已登记进 bin/gpui 的补丁清单。
+- 插桩（window_mac.cpp / window_common.cpp / gpui_mac.mm 的 CLICKDOWN/FOCUSGATE/MON/POST_MODE）
+  已全部撤除（三处 grep 均为 0）。
+- 门：selftest rc=0、pest 125/646、phpstan 0；check-build-inputs 红 3 条全是"新文件未入库"。
+- 遗留：真手点确认（用户现场）；`--automation` 单用会被 input 的 main 当未知开关拒掉（需带 --trace）。
+
+## Phase 23：`--automation` 单用的坑填了 + 开关清单自洽门（2026-10-22）
+
+- 遗留那条**已修**：`inputDispatch` 里把 `--automation` 的取值提到"未知开关必须拒绝"的扫描之前
+  （缺值/值以 `--` 开头 ⇒ `用法: --automation <dir>` rc=2），`runInteractive($trace, $autoDir)` 改从参数拿目录。
+  真二进制逐开关跑过：9 颗全收下、`--not-a-flag` 仍 rc=2（扫描没被削弱）、
+  功能臂 `--automation <dir>` + `quit` 让进程自己退出并写回执 `commands=1 log=#1 quit -> bye`。
+- 新门（`tests/ExampleCoverageTest.php`，双向 + 两侧实测）：凡带未知开关扫描的示例源，
+  **实际读取的开关集合 ↔ 提示里声明的集合**必须相等。绿读数 `读取(9) == 声明(9)`；
+  红臂①`--zz-tmp-bogus`（读了没声明）与红臂②`--zz-tmp-phantom`（声明了没读）各自单独红、
+  停在各自那条断言，还原后 rc=0 零残留。Pest 从 125/646 → **126/651**。
+  边界写在注释里：这条量声明一致性，**不**量可达性——可达性靠真二进制逐开关跑。
+- 文档：中英 `testing.md` 门禁表补第 15 行 `composer bench:tree`（10-20 交付后一直只在 composer/CI 里，表上没主人）、
+  第 12 行"三条防漂移门"→四条；`AutomationTest.php` 的"8 项"→当场量到的 **9 项 29 断言**；
+  中文两处位置性序数（"第八道门禁"、"门禁 3/4"）改成点名；中英 `cli.md` 补 `--automation`。
+  `npm run docs:build` **rc=0** 必须在 `docs/` 里跑（根目录得 ENOENT，是 harness 错），
+  锚点门在新鲜 dist 上 `DOC ANCHORS OK — 61 条链接 / 11 带锚`。
+- 门禁复跑（全部当场收 rc）：`test:all` 0、`bench:tree` 0、`check:bundle` 0（13 个 bundle）、
+  `check-cxx17` 0、`check-c-abi` 0、`doctor` 0 且 `✗` 0 条；`all-examples both` = **FAIL(1)**，
+  唯一红是 `embedded tree1`（`gdfrac=0.00272`），单跑 3/3 `gdfrac=0.00000` ⇒ 归类为已知的整跑上下文抖动。
+- 旧账纠正：`6ba3931` **早已 push**（reflog 2026-10-17 10:49 `update by push`，`origin/main...HEAD` = `0 0`）。
+  现在卡的只剩**把工作区 29 改 + 10 未跟踪提交进树**的授权——`check-build-inputs` rc=1 的三条
+  （`cmd/patch-resize-handle.sh`、`cmd/patch-input-focus.sh`、`cmd/bench-tree.php`）都等这一次。
+
+
+## 2026-10-22 Phase 24：对照参考 input 示例的效果，修"问候信事件载荷"
+
+参考件 `/Volumes/david/david/david-cpp/examples/input.cpp`（54 行；该卷在本回合后段已不在
+`ls /Volumes/` 里，参考侧结论以本回合早段读到的源码为准：OnChange 读 `InputCStr(&self->inputState)`）
+一句由 **state 当前文本**重发的问候（OnChange 读 `InputCStr(&state)`）。对照用 automation dropbox
+驱我们自己的真二进制出截图逐条比，量到：`change in-name 参考效果` 之后屏上画的是 `Hello, 1!`——
+handler 信 `$e['value']`（合成 change 带 true），参考读 state。
+
+修：`examples/_shared/features/inputs.php` 的 in-name/in-note handler 改读 `$app->text(<id>)`；
+数值/布尔那两个 handler 没动。复验截图 `Hello, 参考效果!`，再真键盘 `key a a`+`key a b` ⇒
+`Hello, 参考效果ab!`、`value in-name -> 参考效果ab`。新门 selftest 4b `greetingFollowsState`：
+绿 `state='甲' text='甲'` rc=0；红（换回信载荷版本重链）`state='1'` rc=1，还原复绿。
+像素 `gdfrac=0.00000` 不用重录；`composer test` rc=0、parity OK。
+- **hello 一并改**（用户授权"一并改"）：name handler 同形状改读 `$app->text('name')`；
+  `vol`/`in-vol` 保持信载荷并注释原因（App 没有 slider 的 state 取值口）。
+  中英 `events.md` 第 2 节示例原本教信载荷写法，已改成读 state。
+  复验：automation `change name 参考` → 截图 `Hello, 参考!`；`hello --selftest` rc=0（FAIL 0 行）、
+  `shotdiff check hello` rc=0（18 棵）；docs rc=0 + 锚点 61/11 OK；pest 126/651 rc=0。
+
+## 2026-10-23 Phase 25：物理点击"只能拖不能点"重开（未结案，已夹到一跳）
+
+- 用户真手点我们的 input 窗：聚焦不了、±/验证码/日期点不动；**同机同会话的 C++ 参考窗能聚焦能打字**
+  ⇒ 17-E 记的"物理鼠标到不了视图＝环境限制"被推翻，是宿主侧缺陷（任务 #98，#94 已改标）。
+- 三条仪器互相咬合：本地监视器加 env 打印（用户两轮 249 条里 `type=1` **0 条**、全是 dragged）；
+  新 automation 动词 `click <x> <y>` 当**同进程合成对照臂**（它一响，监视器与视图探针都出读数 ⇒ 探针不瞎）；
+  lldb 批量读活进程（activationPolicy/isActive/styleMask/窗数与 C++ 那颗逐项相同，
+  ignoresMouseEvents=0、hitTest 非空、无遮挡层，但**空闲时 isKeyWindow=0**）。
+- 定位：按下那一下被 AppKit 当作换 key 的激活点击吃掉，从没进我们事件队列 ⇒ "能拖不能点"。
+- **first-mouse 假设作废并撤销**：上游 `window_mac.cpp:589` 已有 `acceptsFirstMouse:` 返回 YES；
+  我按假设写的补丁造出重复方法，被它自己的自检数出来（2 份）⇒ 沙箱还原、脚本删、清单行撤，三处 grep 均 0。
+- 顺带交付：单独跑上游 C++ 示例的配方（打过补丁的树没有 `main`，需自写 main TU + 链 `AppLog.o`），
+  产物 `build/cpp-input-demo/input_cpp`；参考仓 build.ts 失败也是同一条真因（"缓存旧"的诊断作废）。
+- 下一步（不需要用户再点）：泵里加逐帧 env 门控的 key 读数，抓"谁每帧把 key 摘掉"——
+  候选是 shim 的前台提升循环、`OrderFrontOnce`/Redraw 重排、那颗隐藏的 500×500 第二窗。
+
+
+## 2026-10-25/26 Phase 26：input 示例真人复验问题五连修（C/E/T/N/P 全结）
+
+**触发**：用户真人复验报五类问题（A 回车/B ±/C checkbox/D 时间框/E 日期弹层），
+指定 /workflow 修；后续两轮真人复验又追加 T textarea 边框、N NumberInput 居中、P 弹层开合回归。
+
+**执行**（三 Arbeit 轮工作流 + 前置手工采证；供应商空回合多次挂，最终形态=1 修复工程师+确定性门禁最稳）：
+- 轮一（A-E 五连）：A/B/C 第一版/D/E 防错落地，门禁绿；真人复验 C/E 仍红。
+- 手工深挖：lldb 钉死 event.id=IdFold 哈希（286252316/499041576），cbid=7/8；
+  IdCollect（gpui.cpp:9487）按 clickFromPath 重算覆盖 Click(cbid)；
+  OnChange 的 value 是激活状态值非 cbid。
+- 轮二（C 收尾+P/E 再挖）：第四刀 PathFocus + view.cpp 定稿 + gpui_shim_remember_checked
+  渲染态同步 + 补丁脚本按 hunk 幂等重构 + 重放校验（反转 5 hunk → 重放 → 与沙箱逐字节一致）。
+  checkboxRealClick checked:true→false→true、switchRealClick light→dark→light 首次转绿。
+  真人复验：C 过；E 仍不收（且澄清"两个弹层"之一是 in-ccal 裸日历常驻组件）；
+  新报 T textarea 无边框、N 两版 NumberInput 观感不一。
+- 轮三（E 定稿+T）：patch-popup-same-frame（contentReady 同帧直通+死结构移除）修掉
+  隔帧挂载与 overlay 残留；patch-shell-textarea-frame 补主题边框。
+  新门 datePickerPopupLifecycle（三循环）/datePickerInitialClosed/textareaThemedFrame 全绿。
+  真人复验：E 过/T 过；新报 N 数字未居中、P 弹层初始展开且图标收不起（轮三回归）。
+- 轮四（N+P）：patch-number-center 居中对齐 catalog 版；P 回归修掉
+  （datePickerInitialClosed：初始空→点图标开→再点收）。门禁全绿。
+- 终验：用户报"验收完毕"（未报新问题）。
+
+**门禁终态**：重建+selftest（含全部新门）/ doctor / pest 全量 / phpstan level 5 /
+shotdiff（基线两度有意重录）/ C++ shim_test 全绿。
+
+**改动清单（本轮累计）**：cmd/patch-{input-focus(v2 追加),checkbox-click-id,time-field-press,
+popup-occlude,popup-same-frame,shell-textarea-frame,number-center}.sh、
+upstream/{materialize,view,window_common,time_field,popup,time,input,checkbox}.cpp、
+cpp-src/{gpui_shim.cpp,.h,gpui_shim_events.inc,gpui_bridge.cc}、
+src/App.php、examples/_shared/features/inputs.php、examples/input/src/main.php（新门八道）、
+bin/gpui、GPUI.lock、tests/baseline/input/tree1.png（两度重录）、composer.json 还原（开场误覆盖）。
+
+**开放债务**：①弹层内日格 37 颗错位（视觉，未修）；②in-ccal 裸日历常驻观感（等用户定）；
+③注册热键吃 down（Phase 25 旧债）；④composer.json 曾被误覆盖为空壳——已还原，提交前确认无残留。
+
+**验收边界**：真人鼠标/IME 只能真人验（#96）；两轮真人复验已完成，
+最终轮"验收完毕"未报新问题。

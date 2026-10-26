@@ -7,6 +7,9 @@
 #include "base/actions.h"
 #include "base/pagination.h"
 #include "base/checkbox.h"
+#include "ui/checkbox.h"
+// typephp-gpui: textarea frame patch —— ThemeNow/th.inputBorder/ring 从这来。
+#include "ui/theme.h"
 #include "base/collapsible.h"
 #include "base/combobox.h"
 #include "base/date_picker.h"
@@ -48,6 +51,8 @@
 #include <string.h>
 
 namespace gpui {
+// typephp-gpui: host resize route
+extern "C" void (*HostResizeHook)(void*, Ctx*, const ResizablePanelEvent*, int64_t) = nullptr;
 
 struct MaterialBehavior {
     Str key;
@@ -1737,6 +1742,33 @@ static El* Construct(Ctx* cx, ShellRuntime* runtime,
             return link;
         }
         case shell::ComponentKind::Checkbox: {
+            // typephp-gpui: checkbox/switch use themed component: 改走 ui 组件层的 theme checkbox（有勾选框图形）。
+            // 行 id 必须用 behavior.key（元素 id "in-agree"）而非 component.text（label "同意"），
+            // 否则 PathId 派生自 label，命中链与语义都错位。indeterminate 保留 base 兜底
+            // （组件层无该参数，PHP 现用面也不发它）。
+            if (!behavior.indeterminate && component.text.s) {
+                Str rowId = behavior.key.s ? behavior.key : component.text;
+                gpui::component::Checkbox* cb =
+                    gpui::component::Checkbox::New(cx, rowId)
+                        ->Label(component.text)
+                        ->Checked(behavior.checked)
+                        ->Disabled(behavior.disabled);
+                if (behavior.onChange)
+                    cb->OnChange(ChangeListener(cx));
+                if (behavior.accessibilityLabel.s)
+                    cb->AccessibilityLabel(behavior.accessibilityLabel);
+                if (behavior.accessibilityLabel.s)
+                    cb->AccessibilityLabel(behavior.accessibilityLabel);
+                // typephp-gpui: checkbox click id = callback id：click id 对齐 PHP 回调号。themed 分支的 PathId
+                // 用元素 id → paint 时 clickId = 路径哈希，真实点击的 event->id 也是
+                // 这个哈希，gpuiEnqueueChange 拿它当 callbackId 查不到就静默丢。
+                // 与 base 兜底分支同型：直接把回调号设成 clickId。
+                El* cbRow = cb->IntoEl();
+                if (behavior.onChange && behavior.onChange <= INT32_MAX) {
+                    cbRow->Click((int)behavior.onChange);
+                }
+                return cbRow;
+            }
             CheckboxState state =
                 behavior.indeterminate
                     ? CheckboxState::Indeterminate
@@ -1752,6 +1784,27 @@ static El* Construct(Ctx* cx, ShellRuntime* runtime,
             return e;
         }
         case shell::ComponentKind::Switch: {
+            // typephp-gpui: checkbox/switch use themed component: 同 checkbox——改走 ui 组件层的 theme switch（有轨道/滑块）。
+            // 行 id 用 behavior.key（"in-dark"）而非 component.text（"深色开关"）。
+            if (component.text.s) {
+                Str rowId = behavior.key.s ? behavior.key : component.text;
+                gpui::component::Switch* sw =
+                    gpui::component::Switch::New(cx, rowId)
+                        ->Label(component.text)
+                        ->Checked(behavior.checked)
+                        ->Disabled(behavior.disabled);
+                if (behavior.onChange)
+                    sw->OnChange(ChangeListener(cx));
+                if (behavior.accessibilityLabel.s)
+                    sw->AccessibilityLabel(behavior.accessibilityLabel);
+                if (behavior.accessibilityLabel.s)
+                    sw->AccessibilityLabel(behavior.accessibilityLabel);
+                // typephp-gpui: checkbox click id = callback id：switch 同型——click id 也要对齐回调号。
+                El* swRow = sw->IntoEl();
+                if (behavior.onChange && behavior.onChange <= INT32_MAX)
+                    swRow->Click((int)behavior.onChange);
+                return swRow;
+            }
             El* e =
                 Switch::New(cx, id, behavior.checked, behavior.disabled,
                             behavior.onChange ? ChangeListener(cx) : Listener{},
@@ -1951,14 +2004,45 @@ static El* Construct(Ctx* cx, ShellRuntime* runtime,
                 InputBase::New(cx, nativeId, !behavior.disabled,
                                textarea ? AccessibilityRole::MultilineTextInput
                                         : AccessibilityRole::TextInput)
-                    ->BindInputText(behavior.disabled ? nullptr : state)
+                    // typephp-gpui: input takes press: 改用 BindInput——它除了挂 state
+                    // 还自带 KeyContext("Input")/TrackFocus/FocusOnPress（gpui.cpp 的
+                    // El::BindInput）。宿主没有脚本自聚焦那条路（patch-mouse-view.sh 把
+                    // OnScriptMouseDown 改道进 PHP 队列），焦点靠窗口通用"按下即取焦点"；
+                    // 而回车要解析成 input::Enter 动作，前提是 frame 条目自己带着
+                    // KeyContext——DispatchAnchor 落 frame marker、其前一格就是 context
+                    // 节点，WindowResolveKeyAction 的 [0,ix-1] 扫描才收得到。
+                    // BindInputText 那版不挂这些，点得到焦点、回车仍是裸字符。
+                    ->BindInput(behavior.disabled ? nullptr : state)
                     ->Flex()
                     ->W(kFill);
             if (textarea) {
-                frame->ItemsStart()->Child(Textarea::New(cx, state));
-            } else {
-                frame->ItemsCenter()->Child(Input::New(cx, state));
+                // typephp-gpui: shell textarea themed frame: kind 版 textarea 此前是
+                // 裸 Div + 裸 FlexCol（InputBase::New 不带样式、base Textarea::New
+                // 只建列），屏上与普通文本无异。这里对齐 ui/input.cpp 的主题组件链——
+                // 单行输入（catalog Input）的边框就来自那一层（appearance 分支：
+                // Radius(th.radius)/Bg(inputBg，disabled 取 muted)/Border(1,
+                // focused ? ring : inputBorder)；Medium 的 padX=10/padY=8 是
+                // InputSizeMetrics 的 kInputPadX/kInputPadY）。边框只落在 frame 上，
+                // 内层 base Textarea 列不带框——不双框。shell 的单行分支保持裸框：
+                // "裸框可看可比"是 examples/_shared/features/inputs.php 注释里明说的
+                // 像素契约，本轮不动它。
+                const Theme& th = ThemeNow(cx->app);
+                bool focused = state->HasSelectionFocus(cx->win) ||
+                               FocusHandleContainsFocused(cx->win, state->focus);
+                frame->ItemsStart()
+                    ->PadX(10)
+                    ->PadY(8)
+                    ->Radius(th.radius)
+                    ->Bg(behavior.disabled ? th.muted : th.inputBg)
+                    ->Border(1, focused ? th.ring : th.inputBorder)
+                    ->FocusRing(true)
+                    ->Child(Textarea::New(cx, state));
+                if (behavior.disabled) {
+                    frame->Opacity(0.5f);
+                }
+                return frame;
             }
+            frame->ItemsCenter()->Child(Input::New(cx, state));
             return frame;
         }
         case shell::ComponentKind::NumberInput: {
@@ -2302,7 +2386,20 @@ static El* MaterializeNode(Ctx* cx, ShellRuntime* runtime,
             cx, runtime, specs, SlotId(node, "increment_button"),
             StrL("increment"), behavior.disabled, increment, error);
         El* editor = Slot(cx, runtime, specs, node, "input", error);
-        if (!editor) editor = Input::New(cx, state);
+        if (!editor) {
+            // typephp-gpui: number input centers digits: 宿主没填 "input" 槽时，
+            // 这里的编辑器走 base Input::New(cx, state) 的默认投影
+            // （InputEditorStyle{}，align=0 → 行内文本左对齐）；catalog 的
+            // component::NumberInput（ui/input.cpp NumberInput::IntoEl）给自己的
+            // 编辑器是 `->Align(InputAlign::Center)`（editor.align=1 →
+            // base/input.cpp 的 `row->W(kFill)->JustifyCenter()`）。同一页并排时
+            // kind 版数字贴左、catalog 版居中，观感分裂——这里按 catalog 同一条
+            // 投影缝补 align=1，只动文本对齐：± 步进槽（decrement/increment）与
+            // Compose 的三段结构（dec | text Flex1 | inc）不动，点击落点不变。
+            InputEditorStyle centered;
+            centered.align = 1;
+            editor = Input::New(cx, state, centered);
+        }
         El* ordinary = nullptr;
         if (node->children.len > 0) {
             ordinary = Div(cx->a)->FlexRow();
@@ -2346,9 +2443,15 @@ static El* MaterializeNode(Ctx* cx, ShellRuntime* runtime,
                         : Axis::Vertical;
         ResizablePanelGroup* group =
             ResizablePanelGroup::New(cx, node->component.text, {}, axis);
+        // typephp-gpui: host resize route
         if (behavior.onResize) {
-            group->OnResize(
-                Listen(cx, &ScriptView::OnResize, (int64_t)behavior.onResize));
+            if (HostResizeHook) {
+                group->OnResize(
+                    Listen(cx, HostResizeHook, (int64_t)behavior.onResize));
+            } else {
+                group->OnResize(
+                    Listen(cx, &ScriptView::OnResize, (int64_t)behavior.onResize));
+            }
         }
         for (shell::SpecId childId : node->children) {
             const shell::SpecNode* childNode = specs->Node(childId);
@@ -2613,7 +2716,18 @@ static El* MaterializeNode(Ctx* cx, ShellRuntime* runtime,
         }
     }
     ApplyStateStyles(cx, specs, node, element, error);
-    if (behavior.key) element->PathId(behavior.key);
+    // typephp-gpui: checkbox click id = callback id：PathId 会把 clickFromPath 重新置真，paint 前 IdCollect 按
+    // IdFold(key) 重写 clickId，把物化分支里 Click(cbid) 对齐的回调号盖掉——真点击
+    // 的 event.id 又变回路径哈希（实测 event.id=IdFold("in-agree")&0x3fffffff），
+    // OnChange 拿它查 Box2::callbacks 落空，事件静默丢。带显式 Click() 的元素
+    // （clickId 非零且不从路径派生）改走 PathFocus：同样命名 + focusFromPath，
+    // 唯独不碰 clickFromPath。
+    if (behavior.key) {
+        if (element->clickId != 0 && !element->clickFromPath)
+            element->PathFocus(behavior.key);
+        else
+            element->PathId(behavior.key);
+    }
     if (behavior.accessibilityLabel)
         element->AriaLabel(behavior.accessibilityLabel);
     if (behavior.role) {

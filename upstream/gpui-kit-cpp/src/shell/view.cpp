@@ -13,6 +13,7 @@ namespace gpui {
 struct ScriptView; struct Ctx;
 __attribute__((weak)) void gpuiEnqueueClick(ScriptView*, Ctx*, uint64_t, int) {}
 __attribute__((weak)) void gpuiEnqueueChange(ScriptView*, Ctx*, uint64_t, bool) {}
+__attribute__((weak)) bool gpuiShimToggleValue(ScriptView*, uint64_t) { return true; }
 __attribute__((weak)) void gpuiEnqueueHover(ScriptView*, Ctx*, uint64_t, bool) {}
 __attribute__((weak)) void gpuiEnqueueInput(ScriptView*, Ctx*, uint64_t, int) {}
 __attribute__((weak)) void gpuiEnqueueSlider(ScriptView*, Ctx*, uint64_t, float) {}
@@ -170,8 +171,18 @@ void ScriptView::OnTextLink(ScriptView* self, Ctx* cx, const ClickEvent*,
 
 void ScriptView::OnChange(ScriptView* self, Ctx* cx, const ClickEvent* event,
                           int64_t value) {
+    // typephp-gpui: checkbox click id = callback id：themed checkbox 的外层 click id 已对齐为 PHP cbid，
+    // event.id 就是 callbackId——用它入队。value 不能当回调号（base 的 ListenerFill
+    // 绑的是激活状态 0/1，落进 0 号丢事件）；载荷也不能直接用它：本环境的原生
+    // draw 惰性，事件驱动的分派可能跑在下一帧重画之前，合成双击的第二击会拿
+    // 旧帧的 arg 翻错向（实测 checked true→false→false）。载荷从 shim 侧
+    // gpuiShimToggleValue 翻转 lastValues——render 推送时 bridge 会把渲染态同步进
+    // lastValues（见 gpui_bridge.cc emitTree 的 renderedChecked），PHP 侧改状态
+    // 重渲染后它也是新的，翻转基准不再陈旧。
+    (void)value;
     if (!self || !self->runtime || !event || event->id <= 0) return;
-    gpuiEnqueueChange(self, cx, (uint64_t)(uint32_t)event->id, value != 0);
+    bool checked = gpuiShimToggleValue(self, (uint64_t)event->id);
+    gpuiEnqueueChange(self, cx, (uint64_t)event->id, checked);
 }
 
 void ScriptView::OnHover(ScriptView* self, Ctx* cx, const HoverEvent* event,

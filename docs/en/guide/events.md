@@ -115,6 +115,16 @@ The native constructor's string is an id, not a label. Without slot contents the
 buttons can have zero-size hit boxes; a zero event count then says nothing about
 the dispatch route. `examples/input` tests delivery from a populated button.
 
+**Value semantics of `on_step` (since 2026-10-25)**: once `on_step` is declared,
+the native built-in stepping is **turned off** — materialize only passes the
+`NumberStep*` when `!behavior.onStep && retained->number.hasStep`, so declaring
+the callback leaves it `nullptr`. Pressing ± then **emits the event only and does
+not change the number**: the value belongs to the script. The handler must read
+the current value with `text(id)`, apply `increment`/`decrement`, and write the
+result back with `setInput(id, …)` — otherwise the event chain is green while
+the on-screen number never moves (the shape of bug B; the `stepDelivered` gate
+now asserts `text('in-num')` changed by exactly ±1 in the delivered direction).
+
 ### Virtual-list item events
 
 `App::listRenderer()` supplies rows synchronously. The host attaches list-level
@@ -238,8 +248,13 @@ control. Native input bounds, focus, and value changes provide stronger checks.
 
 ```php
 $app->render(El::input('name')->placeholder('Your name')->onChange());
-$app->on('name', 'change', static function (array $event): void {
-    ExampleState::$v['name'] = $event['value'];
+$app->on('name', 'change', static function () use ($app): void {
+    // Read the **state's current text**, not the event payload: a synthetic change
+    // (the automation `change` verb, the selftest fire) carries `true`, and trusting
+    // the payload paints "Hello, 1!" (measured on a real window, 2026-10-22).
+    // gpui-kit-cpp's examples/input.cpp reads InputCStr(&state) in OnChange for the
+    // same reason. Sliders have no state getter, so they must trust the payload.
+    ExampleState::$v['name'] = $app->text('name');
 });
 $app->setInput('name', 'prefill');
 $text = $app->text('name');
@@ -397,7 +412,18 @@ OS menu click. Preserve that distinction in test reports.
 
 ## Foreground state and human input
 
-Use the `.app` launch path from `php bin/gpui run` or `selftest`. Inspect
+`php bin/gpui run` **executes the bare binary by default** (`--bundle` opts into the `.app`);
+`selftest` still goes through the bundle, because what it asserts is a product property —
+that the artifact *has* bundle identity (`--expect-bundle`).
+**The bare window needs an actual human click:** it composites and its `active/key` are real, but
+handing it the frontmost from outside is refused (`System Events`' `set frontmost` → error -10006),
+so `keystroke` injection lands on whichever app owns the session frontmost. A physical click is
+hit-tested by WindowServer, bypassing that LaunchServices path, and only then is the frontmost ours.
+The reason *for that default* is one same-second
+measurement on identical bytes: `bare onScreen=true / bundle onScreen=false`. The older claim
+that "a bare binary can't reach `isActive`" stopped holding once the foreground-retry patch
+landed — bare now reports `active=true key=true` too.
+Inspect
 `App::windowState()` for `active`, `key`, `visible`, `main`, `bundled`,
 `nsappDeliveries`, `appkitDeliveries` (keyDown/leftMouseDown that AppKit dispatched
 into this process), `onScreen` (is this window in WindowServer's on-screen ledger at

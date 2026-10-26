@@ -57,6 +57,7 @@ php bin/gpui build input --no-native    # 只跑 tpc，复用已建好的 gpui.o
 ```bash
 php bin/gpui run input --trace         # 每个事件写 /tmp/input-events.log
 php bin/gpui run input --wait-key 150  # 真人手按验收：按到 → rc=0，没按到 → rc=1
+php bin/gpui run input --automation /tmp/auto  # 外部写命令、真窗口执行、目录里拿回执（单独用即可）
 php bin/gpui run overlay --escape      # 进程里第一个 dialog 的 Escape 探针
 php bin/gpui build layout --no-native && ./examples/layout/build/layout --dock  # Dock 交互
 ```
@@ -99,6 +100,24 @@ php bin/gpui shotdiff check hello       # 逐树像素比对，超容差 rc=1
 ```bash
 php bin/gpui new myapp
 ```
+
+## 交付身份（project.macos.yml 的四个可选键）
+
+`gpui build` / `run` / `selftest` 打包 `.app` 时，`CFBundleIdentifier` / `CFBundleName` /
+`CFBundleShortVersionString` / 图标都从示例自己的 yml 读。**不写就是老行为**
+（`top.typephp.gpui.<example>` / `gpui-<example>` / `1.0` / 无图标），所以现有示例一行不用改。
+
+```yaml
+name: gpui-hello
+bundle-id: com.example.hello      # 只能是 A-Za-z0-9.-，非法值回落缺省并告警
+bundle-name: Hello 应用           # 缺省 name: 的值，UTF-8 可以
+bundle-version: 1.4.2             # 数字点分，非法值回落 1.0
+icon: assets/App.icns             # 相对本 yml 的目录；发布质量用 .icns，.png 开发期够用
+```
+
+`icon` 的文件被复制进 `Contents/Resources/`（只取 basename，`../` 逃不出 bundle），
+plist 里加一条 `CFBundleIconFile`。把 `icon:` 删掉后 plist 不再引用它，
+`Resources/` 里的旧文件会留着——惰性、无害，要干净就自己删。
 
 ## 环境变量
 

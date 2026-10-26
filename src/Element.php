@@ -568,18 +568,22 @@ class Element
         return $e;
     }
 
-    public static function hResizable(array $children = []): self
+    public static function hResizable(array $children = [], string $name = ''): self
     {
         $e = new self();
         $e->kind = 'h_resizable';
+        // 组件名进 component.text：materializer 用它做 ResizableState 的 element-state 键。
+        // 不传就等于两颗组分到一个键上（#94 实测：后渲染的组覆盖前一个的 resize 监听）。
+        if ($name !== '') { $e->text = $name; }
         foreach ($children as $c) { $e->child($c); }
         return $e;
     }
 
-    public static function vResizable(array $children = []): self
+    public static function vResizable(array $children = [], string $name = ''): self
     {
         $e = new self();
         $e->kind = 'v_resizable';
+        if ($name !== '') { $e->text = $name; }
         foreach ($children as $c) { $e->child($c); }
         return $e;
     }

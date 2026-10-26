@@ -232,7 +232,67 @@ int gpui_mac_release_owner(void* owner) {
     return freed;
 }
 
+static void EnsureAppkitDeliveryMonitor(void);   // 定义在下面（计数与路由探针共用）
+namespace {
+NSWindow* GpuiWindow(void);                      // 同文件后面的匿名 namespace 里定义
+}
+
+/* 2026-10-23：物理点击"只能拖不能点"追到这里——按下那一下从没进我们的事件队列
+ * （本地监视器 249 条里 type=1 为 0），而空闲时窗口 isKeyWindow=0。也就是说每一按都被
+ * AppKit 当成"换 key 的激活点击"吃掉了。谁在摘 key？这组通知把每一次 key/main/active
+ * 变更连时间戳与当时前台应用一起打出来，抓现行用。GPUI_KEY_DEBUG=1 才装。 */
+static void EnsureKeyTrace(void) {
+    static bool installed = false;
+    if (installed) {
+        return;
+    }
+    installed = true;
+    NSWorkspace* ws = [NSWorkspace sharedWorkspace];
+    for (NSString* name in @[ NSWindowDidBecomeKeyNotification, NSWindowDidResignKeyNotification,
+                              NSWindowDidBecomeMainNotification, NSWindowDidResignMainNotification,
+                              NSApplicationDidBecomeActiveNotification,
+                              NSApplicationDidResignActiveNotification ]) {
+        [[NSNotificationCenter defaultCenter] addObserverForName:name object:nil queue:nil
+            usingBlock:^(NSNotification* note) {
+                NSWindow* w = [note.object isKindOfClass:[NSWindow class]]
+                    ? (NSWindow*)note.object : GpuiWindow();
+                NSRunningApplication* fa = [ws frontmostApplication];
+                NSString* front = fa.localizedName ?: @"?";
+                fprintf(stderr,
+                    "GPUI-KEY %s win=%ld key=%ld main=%ld appActive=%ld front=%s t=%.3f\n",
+                    name.UTF8String, w ? (long)w.windowNumber : -1L,
+                    (long)(w ? w.isKeyWindow : NO), (long)(w ? w.isMainWindow : NO),
+                    (long)[NSApp isActive], front.UTF8String, CFAbsoluteTimeGetCurrent());
+            }];
+    }
+}
+
 void gpui_mac_pump(void) {
+    // 监视器原来只在 windowState 被读时才装；物理点击这一跳要的是"每一帧都在看"，
+    // 所以挪到泵里装（幂等，且 block 原样放行事件，不拦）。
+    EnsureAppkitDeliveryMonitor();
+    if (getenv("GPUI_KEY_DEBUG")) {
+        EnsureKeyTrace();
+    }
+    /* 只排空热键那一类。这里原来传的是 (0, NULL) —— Carbon 里"mask=0 且 types=NULL"
+     * 的语义是**任意事件**，于是它把 AppKit 队列里的 leftMouseDown 一起摘走、丢给
+     * Carbon 派发目标（没人接），鼠标按下就此消失，而后续 dragged 仍由我们的泵收到
+     * ——这就是"能拖窗口、什么都点不动"的根因。
+     * A/B 实测（build/cpp-input-demo/pump_ab，同一份 gpui.o、只差这一句）：
+     *   manual 臂 3/3 收到 down；manual-carbon 臂 0/3，而会话层 tap 显示
+     *   系统确实把那些 down 判给了该进程（target_pid 对上）。
+     *
+     * 为什么不能"带类型排空"：本机 SDK 里 `GetEventMaskForClass`/`PeekEvent` 既无声明
+     * 也未导出，而 `ReceiveNextEvent(mask, &spec, …)` 传非空 inTypes 会在
+     * `ReceiveNextEventCommon` 里 EXC_BAD_ACCESS/SIGBUS（崩溃报告
+     * input-2026-10-23-074136.ips，栈顶就是它）——那版修复比原缺陷更糟，已退回来。
+     *
+     * 现在做的是**收窄危害**：没注册热键就一句都不排。没热键的示例（input/layout/table…）
+     * 因此鼠标立刻可用；注册了热键的那几支（hello/mac）仍然会吃 down，
+     * 这一格是明确未修的债：热键要改成不碰共享队列的拿法（见 task_plan.md Phase 25）。 */
+    if (g_hotkeys.empty()) {
+        return;
+    }
     // 我们的泵只有 [NSApp nextEventMatchingMask:]，Carbon 队列不会自己排空，所以每帧
     // 在这里零等待地取一次。SendEventToEventTarget(dispatcher) 会走到 OnHotKeyPressed。
     for (;;) {
@@ -304,7 +364,11 @@ NSWindow* GpuiWindow(void) {
 
 /* 真实点击会让 WindowServer 把窗口升成 key，键盘事件才有 firstResponder 可去；
  * 我们绕过了 WindowServer，所以这一步要自己补上——否则 keyDown: 落到 nil，
- * 输入框永远打不进字（鼠标不受影响，所以点击一直是通的）。 */
+ * 输入框永远打不进字。
+ *
+ * 这里原来还写着"鼠标不受影响，所以点击一直是通的"——2026-10-23 的读数把它推翻了：
+ * 物理 leftMouseDown 从没进我们的事件队列（监视器 249 条里 type=1 为 0），鼠标同样受影响，
+ * 而且比键盘更糟（键盘靠 MakeKey 兜住了）。追查看 task_plan.md Phase 25。 */
 void MakeKey(NSWindow* w) {
     if (!w) return;
     if (![NSApp isActive]) [NSApp activateIgnoringOtherApps:YES];
@@ -455,6 +519,8 @@ int gpui_mac_activate(void) {
 /* 物理 HID 的到达计数。local monitor 只对「AppKit 已经派发到本进程」的事件触发，
  * 所以它能把两件以前分不开的事分开：OS 根本没送到本 app（激活/输入法管线），
  * 与 送到了但我们的 view/派发丢了。
+ * 2026-10-17 把 `leftMouseDragged` 也算进来（#94）：拖分隔条时这个计数涨=事件到了本进程，
+ * 而 resize 仍不来 ⇒ 断点在 gpui 的拖拽处理，不是鼠标没到。
  * 它和 g_nsappDeliveries 不是一回事：后者只数我们自己经 Deliver() 注入走真路由的条数，
  * 物理事件走上游的 nextEventMatchingMask 泵，不经过那条缝。 */
 static unsigned long long g_appkitDeliveries = 0;
@@ -465,9 +531,18 @@ static void EnsureAppkitDeliveryMonitor(void) {
         return;
     }
     g_appkitMonitor = [NSEvent addLocalMonitorForEventsMatchingMask:
-                                    (NSEventMaskKeyDown | NSEventMaskLeftMouseDown)
+                                    (NSEventMaskKeyDown | NSEventMaskLeftMouseDown
+                                     | NSEventMaskLeftMouseDragged)
                                                             handler:^NSEvent* _Nullable(NSEvent* ev) {
         g_appkitDeliveries++;
+        // 物理点击重开（2026-10-23）：这条打印的是"进了本进程的事件"，与后面的路由无关。
+        // 它要回答的是——物理事件到底带哪扇窗的 windowNumber、类型是什么；合成对照臂
+        // （automation 的 click 动词）走的是同一条监视器，所以两边的读数直接可比。
+        if (getenv("GPUI_MONITOR_DEBUG")) {
+            fprintf(stderr, "GPUI-MON type=%ld win=%ld loc=%.0f,%.0f\n",
+                    (long)ev.type, (long)ev.windowNumber, ev.locationInWindow.x,
+                    ev.locationInWindow.y);
+        }
         return ev;                     // 原样放行：这是计数，不是拦截
     }];
 }
@@ -508,6 +583,9 @@ int gpui_mac_window_state(double* out) {
             out[7] = CFArrayGetCount(onScreen) > 0 ? 1 : 0;
             CFRelease(onScreen);
         }
+        /* 试过的修法（23:31 量掉，别再来一遍）：不在屏时做有界的 orderOut/orderFront 重新排队，
+         * 赌窗服务会重新收它。实测到第 3 次重排队为止，bundle 那一列仍是 0、
+         * 收尾自报仍 `onScreen=false` ⇒ "交给窗服务的那一次顺序"不是成因，这段已撤。 */
         if (s_onScreenPeers < 0.0) {
             s_onScreenPeers = 0.0;
             CFArrayRef peers = CGWindowListCopyWindowInfo(
@@ -543,6 +621,14 @@ int gpui_mac_window_state(double* out) {
         }
         CFRelease(sess);
     }
+    /* out[11]/out[12]：这一行跑在**进程真正的 main thread** 上吗，与 AppKit 认的
+     * "main thread" 是同一条吗。两个分开看才有意义：`[NSThread isMainThread]` 只认
+     * AppKit 收养为 main 的那条线程。若宿主（nano 运行时）把 GUI 循环放在另一条线程上，
+     * AppKit 自报可以全真，而**真正 main thread 的 run loop 从来不被驱动**——
+     * 窗口就有记录、有画面，却永远拿不到在屏资格。这是当前唯一还没被排除的结构性差异：
+     * 只链 shim 的最小 main（真 main thread 上跑）在屏，我们的产物不在屏。 */
+    out[11] = pthread_main_np() ? 1 : 0;
+    out[12] = [NSThread isMainThread] ? 1 : 0;
     return 1;
 }
 

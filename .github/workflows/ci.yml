@@ -61,6 +61,13 @@ jobs:
       - name: Pest (FakeBridge, headless)
         run: vendor/bin/pest
 
+      # 帧预算棘轮（Phase 19）。gpui 是 frame-rebuilt 模型：每个脏帧都要重跑 view builder
+      # 再 toArray()，把每节点成本从 O(n) 变成 O(n²) 的改动只有这一条门会红——小档没事、
+      # 大档越预算越狠。纯 PHP、约 2 秒、不需要 gpui 或编译器，所以放在 php job 里。
+      # 机器正忙时可以 GPUI_SKIP_BENCH_TREE=1 显式跳过，但那是逃生阀、不是默认。
+      - name: 帧预算棘轮（bench-tree）
+        run: php cmd/bench-tree.php --check cmd/bench-tree-budgets.txt
+
       - name: 构建输入都在版本控制里（审核 P0-1 的常驻门）
         run: php cmd/check-build-inputs.php
 
@@ -201,8 +208,9 @@ jobs:
       # 按功能域拆出来的独立示例（examples/<域>，hello 之外）：一支一个二进制，
       # yml 只列本域那一份源，所以它红的时候知道就是这一域的问题。
       # 上面的 build hello 已经把共用产物（补丁后的沙箱、gpui.o、libgpui_shim.a）建好了，
-      # 所以这里用 --no-native 只跑 tpc 那一步——不加的话每支都会
-      # 把沙箱 rsync --delete 掉再重编一遍 amalgam（几分钟），十几支直接超 45 分钟预算。
+      # 所以这里用 --no-native 只跑 tpc 那一步，每支约 2s。完整链现在也不会重编 amalgam
+      # （sync-upstream.sh 有上游指纹闸门，2026-10-19 实测完整链 6.5s、amalgam 1.41s），
+      # 但每支仍要重付 shim 的 3.4s；省下来没有成本，所以维持 --no-native。
       # 新拆一支示例不用改这里：循环按 examples/*/project.macos.yml 自己找到它。
       - name: Domain examples（逐支编译 + --selftest）
         run: |

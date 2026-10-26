@@ -439,7 +439,8 @@ namespace {
         return ['found' => 0, 'active' => false, 'key' => false, 'visible' => false,
                 'main' => false, 'nsappDeliveries' => 0, 'bundled' => false,
                 'appkitDeliveries' => 0, 'onScreen' => false, 'onScreenPeers' => 0,
-                'onConsole' => false, 'sessionId' => 0];
+                'onConsole' => false, 'sessionId' => 0,
+                'onRealMain' => true, 'onAppKitMain' => true];
     }
 
     function gpui_activate(mixed $window): int
@@ -461,7 +462,8 @@ namespace {
     function gpui_hit_probe(mixed $window, int $index): array
     {
         return ['n' => 0, 'x' => 0, 'y' => 0, 'w' => 0, 'h' => 0,
-                'id' => 0, 'path' => 0, 'click' => 0, 'parent' => -1];
+                'id' => 0, 'path' => 0, 'click' => 0, 'parent' => -1,
+                'down' => 0, 'drag' => 0];
     }
 
     function gpui_dispatch_action(mixed $window, string $name): int

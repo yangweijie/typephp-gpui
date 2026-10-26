@@ -68,12 +68,16 @@ php bin/gpui selftest hello       # 无交互六链路自检，rc=0 即通过
 php bin/gpui shot hello /tmp/x.png 0   # 渲染测试树存 PNG
 ```
 
-### `run`/`selftest` 会把二进制包进 `.app` 再启动（这不是包装，是前提）
+### selftest 固定走 `.app` bundle；`run` 默认裸二进制（`--bundle` 才显式走 `.app`）
 
-`php bin/gpui run <示例>` 实际执行的是
-`examples/<示例>/build/<示例>.app/Contents/MacOS/<示例>`（**正规文件**，不是符号链接——
-符号链接会让 `codesign` 直接拒签这个 bundle，而每次 `build`/`run` 都会重新放文件并重签一次，
-所以不会跑到旧产物）。为什么要这一层：macOS 只把"有 bundle 身份"的进程当正规前台
+`php bin/gpui run <示例>` **默认执行裸二进制** `examples/<示例>/build/<示例>`；
+加 `--bundle` 才走 `examples/<示例>/build/<示例>.app/Contents/MacOS/<示例>`
+（bundle 里放的是**正规文件**而不是符号链接——符号链接会让 `codesign` 直接拒签整个 bundle，
+而每次 `build`/`run` 都会重放并重签一次，所以不会跑到旧产物）。
+为什么默认不走 bundle：实测同一份字节在同一秒的读数是
+`裸 onScreen=true / bundle onScreen=false`——bundle 那一颗的窗口不被 WindowServer 合成，
+人既看不见也按不动，而 `run` 这个交互入口要给的正是能看能按的那扇窗。
+（旧说法"裸二进制起不来 `isActive`，所以必须走 bundle"是前台重试那条补丁之前量的，已不成立。）为什么要这一层：macOS 只把"有 bundle 身份"的进程当正规前台
 应用。直接跑 `examples/<示例>/build/<示例>` 这颗裸二进制时 `NSApp.isActive` 起不来，
 手点的第一下被系统当成"激活这扇窗口"的点击吃掉，`keyDown` 也没有 firstResponder 可去——
 画面上就是**点了没反应、输入框打不进字**，而代码里的一切看起来都正常。实测两份读数只差
@@ -92,9 +96,10 @@ bundle：  startup active=true  key=true  visible=true  main=true
 `bin/gpui` 现在就按这两条产 bundle，门 14（`composer check:bundle`）在 CI 里常驻检查它。
 详见《测试与验收》里的"bundle 在屏资格"那一行与 `guide/events` 的对应小节。
 
-所以手工验收真鼠标真键盘请用 `php bin/gpui run input --trace`，别直接跑 build 下那颗文件；
+所以手工验收真鼠标真键盘请用 `php bin/gpui run input --trace`，别直接跑 build 下那颗文件——
+`run` 默认执行的正是那颗裸二进制，区别只在它会先构建、并把示例开关原样转发给产物：
 `--trace` 会把每条到达 PHP 的事件追加进 `/tmp/input-events.log`，手点一下输入框就该出现
-`click id=…` / `change id=…`。`gpui selftest` 同样走 bundle，并附 `--expect-bundle` 让产物硬断言
+`click id=…` / `change id=…`。`gpui selftest` 仍固定走 bundle，并附 `--expect-bundle` 让产物硬断言
 "我确实是从 bundle 里起的"（`bundled` 读数；信号只能走 argv，nano 里 `getenv()` 编译不过）。
 
 **但 `active` 是可以争不到的**：前台是和"当时握着焦点的那一方"竞争出来的状态。实测同一个

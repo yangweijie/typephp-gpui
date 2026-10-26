@@ -2006,3 +2006,150 @@ ONLY / DUP / 更弱 / 更强。凭注释判断会判错，见下条。
 但同一批里 **tree29/tree31 交替报 `gdfrac=1.00000`**（整帧完全不同，不是细微信号漂移），
 撤掉那次顺手误重录的 tree29 基线后连三遍又全绿 ⇒ 间歇性、且发生在"刚跑完一批 --shot"之后。
 已单独立成 #90，禁止用重录或加容差处理：1.0 的差异要么是真没画到该画的东西，要么是拍到了别的表面。
+
+## #93 `input` 动词只设值、不发 change 事件（2026-10-20，自动化 dropbox 实测）
+
+`gpui_set_input_value` 往 retained 控件里写文本，**不经过键盘路径**，因此没有 `change` 事件，
+PHP 侧 `on('<id>','change')` 不会被调到。症状是状态驱动的界面毫无变化：问候语停在
+`Hello, World!`，而输入框里明明有字。
+
+- 判据（两侧都实测）：`input name 你好 GPUI` ⇒ 界面不变；`key a a` ×3 ⇒ 问候语变 `Hello, abc!`。
+- 结论：**要驱动真事件必须走 `key`**（配合 `focus`，尽管 focus 目前返回 `-1001`）；
+  `input`/`value` 这一对只适合验"值写进去了没有 / 读得出来吗"。
+- 这不是缺陷，是分工：一条是写状态、一条是造事件。但**值得写进文档**，否则下一个人会
+  用 `input` 驱动界面然后断言界面不变，得出"框架坏了"的错误结论。
+- 顺带确认：`focus <id>` 真侧返 `-1001`、`focused` 恒 `-`，与 #62/#56 的历史记录一致——
+  焦点这一层仍是本项目唯一"CI 与本机都不能自动绿"的缺口，自动化接口没有绕过它，
+  只是把缺口标记得更清楚了。
+
+## 基准的统计口径：中位数会漂，min 不会（2026-10-20）
+
+给每帧成本立预算门时，第一版用中位数标定，**同一台机器**几小时后就红了 25~36%。
+A/B 量到的原因：中位数随机器负载/热状态漂——同一档 med 48ms 的 5 个样本里会出现一次
+max 94ms 的停顿（页错误/GC/调度），负载越重这种样本越多，中位数被拽着走。
+
+- 口径改为 **min-of-N**：被噪声污染的是别的样本，不是最小值。同机 min 与昨晚（空闲时）的
+  中位数几乎重合（15001：25.75 vs 24.77；30001：59.51 vs 57.56；60001：133.85 vs 132.03）。
+- 中位数与 max 仍然打印，但只作诊断列，不进门。
+- 推论（可复用到别的基准）：凡是"给别人的机器也要跑"的门，先量一遍统计量在同一台机器
+  不同负载下的稳定性，再决定门看哪个数。否则门红的第一天，人就会开始不信它。
+
+## #94 `gpui new`  scaffolds 出的 yml，`output` 仍是 `build/hello`（2026-10-20）
+
+`gpui new <app>` 用 `str_replace('gpui-hello', "gpui-$app", …)` 改名，但 hello 的 yml 里
+`output: build/hello` 不含 "gpui-hello" 这个串，于是新应用的产物仍叫 `build/hello`。
+按 Phase 20 的规矩（只碰与本任务直接相关的行）本轮**未修**——改它是一行
+`str_replace('build/hello', "build/$app", …)`，但会顺带动 `gpui build` 对既有脚手架的
+路径假设，值得单独一轮并实测。
+
+## #95 去掉 icon 键后，`Resources/` 里的旧图标会留着（2026-10-20）
+
+有意的惰性：plist 不再引用它，文件就是死重量；反过来做（自动删 `Resources/` 里的文件）
+有删到用户自己放的资源的风险。已写进两份 cli.md："要干净就自己删"。
+
+## #96 agent 启动的进程没有 GUI session ⇒ OS 键鼠投递恒 0（2026-10-20，input 实测定量）
+
+同一个二进制、同一台机器、同一秒，只换启动者的身份：
+
+| 启动者 | onScreen | appkitDeliveries | sessionId |
+|---|---|---|---|
+| agent 的 shell（launchd ← WorkBuddy 守护进程 ← .app） | true | **0** | **0** |
+| 用户终端.app（登录会话内） | true | **21** | 0 |
+
+- 判据不靠猜：祖先链 `我的命令 ← codebuddy CLI ← 守护进程 ← WorkBuddy.app ← /sbin/launchd`，
+  与 Terminal.app → 用户的登录会话是两棵树。`CGSessionCopyCurrentDictionary()` 因此查不到会话。
+- **方法论后果（比 bug 本身重要）**：凡是"真人按键"类验收，只要是通过 agent 的 shell 启动的，
+  量到的 0 都是环境产物。#56 / 17-E 那一格"只能人给"的结论里，有多少是这种污染，需要重测才知道
+  ——本轮已给出重测的正确姿势：**让用户在 Terminal.app 里启动**（`--wait-key 8` 一行读数定性）。
+- 推论：CI 与 agent 驱动不可能覆盖"OS 投递"这一层，只能覆盖"进程内派发链"（合成动词）。
+  这不是缺陷，是边界；把它写进文档，下一个人就不会再拿 0 当 bug 查。
+
+## #97 合成 change 事件不带文本，trace 日志的 value 列显示 1（2026-10-20）
+
+`gpui_shim_selftest_fire` 推的事件带的是布尔量（`1`），不是输入框当前文本；而
+`gpuiEnqueueInput`（真键入路径）带的是 `GPUI_ARG_STR` 文本。所以：
+- 合成 change 落地后 `/tmp/input-events.log` 写的是 `change in-name 1`；
+- 同一时刻 `value in-name` 读到 `input="你好自动化"`——文本在控件里，只是事件不携带。
+- 教训（两实现边界）：headless 门因此**不能**断言合成事件的值，只能断言"handler 被调到几次"；
+  值的断言必须落在真二进制上（本轮已做）。
+
+## #96 的纠正（2026-10-20 当晚，同一天内自我修正）
+
+**#96 的核心结论是错的，现予纠正**：#96 说“agent 启动的进程不在登录图形会话里 ⇒ OS 键鼠投递恒 0”。
+错在哪：那几次探针**根本没有键可投**——我在无人输入的情况下量到 `appkitDeliveries=0`，
+就把“没人打”当成了“收不到”。这是把absence of evidence 当成 evidence of absence。
+
+**反例（用户当场打出）**：由 agent 进程树（launchd ← 守护进程 ← .app，`sessionId=0`）启动的
+`input --trace --automation` 实例，用户往窗口里打了 `1231asdcxzazxa`，
+`/tmp/input-events.log` 落下 **16 行逐键 change，值与键入完全一致**：
+
+```
+change in-name            ← 首键（框还空）
+change in-name 1
+change in-name 12
+...
+change in-name 1231asdcxzazxa
+```
+
+同一实例的 snapshot 显示 `active=1 key=1 main=1 onScreen=1`——窗口被点成 key 之后，
+**从哪棵进程树启动的完全不重要**。
+
+修正后的正确表述：
+- **框架对人类输入是通的**，两条独立证据（用户终端的 `--wait-key 8`、以及 agent 树启动的实例被真人打字）。
+- 之前 agent 侧“零事件”的真正原因是**当时没人打**（探针只跑 5–8 秒且窗口未激活），不是环境禁止。
+- 仍未解释的只剩一件小事：用户早先在 `--trace` 交互实例里打字没落日志——最可能是那次窗口
+  尚未被点成 key（输入去了终端）。判据很简单：**打字前先点一下窗口**。
+- 教训（写进方法）：拿“计数为 0”下结论前，先确认“该发生的事情有没有真的被尝试过”。
+
+## checkbox 真实点击链：clickId/cbid 双轨与 IdCollect 覆盖（2026-10-25/26，Phase 26）
+
+**症状**：合成 `checkboxRoute`（fire 直入 cbid）绿，`checkboxRealClick` 与真人鼠标全红——点击后 checked() 不翻。
+
+**根因链（四层，全部 lldb/读数实证）**：
+1. **clickId 与 cbid 是两套编号**：themed checkbox 的 `PathClick(behavior.key)` 派生 clickId =
+   `IdToClick(IdFold(parent, "in-agree"))` = 路径哈希（实测 286252316）；而事件入队查的
+   `Box2::callbacks` 键是 `newCallback` 分配的 `nextCallback++`（实测 7/8）。`gpuiEnqueueChange`
+   拿 event.id 当 callbackId，哈希查不到 → `enqueue` 静默丢弃。合成 fire 绕过事件 id 直用 cbid，所以绿。
+2. **IdCollect 每次 frame build 重算 clickId**：`Click(cbid)` 设 clickId=cbid、clickFromPath=false，
+   但 `MaterializeNode` 收尾的 `PathId(behavior.key)` 又把 clickFromPath 置回真 → 下一帧 IdCollect
+   重写 clickId 成哈希。修法：带显式 Click 的元素收尾改走 `PathFocus(key)`（focusId 照折，clickId 不动）。
+3. **OnChange 的 value 参数是激活状态值不是 cbid**：`base::Checkbox::New` 的
+   `ListenerFill(onChange, CheckboxActivated(state))` 把 l.arg 填成 0/1；早期"修复"用它当 cbid
+   落进 0 号丢事件。定稿：OnChange 用 event.id（=cbid）入队，翻转值由
+   `gpuiShimToggleValue` 读 `Box2::lastValues` 翻转得出。
+4. **翻转基准陈旧**：PHP handler 改 state 重渲染后，`lastValues` 还是旧值（native draw 惰性，
+   点击后到断言前无新物化）。修法：bridge `emitTree` 对 checkbox/switch 每帧调
+   `gpui_shim_remember_checked` 把**渲染 checked** 写进 lastValues——同步点=render push 而非 draw。
+   另注意 `component::Checkbox::IntoEl()` 的内层行 listener（base 的 ListenerFill）在 value 载荷下
+   第二击拿旧帧 arg（checkbox 两击都 0、switch 都 1）——这就是不能走 value 载荷的实证。
+
+**窗口 hit 链细节**：`DispatchMouseUp` 的 `ClickEvent.id` 原取 `win->pressedId`（down 时缓存的
+hit id，即哈希）；修为 `upId`（release 时当前 hit id，clickId 已对齐 cbid）。
+
+**门**：`checkboxRealClick`（realClick 真事件链，checked true→false→true 双向）、
+`switchRealClick`（theme light→dark→light）。真人复验过（勾选/取消、双向）。
+
+## DatePicker 弹层：contentReady 隔帧与 overlay 残留（2026-10-26，Phase 26）
+
+**症状演进**：第一轮"选中不收起+复开高亮串台"→ popup-same-frame 修复后回归为
+"初始就展开+图标收不起"→ 定稿修复后全过。
+
+**根因**：
+- 隔帧：弹层内容由 `contentReady` 门控（popup.cpp:56 `state && state->captured`），
+  首帧锚未捕获 ⇒ 内容下一帧才挂 ⇒ `open=false` 后旧 overlay 无主可清。
+- 修法：contentReady 同帧直通（`patch-popup-same-frame.sh`）+ PopupAnchorState 死结构移除；
+  锚 id 带 gen（`date-picker-<index>-<gen>`，patch-popup-occlude）。
+- 回归与修法：同帧直通后初始帧就挂载 ⇒ 弹层挂载条件补"open 为真才挂"；图标点击切换
+  路径被弹层 StopMouseDown/焦点改动挡的问题一并清。
+
+**澄清**：真人截图里"两个弹层"之一是 **in-ccal 裸日历**（catalogCalendar 常驻组件，
+不是弹层残留）；它高亮独立于 DatePicker 字段。`datePickerInitialClosed` 门读数：
+初始面板=空 → 图标点后 16,323x250x252 → 再点=空。
+
+## shell 物化路径的输入框无边框（2026-10-26，Phase 26）
+
+`base/input.cpp:1863 Textarea::New(cx, state)` 与单行 `Input::New(cx, state)` 在 shell
+物化路径都返回裸 Div（无 Border/Bg）——theme 组件版（ui::Textarea，bordered 默认 true）
+只有 catalog 路径在用。修法：`patch-shell-textarea-frame.sh` 给物化 frame 补
+`theme.inputBorder/radius/inputBg`。门 `textareaThemedFrame`：in-note 框 16,251x528x38
+（补丁前 20 高裸框）。NumberInput 同理出 `patch-number-center.sh`（kind 版数字居中对齐 catalog 版）。

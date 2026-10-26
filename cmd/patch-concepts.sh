@@ -19,7 +19,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 GPUI_DIR="${GPUI_DIR:-$ROOT/build/gpui-kit-cpp}"
 HDR="$GPUI_DIR/src/gpui/gpui.h"
 
-[[ -f "$HDR" ]] || { echo "ERROR: 找不到 $HDR（先 cmd/sync-upstream.sh）" >&2; exit 1; }
+[[ -f "$HDR" ]] || { echo "ERROR: 找不到 ${HDR}（先 cmd/sync-upstream.sh）" >&2; exit 1; }
 if grep -q "EmitsEventV" "$HDR"; then
     echo "patch-concepts: 已落（marker EmitsEventV 在），跳过"
     exit 0

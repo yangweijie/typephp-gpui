@@ -61,7 +61,7 @@ if [[ $h -eq 1 && $s -eq 1 ]]; then
   exit 0
 fi
 if [[ $h -ne $s ]]; then
-  echo "ERROR: 半补丁状态（h=$h s=$s）——两个文件必须一起落，中止" >&2
+  echo "ERROR: 半补丁状态（h=$h s=${s}）——两个文件必须一起落，中止" >&2
   exit 1
 fi
 
@@ -245,7 +245,7 @@ tram_n=$(grep -c 'static void HostApplyComponentAppEffect' "$SRC")
 br_n=$(grep -c 'if (IsHostView(view)) {' "$SRC")
 set_n=$(grep -c 'g_hostAppEffectRuntime = this;' "$SRC")
 if [[ "$decl_n" != "1" || "$def_n" != "1" || "$look_n" != "1" || "$fb_h" != "1" || "$fb_s" != "1" || "$fb_l" != "1" || "$host_n" != "1" || "$tram_n" != "1" || "$br_n" != "1" || "$set_n" != "1" ]]; then
-  echo "ERROR: 自检失败 decl=$decl_n def=$def_n lookup=$look_n fallback(decl=$fb_h def=$fb_s use=$fb_l) host=$host_n tram=$tram_n br=$br_n set=$set_n（应各为 1）" >&2
+  echo "ERROR: 自检失败 decl=$decl_n def=$def_n lookup=$look_n fallback(decl=$fb_h def=$fb_s use=$fb_l) host=$host_n tram=$tram_n br=$br_n set=${set_n}（应各为 1）" >&2
   mv "$HDR.hostapp.bak" "$HDR"; mv "$SRC.hostapp.bak" "$SRC"
   exit 1
 fi

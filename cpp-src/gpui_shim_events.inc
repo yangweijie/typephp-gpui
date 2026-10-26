@@ -63,6 +63,10 @@ void gpuiEnqueueKey(ScriptView* self, Ctx*, uint64_t callbackId, unsigned rune,
 // 这两个枚举值都在上游 gpui.h 里，不在这个仓库里，所以文档必须写清含义。
 void gpuiEnqueueMouse(ScriptView* self, Ctx*, uint64_t callbackId, int button,
                       float x, float y, int clicks, int mods) {
+    // 2026-10-23 物理点击重开的逐跳探针：元素级监听器有没有被调到。
+    if (getenv("GPUI_ENQUEUE_DEBUG"))
+        fprintf(stderr, "GPUI-ENQUEUE-MOUSE cb=%llu btn=%d %.0f,%.0f clicks=%d\n",
+                (unsigned long long)callbackId, button, x, y, clicks);
     char buf[64];
     std::snprintf(buf, sizeof(buf), "%.2f,%.2f,%d,%d,%d", x, y, button, clicks, mods);
     if (Box2* box = boxForView((void*)self))
@@ -85,8 +89,27 @@ void gpuiEnqueueMove(ScriptView* self, Ctx*, uint64_t callbackId, float x, float
         box->enqueue(callbackId, GPUI_ARG_STR, 0, 0, buf);
 }
 
+// bug C 修复（2026-10-26）：ScriptView::OnChange 改用 l.arg（callbackId）入队后，
+// checkbox 的值不能再从 ListenerFill 的烘焙值取（那是初始态取反，不是当前态）。
+// 这个函数从 Box2::lastValues 读当前值并翻转，返回新值。
+// 只对 bool 类型有效；无历史值时默认翻转到 true（未勾选→勾选）。
+bool gpuiShimToggleValue(ScriptView* self, uint64_t callbackId) {
+    Box2* box = boxForView((void*)self);
+    if (!box) return true;
+    auto it = box->callbacks.find(callbackId);
+    if (it == box->callbacks.end()) return true;
+    const std::string& elemId = it->second.first;
+    Box2::ElemValue& v = box->lastValues[elemId];
+    if (v.vkind == GPUI_ARG_BOOL) {
+        v.vbool = !v.vbool;
+        return v.vbool;
+    }
+    return true;
+}
+
 void gpuiEnqueueChange(ScriptView* self, Ctx*, uint64_t callbackId, bool checked) {
-    if (Box2* box = boxForView((void*)self))
+    Box2* box = boxForView((void*)self);
+    if (box)
         box->enqueue(callbackId, GPUI_ARG_BOOL, 0, checked ? 1 : 0, nullptr);
 }
 

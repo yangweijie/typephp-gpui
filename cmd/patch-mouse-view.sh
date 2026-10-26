@@ -156,12 +156,12 @@ fi
 n_hooks=$(grep -cF "gpuiEnqueueMouse(self" "$VIEW" || true)
 n_scroll=$(grep -cF "gpuiEnqueueScroll(self" "$VIEW" || true)
 n_move=$(grep -cF "gpuiEnqueueMove(self" "$VIEW" || true)
-[[ "$n_hooks" == "3" ]] || { echo "ERROR: gpuiEnqueueMouse 调用点=$n_hooks（应为 3）" >&2; exit 1; }
-[[ "$n_scroll" == "1" ]] || { echo "ERROR: gpuiEnqueueScroll 调用点=$n_scroll（应为 1）" >&2; exit 1; }
-[[ "$n_move" == "1" ]] || { echo "ERROR: gpuiEnqueueMove 调用点=$n_move（应为 1）" >&2; exit 1; }
+[[ "$n_hooks" == "3" ]] || { echo "ERROR: gpuiEnqueueMouse 调用点=${n_hooks}（应为 3）" >&2; exit 1; }
+[[ "$n_scroll" == "1" ]] || { echo "ERROR: gpuiEnqueueScroll 调用点=${n_scroll}（应为 1）" >&2; exit 1; }
+[[ "$n_move" == "1" ]] || { echo "ERROR: gpuiEnqueueMove 调用点=${n_move}（应为 1）" >&2; exit 1; }
 for gone in DispatchMouseButton DispatchScrollWheel DispatchMouseMove; do
     if grep -qF "$gone" "$VIEW"; then
-        echo "ERROR: view.cpp 里还留着 $gone（QuickJS 那条路没断干净）" >&2
+        echo "ERROR: view.cpp 里还留着 ${gone}（QuickJS 那条路没断干净）" >&2
         exit 1
     fi
 done

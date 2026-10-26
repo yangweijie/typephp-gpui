@@ -40,8 +40,9 @@ Questionnaire 家族、TableFooter、VForm —— 但**没有专用工厂就意�
 上游 `SchemaEntity` 一共声明 **15** 个 state kind）。
 `php cmd/check-upstream-parity.php` 的**判定**只看 `src/`（11 个：InputState、OtpState、SliderState、
 CalendarState、ColorPickerState、DatePickerState、TimeFieldState、TextareaState、EditorState、
-DiffState、CommandState）——不是因为示例侧没用，而是因为 `examples/input/src/main.php:483`
-故意留了一颗 `NoSuchState` 当反向对照，把它一并判定就红成设计而非红成 bug。
+DiffState、CommandState）——不是因为示例侧没用，而是因为 `examples/input` 的 selftest
+故意留了一颗 `NoSuchState` 当反向对照（`catalogStateFailureVisible` 门），把它一并判定
+就红成设计而非红成 bug。
 示例侧（含 `examples/_shared/**`）另外出现 **CarouselState**（`_shared/features/catalog.php` 里
 Carousel 六件套共用一颗，由 #84 交付）与那颗对照用的 `NoSuchState`，报告里单列一行不参与判定。
 **所以真正的剩余缺口是 3 个**：`DataTableState`、`MessageScrollerState`、`ScrollbarHandle`

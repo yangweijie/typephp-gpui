@@ -1509,7 +1509,12 @@ static El* RetainedDatePickerIntoEl(DatePicker* self) {
                    ->TabStop(!self->disabled)
                    ->FlexNone()
                    ->W(self->width)
-                   ->Child(Popup::New(cx, StrL("pop"), trigger)
+                   // typephp-gpui: popup occludes: PopupAnchorState 按元素 id 存
+                   // （base/popup.cpp 的 ElementState），固定 id "pop" 会让多颗
+                   // DatePicker 共享同一颗锚状态、contentReady 互踩；select.cpp 的
+                   // "%s-popup" 是先例。self->id 是 "date-picker-<index>-<gen>"
+                   // （DatePicker::New 的实体构造），逐实例唯一。
+                   ->Child(Popup::New(cx, StrDup(cx->a, fmt("%s-popup", self->id)), trigger)
                                ->Content(DropdownPlaceContent(popup))
                                ->IntoEl());
     StyleApplyFields(&root->style, self->style, self->styleSet);

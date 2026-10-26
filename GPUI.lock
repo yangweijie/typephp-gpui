@@ -19,6 +19,8 @@
 - clone 后 `vendor/` 被 gitignore，需 `composer install` 再自行放置 gpui-kit-cpp 源码或设 `GPUI_DIR`。
 
 ## 补丁清单（幂等；marker 缺失 = 半补丁，amalgam 行为不对）
+（真源是 `bin/gpui` 的 patchManifest()——doctor 与 build 都按它校验；本表是它的可读副本，
+2026-10-25 与 manifest 对齐。）
 | 脚本 | 目标文件 | marker |
 |------|----------|--------|
 | cmd/patch-nano.sh          | `$NANO_DIR/src/extension.cpp`   | `Engine-provided modules` |
@@ -29,9 +31,36 @@
 | cmd/patch-registered-cb.sh | `$GPUI_DIR/src/shell/runtime.cpp` | `PushShimCallback` |
 | cmd/patch-dispatch-cb.sh   | `$GPUI_DIR/src/shell/runtime.cpp` | `typephp-gpui: shim route (DispatchArgs)` |
 | cmd/patch-nested-view.sh   | `$GPUI_DIR/src/shell/runtime.cpp` | `RegisterHostView` |
+| cmd/patch-host-application.sh | `$GPUI_DIR/src/shell/runtime.cpp` | `HostApplyComponentAppEffect` |
+| cmd/patch-host-state.sh    | `$GPUI_DIR/src/shell/runtime.cpp` | `typephp-gpui: host-side retained component state` |
+| cmd/patch-host-state.sh    | `$GPUI_DIR/src/shell/runtime.h` | `NewHostState` |
+| cmd/patch-host-list.sh     | `$GPUI_DIR/src/shell/runtime.cpp` | `typephp-gpui: host-rendered virtual list` |
+| cmd/patch-host-dock.sh     | `$GPUI_DIR/src/shell/runtime.cpp` | `ShellRuntime::CreateHostDock` |
+| cmd/patch-host-dock.sh     | `$GPUI_DIR/src/shell/runtime.h` | `bool ReleaseHostDock(shell::EntityHandle handle);` |
+| cmd/patch-host-dock.sh     | `$GPUI_DIR/src/base/dock_state.cpp` | `typephp-gpui: release Dock layout node arrays` |
+| cmd/patch-host-dock.sh     | `$GPUI_DIR/src/shell/dock.h` | `const DockRenderer* hostRenderer = nullptr;` |
+| cmd/patch-host-dock.sh     | `$GPUI_DIR/src/shell/dock.cpp` | `typephp-gpui: delegate the complete native Dock renderer.` |
 | cmd/patch-concepts.sh      | `$GPUI_DIR/src/gpui/gpui.h`           | `EmitsEventV`            |
 | cmd/patch-hover-always.sh  | `$GPUI_DIR/src/gpui/window_mac.cpp`   | `NSTrackingActiveAlways` |
+| cmd/patch-window-handle.sh | `$GPUI_DIR/src/gpui/platform.h`       | `WindowNativeHandle` |
+| cmd/patch-window-handle.sh | `$GPUI_DIR/src/gpui/window_mac.cpp`   | `typephp-gpui: expose the owning NSWindow` |
 | cmd/patch-key-view.sh      | `$GPUI_DIR/src/shell/view.cpp`        | `typephp-gpui: gpuiEnqueueKey` |
+| cmd/patch-mouse-view.sh    | `$GPUI_DIR/src/shell/view.cpp`        | `typephp-gpui: gpuiEnqueueMouse` |
+| cmd/patch-select-view.sh   | `$GPUI_DIR/src/shell/view.cpp`        | `typephp-gpui: gpuiEnqueueSignal` |
+| cmd/patch-resize-handle.sh | `$GPUI_DIR/src/base/resizable.cpp`    | `typephp-gpui: resize probe` |
+| cmd/patch-resize-handle.sh | `$GPUI_DIR/src/shell/materialize.cpp` | `typephp-gpui: host resize route` |
+| cmd/patch-resize-handle.sh | `$GPUI_DIR/src/base/resizable.h`      | `typephp-gpui: wide grab band` |
+| cmd/patch-resize-handle.sh | `$GPUI_DIR/src/gpui/window_mac.cpp`   | `typephp-gpui: resize down probe` |
+| cmd/patch-input-focus.sh   | `$GPUI_DIR/src/shell/materialize.cpp` | `typephp-gpui: input takes press` |
+| cmd/patch-input-focus.sh   | `$GPUI_DIR/src/ui/input.cpp`          | `typephp-gpui: input takes press` |
+| cmd/patch-time-field-press.sh | `$GPUI_DIR/src/base/time_field.cpp` | `typephp-gpui: time field takes press` |
+| cmd/patch-popup-occlude.sh | `$GPUI_DIR/src/ui/popover.cpp`        | `typephp-gpui: popup occludes` |
+| cmd/patch-popup-occlude.sh | `$GPUI_DIR/src/ui/time.cpp`           | `typephp-gpui: popup occludes` |
+| cmd/patch-popup-same-frame.sh | `$GPUI_DIR/src/base/popup.cpp`     | `typephp-gpui: popup mounts same frame` |
+| cmd/patch-number-center.sh | `$GPUI_DIR/src/shell/materialize.cpp` | `typephp-gpui: number input centers digits` |
+| cmd/patch-checkbox-click-id.sh | `$GPUI_DIR/src/shell/materialize.cpp` | `typephp-gpui: checkbox click id = callback id` |
+| cmd/patch-shell-checkbox.sh | `$GPUI_DIR/src/shell/materialize.cpp` | `typephp-gpui: checkbox/switch use themed component` |
+| cmd/patch-shell-textarea-frame.sh | `$GPUI_DIR/src/shell/materialize.cpp` | `typephp-gpui: shell textarea themed frame` |
 
 （patch-view 还改 `window_mac.cpp` 的入口改名 + GpuiAppRunStep；以 view.cpp 的 marker 为准判整体。）
 

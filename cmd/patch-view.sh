@@ -16,7 +16,55 @@ VIEW_MARK="/* typephp-gpui: patched */"
 
 # ── 1) view.cpp ──
 if grep -qF "$VIEW_MARK" "$VIEW"; then
-    echo "view.cpp: already patched, skip"
+    # 已打过补丁——检测是否有旧版 OnChange 并替换为新版（bug C 修复）。
+    # 旧版用 event->id（PathClick 哈希，大数）作 callbackId，Box2::enqueue 在
+    # callbacks map（只有 PHP 注册的小 id）里查不到就静默丢弃，change 事件到不了 PHP。
+    # 新版用 l.arg（callbackId，由 ChangeListener(cx,callback) 设置）入队，
+    # checkbox 值从 shim 侧 gpuiShimToggleValue 读 Box2::lastValues 翻转。
+    if grep -qF "gpuiEnqueueChange(self, cx, (uint64_t)(uint32_t)event->id, value != 0)" "$VIEW"; then
+        python3 - "$VIEW" <<'PYEOF'
+import sys
+path = sys.argv[1]
+src = open(path).read()
+
+# 旧版 OnChange（bug C 修复前）
+old_change = """void ScriptView::OnChange(ScriptView* self, Ctx* cx, const ClickEvent* event,
+                          int64_t value) {
+    if (!self || !self->runtime || !event || event->id <= 0) return;
+    gpuiEnqueueChange(self, cx, (uint64_t)(uint32_t)event->id, value != 0);
+}"""
+
+# 新版 OnChange（bug C 修复）
+new_change = """void ScriptView::OnChange(ScriptView* self, Ctx* cx, const ClickEvent* event,
+                          int64_t value) {
+    if (!self || !self->runtime || !event || event->id <= 0) return;
+    // bug C 修复（2026-10-26）：用 l.arg（callbackId）入队，不用 event->id
+    // （PathClick 哈希，Box2::callbacks 里查不到会被静默丢弃）。
+    // checkbox 值从 shim 侧 gpuiShimToggleValue 读 Box2::lastValues 翻转。
+    uint64_t callbackId = (uint64_t)value;
+    bool checked = gpuiShimToggleValue(self, callbackId);
+    gpuiEnqueueChange(self, cx, callbackId, checked);
+}"""
+
+n = src.count(old_change)
+if n != 1:
+    sys.exit("OnChange upgrade count=%d (want 1)" % n)
+src = src.replace(old_change, new_change, 1)
+
+# 加 gpuiShimToggleValue 的 weak 声明
+old_decl = "__attribute__((weak)) void gpuiEnqueueSlider(ScriptView*, Ctx*, uint64_t, float) {}"
+new_decl = old_decl + "\n__attribute__((weak)) bool gpuiShimToggleValue(ScriptView*, uint64_t) { return true; }"
+n = src.count(old_decl)
+if n != 1:
+    sys.exit("decls upgrade count=%d (want 1)" % n)
+src = src.replace(old_decl, new_decl, 1)
+
+open(path, "w").write(src)
+print("  view.cpp: upgraded OnChange to bug-C fix version")
+PYEOF
+    else
+        echo "view.cpp: already patched (v2), skip"
+    fi
 else
     echo "view.cpp: patching..."
     cp "$VIEW" "$VIEW.bak"
@@ -33,6 +81,7 @@ __attribute__((weak)) void gpuiEnqueueChange(ScriptView*, Ctx*, uint64_t, bool) 
 __attribute__((weak)) void gpuiEnqueueHover(ScriptView*, Ctx*, uint64_t, bool) {}
 __attribute__((weak)) void gpuiEnqueueInput(ScriptView*, Ctx*, uint64_t, int) {}
 __attribute__((weak)) void gpuiEnqueueSlider(ScriptView*, Ctx*, uint64_t, float) {}
+__attribute__((weak)) bool gpuiShimToggleValue(ScriptView*, uint64_t) { return true; }
 } // namespace gpui
 '''
 idx = src.find("namespace gpui {")
@@ -60,7 +109,12 @@ reps = [
  """void ScriptView::OnChange(ScriptView* self, Ctx* cx, const ClickEvent* event,
                           int64_t value) {
     if (!self || !self->runtime || !event || event->id <= 0) return;
-    gpuiEnqueueChange(self, cx, (uint64_t)(uint32_t)event->id, value != 0);
+    // bug C 修复（2026-10-26）：用 l.arg（callbackId）入队，不用 event->id
+    // （PathClick 哈希，Box2::callbacks 里查不到会被静默丢弃）。
+    // checkbox 值从 shim 侧 gpuiShimToggleValue 读 Box2::lastValues 翻转。
+    uint64_t callbackId = (uint64_t)value;
+    bool checked = gpuiShimToggleValue(self, callbackId);
+    gpuiEnqueueChange(self, cx, callbackId, checked);
 }"""),
 ("""void ScriptView::OnHover(ScriptView* self, Ctx* cx, const HoverEvent* event,
                          int64_t callback) {

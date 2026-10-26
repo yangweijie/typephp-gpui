@@ -10,7 +10,7 @@ declare(strict_types=1);
  * 分派错的形状是 #66 那种：名字对、通道错，上游直接 continue，屏幕上一个像素都不动，
  * 而 registeredError() 照样是空的。
  *
- * 开关：（无参）交互 · --sections · --shot <path> [tree] · --selftest
+ * 开关：（无参）交互 · --sections · --shot <path> [tree] · --selftest · --wait-resize <秒>
  */
 
 use TypePHP\Gpui\App;
@@ -29,6 +29,182 @@ function main(int $argc, array $argv): void
     }
 }
 
+/**
+ * --wait-resize：真人按住中间分隔条拖拽（17-E 的最后一格）。
+ * 判据不是"按下/抬起到了"（合成路早已能过），而是**拖拽过程中 PHP 收到多次尺寸变化**：
+ * 分隔条的 resize 载荷是 CSV（"30,70"），拖动一次会连续来很多个不同值。
+ * 少于 2 次不同值就不算拖动——单击或程序性 resize 都会被挡住。
+ */
+function runWaitResize(int $seconds): void
+{
+    ExampleState::boot(['section' => 4]);
+    $app = new App();
+    $app->create();
+    // 标题即说明：真人测试不该先读终端。先点标题栏拿前台，再拖"上/下"之间那条横线。
+    $app->createWindow('按住标题栏先点一下，再拖中间的横线并松手', LAYOUT_W, LAYOUT_H);
+    wireLayout($app);
+    $app->view(static fn (): El => layoutTree(1));
+    $deadline = microtime(true) + $seconds;
+    $frames = 0;
+    $events = 0;
+    $last = '';
+    $prev = '';
+    while (microtime(true) < $deadline) {
+        $app->loop(1);
+        $frames++;
+        // 窗口被关闭（点红绿灯/其它路径）后 loop(1) 会立刻返回：不退出就是百万级空转，
+        // 而且退出前读的是已关闭窗口的状态（appkitDeliveries 会显示 0，误导判读）。
+        if (($frames % 30) === 0 && (int) ($app->windowState()['found'] ?? 0) !== 1) {
+            echo 'WAIT-RESIZE 窗口已被关闭，提前退出（frames=' . $frames . "）\n";
+            $app->close();
+            exit(1);
+        }
+        $cur = (string) (ExampleState::$v['split'] ?? '') . '|'
+            . (string) (ExampleState::$v['splitV'] ?? '');
+        if ($cur !== '' && $cur !== $prev) {
+            $events++;
+            $last = $cur;
+            $prev = $cur;
+        }
+    }
+    echo 'WAIT-RESIZE seconds=' . $seconds . ' frames=' . $frames
+        . ' resizeEvents=' . $events . ' last=' . var_export($last, true)
+        // 拖拽期间 AppKit 到底有没有把 leftMouseDragged 送进本进程：
+        // 0 ⇒ 断在 AppKit 路由；>0 而 resizeEvents 仍 1 ⇒ gpui 把移动丢了。
+        . ' appkitDeliveries=' . (string) (int) ($app->windowState()['appkitDeliveries'] ?? 0) . "\n";
+    if ($events >= 2) {
+        echo "WAIT-RESIZE-VERDICT OK：拖拽中的尺寸变化到了 PHP（" . $last . "）\n";
+        $app->close();
+        exit(0);
+    }
+    echo "WAIT-RESIZE-VERDICT 没量到拖拽：请按住中间分隔条**左右拖**几下（单击不算）\n";
+    $app->close();
+    exit(1);
+}
+
+/**
+ * --drag-probe：**不用人**的拖拽判别（#94）。
+ * 教训先写在这里：`realDrag` 返回的 `moved` 是"事件入 PHP 队列几条"，而分隔条上
+ * **没有 PHP 移动回调**，所以 `moved=0` 是正常读数——#80 当年把它当"物理墙"是读错了量。
+ * 真正要看的是拖完之后 `lay-split` 的 resize 载荷（`ExampleState::$v['split']`）变没变。
+ */
+function runDragProbe(): void
+{
+    ExampleState::boot(['section' => 4]);
+    $app = new App();
+    $app->create();
+    $app->createWindow('Layout · drag probe', LAYOUT_W, LAYOUT_H);
+    wireLayout($app);
+    $app->view(static fn (): El => layoutTree(1));
+    $app->loop(10);
+    $before = (string) (ExampleState::$v['split'] ?? '');
+    // 从命中表里自找分隔条：带 drag 监听、宽度 ≤12 的那一条（不写死坐标）。
+    $hx = -1;
+    $hy = -1;
+    $first = $app->hitProbe(0);
+    $total = is_array($first) ? (int) ($first['n'] ?? 0) : 0;
+    for ($i = 0; $i < $total && $i < 80; $i++) {
+        $h = $app->hitProbe($i);
+        if (is_array($h) && (int) ($h['drag'] ?? 0) === 1 && (int) ($h['w'] ?? 0) <= 12) {
+            $hx = (int) ($h['x'] + intdiv((int) $h['w'], 2));
+            $hy = (int) ($h['y'] + intdiv((int) $h['h'], 2));
+            break;
+        }
+    }
+    if ($hx < 0) {
+        echo "DRAG-STAGED-VERDICT FAIL：命中表里找不到分隔条\n";
+        $app->close();
+        exit(1);
+    }
+    $pressed = \gpui_real_mouse($app->handle(), $hx, $hy, 2) === 1;
+    $app->loop(3);
+    $moved = 0;
+    for ($i = 1; $i <= 6; $i++) {
+        if (\gpui_real_mouse($app->handle(), $hx + 10 * $i, $hy, 0) === 1) {
+            $moved++;
+        }
+        $app->loop(1);
+    }
+    $released = \gpui_real_mouse($app->handle(), $hx + 60, $hy, 3) === 1;
+    $app->loop(3);
+    $after = (string) (ExampleState::$v['split'] ?? '');
+    $changed = ($after !== '' && $after !== $before);
+    echo 'DRAG-PROBE handle=' . $hx . ',' . $hy . ' pressed=' . var_export($pressed, true)
+        . ' released=' . var_export($released, true)
+        . ' before=' . var_export($before, true) . ' after=' . var_export($after, true) . "\n";
+    echo $changed
+        ? "DRAG-PROBE-VERDICT OK：拖拽改动了分隔比例（" . $after . "）\n"
+        : "DRAG-PROBE-VERDICT FAIL：拖完比例没变（after=" . var_export($after, true) . "）\n";
+    $app->close();
+    exit($changed ? 0 : 1);
+}
+
+/**
+ * --drag-probe-staged：按下后**先走几帧**再移动（#94 的分辨实验）。
+ * `realDrag` 把按下与第一次移动放在同一轮里；若拖拽状态机要求"按下的帧先画出来"，
+ * 同一轮就会被读成"没有按住"。这个变体只改这一点，其余坐标/目标完全相同。
+ */
+function runDragProbeStaged(): void
+{
+    ExampleState::boot(['section' => 4]);
+    $app = new App();
+    $app->create();
+    $app->createWindow('Layout · drag staged', LAYOUT_W, LAYOUT_H);
+    wireLayout($app);
+    $app->view(static fn (): El => layoutTree(1));
+    $app->loop(10);
+    $before = (string) (ExampleState::$v['split'] ?? '');
+    $hx = -1;
+    $hy = -1;
+    $first = $app->hitProbe(0);
+    $total = is_array($first) ? (int) ($first['n'] ?? 0) : 0;
+    for ($i = 0; $i < $total && $i < 80; $i++) {
+        $h = $app->hitProbe($i);
+        if (is_array($h) && (int) ($h['drag'] ?? 0) === 1 && (int) ($h['w'] ?? 0) <= 12) {
+            $hx = (int) ($h['x'] + intdiv((int) $h['w'], 2));
+            $hy = (int) ($h['y'] + intdiv((int) $h['h'], 2));
+            break;
+        }
+    }
+    if ($hx < 0) {
+        echo "DRAG-STAGED-VERDICT FAIL：命中表里找不到分隔条\n";
+        $app->close();
+        exit(1);
+    }
+    $pressed = \gpui_real_mouse($app->handle(), $hx, $hy, 2) === 1;
+    $app->loop(3);
+    $moved = 0;
+    for ($i = 1; $i <= 6; $i++) {
+        if (\gpui_real_mouse($app->handle(), $hx + 10 * $i, $hy, 0) === 1) {
+            $moved++;
+        }
+        $app->loop(1);
+    }
+    $released = \gpui_real_mouse($app->handle(), $hx + 60, $hy, 3) === 1;
+    $app->loop(3);
+    $after = (string) (ExampleState::$v['split'] ?? '');
+    // 不依赖 PHP 事件的真值：handle 的命中框在拖前/拖后的位置（界面真动了就会变）。
+    $handleBox = static function (int $want) use ($app): string {
+        $first = $app->hitProbe(0);
+        $total = is_array($first) ? (int) ($first['n'] ?? 0) : 0;
+        for ($i = 0; $i < $total && $i < 80; $i++) {
+            $h = $app->hitProbe($i);
+            if (is_array($h) && (int) ($h['id'] ?? 0) === $want) {
+                return $h['x'] . ',' . $h['y'] . ',' . $h['w'] . ',' . $h['h'];
+            }
+        }
+        return 'missing';
+    };
+    echo 'DRAG-STAGED handleBox after=' . $handleBox(285283829) . "\n";
+    echo 'DRAG-STAGED pressed=' . var_export($pressed, true)
+        . ' moved=' . $moved . ' released=' . var_export($released, true)
+        . ' before=' . var_export($before, true) . ' after=' . var_export($after, true) . "\n";
+    $changed = ($after !== '' && $after !== $before);
+    echo $changed ? "DRAG-STAGED-VERDICT OK\n" : "DRAG-STAGED-VERDICT FAIL\n";
+    $app->close();
+    exit($changed ? 0 : 1);
+}
+
 function layoutDispatch(array $argv): void
 {
     if (in_array('--sections', $argv, true)) {
@@ -39,6 +215,20 @@ function layoutDispatch(array $argv): void
     }
     if (in_array('--selftest', $argv, true)) {
         runLayoutSelfTest();
+        return;
+    }
+    if (in_array('--drag-probe-staged', $argv, true)) {
+        runDragProbeStaged();
+        return;
+    }
+    if (in_array('--drag-probe', $argv, true)) {
+        runDragProbe();
+        return;
+    }
+    $waitIdx = array_search('--wait-resize', $argv, true);
+    if ($waitIdx !== false) {
+        $secs = isset($argv[$waitIdx + 1]) ? (int) $argv[$waitIdx + 1] : 20;
+        runWaitResize(max(5, min(300, $secs)));
         return;
     }
     $shotIdx = array_search('--shot', $argv, true);

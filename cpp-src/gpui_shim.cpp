@@ -1005,8 +1005,16 @@ extern "C" {
 static gpui::Ctx overlayCtx(Box2* box);
 static void syncOverlays(Box2* box);
 
+namespace gpui {
+// 定义在文件后半段（HostOnResize 那一段）；app_init 在它们前面，所以先声明。
+extern void (*HostResizeHook)(void*, Ctx*, const ResizablePanelEvent*, int64_t);
+void HostOnResize(void*, Ctx*, const ResizablePanelEvent*, int64_t);
+}
+
 void* gpui_shim_app_init(void) {
     ensureApp();
+    // #94：把 materialize.cpp 里的空钩子装上宿主实现（story 不链本 shim，保持原路）。
+    gpui::HostResizeHook = &gpui::HostOnResize;
     return nullptr;
 }
 
@@ -1030,6 +1038,41 @@ static void registerHostApplication(gpui::EntityId entity) {
     g_runtime->SetHostApplicationFallback(hostAppToken());
     if (entity.IsValid()) g_runtime->RegisterHostApplication(entity, hostAppToken());
 }
+
+namespace gpui {
+// 由 materialize.cpp（我们的补丁）定义的空钩子：没链本 shim 的 story 里它保持 null，
+// 自动退回 ScriptView 路径；本 shim 在 app_init 时装上宿主版（弱符号方案在 Darwin 上
+// 不产生 weak reference，链接会报 undefined —— #94 实测踩过两次）。
+extern void (*HostResizeHook)(void*, Ctx*, const ResizablePanelEvent*, int64_t);
+/* #94：宿主视图的 on_resize 出口。`self` 是 `cx->self`，宿主实体注册的是一个
+ * `::PhpView*`（8 字节的 Box2 指针）。载荷沿用项目既有形状：type=resize、value=CSV。 */
+void HostOnResize(void* self, Ctx*, const ResizablePanelEvent* ev, int64_t cb) {
+    auto* view = static_cast<::PhpView*>(self);
+    if (std::getenv("GPUI_RESIZE_DEBUG")) {
+        std::fprintf(stderr, "GPUI-RESIZE host cb=%lld view=%p count=%d\n",
+                     (long long) cb, (void*) view, ev ? ev->count : -1);
+    }
+    if (!view || !view->box || !ev || !ev->sizes || ev->count <= 0) return;
+    auto it = view->box->callbacks.find((uint64_t) cb);
+    if (it == view->box->callbacks.end()) {
+        if (std::getenv("GPUI_RESIZE_DEBUG")) std::fprintf(stderr, "GPUI-RESIZE host cb-not-found\n");
+        return;
+    }
+    char csv[160];
+    int used = 0;
+    csv[0] = '\0';
+    for (int i = 0; i < ev->count && used < (int) sizeof(csv) - 1; i++) {
+        used += std::snprintf(csv + used, (size_t)((int) sizeof(csv) - used),
+                              i == 0 ? "%.0f" : ",%.0f", (double) ev->sizes[i]);
+        if (used >= (int) sizeof(csv) - 1) break;
+    }
+    view->box->enqueueRaw("resize", it->second.first.c_str(), GPUI_ARG_STR, 0, 0, csv);
+    if (std::getenv("GPUI_RESIZE_DEBUG")) {
+        std::fprintf(stderr, "GPUI-RESIZE host id=%s csv=%s\n",
+                     it->second.first.c_str(), csv);
+    }
+}
+}  // namespace gpui
 
 void* gpui_shim_open_window(const char* title, int width, int height) {
     ensureApp();
@@ -1183,6 +1226,15 @@ void gpui_shim_render_begin(void* win) {
         box->lastError.clear();  // 每帧只报本帧的 registered 失败
         box->extraErrors = 0;    // 配套 noteError 的"本帧已接了几条"计数
     }
+}
+
+void gpui_shim_remember_checked(void* win, const char* elemId, int vbool) {
+    auto* box = static_cast<Box2*>(win);
+    if (!box || !elemId || !*elemId) return;
+    // 语义与 enqueue 里的 rememberValue 一致：记"最近一次已知值"。差异只在更新点
+    // ——这里是 render push（specs 落地即更新，不等原生 draw），所以 PHP 侧改状态
+    // 重渲染后下一击翻转的基准就是新的。见 gpui_shim.h 的注释。
+    box->rememberValue(elemId, GPUI_ARG_BOOL, 0, vbool ? 1 : 0, nullptr);
 }
 
 int gpui_shim_last_error(void* win, char* out, int outlen) {
@@ -1405,9 +1457,21 @@ int gpui_shim_focus_named(void* win, const char* id) {
         auto it = box->inputHandles.find(key);
         if (it == box->inputHandles.end()) continue;
         auto* e = g_runtime->Retained((gpui::shell::EntityHandle)it->second);
-        if (!e || e->kind != gpui::shell::RetainedKind::Focus || !e->focus.IsValid())
+        if (!e) continue;
+        // 焦点 handle 存在两处：Select/DatePicker/dialog popup 用自己的 `e->focus`
+        // （CreateRetainedFocus 造的），而 **retained 输入/文本域的 handle 在 InputState 里**
+        // （CreateInput 里 `entry->input->focus = FocusHandleNew(app)`）。
+        // 只看 `e->focus` 会把文档承诺支持的 "retained 输入" 一律判成"没有焦点身份"——
+        // `--wait-key` 的 focusElement('in-name') 恒 0 就是这么来的（2026-10-17 实测）。
+        auto fh = e->focus;
+        if (e->kind == gpui::shell::RetainedKind::Input
+            || e->kind == gpui::shell::RetainedKind::Textarea) {
+            if (e->input) fh = e->input->focus;
+        } else if (e->kind != gpui::shell::RetainedKind::Focus) {
             continue;
-        gpui::WindowSetFocusId(box->window, e->focus.id);
+        }
+        if (!fh.IsValid()) continue;
+        gpui::WindowSetFocusId(box->window, fh.id);
         int got = gpui::WindowFocusedId(box->window);
         if (got) return got;
     }

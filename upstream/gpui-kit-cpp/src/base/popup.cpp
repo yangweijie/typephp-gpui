@@ -1,11 +1,6 @@
 #include "base/popup.h"
 
 namespace gpui {
-
-struct PopupAnchorState {
-    bool captured = false;
-};
-
 Point PopupResolvedCorner(PopupAnchor anchor, Bounds b) {
     switch (anchor) {
         case PopupAnchor::TopLeft:
@@ -51,13 +46,14 @@ Popup* Popup::New(Ctx* cx, Str id, El* trigger, PopupAnchor anchor) {
     Popup* p = ArenaNew<Popup>(a);
     p->a = a;
     p->anchor = anchor;
-    PopupAnchorState* state =
-        ElementState<PopupAnchorState>(cx, id, StrL("PopupAnchorState"));
-    p->contentReady = state && state->captured;
-    if (state && !state->captured) {
-        state->captured = true;
-        WindowRequestAnimationFrame(cx->win);
-    }
+    // typephp-gpui: popup mounts same frame: contentReady 直通。Rust 的首帧预绘捕获在这里没有对应物——
+    // PlaceAnchored 在 trigger 与 child 同一趟布局之后跑（PopupPlaceContent 注释
+    // 「the resulting bounds are the same」），弹层尺寸当帧即可知。按元素 id 存的
+    // PopupAnchorState 只为把内容推迟一帧，代价是开弹层那一帧命中表里没有弹层的
+    // 任何矩形：真人那一击落到底下的页面（input 示例正下方是 in-ccal 裸日历，
+    // 真人截图「下方弹层高亮 6」即它吃了误点）。合成 realClick 背靠背 + loop 泵帧
+    // 跨过这一帧，所以 selftest 一直量不到。砍掉死帧，弹层可见即命中。
+    p->contentReady = true;
     // Root sizes to the trigger only. Content is an overlay (Rust Positioner).
     p->root = Div(a)->Id(id);
     if (trigger) {

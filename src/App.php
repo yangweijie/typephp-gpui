@@ -39,6 +39,16 @@ final class App
     /** @var array<string, callable> */
     private array $listRenderers = [];
 
+    /** @var string|null 自动化 dropbox 目录；null = 未启用（见 automation()）。 */
+    private ?string $automationDir = null;
+    /** @var int 已吃掉的最大命令序号——乱序到达的先等，不跳号。 */
+    private int $automationSeq = 0;
+    /** @var list<string> 最近处理过的命令与结果，写进 snapshot.txt。 */
+    private array $automationLog = [];
+    /** @var int 逻辑窗口尺寸，screenshot 动词要用来出图。 */
+    private int $winW = 0;
+    private int $winH = 0;
+
     /** Sheet 可滑出的边。 */
     public const SHEET_ANCHORS = ['top', 'bottom', 'left', 'right'];
 
@@ -83,6 +93,8 @@ final class App
             throw new \LogicException('List renderers must not create windows.');
         }
         $this->window = \gpui_window_open($title, $width, $height);
+        $this->winW = $width;
+        $this->winH = $height;
         foreach ($this->listRenderers as $id => $render) {
             \gpui_set_list_renderer($this->window, $id, $render);
         }
@@ -369,7 +381,7 @@ final class App
         return \gpui_dispatch_action($this->handle(), $name) === 1;
     }
 
-    /** keycode 是 Carbon 的 kVK_*（如 kVK_ANSI_G = 9）；chars 是那个键产出的字符。 */
+    /** keycode 是 Carbon 的 kVK_*（kVK_ANSI_V = 9、kVK_ANSI_G = 5）；chars 是投给焦点元素的字符——两者不必是同一颗物理键，合成派发只要求字符到位。 */
     public function realKey(int $keycode, string $chars = ''): bool
     {
         return \gpui_real_key($this->handle(), $keycode, $chars) === 1;
@@ -1134,6 +1146,13 @@ final class App
             \gpui_pump_events($this->handle());
             $dispatched = $this->drainEvents();
 
+            // 1b. 自动化 dropbox：每帧吃一口外部命令。放在分派之后、脏判据之前，
+            //     命令改的状态（点了按钮、写了输入框）因此在同一帧的渲染里可见，
+            //     而下一帧的 pump 才会把合成事件带回 drainEvents。
+            if ($this->automationTick()) {
+                $this->dirty = true;
+            }
+
             // 2. 抢前台的自举放在框架里而不是 app 的每帧回调里：下面第 3 步可能不画这一帧，
             //    交给 app 就会变成"没画→没尝试→永远不是前台"的死结。
             $this->pumpForeground();
@@ -1303,4 +1322,274 @@ final class App
             $this->lastError = $e->getMessage();
         }
     }
+    // ── 自动化 dropbox ──
+    //
+    // 形状参照 native-0.11.0 的 src/automation/protocol.zig：**文件而非 socket**——
+    // 没有端口、不需要权限、shell 脚本与 CI 都能驱动，应用重启也不丢会话状态。
+    // 命令是 <dir>/command-<n>.txt，**每帧只吃一口、按序号不跳号**（乱序到达的先等，
+    // 与参考实现同语义：消费者只会把队列变短，所以顺序由消费者保证）。
+    // 处理后删除命令文件，并把状态写进 <dir>/snapshot.txt 作为回执。
+    //
+    // 为什么值得做：真实输入的验证原先只有人能给（CGEventPost 外部注入在这台机器上
+    // 要么 SIGTRAP 要么被静默丢），而**进程内**的合成缝（gpui_selftest_fire /
+    // gpui_real_key / gpui_set_input_value）一直都在 ABI 里。缺的只是把已存在的能力
+    // 接到一个受治理的外部接口上——这就是本小节做的全部事情。
+
+    /**
+     * 启用自动化：$dir 是命令与回执的目录。
+     * 目录不存在时启用即创建；没有窗口时启用无效（automationTick 会拒绝跑）。
+     */
+    public function automation(string $dir): void
+    {
+        $dir = rtrim($dir, '/');
+        if ($dir === '') {
+            throw new \InvalidArgumentException('automation dir must not be empty');
+        }
+        if (!is_dir($dir) && !@mkdir($dir, 0755, true) && !is_dir($dir)) {
+            throw new \RuntimeException("cannot create automation dir: $dir");
+        }
+        $this->automationDir = $dir;
+    }
+
+    /**
+     * 每帧调一次（loop() 已接）。返回本轮是否处理过命令——处理过就要重画，
+     * 因为命令常常改状态（点了按钮、写进输入框）。
+     *
+     * 未启用 / 没窗口 / 目录里没有下一号命令时返回 false 且不写任何文件。
+     * 私有而不是公开：公开成员要按 tests/ExampleCoverageTest.php 的规矩被某个示例
+     * 调用过，而它是框架自己的帧钩子——公开它只会让那本账多一行豁免。
+     */
+    private function automationTick(): bool
+    {
+        if ($this->automationDir === null || $this->window === null) {
+            return false;
+        }
+        // 只吃**编号恰好是下一号**的那条：缺号就等。跳号执行会让外部脚本以为自己的命令
+        // 已经发生过——那比不执行危险得多（它会接着写依赖该命令的后续命令）。
+        // 代价是丢一个命令文件就会卡住；这是有意的选择：驱动方看 snapshot 的 commands= 不涨，
+        // 就知道丢了哪一号，而不是拿到一个"看起来执行过"的假象。
+        $want = $this->automationSeq + 1;
+        $path = $this->automationDir . '/command-' . $want . '.txt';
+        if (!is_file($path)) {
+            return false;
+        }
+        $this->automationSeq = $want;
+
+        $line = trim((string) file_get_contents($path));
+        @unlink($path);
+        $result = $this->automationExec($line);
+        $this->automationLog[] = "#$want $line -> $result";
+        if (count($this->automationLog) > 20) {
+            array_shift($this->automationLog);
+        }
+        if (str_starts_with($line, 'quit')) {
+            // 退出前把最后一轮回执落盘，否则外部脚本读不到"它为什么停"。
+            $this->automationSnapshot();
+            $this->running = false;
+        } else {
+            $this->automationSnapshot();
+        }
+        return true;
+    }
+
+    /**
+     * 执行一条命令，返回一行人类可读的结果（进 snapshot 的 log= 行）。
+     * 认不出的动词不抛异常：在给外部程序用的接口里，抛异常等于把驱动方炸掉，
+     * 而这里需要的只是"这个动词我没接"这一行回执。
+     */
+    private function automationExec(string $line): string
+    {
+        $parts = preg_split('/\s+/', trim($line)) ?: [];
+        $verb = $parts[0] ?? '';
+        $args = array_slice($parts, 1);
+
+        switch ($verb) {
+            case 'widget-click':
+                $id = (string) ($args[0] ?? '');
+                if ($id === '') {
+                    return 'err missing id';
+                }
+                // 元素级缝先试；不中再试 registered 缝（catalog 组件走的是按 callbackId
+                // 那条）。真侧两条都命中同一个 fn 表，不会双发。
+                $ok = \gpui_selftest_fire($this->handle(), $id, 'click');
+                $via = 'element';
+                if (!$ok) {
+                    $ok = \gpui_selftest_fire_registered($this->handle(), $id, 'click');
+                    $via = 'registered';
+                }
+                return $ok ? "clicked($via) $id" : "not-found $id";
+
+            case 'click':
+                // 坐标缝的合成点击（gpui_real_mouse → 进程内 kit 派发），与物理点击走
+                // 同一个 GpuiView::mouseDown。2026-10-23 物理点击重开时用它当同进程对照臂：
+                // 它打印而物理不打印 ⇒ 丢失点在 AppKit 投递那一跳，不在 kit/宿主派发。
+                $cx = (int) ($args[0] ?? -1);
+                $cy = (int) ($args[1] ?? -1);
+                if ($cx < 0 || $cy < 0) {
+                    return 'err missing coords';
+                }
+                $hit = $this->realClick($cx, $cy);
+                return 'click ' . $cx . ',' . $cy . ' -> ' . var_export($hit, true);
+
+            case 'focus':
+                // 为什么需要它：`input` 只设值、不发 change 事件（实测问候语不更新），
+                // 而 `key` 走的是真键盘路径，会产出真 change。两者之间差的就是焦点——
+                // 所以 focus 是"用真事件驱动输入框"这条路的必要一步。
+                $id = (string) ($args[0] ?? '');
+                if ($id === '') {
+                    return 'err missing id';
+                }
+                $n = \gpui_focus_named($this->handle(), $id);
+                return 'focus ' . $id . ' -> ' . $n;
+
+            case 'key':
+                $name = (string) ($args[0] ?? '');
+                $chars = (string) ($args[1] ?? '');
+                $code = self::automationKeyCode($name);
+                if ($code === null) {
+                    return "err unknown key '$name'";
+                }
+                $n = \gpui_real_key($this->handle(), $code, $chars);
+                return "key=$name code=$code chars=$chars rc=$n";
+
+            case 'input':
+                $id = (string) ($args[0] ?? '');
+                if ($id === '') {
+                    return 'err missing id';
+                }
+                $text = implode(' ', array_slice($args, 1));
+                $ok = \gpui_set_input_value($this->handle(), $id, $text);
+                return ($ok ? 'set ' : 'set-failed ') . $id . ' len=' . strlen($text);
+
+            case 'value':
+                $id = (string) ($args[0] ?? '');
+                if ($id === '') {
+                    return 'err missing id';
+                }
+                $v = \gpui_input_value($this->handle(), $id);
+                $ev = \gpui_element_value($this->handle(), $id);
+                return $id . ' input="' . $v . '" element=' . (is_scalar($ev) ? (string) $ev : gettype($ev));
+
+            case 'change':
+                // 为什么要有它：`input` 只设值、不发事件（#93），而 `key` 走 OS 路径，
+                // 在没有 GUI session 的进程树里（agent/CI 启动的）投递为 0。于是
+                // "change 事件能不能到 PHP"这一路在那些环境里没有任何动词能验。
+                // selftest_fire 收任意类型字符串，所以这里合成一条 change——
+                // 它把"派发缝+handler+回执"与"OS 投递"彻底分开，两边的结论不再互相污染。
+                $id = (string) ($args[0] ?? '');
+                if ($id === '') {
+                    return 'err missing id';
+                }
+                $text = implode(' ', array_slice($args, 1));
+                if ($text !== '') {
+                    \gpui_set_input_value($this->handle(), $id, $text);
+                }
+                $ok = \gpui_selftest_fire($this->handle(), $id, 'change');
+                return $ok ? "change $id" . ($text !== '' ? ' "' . $text . '"' : '') : "not-found $id";
+
+            case 'probe':
+                // 临时诊断动词（本轮排查用，收尾会删）：把输入矩形与命中表原样打出来。
+                $out = ['state=' . json_encode($this->windowState())];
+                $out[] = 'focused=' . \gpui_focused_id($this->handle());
+                for ($i = 0; $i < 8; $i++) {
+                    $b = \gpui_input_probe($this->handle(), $i);
+                    if ((int) ($b['w'] ?? 0) <= 0) {
+                        continue;
+                    }
+                    $out[] = "input[$i] x={$b['x']} y={$b['y']} w={$b['w']} h={$b['h']} hits={$b['hits']}";
+                }
+                for ($i = 0; $i < 80; $i++) {
+                    $h = \gpui_hit_probe($this->handle(), $i);
+                    if ((int) ($h['n'] ?? 0) <= 0) {
+                        break;
+                    }
+                    $out[] = "hit[$i] x={$h['x']} y={$h['y']} w={$h['w']} h={$h['h']} id={$h['id']} p={$h['parent']} click={$h['click']} down={$h['down']}";
+                }
+                return implode(' | ', $out);
+
+            case 'screenshot':
+                $label = (string) ($args[0] ?? '');
+                // 标签净化：非 [A-Za-z0-9._-] 一律替换，且限长 64。否则一个 "../" 就能把
+                // 产物写到 dropbox 外面去——那是给外部程序用的接口，路径必须自己管住。
+                $label = preg_replace('/[^A-Za-z0-9._-]/', '-', $label) ?? '';
+                $label = substr($label, 0, 64);
+                if ($label === '') {
+                    return 'err empty label';
+                }
+                // 先强制渲染一帧再拍：命令可能刚改完状态，而脏门还没轮到重画，
+                // 直接拍会得到上一轮的旧帧——那种"看着绿"比红更危险。
+                $this->automationForceFrame();
+                $path = $this->automationDir . '/screenshot-' . $label . '.png';
+                $ok = \gpui_snapshot($this->handle(), $path, $this->winW, $this->winH);
+                return $ok ? ('png ' . basename($path)) : 'png-failed';
+
+            case 'quit':
+                return 'bye';
+
+            default:
+                return "err unknown verb '$verb'";
+        }
+    }
+
+    /** 键名 → macOS 虚拟键码；认不出返回 null。字母用 ANSI 排布（a=0 .. z=25）。 */
+    private static function automationKeyCode(string $name): ?int
+    {
+        static $map = [
+            'tab' => 48, 'enter' => 36, 'return' => 36, 'esc' => 53, 'escape' => 53,
+            'space' => 49, 'delete' => 51, 'backspace' => 51, 'forwarddelete' => 117,
+            'left' => 123, 'right' => 124, 'down' => 125, 'up' => 126, 'home' => 115, 'end' => 119,
+        ];
+        $lower = strtolower($name);
+        if (isset($map[$lower])) {
+            return $map[$lower];
+        }
+        if (preg_match('/^[a-z]$/', $lower)) {
+            return ord($lower) - ord('a');
+        }
+        if (preg_match('/^\d+$/', $name)) {
+            return (int) $name;
+        }
+        return null;
+    }
+
+    /** 立刻跑一遍视图构建函数并渲染。screenshot 动词专用。 */
+    private function automationForceFrame(): void
+    {
+        foreach ($this->views as $builder) {
+            $tree = $builder();
+            if ($tree instanceof Element) {
+                \gpui_render($this->handle(), $tree->toArray());
+            }
+        }
+    }
+
+    /**
+     * 写 snapshot.txt——外部驱动方的回执。
+     * 只在有事件可写时调（命令处理后 / 退出前），不每帧写：那是给外部程序看的文件，
+     * 每帧重写只会让读方永远赶上半成品。
+     */
+    private function automationSnapshot(): void
+    {
+        if ($this->automationDir === null) {
+            return;
+        }
+        $st = $this->windowState();
+        $focused = \gpui_focused_id($this->handle());
+        $lines = [
+            'frames=' . $this->frames,
+            'renders=' . $this->renders,
+            'window=' . $this->winW . 'x' . $this->winH,
+            'windowState=active=' . (int) $st['active'] . ' key=' . (int) $st['key']
+                . ' visible=' . (int) $st['visible'] . ' main=' . (int) $st['main']
+                . ' onScreen=' . (int) $st['onScreen'] . ' bundled=' . (int) $st['bundled'],
+            'focused=' . ($focused > 0 ? (string) $focused : '-'),
+            'lastError=' . str_replace("\n", ' ', $this->lastError),
+            'commands=' . $this->automationSeq,
+        ];
+        foreach ($this->automationLog as $entry) {
+            $lines[] = 'log=' . str_replace("\n", ' ', $entry);
+        }
+        file_put_contents($this->automationDir . '/snapshot.txt', implode("\n", $lines) . "\n");
+    }
+
 }

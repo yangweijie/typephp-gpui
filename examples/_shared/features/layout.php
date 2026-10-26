@@ -56,11 +56,11 @@ function sectionLayout(array $s): El
         El::hResizable([
             El::resizablePanel(El::text('左栏（可拖）')->font(13.0)->p(8.0))->size('30%'),
             El::resizablePanel(El::text('右栏')->font(13.0)->p(8.0))->size('70%'),
-        ])->h(80.0)->gap(4.0)->id('lay-split')->onResize(),
+        ], 'lay-split')->h(80.0)->gap(4.0)->id('lay-split')->onResize(),
         El::vResizable([
             El::resizablePanel(El::text('上')->font(12.0)->p(6.0))->size('50%'),
             El::resizablePanel(El::text('下')->font(12.0)->p(6.0))->size('50%'),
-        ])->h(90.0),
+        ], 'lay-vsplit')->h(90.0)->id('lay-vsplit')->onResize(),
         El::tabs('lay-tabs')->children([
             El::tab('总览')->child(El::text('tab 内容一')->font(12.0)->p(8.0)),
             El::tab('明细')->child(El::text('tab 内容二')->font(12.0)->p(8.0)),
@@ -105,5 +105,10 @@ function wireLayout(App $app): void
     // cmd/patch-select-view.sh 的 OnResize 那处），所以这里读 $e['value'] 就够。
     $app->on('lay-split', 'resize', function (array $e): void {
         ExampleState::$v['split'] = (string) ($e['value'] ?? '');
+    });
+    // 水平分隔条（上/下两块之间）也挂上：它是 788×9 的横贯带，比竖直那条 9pt 的
+    // 窄条好按得多，真人判据用这一条（竖条留给 --drag-probe 的合成判别）。
+    $app->on('lay-vsplit', 'resize', function (array $e): void {
+        ExampleState::$v['splitV'] = (string) ($e['value'] ?? '');
     });
 }

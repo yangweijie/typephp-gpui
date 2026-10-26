@@ -116,6 +116,8 @@ long long gpui_shim_component_failure(char* out, int outlen);
  * out[9]/out[10]=外部协变量：本进程所在 GUI session 的 onConsole 与 session id。
  * 记这两列是因为 out[7] 实测成段地飘（连三次 true / 连五次 false），而 0..8 两侧读数一模一样，
  * ⇒ 切换不在进程内。会话离开控制台（锁屏/切换用户/远程断开）是那种成段的外部状态。
+ * out[11]=`pthread_main_np()`、out[12]=`[NSThread isMainThread]`：分开读才能看出
+ * "真 main thread"与"AppKit 收养为 main 的线程"是否分家（实测两个都 1，该候选已排除）。
  * 返回 1 = 找到窗口。 */
 int   gpui_shim_window_state(void* win, double* out);
 
@@ -409,6 +411,12 @@ uint32_t gpui_shim_notification_list(void* win, const char* id);
 
 /* 渲染一帧 = 重放一遍扁平 spec 指令序列。begin 清空 arena。 */
 void gpui_shim_render_begin(void* win);
+/* 把 checkbox/switch 的渲染态写进 lastValues（keyed by elemId）。这是"当前已知
+ * 状态"的第二个更新点（第一个是 enqueue 的上报）：PHP 侧改状态重渲染后若没有
+ * 这个同步点，lastValues 还是旧值，gpuiShimToggleValue 的翻转就以旧值为基准——
+ * 合成双击的第二击会翻错向（实测 checkboxRealClick true→false→false、
+ * switchRealClick light→dark→dark）。emitTree 对 checkbox/switch 每帧调用。 */
+void gpui_shim_remember_checked(void* win, const char* elemId, int vbool);
 /* 压入一个组件节点，返回其 spec id；kind 是字符串（div/text/button/...）。
  * id 非空时，若该 id 已建 retained handle（见 gpui_shim_retained_input），
  * 则写入 component.handle 供 materialize 取回状态。

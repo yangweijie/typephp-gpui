@@ -49,7 +49,10 @@ El* DropdownPlaceContent(El* content, float gap) {
     // dropdown_positioner is the side strategy, not Popup's corner strategy:
     // it opens below with Start alignment, flips if needed, and keeps the
     // same 8 px viewport margin.
-    content->AnchorBelow(gap)->Left(0)->Fixed()->Deferred()->AnchorFlip();
+    // typephp-gpui: popup occludes: 对齐 base/popup.cpp PopupPlaceContent 的
+    // occlude 语义（那里注释明说「弹层盖住的地方归弹层」）——没有 StopMouseDown，
+    // DatePicker/Select 全族弹层盖住的区域还会把点击穿透给下面的元素。
+    content->AnchorBelow(gap)->Left(0)->Fixed()->StopMouseDown()->Deferred()->AnchorFlip();
     content->style.anchorMargin = kPopupWindowMargin;
     return content;
 }

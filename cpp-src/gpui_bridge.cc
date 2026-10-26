@@ -299,6 +299,13 @@ uint32_t emitTree(void* win, Array node) {
         gpui_shim_method(win, spec, "content_focus_handle", &ac, 1);
     }
 
+    // checkbox/switch 的渲染态：Element::checkbox/switchBox 只在 true 时发
+    // method('checked',[true])（Element.php:205/214），缺省即 false。每帧随
+    // specs 同步进 lastValues（gpui_shim_remember_checked），让 gpuiShimToggleValue
+    // 的翻转基准跟上 PHP 侧的状态——否则 PHP 改状态重渲染后合成双击的第二击
+    // 拿旧基准翻错向（实测 checkboxRealClick true→false→false、switch light→dark→dark）。
+    // 声明提到 ops 块外：sync 在块后（children 之前）做一次。
+    int renderedChecked = -1;
     Variant opsV = node.get("ops");
     if (opsV.isArray()) {
         Array ops = opsV.toArray();
@@ -352,9 +359,13 @@ uint32_t emitTree(void* win, Array node) {
                 if (opKind == "param_style")
                     gpui_shim_param_style(win, spec, name.c_str(), args.data(),
                                           (int)args.size());
-                else
+                else {
+                    if (name == "checked" && !args.empty()
+                        && args[0].kind == GPUI_ARG_BOOL)
+                        renderedChecked = args[0].b ? 1 : 0;
                     gpui_shim_method(win, spec, name.c_str(), args.data(),
                                      (int)args.size());
+                }
             } else if (opKind == "callback") {
                 std::string type = eventType(name);
                 gpui_shim_callback(win, spec, id.c_str(), type.c_str());
@@ -374,6 +385,13 @@ uint32_t emitTree(void* win, Array node) {
             }
         }
     }
+
+    // checkbox/switch 的渲染态同步（见上面 renderedChecked 的注释）：sync 点是
+    // render push 而不是原生 draw——本环境的 draw 惰性，事件驱动的分派可能跑在
+    // 下一帧重画之前，翻转基准必须在这里就位。
+    if ((kind == "checkbox" || kind == "switch") && !id.empty())
+        gpui_shim_remember_checked(win, id.c_str(),
+                                   renderedChecked < 0 ? 0 : renderedChecked);
 
     Variant kids = node.get("children");
     if (kids.isArray()) {
@@ -651,7 +669,7 @@ Array php_gpui_input_probe(Variant boxVar, Int index) {
 Array php_gpui_hit_probe(Variant boxVar, Int index) {
     Array out;
     void* win = winOf(boxVar);
-    double b[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+    double b[10] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
     int n = win ? gpui_shim_hit_probe(win, (int) index, b) : -1;
     out["n"] = n;
     out["x"] = (Int) b[0];
@@ -662,13 +680,15 @@ Array php_gpui_hit_probe(Variant boxVar, Int index) {
     out["path"] = (Int) b[5];
     out["click"] = (Int) b[6];
     out["parent"] = (Int) b[7];
+    out["down"] = (Int) b[8];
+    out["drag"] = (Int) b[9];
     return out;
 }
 
 Array php_gpui_window_state(Variant boxVar) {
     Array out;
     void* win = winOf(boxVar);
-    double st[11] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    double st[13] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
     int found = win ? gpui_shim_window_state(win, st) : 0;
     out["found"] = found;
     out["active"] = (Bool)(st[0] != 0);
@@ -685,6 +705,9 @@ Array php_gpui_window_state(Variant boxVar) {
     // 外部协变量：本进程所在 GUI session 此刻在不在控制台上（onScreen 飘的候选解释）。
     out["onConsole"] = (Bool)(st[9] != 0);
     out["sessionId"] = (Int) st[10];
+    // 两个"main thread"分开读：真 main 与 AppKit 认的 main 不是同一条 ⇒ GUI 跑在旁支线程上。
+    out["onRealMain"] = (Bool)(st[11] != 0);
+    out["onAppKitMain"] = (Bool)(st[12] != 0);
     return out;
 }
 

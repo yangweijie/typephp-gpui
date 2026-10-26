@@ -16,9 +16,10 @@
 | 9 | 构建输入在册 | `php cmd/check-build-inputs.php` | 「克隆出来能不能构建」：bin/gpui 点名的每支补丁脚本都已跟踪、cmd/ 下每支 `patch-*.sh` 都在清单里、每个示例 yml 的 `sources:` 都在版本控制里，外加一条全仓不变式——**索引里不许有"路径在册但 blob 是空的"的文件**。最后这条是 2026-10-15 补的：`git add -N`（intent-to-add，本仓库登记新文件的惯例）只记路径，索引里是空 blob（sha `e69de29…`），而 `git ls-files -- <path>` 照样把它列成"在册"，于是前三条会在"提交出去是 0 字节文件"的状态下全绿——实测当时有 13 个这种路径（含 4 支补丁脚本、整族英文指南、一份像素基线）。所以判"在版本控制里"要看 **内容 sha**，不是看名字；提交前必须先 `git add <路径>`。审核 P0-1 量到这三类输入当时全未跟踪，而本地跑起来一切正常。现在共六条：除上述三条 + 空 blob 不变式外，还核 **CI 点名的 `cmd/*.(php|sh)` 都在册**（新增步骤忘了 `git add` = runner 打不开文件）与 **`composer.json` scripts 点名的本地路径/示例名都存在**（删掉一个示例后最容易留下的就是这种坏入口）| 否 |
 | 10 | 三层契约 parity | `composer test`（`tests/ContractTest.php`） | stub ↔ FakeBridge ↔ `gpui_bridge.cc` 的名字与元数一一对齐；`src/App.php` 里调用的 `gpui_*` 必须在 stub 里声明过；Element 能发出的每个 kind 都必须在 shim 的 `kKindNames` 表里在册（静态解析表的 `{...}` 体内，不越界读后面的代码；webview/inspector/notifications/dock_area 四个专用 bridge 路径豁免）。`setAppMenus` 键名那族错就是四层各自"看着对"，编译期没人查 | 否 |
 | 11 | 上游词表 parity | `composer parity:upstream` / `php cmd/check-upstream-parity.php` | 我们发出的每个"上游按名字查表"的符号都必须在册：kind ↔ `ComponentKind` 枚举、method/callback/槽名 ↔ `materialize.cpp` 的 101 个 op 名与 prelude 槽表、catalog 导出名与方法名 ↔ descriptor 表（含 bridge 里硬编码的那两个）。上游对**带参未知名**是静默丢弃（`materialize.cpp:451-454` 链尾无 else），五层门禁都不报，这条是唯一的哨兵。取数端 `cmd/upstream-vocab.php` 读的是 vendored 的 `upstream/gpui-kit-cpp`，克隆即可跑 | 否 |
-| 12 | 示例覆盖率与拆分漂移 | `composer test`（`tests/ExampleCoverageTest.php`） | 反射出 `Element`/`App` 的每个公开成员与每个枚举取值，断言**任一示例**（`examples/**/*.php`）里真调用过，再静态核每次调用的实参个数。同一支文件里还有三条防漂移的门：每支示例都有 `project.macos.yml` 且它列的源都在、`examples/_shared/features/*.php` 每份至少被一支收录、以及逐支起无头进程把每棵树在 FakeBridge 上建一遍并核 handler 不是孤儿（门本体是 `cmd/headless-trees.php`）——把一域搬去独立示例却忘记补 yml，无头 PHP 全绿、只有编译产物缺那个函数 | 否 |
+| 12 | 示例覆盖率与拆分漂移 | `composer test`（`tests/ExampleCoverageTest.php`） | 反射出 `Element`/`App` 的每个公开成员与每个枚举取值，断言**任一示例**（`examples/**/*.php`）里真调用过，再静态核每次调用的实参个数。同一支文件里还有四条防漂移的门：每支示例都有 `project.macos.yml` 且它列的源都在、`examples/_shared/features/*.php` 每份至少被一支收录、逐支起无头进程把每棵树在 FakeBridge 上建一遍并核 handler 不是孤儿（门本体是 `cmd/headless-trees.php`）、以及**带"未知开关"扫描的示例里实际读取的开关集合与提示文本里声明的集合双向相等**（2026-10-22 加：`--automation` 曾只在 `runInteractive()` 里读 `$argv`，被自己那道扫描拒掉，说明书上也没这颗）——把一域搬去独立示例却忘记补 yml，无头 PHP 全绿、只有编译产物缺那个函数 | 否 |
 | 13 | 文档锚点解析 | `php cmd/check-doc-anchors.php`（CI docs job 里跟着 `docs:build` 跑） | 补上 `docs:build` 看不到的那一半：它**只查页面存在、不解析 `#fragment`**（实测放过一根指向已改名标题的真死锚）。这条门拿**产物里真实渲染出的 `id="…"`** 比对照料内链接的锚（比源码标题可靠：VitePress 生成 id 含中文转写与去重），当前扫 60 条站内链接 / 11 条带锚 / 0 问题；一条链接都没扫到就 rc=2，防空跑 | 否 |
 | 14 | bundle 在屏资格 | `php cmd/check-bundle-signature.php`（`composer check:bundle`；CI 原生 job 里跟着 `Native selftest` 跑） | #56 的常驻哨兵。断两件**产物属性**（不是 OS 竞争态，所以能硬断）：① `Contents/MacOS/<CFBundleExecutable>` 必须是**正规文件**——符号链接会让 `codesign` 直接拒签（"the main executable or Info.plist must be a regular file"）；② bundle 签名必须把 Info.plist 绑进去（`codesign -dvv` 出 `Info.plist entries=N`，再过 `codesign --verify --strict`）。这两条坏掉时**窗口从不在 WindowServer 的在屏账本里**，而 `windowState()` 的 active/key/visible/main 全真、像素门全绿（`--shot` 走进程内 `cacheDisplayInRect`），只有真人手点才撞得上——所以它必须在 CI 里，不能靠人记着查。实测四象限：symlink / 真文件未签 / 硬链接未签 ⇒ `onScreen=false`；真文件 + 绑定 plist 的签名当时读到 `onScreen=true`，但同一产物隔 20 分钟连五次读到 `false` ⇒ 这两条是**必要而非充分**条件，本门保证的是"bundle 造得可签、身份齐"，不保证"这扇窗一定上屏"（在屏资格在本机仍会飘，见 17-E）。一个 `.app` 都没扫到就 rc=2（"产物没建"不算通过），未知开关也 rc=2 | 否 |
+| 15 | 帧/节点预算棘轮 | `composer bench:tree`（= `php cmd/bench-tree.php --check cmd/bench-tree-budgets.txt`；CI 的 php job 里排在 Pest 之后） | 只量 PHP 半边（view builder + `toArray()`）：5 个规模各跑 5 次取 **min** 与预算比，超一档即红，`us/node` 单独一档。取 min 而不是中位数是同机 A/B 量出来的——中位数随机器状态漂（med 48ms 的序列里混着 max 94ms 的停顿），min 在快/慢状态间只差 10~20%。内存只报不门（2 万行峰值 168MB 是框架特性，不是回归信号）。红臂实测：注入真 O(n²) ⇒ 大档全超（60001 档 302ms、µs/node 5.04）rc=1，小档仍 OK。机器正忙时的显式逃生阀 `GPUI_SKIP_BENCH_TREE=1` | 否 |
 
 一键：`composer test:all`（Pest + PHPStan + 上游词表 parity + shim_test）。
 全量示例跑一遍：`composer examples:all` = `bash cmd/all-examples.sh`
@@ -26,6 +27,12 @@
 示例与像素树数以目录及各产物的 `--sections` 为准，不沿用旧的总数与耗时。
 改了 `cpp-src/` 之后第一遍用 `bash cmd/all-examples.sh first-native`（第一支完整构建，其余 `--no-native`）；
 不要同时运行完整 sandbox 同步与依赖同一个 `gpui.o` 的 C++ 测试。
+全量扫的像素行失败时会**当场分类**：打出 `现场=`（最多 3 棵超差树，形如 `✗ tree 18：gdfrac=…`），
+再复跑一次并按结果标 `复跑绿＝抖动（仍计红，别当通过）` 或
+`复跑仍红＝需单跑复核（可能是上下文相关抖动）`——紧邻的复跑会继承同一上下文，
+**不能**据此判回归；13:45 `overlay` 那一例在扫里两次红、单跑 3/3 绿。
+**复跑只分类、不豁免**——抖动照样算 FAIL；可复述的证据是打印出来的那一行
+（`/tmp` 里的日志副本不保证留存，别把它当记录）。
 
 > 在 composer 的脚本里写 shell 命令要用 `bash cmd/xxx.sh`，不能用 `@bash cmd/xxx.sh`：
 > composer 只把 `@php`/`@composer`/`@putenv` 当内置前缀，`@bash` 被解析成"另一个叫 bash 的脚本"，
@@ -141,6 +148,52 @@ alias list，不是 `public.file-url`，读回来永远是 `paths=0`，看着像
 它的手工路径在交互 demo 里（`Open…` 按钮，从点击回调中调用），见
 [系统能力](/guide/system-capabilities) 的验收矩阵。
 
+## `--automation <目录>`：从外部驱动真实窗口
+
+`--selftest` 是"二进制自己驱动自己"，有些事它做不到——比如验证外部写入的命令在**真实窗口**上
+产生了什么。`--automation <目录>` 补这一刀：`gpui run hello --automation /tmp/auto` 起窗口后，
+往目录里写 `command-<n>.txt`，应用每帧吃一口，执行完把回执写进 `snapshot.txt`。没有端口、
+不需要辅助功能权限、shell 脚本与 CI 都能驱动，进程退出也不丢会话。
+
+```
+mkdir -p /tmp/auto
+printf 'widget-click inc\n'  > /tmp/auto/command-1.txt
+printf 'key a a\n'           > /tmp/auto/command-2.txt
+printf 'screenshot after\n'  > /tmp/auto/command-3.txt
+sleep 2 && cat /tmp/auto/snapshot.txt
+```
+
+| 动词 | 作用 | 备注 |
+|---|---|---|
+| `widget-click <id>` | 按元素 id 合成一次点击 | 先试元素缝，不中再试 registered 缝 |
+| `key <键名> [字符]` | 走**真键盘路径**发一键 | `a`/`tab`/`enter`/`esc`/`left`…或直接给键码；这条会产出真 `change` 事件 |
+| `input <id> <文本>` | 直接往 retained 控件里设值 | **不发 change 事件**——只设值，状态驱动的界面不会因此更新 |
+| `change <id> [文本]` | 设值（给了文本时）+ 合成一条 change 事件 | 补 #93 与"无会话环境"的空缺：这一路在 agent/CI 里只能靠它验 |
+| `value <id>` | 把输入框/部件当前值读进回执 | 断言"写进去了没有"用这句 |
+| `focus <id>` | 把焦点放到部件上 | 真侧目前返回 `-1001`、`focused` 仍为 `-`，焦点这一层仍是缺口（见 #62/#56）；作诊断用 |
+| `screenshot <标签>` | 先强制渲染一帧再出 PNG | 标签净化过，产物逃不出目录 |
+| `quit` | 退出主循环并写最后一轮回执 | CI 能跑完的前提，否则只能 kill 进程 |
+
+回执 `snapshot.txt` 每处理一口命令重写一次（不是每帧），内容含帧数/渲染数、窗口状态
+（`onScreen`/`key`/`visible`…）、`focused`、`lastError`、已消费命令数与每条命令的结果行。
+命令按序号消费，**缺号先等**：驱动方看 `commands=` 不涨就知道丢了哪一号。
+
+**启动者身份会决定 OS 投递是否为 0**（#96，同机同二进制实测）：agent 的 shell 是
+`launchd ← 守护进程 ← .app` 这条链，**不在你的登录图形会话里**，于是窗口可以是前台、
+也可以上屏，但 OS 键鼠投递恒 0（`appkitDeliveries=0`、`sessionId=0`）。所以
+"真人按键"这一层必须由**用户在 Terminal.app 里启动**来验——`input --wait-key 8` 一行读数即可定性；
+agent 与 CI 只能验到"进程内派发链"，这是边界不是缺陷。
+
+实测（2026-10-20，`gpui run hello --automation`）：两次点击让 `Clicked: 2 times` 上线；
+`input` 设值后问候语不变（因为没发 `change`），改走 `key a a`×3 后问候语变成 `Hello, abc!`
+——这条链是真事件、真状态、真重渲染。无头侧的同名门在 `tests/AutomationTest.php`
+（9 项，含乱序等待、标签逃逸、quit 停机）。
+
+`input` 这一支也接了同一张嘴，且**单独用即可**：`php bin/gpui run input --automation /tmp/auto`
+不需要搭 `--trace`。这一条是 2026-10-22 修出来的——它原先只在 `runInteractive()` 里读
+`$argv`，而那道"未知开关必须拒绝"的扫描排在前面，于是单独用被自己的扫描拒掉（rc=2）。
+开关名与实际读取的集合现在由一条静态门双向锁住（见门禁表第 12 行）。
+
 ## shotdiff（视觉回归）
 
 `cmd/shotdiff.php`：`--shot` 抓真实在屏 NSView 出 PNG，与 `tests/baseline/<ex>/tree<N>.png`
@@ -197,6 +250,23 @@ Inspector 拾取高亮读的是窗口记下的指针坐标——窗口常常就�
 判"人为什么按不动"看 `onScreen`，不要看 0..3。
 **同一件事对像素门的含义**：`--shot` 走 `[view cacheDisplayInRect:]`，是进程内渲染，窗口不在屏
 也照样出正确 PNG——像素证据从不证明"用户看得见"，它和真人 HID 那一格互不背书。
+
+**"到底能不能上屏"有一条可重跑的判据：`bash cmd/onscreen-probe.sh [示例]`。** 它在**同一秒**并跑六颗程序
+——三颗程序（纯 AppKit 对照 / gpui + 我们的 shim，零 PHP / 我们的完整产物）各跑两种启动方式
+（从目录裸 exec、从 `.app` 里 exec）——只查 WindowServer 的在屏账本：
+`0` 六格全在屏；`1` 只有 bundle 那一列缺格（= #56，可复现，可交付路径是裸二进制）；
+`2` 连裸跑那一列都缺格，或纯 AppKit 的 bundle 格也缺（先修主机/会话，别查代码）；`3` 前置不满足。
+为什么必须是矩阵：这个状态会成段地翻，跨时刻的单次对比已骗过我三次；而**同秒也不够**——
+上一版探针把"零 PHP 那颗裸跑"和"完整产物从 bundle 跑"当对照，一次比了两个变量
+（有没有 PHP × 从哪儿启动），由此得出的"缺陷在 nano/PHP 运行时"已在 2026-10-15 23:05 作废。
+本机四组同秒读数的形状：纯 AppKit 两列都在屏；gpui 零 PHP 裸列全在屏、bundle 列 2/4 缺；
+完整产物裸列全在屏、bundle 列 4/4 缺（进程内自报 `onScreen` 与账本逐格吻合）。
+它**不进 CI**——托管 runner 上没有可合成的 GUI 会话，在那里恒为 `2`。
+**物理鼠标点击的边界（2026-10-17 实测，已知限制）**：本机"裸窗口 + 远程会话"下，物理
+`leftMouseDown` 能到达本进程（本地监视器计数增长），但**到不了 gpui 的视图**
+（`-[GpuiView mouseDown:]` 里一条探针都不打印）；物理键盘不受影响（走 key window 的 first responder）。
+所以依赖鼠标命中的真人验收（如拖分隔条）在这条链路上做不出记录——
+用 `App::realClick()/realDrag()` 的合成判据，或换一条不经过远程会话的显示链路再补真人记录。
 
 **复跑变绿只够推迟定罪，不够结案。** 先保存并查看失败图，核对构建新鲜度，再控制内容与指针复测，
 用日志、崩溃报告或同一量的探针辅助归因。“三次变绿且无 crash”不能证明只是渲染抖动。
@@ -274,13 +344,13 @@ type 2/3 = 只按下/只抬起，中间按段发移动并在每段后跑一帧�
 它们的分工是：**同一份 UI 源**（`examples/_shared/features/*.php`）被各支的 yml 各自编译，
 所以不存在第二份实现；而"域自己的断言"住在独立那支，因为总报告只在末尾打印一次，
 域的门一崩，外部看见的只是退出码非零、一个字没打——独立那支是边跑边打的，崩在哪行停在哪行。
-各支 `--selftest` 那一圈是第八道门禁的运行时那一半：`tests/ExampleCoverageTest.php`（在 `php job` 里）
+各支 `--selftest` 那一圈是表里「示例覆盖率与拆分漂移」那道的运行时那一半：`tests/ExampleCoverageTest.php`（在 `php job` 里）
 反射出 Element/App 的每个公开成员、断言**任一示例**真调用过、并静态核每次调用的实参个数；
 二进制再证明这些调用在原生侧不产出错误节点。**像素那一半不进 CI**——
 `php cmd/shotdiff.php check <域>` 那批基线要抓真在屏 NSView，托管 runner 没有窗口会话，
 与 hello 的 18 张同理，只在本地跑。
 
-**门禁 3/4 现在真的进 CI 了**——前提是 gpui-kit-cpp 已 vendored 进本仓库
+**表里 `C++ shim_test` 与 `selftest` 那两道现在真的进 CI 了**——前提是 gpui-kit-cpp 已 vendored 进本仓库
 （`upstream/gpui-kit-cpp`，构建时由 `cmd/sync-upstream.sh` 复制成沙箱 `build/gpui-kit-cpp`，
 补丁与 amalgam/out 都落沙箱，跟踪树不被弄脏）。这一跑同时答了一个没把握的问题：
 **托管 macOS runner 能开真窗口**——`--selftest` 的 21 条链路里有窗口、有事件、有 retained
@@ -293,18 +363,25 @@ type 2/3 = 只按下/只抬起，中间按段发移动并在每段后跑一帧�
 
 门禁全绿而人点不动，通常不是同一件事。按这三步走，5 秒内就能分出来：
 
-1. `php bin/gpui run input --trace`（走 `.app` bundle，别裸跑二进制）。
-2. 看窗口顶部 HUD 那行的最后一段：`焦点 前台` 还是 `焦点 非前台`。
-3. 点一下左侧导航、再在输入框敲几个字，然后看 `tail -f /tmp/input-events.log`。
+1. `php bin/gpui run input --trace`（默认跑裸二进制，那正是窗口可合成的一路；
+   要验 bundle 身份才显式加 `--bundle`）。
+2. 跑 `php bin/gpui run input --wait-key 15`：开局打一行 `WAIT-KEY-STATE`（完整
+   `windowState()`），窗口里逐帧画 `active / key / 在屏 / 焦点 id` 读数，结束时
+   `WAIT-KEY-VERDICT` 自己给结论——没有 HUD，别再找"焦点 前台/非前台"那一行
+   （那是已删画廊的界面）。
+3. 点一下任意输入框、再敲几个字，然后看 `tail -f /tmp/input-events.log`：input 域的
+   元素 id 基本都以 `in-` 开头（如 `click id=in-name` / `change id=in-name`），例外是
+   NumberInput 的 ± 两颗按钮 `num-dec` / `num-inc`，别拿"全是 in-*"当判据。
 
 读数怎么解释：
 
-- HUD 显示 **非前台**：先核对 key window 与 responder；`acceptsFirstMouse=YES` 不能证明
-  鼠标、hover 与首次激活都不受前台状态影响。`active=false key=false` 且没有 `key_down`
-  只能定位系统状态这一层，不能一概判成监听器断线。
-- HUD 显示 **前台**，而日志里连 `click id=nav-N` 都没有：那是真派发链坏了（命中表、
+- `WAIT-KEY-VERDICT` 报 **onScreen=false / 事件增量=0**：窗口不在 WindowServer 的在屏
+  账本，或 OS 没把事件送进本进程——这只能定位系统状态这一层（#56 那一格），不能一概
+  判成监听器断线；`acceptsFirstMouse=YES` 也不能证明鼠标、hover 与首次激活不受前台
+  状态影响。
+- 事件有增量，而日志里连 `click id=in-*` 都没有：那是真派发链坏了（命中表、
   监听器、或被原生子视图挡住），用 `App::hitProbe()` 那一节的方法查。
-- 日志里有 `click id=nav-N` 但画面没换：路由到了 PHP，问题在状态或每帧回调，不在输入链。
+- 日志里有 `click id=in-*` 但画面没换：路由到了 PHP，问题在状态或每帧回调，不在输入链。
 
 `--trace` 落盘的只有真到达 PHP 的事件，所以它是"到了 / 没到"的硬证据，比看画面猜可靠。
 

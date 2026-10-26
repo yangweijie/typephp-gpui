@@ -22,9 +22,10 @@ four different claims. Report which one a check actually establishes.
 | Tracked build inputs | `php cmd/check-build-inputs.php` | Patch scripts, manifest membership, example source lists, plus a repo-wide invariant that no indexed path holds an empty blob while the worktree file has content. That fourth check was added after measuring 13 paths registered via `git add -N` (intent-to-add): the path shows up in `git ls-files`, so the first three checks stay green while the commit would write 13 zero-byte files (four patch scripts, the whole English guide set, a pixel baseline). "Tracked" is decided by blob sha, not by name. The gate now runs six checks in total: those three plus the empty-blob invariant, **every `cmd/*.(php|sh)` that CI names is tracked** (a new workflow step forgotten from the index = the runner can't open the file), and **every local path/example name that `composer.json` scripts reference exists** (after an example is removed, this is the stale-entry class that survives longest). | No |
 | Three-layer contracts | `composer test` | Stub/FakeBridge/C++ names and arities; App calls; Element kinds and dedicated bridge paths | No |
 | Upstream vocabulary | `composer parity:upstream` | Kinds, methods, callbacks, slots, catalog names, state kinds, and style vocabulary | Vendored sources only |
-| Example coverage | `composer test` | Public API/enum usage and argument counts across examples; source-list consistency | No |
+| Example coverage | `composer test` | Public API/enum usage and argument counts across examples, plus four anti-drift legs in the same file: every example ships a `project.macos.yml` whose listed sources exist, every `examples/_shared/features/*.php` is claimed by at least one example, every tree of every example builds headless under FakeBridge with no orphan handler (the gate body is `cmd/headless-trees.php`), and — added 2026-10-22 — in any example that rejects unknown flags, the set of flags it actually reads must equal the set its rejection message documents, in both directions (`--automation` used to be read only inside `runInteractive()`, i.e. behind that very guard, so using it alone was rejected by its own CLI; it was also missing from the message) | No |
 | Doc anchor ids | `php cmd/check-doc-anchors.php` (runs in the CI docs job after `docs:build`) | Covers what `docs:build` cannot see: the build checks that pages exist but never resolves `#fragment` (it shipped a real dead anchor to a renamed heading). This gate resolves every in-site anchor against the `id="…"` values actually rendered in the built output — safer than matching source headings, since VitePress' id generation transliterates CJK and de-duplicates. Currently 60 in-site links / 11 with anchors / 0 problems; exits 2 when zero links were scanned, so "not looked at" can't pass as "checked and clean". | No |
 | Bundle on-screen qualification | `php cmd/check-bundle-signature.php` (`composer check:bundle`; runs in the CI native job right after `Native selftest`) | The standing sentinel for #56. It asserts two **artifact properties** (not OS-contested state, so they can be hard-asserted): ① `Contents/MacOS/<CFBundleExecutable>` must be a **regular file** — a symlink makes `codesign` refuse outright ("the main executable or Info.plist must be a regular file"); ② the bundle signature must bind `Info.plist` (`codesign -dvv` shows `Info.plist entries=N`, and `codesign --verify --strict` passes). When either breaks, the window **never enters WindowServer's on-screen ledger** while `windowState()`'s active/key/visible/main all read true and every pixel gate stays green (`--shot` renders in-process via `cacheDisplayInRect`) — only a human pressing keys hits it, which is exactly why it belongs in CI. Measured across four combinations: symlink / regular file unsigned / hardlink unsigned ⇒ `onScreen=false`; regular file + plist-bound signature ⇒ read `onScreen=true` at the time, but the same artifact measured `false` five consecutive times 20 minutes later — these are **necessary, not sufficient** conditions, so this gate proves the bundle is signable and correctly shaped, not that its window will be on screen. Exits 2 when no `.app` was found ("artifacts not built" is not a pass) and on unknown flags | No |
+| Frame/node budget ratchet | `composer bench:tree` (= `php cmd/bench-tree.php --check cmd/bench-tree-budgets.txt`; runs in the CI php job right after Pest) | Measures only the PHP half (view builder plus `toArray()`): five sizes, five runs each, and the **min** is compared against the budget file — one row over budget is a red, and `us/node` has its own row. Min rather than median came out of a same-machine A/B: the median drifts with machine state (a series medians at 48ms contained a 94ms max), while min differs by only 10~20% between fast and slow states. Memory is reported but not gated (a 20k-node tree peaks at 168MB — that is a framework property, not a regression signal). Red arm measured: injecting a real O(n²) makes the large tiers blow through (60001 tier: 302ms, 5.04 µs/node) with rc=1 while the small tiers stay OK. Explicit escape valve for a busy machine: `GPUI_SKIP_BENCH_TREE=1` | No |
 
 Combined PHP and C++ checks:
 
@@ -46,6 +47,15 @@ The second form rebuilds shared native artifacts with the first example and
 reuses them for the rest. Do not run a full sandbox sync/build concurrently with
 tests that need that same `gpui.o`. The example list comes from
 `examples/*/project.macos.yml`, not a second fixed list.
+
+When a pixel row fails in the full sweep, the sweep **classifies it on the spot**:
+it prints `现场=` (up to three offending trees, e.g. `✗ tree 18：gdfrac=…`), re-runs that
+example once, and labels the row `复跑绿＝抖动（仍计红，别当通过）` or
+`复跑仍红＝需单跑复核（可能是上下文相关抖动）`. The immediate retry inherits the same context,
+so it **cannot** establish a regression: on 2026-10-17 13:45 the `overlay` row was red twice inside
+the sweep and green 3/3 when run standalone.
+The retry only classifies — a flake still counts as FAIL. The durable evidence is that
+printed line; log copies under `/tmp` are not guaranteed to survive.
 
 Composer shell scripts must use `bash cmd/script.sh`, not `@bash`: Composer can
 interpret the latter as a missing script reference without running the intended
@@ -178,6 +188,60 @@ channel.
 native modal loop waits for a person. Invoke it from an interactive button's event
 handler and test both selection and cancellation.
 
+## `--automation <dir>`: driving the real window from outside
+
+`--selftest` is the binary driving itself, which cannot answer "what did an external
+writer produce in a *real* window". `--automation <dir>` covers that: start
+`gpui run hello --automation /tmp/auto`, drop `command-<n>.txt` files into the directory,
+and the app consumes one per frame and writes the receipt to `snapshot.txt`. No ports, no
+accessibility permission, drivable from a shell script or CI; the session survives a
+process restart.
+
+```
+mkdir -p /tmp/auto
+printf 'widget-click inc\n'  > /tmp/auto/command-1.txt
+printf 'key a a\n'           > /tmp/auto/command-2.txt
+printf 'screenshot after\n'  > /tmp/auto/command-3.txt
+sleep 2 && cat /tmp/auto/snapshot.txt
+```
+
+| Verb | Effect | Notes |
+|---|---|---|
+| `widget-click <id>` | synthetic click by element id | element seam first, then the registered seam |
+| `key <name> [chars]` | one key through the **real keyboard path** | `a` / `tab` / `enter` / `esc` / `left`… or a raw keycode; this path emits real `change` events |
+| `input <id> <text>` | set the retained widget value directly | **no `change` event** — state-driven views do not update from it |
+| `change <id> [text]` | optionally set the value, then synthesize a `change` event | closes the gap left by #93 and by session-less process trees: in agent/CI environments this is the only verb that can verify the change path |
+| `value <id>` | read the widget's current value into the receipt | use this to assert the write landed |
+| `focus <id>` | focus the widget | the real side returns `-1001` and `focused` stays `-`; focus is still an open gap (#62/#56) — diagnostic only |
+| `screenshot <label>` | force one frame, then emit a PNG | the label is sanitized, so artifacts cannot escape the directory |
+| `quit` | leave the main loop and write the final receipt | a prerequisite for CI runs, which otherwise have to kill the process |
+
+`snapshot.txt` is rewritten once per consumed command (not per frame): frames, renders,
+window state (`onScreen`/`key`/`visible`…), `focused`, `lastError`, the number of commands
+consumed, and one result line per command. Commands are consumed in order and a missing
+number is waited for — when `commands=` stops advancing, the driver knows which number
+was lost.
+
+**Who launches the process decides whether OS delivery is zero** (#96, same machine, same
+binary): an agent shell descends from `launchd ← daemon ← .app`, so it is **not in your login
+GUI session** — the window can be frontmost and composited while OS input delivery stays at
+zero (`appkitDeliveries=0`, `sessionId=0`). The "human keystroke" layer therefore has to be
+verified by the user launching from Terminal.app (`input --wait-key 8` gives a one-line
+answer); agent and CI can only reach the in-process dispatch chain. That is a boundary, not
+a defect.
+
+Measured 2026-10-20 with `gpui run hello --automation`: two clicks put `Clicked: 2 times`
+on screen; `input` set the value without updating the greeting (no `change` event), while
+three `key a a` commands changed it to `Hello, abc!` — a real event, real state, real
+re-render. The headless twin lives in `tests/AutomationTest.php` (9 tests, covering
+out-of-order waiting, label escape, and quit shutdown).
+
+`input` opens the same door and **takes the flag on its own**: `php bin/gpui run input
+--automation /tmp/auto` no longer needs `--trace`. That was a real defect fixed 2026-10-22 —
+the flag was read only inside `runInteractive()`, which sits behind the "reject unknown flags"
+guard, so using it alone was rejected with rc=2. The gate that keeps a flag list and what the
+code reads from agreeing is the fourth leg of the Example coverage row above.
+
 ## Pixel comparison
 
 `cmd/shotdiff.php` invokes `--shot`, captures a real window NSView into PNG, and
@@ -250,6 +314,28 @@ measured `false` / `37`). Ask `onScreen`, not slots 0..3, when a human cannot ty
 **Same fact, pixel side:** `--shot` captures through `[view cacheDisplayInRect:]`, which renders
 in-process, so a correct PNG comes out even when the window is not on screen at all — pixel
 evidence never proves "the user can see it", and it does not vouch for the human-HID check.
+
+**Whether a window is composited at all has a re-runnable verdict: `bash cmd/onscreen-probe.sh [example]`.**
+It runs six processes **in the same second** — three programs (a plain AppKit control, gpui plus our shim
+with zero PHP, and our full artifact), each launched two ways (exec'd straight from a directory, exec'd
+from inside a `.app`) — and reads only WindowServer's on-screen ledger: `0` all six cells on screen;
+`1` only the bundle column missing (= #56, reproducible, and the shippable route is the bare binary);
+`2` a bare column cell missing, or even the plain AppKit bundle cell (fix the host/session before reading
+code); `3` prerequisites unmet. Why a matrix rather than a trio: this state flips in time blocks and
+cross-time single comparisons have fooled me three times — but same-second is not sufficient either.
+The previous version paired "zero-PHP, run bare" against "full artifact, run from a bundle", which varies
+two things at once (PHP present × where it launches from); the "defect is in the nano/PHP runtime"
+conclusion it produced was retracted on 2026-10-15 23:05. Four same-second rounds here read: plain AppKit
+on screen in both columns; gpui-without-PHP on screen bare in 4/4 but missing in 2/4 bundles; the full
+artifact on screen bare in 4/4 and missing in 4/4 bundles (the in-process `onScreen` self-report matched
+the ledger cell for cell). It is deliberately **not in CI** — a hosted runner has no session that
+composites windows, so it would always report `2`.
+**Physical mouse clicks: a known boundary (measured 2026-10-17).** On this host, with a bare window
+in a remote session, a physical `leftMouseDown` reaches the process (the local monitor counts it)
+but **never reaches the gpui view** — a probe inside `-[GpuiView mouseDown:]` never prints.
+Physical keys are unaffected (they go to the key window's first responder). Human acceptance that
+depends on mouse hit-testing (dragging a splitter) therefore cannot be recorded on this link; use
+the `App::realClick()/realDrag()` instrument, or switch to a display link without the remote session.
 
 That fix stabilized pointer-dependent captures; it is not proof that every source
 of timing variation is gone. **hello tree 27 was a separate, now-closed issue**:
@@ -354,7 +440,9 @@ UI implementations but does not automatically migrate every assertion.
 
 ## Diagnosing an unresponsive window
 
-1. Launch the relevant example through `php bin/gpui run`, not a raw binary.
+1. Launch the relevant example through `php bin/gpui run` — it builds first,
+   executes the bare binary by default, and forwards example flags; add
+   `--bundle` when you explicitly need the `.app` launch.
 2. Inspect `windowState()` for active/key/visible/main and bundle identity.
 3. Click a known control and inspect delivered event id/type/value.
 4. If no event arrives, check hit geometry, attached listeners, focus, and native

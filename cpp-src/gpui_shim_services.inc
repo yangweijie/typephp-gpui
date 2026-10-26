@@ -294,7 +294,7 @@ void gpui_shim_method(void* win, uint32_t spec, const char* name,
 int gpui_shim_window_state(void* win, double* out) {
     auto* box = static_cast<Box2*>(win);
     if (!box || !out) return 0;
-    for (int i = 0; i < 11; i++) out[i] = 0;
+    for (int i = 0; i < 13; i++) out[i] = 0;
     return gpui_mac_window_state(out);
 }
 
@@ -363,6 +363,10 @@ int gpui_shim_hit_probe(void* win, int index, double* out) {
         out[5] = h.pathId;
         out[6] = h.listener.fn != 0 ? 1 : 0;
         out[7] = h.parent;
+        /* #94：拖拽只认 DragMoveEvent（OnMove 只改 hover 状态），而派发条件要求命中条目
+         * 带着 onDragMove。两格分开记，才能分清"按下没接上"与"拖拽没接上"。 */
+        out[8] = h.onMouseDown.fn != 0 ? 1 : 0;
+        out[9] = h.onDragMove.fn != 0 ? 1 : 0;
     }
     return hits.len;
 }

@@ -370,3 +370,73 @@ test('每支示例的每一棵树在无头 FakeBridge 下都建得出非空树�
     expect($probeRc)->toBe(0, "孤儿检测的对照臂没通过：\n" . implode("\n", $probe));
     expect(implode("\n", $probe))->toContain('凭空挂的孤儿被点名=true');
 });
+
+/*
+ * 示例 CLI 的开关清单自洽（2026-10-22，来自一条真缺陷）。
+ *
+ * `--automation` 曾经只在 input 的 runInteractive() 里读 global $argv，而那道"未知开关必须
+ * 拒绝"的扫描排在它前面——于是 `input --automation <dir>` 单独用被自己的扫描拒掉（rc=2），
+ * 只有搭 `--trace` 才进得去（真二进制实测）。修法是把取值提到扫描之前。
+ *
+ * 这条门锁的是**踩坑的形状**而不是那颗开关：提示文本是这份 CLI 唯一对外的说明书，
+ * 说明书和实际读取的集合一分叉，"读了但没声明"的开关就成了隐形开关——要么被自己的扫描吞掉，
+ * 要么只有作者知道怎么用。所以双向锁：
+ *   ① 每个被读取的 `--开关` 必须在未知开关提示里在册；
+ *   ② 提示里在册的每颗开关必须真被读取（防说明书上画不存在的按钮）。
+ * 它量的是声明一致性，**不**量可达性：某颗开关读在扫描之后但仍可达（--synthetic-key 就是）
+ * 这类判断只有跑真二进制才量得到，两边别互相替代。
+ */
+test('带未知开关扫描的示例：读取的开关与提示里声明的开关必须双向相等', function (): void {
+    $readRe = '/\b(?:in_array|array_search)\s*\(\s*\'(--[a-z][a-z0-9-]*)\'/';
+    $namedRe = '/(--[a-z][a-z0-9-]*)/';
+    $guardedFiles = [];
+    $undeclared = [];
+    $phantom = [];
+    $emptyScan = [];
+    foreach (exampleSources() as $file) {
+        $code = '';
+        foreach (token_get_all((string) file_get_contents($file)) as $tok) {
+            if (is_array($tok) && in_array($tok[0], [T_COMMENT, T_DOC_COMMENT], true)) {
+                continue;
+            }
+            $code .= (is_array($tok) ? (string) $tok[1] : (string) $tok) . ' ';
+        }
+        if (!str_contains($code, '未知开关')) {
+            continue;
+        }
+        $guardedFiles[] = basename($file);
+        $read = [];
+        if (preg_match_all($readRe, $code, $m)) {
+            $read = array_unique($m[1]);
+        }
+        // 提示区 = '未知开关' 那句到紧随其后的 exit(...) 之间的文本。
+        // 注意下面两条正则都留了 \s*：token 流里每个 token 之间被塞了一个空格，
+        // 按源码原样写 `in_array(` / `exit(` 会一颗都匹配不上（第一次就这么红的）。
+        $named = [];
+        if (preg_match('/未知开关(.*?)exit\s*\(/s', $code, $g) && preg_match_all($namedRe, $g[1], $n)) {
+            $named = array_unique($n[1]);
+        }
+        if ($read === [] || $named === []) {
+            $emptyScan[] = basename($file) . ' 读取=' . count($read) . ' 声明=' . count($named);
+            continue;
+        }
+        foreach ($read as $flag) {
+            if (!in_array($flag, $named, true)) {
+                $undeclared[] = basename($file) . ' 读了但没在提示里声明：' . $flag;
+            }
+        }
+        foreach ($named as $flag) {
+            if (!in_array($flag, $read, true)) {
+                $phantom[] = basename($file) . ' 提示里声明了但没人读：' . $flag;
+            }
+        }
+    }
+    // 防空转：这道门至少要有"一支带扫描的示例"和"两边都非空"才有判定力。
+    expect(count($guardedFiles))->toBeGreaterThanOrEqual(
+        1,
+        '没有任何示例带未知开关扫描——这条门在空转，而扫描本身是防"未知开关落回交互 run() 挂死"的'
+    );
+    expect($emptyScan)->toBe([], '这些带扫描的示例没读到或没声明任何开关：' . implode(' / ', $emptyScan));
+    expect($undeclared)->toBe([], implode("\n", $undeclared));
+    expect($phantom)->toBe([], implode("\n", $phantom));
+});

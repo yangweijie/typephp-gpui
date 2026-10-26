@@ -148,6 +148,14 @@ PHP 侧声明。补上 `El::open(bool)`（`method('open', [$v])`）之后，`exa
   ok   stepDelivered — 命中表=10 条 [...] 落点索引=4 lastStep='decrement' elementValue(in-num)='decrement'
 ```
 
+**`on_step` 的值语义（2026-10-25 起）**：`on_step` 一旦声明，上游**内建步进就关闭**——
+materialize 只在 `!behavior.onStep && retained->number.hasStep` 时才把 `NumberStep*`
+传给步进回调，声明了回调就是 `nullptr`。于是点 ± **只发事件、不改数**，值归脚本管：
+handler 得自己 `text(id)` 读当前值、按载荷 `increment`/`decrement` 算出新值再
+`setInput(id, …)` 回写 retained 实体，屏上数字才会动。只写 `ExampleState` 不回写的话，
+事件链全绿、界面纹丝不动（这正是 bug B 的形状，`stepDelivered` 的判据现在含
+`text('in-num')` 按 ±1 方向变化的断言）。
+
 内建动作派发这一条已经有了确定的结果（2026-10-13，同一支探针里量的）：
 开着 dialog、焦点陷阱生效之后 `dispatchAction('ui::Cancel')` 会把框关掉——
 读数是 `cancelGate trap=195604379 dispatched=true closed=true`，
@@ -219,8 +227,12 @@ RetainedEntry 本地 id，shim 反查回 elementId + 读当前值入队：
 
 ```php
 $app->render(El::input()->id('name')->placeholder('Your name')->onChange());
-$app->on('name', 'change', static function (array $event): void {
-    ExampleState::$v['name'] = $event['value'];
+$app->on('name', 'change', static function () use ($app): void {
+    // 读 **state 的当前文本**，不读事件载荷：合成 change（automation 的 change 动词、
+    // selftest 的 fire）带过来的值是 true，信载荷会把界面画成 "Hello, 1!"
+    // （2026-10-22 真窗口截图实测）。参考 gpui-kit-cpp 的 examples/input.cpp，
+    // 它的 OnChange 读的也是 InputCStr(&state)。slider 没有 state 取值口，只能信载荷。
+    ExampleState::$v['name'] = $app->text('name');
 });
 $app->setInput('name', 'prefill');
 $text = $app->text('name');
@@ -377,8 +389,10 @@ $app->onAny('action', function (array $e): void {
 php bin/gpui run input --wait-key 150     # 人按一下，命令自己给结论
 ```
 
-`--wait-key [秒]` 是给 #56/#62 那一格用的：屏幕上写明"先点窗口、再按字母键、然后 Escape"，
-每帧把 `key_down / key_up / click / 焦点 id / active / key` 画出来，按到键就多收 8 秒让
+`--wait-key [秒]` 是给 #56/#62 那一格用的：屏幕上写明“焦点已自动放到输入框、直接按几个
+字母键、最后按 Escape”（焦点由程序预放，不用人先点窗口），窗口里逐帧把
+`key_down / key_up / click / change` 与 `active / key / 在屏 / 焦点 id` 的读数画出来，
+按到键就多收 8 秒让
 Escape 与连续按键都进读数，最后打印一行 `WAIT-KEY …` 并以退出码给结论（0=按到了，1=没按到）。
 为什么仍要人验：前台归属是跟 IDE/终端**竞争**来的，自动化不保证拿到——用 Qoder computer use
 （无障碍层）量过一轮，`click(elementIndex)` 能穿过 AppKit → gpui → 补丁 → PHP
@@ -397,8 +411,14 @@ Escape 与连续按键都进读数，最后打印一行 `WAIT-KEY …` 并以退
 `onScreen`（WindowServer 的**在屏账本**里有没有这扇窗）与它的自证臂 `onScreenPeers`
 （同一账本的在屏窗口总数）。
 
-`php bin/gpui run`/`selftest` 会把构建产物包进 `.app` 再启动，就是因为裸二进制即使调了
-`TransformProcessType` 也起不来 `isActive`。**但 bundle 身份只买到"自报"那一半**：
+`php bin/gpui run` **默认跑裸二进制**（`--bundle` 才走 `.app`），`selftest` 仍走 bundle
+——它断的是"产物有没有 bundle 身份"这件产物属性（`--expect-bundle`）。
+**裸这扇窗只能靠真人的物理一下**：它可被合成、`active/key` 也真，但外部把前台交给它会被拒
+（`System Events` 的 `set frontmost` 报 -10006），所以 `keystroke` 注入打在别的应用上；
+物理点击由 WindowServer 做命中测试，点下去 session 前台才归我们。
+改成默认裸二进制的理由是一条同秒实测：同一份字节 `裸 onScreen=true / bundle onScreen=false`，
+而旧说法"裸二进制起不来 `isActive`"在前台重试那条补丁之后已不成立（裸也 `active=true key=true`）。
+**bundle 身份只买到"自报"那一半**：
 实测 `.app` 起的应用可以 `active/key/visible/main` 全真而 `onScreen=false`——窗口在窗口服务里有号、
 有画面，却从不上屏，于是真人键鼠零送达（`--shot` 走进程内 `cacheDisplayInRect`，照样出正确 PNG，
 所以像素门也看不出来）。拿到在屏资格要两条同时成立：**`Contents/MacOS/<exe>` 是正规文件**
@@ -437,13 +457,15 @@ PHP 宿主没有脚本引擎，于是"给元素挂了 onKeyDown 之后一按真�
 键名 `KeyName(vk)`（如 `1`、`backspace`、`f5`），输入字符那一路给的才是码点转成的 UTF-8。
 画廊的 `--livetyping`（已随画廊删除）两种都钉住，读数 `key_down=[in-key] value=[—1]`——那个 `1` 就是 keycode 18 的键名。
 
-这条路由 `examples/input` 的 `--selftest` 逐颗输入框验：读数
-`合计=9/9 key_down=[in-key]`（每一颗都收得进字符，且挂了 `onKeyDown` 的那颗确实收到
-`key_down`）——它同时是回归位：键路再断，这条就红。
+这条路由 `examples/input` 的 `--selftest` 逐颗输入框扫描：`realTyping` 的读数是
+`index→keyPressed=… 打进字的索引=… name=…`（判据是**至少一颗**打进字——`typedIdx>=0`
+即绿；CI 上焦点是竞争态，不苛求每一颗都收得进字符）；挂了 `onKeyDown` 的那颗由
+`keyDownRoute` 另断（读数 `key_down 落点索引=… key=…`）——它们同时是回归位：键路再断，这两条就红。
 
 顺带一条同类陷阱：`El::vFlex([...])->itemsStart()` 里的按钮只占**文字宽度**，不是整行。
 画廊时代实测的导航可点带只有 x=12..132（侧栏宽 210），点行右半截什么都没发生；
-给满 `->w(194.0)` 之后实测 12..196。`--selftest` 的 `navBand` 断言盯着这件事。
+给满 `->w(194.0)` 之后实测 12..196。今天由 `examples/chrome` 的 `navRowsReachable` 门
+（w≥150 的像样行 ≥3）盯着这件事。
 
 还有一条在 AppKit 那一侧：上游的 tracking area 原本写的是 `NSTrackingActiveInKeyWindow`，
 意思是**窗口不是钥匙窗口就不投递 `mouseMoved`**。于是应用没被激活（或用户切到别的 app 而鼠标
