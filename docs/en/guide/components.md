@@ -37,6 +37,40 @@ Additional base factories include `numberInput($id)`, `otpInput($id)`, `progress
 `tableCell($children)`, `hResizable($children)`, `vResizable($children)`,
 `resizablePanel($child)`, `popup()`, `radioGroup($children)` and `toggleGroup($children)`.
 
+### Batch-3 refinements (2026-10-28)
+
+- `El::collapsible($label, $content)`: upstream Collapsible reads only the **content**
+  slot — the label is now the block's first line (a single collapsing block; controlled
+  expansion via `->open(true/false)` re-render, no callback channel).
+- `El::tab($label)`: the label is wrapped into a text child automatically (base Tab's
+  text is only a motion identity; four-way placement is a catalog TabBar capability).
+- `El::accordionItem($header, $panel, $changeId = null)`: the three-part contract
+  (AccordionItem > AccordionHeader > AccordionTrigger; the panel is an AccordionPanel);
+  with `$changeId` the trigger wires on_change (routes as `$changeId, change`), and
+  `->open(true)` remains the controlled-expansion anchor. Gate: `accordionChangeRoute`
+  in `php bin/gpui selftest catalog`.
+- `El::otpInput($id, $length = 4)`: the length travels through the bridge-internal
+  `otp_length` op into the retained state; read it back with `App::otpLength($id)`.
+  The styled one is still `El::catalogOtpInput($id, $length)`.
+- `El::slider($min, $max, $value)`: range/initial travel through bridge-internal
+  `slider_min`/`slider_max` ops (the initial value is applied with the public
+  SliderSetValue — CreateRetainedSlider always starts at min); read back with
+  `App::text($id)`. Gate: `sliderRangeInitial` in the input selftest.
+- `El::avatar($src, $fallback = '')`: default circle crop + square ratio + 40px, with
+  the first character in the fallback slot (taken with a preg `/u` match — the nano
+  extension table has no mbstring, and `mb_substr` fails module startup outright).
+  The presence dot needs absolute overlay and is not done.
+- `El::image($src, $alt)`: `$alt` feeds the aria_label op (it used to be dropped).
+  Ely's framed border is not a combined sugar (stack borderWidth+rounded; see the
+  style-sugar discipline).
+- `El::svg($path)`: empty strings and non-.svg suffixes throw on the spot (svg reads
+  arbitrary asset paths via SvgDraw — icon()'s icons/ prefix check does not apply;
+  a valid shape with a missing file still paints nothing silently).
+- Tab/Shift-Tab focus roving: the upstream window layer already binds it
+  (gpui/window_common.cpp: an unwanted Tab runs FocusTrapTab) and the host key seam
+  reaches it — gate: `focusRovingTab` in the kit selftest (precondition-style: skipped
+  as unverified when the window is not key/main).
+
 ### Build semantic tables explicitly
 
 Upstream table parts are divs with accessibility roles, not an automatic layout engine.
@@ -298,8 +332,623 @@ $icon->sizeEnum('large')->rotate(1.57)->color('#e07b39');
 
 `rm($methodName, $args)` is the escape hatch for an arbitrary registered method.
 `El::cb('click', 'routeId')` encodes a callback argument, as used by DropdownMenu items.
-Enum constants include `SIZES`, `SIDES`, `COLLAPSE_MODES`, `FIELD_ALIGN`, `NAV_ICONS`
-and `ALERT_VARIANTS`; helper methods validate them before rendering.
+Enum constants include `SIZES`, `SIDES`, `COLLAPSE_MODES`, `FIELD_ALIGN`, `NAV_ICONS`,
+`ALERT_VARIANTS` and `SEPARATOR_VARIANTS`; helper methods validate them before rendering.
+
+## Kit factories: dedicated factories for tier-A families
+
+This covers three batches of dedicated factories landed 2026-10-28 (the "tier-A gap list",
+the "pure factory warm-up" and "S factories with prerequisite work" sections in
+`src/Element.php`): 27 in the tier-A batch plus 5 in the pure-factory batch
+(`Spinner`/`TableFooter`/`GroupBox`/`VForm`/`InputGroupText`, plain `reg()` channel,
+zero upstream changes) plus 6 in the S-factory batch (`Label`/`Toolbar`/`StatusBar`/
+`Clipboard`/`HorizontalRadioGroup` and the `SplitButton` composition sugar). The
+components were already exported by `component_shell`; each factory replaces the bare
+`El::catalog('ExportName', …)` channel with a named, defaulted, enum-validated
+constructor. The snippets match the real calls in `examples/_shared/features/kit.php` and
+`examples/kit/src/main.php` (the animated ones render with `->hidden()` in the example,
+see Skeleton); each factory has at least one gate in `php bin/gpui selftest kit`
+(38 gates: 29 structural shape checks plus per-tree `registeredError()`/`componentFailure()`
+cleanliness plus synthetic fire routing plus one premise-based behavior gate).
+
+### Separator
+
+```php
+El::separator('horizontal')->label('or')->color('#e07b39');   // label/color come from the method table
+El::separator($v);   // $v is a key of El::SEPARATOR_VARIANTS:
+                     // horizontal | vertical | dashed | vertical_dashed
+```
+
+The four variants are **four export names** (`Separator`, `VerticalSeparator`,
+`DashedSeparator`, `VerticalDashedSeparator`; separator.cpp kConstructors), not constructor
+arguments — an unknown variant throws `InvalidArgumentException` instead of degrading to a
+plain horizontal rule. The embedded label (Ely's `label("or")`) and tone color use the
+descriptor's `label`/`color` methods through the existing `->label()` / `->color()` sugar.
+
+### Tooltip
+
+```php
+El::catalogTooltip('kit-tt', 'Hover me', 'Managed tooltip text from the catalog'); // (id, button label, text), all non-empty
+```
+
+Upstream `Tooltip` is "a button with a managed tooltip" (it materializes a
+`component::Button`), not a hover decoration for arbitrary elements — that is the instance
+method `->tooltip('…')`, which attaches a tooltip to another catalog component. The factory
+takes the `catalog` prefix because of that name collision, following the `catalogButton`
+precedent.
+
+### Skeleton
+
+```php
+El::skeleton()->w(120.0)->h(16.0);              // default color; shape comes from styles
+El::skeleton()->secondary()->w(120.0)->h(16.0); // ->secondary() is the only upstream variant
+```
+
+**Skeleton is a pulse animation** ("An animated loading placeholder"): inside a snapshot
+viewport its phase drifts with frame timing and the pixel baseline flaps every run
+(measured gdfrac≈0.025). Kit tree 1 renders this row with `->hidden()`: display-level
+hiding keeps materialization running (the `registeredError()`/`componentFailure()` gates
+still cover it) while the pixels stay exactly zero. Ely's `SkeletonText/SkeletonCard/…`
+variants have no upstream exports: compose cards and text bars from divs and style chains
+(several Skeletons of different sizes inside an `El::vFlex([...])`). Real variants need
+new upstream export names.
+
+### Empty state
+
+```php
+El::emptyState('icons/square-terminal.svg', 'Nothing here yet', 'Create your first item',
+    El::button('Create'));              // 4th argument (action area) is optional
+```
+
+An assembly factory that emits the `Empty` quintet: `EmptyMedia` (icon variant with
+`El::icon($icon)`), `EmptyTitle`, `EmptyDescription`, and `EmptyContent` (only when
+`$content` is given). The icon argument follows `El::icon()` rules — it must be
+`icons/<base>.svg` with a compiled base name, otherwise nothing is drawn silently. The
+composition uses the Empty root's **ordinary children** (the Root branch in empty.cpp) by
+default. The fifth argument, `$headerSlot = true`, takes the upstream-native **header slot**
+route: `EmptyHeader`'s `media/title/description` are SchemaElement method arguments (empty.cpp's
+RecordSlot table), fed through `->elementArg()` (see the "Batch 5 low-level gap filling" section
+below). The arguments must be **registered Empty part elements** (`El::catalog('EmptyMedia', …)`
+etc.) — bare icon/text nodes are rejected by `TakeElementAs`'s tag check. The two routes look
+different.
+
+### Badge and Tag
+
+```php
+El::hFlex([El::button('Inbox'), El::badge(9, false, 99)])->gap(4.0); // numeric badge (+n past max)
+El::hFlex([El::button('Alerts'), El::badge(0, true)]);               // dot badge
+foreach (['primary', 'secondary', 'success', 'warning', 'danger', 'info'] as $tv) {
+    $tagVariants[] = El::tag($tv, $tv);            // variant: primary|secondary|danger|success|warning|info
+}
+El::tag('Draft', 'secondary')->outline();        // outlined
+El::tag('Pill', 'info')->pill();                 // pill corners (registered_method 'rounded_full')
+El::tag('Retoned', 'secondary')->variant('warning'); // ->variant() is Tag's enum sugar
+```
+
+CountBadge/DotBadge need no separate factories: the Badge method table already carries
+`dot`/`count`/`max`, and `El::badge()` passes them through (count 0 hides a numeric badge
+by upstream semantics). Attach the host element with `->child()` (ordinary children).
+`->variant()` is not the same family as the five Button variant sugars: those are zero-arg
+Button methods, while `variant(enum)` belongs to Tag / DropdownButton / Bubble / Marker /
+GroupBox / TabBar.
+
+### Stepper
+
+```php
+El::stepper('kit-steps', ['Cart', 'Order', 'Pay'], 1, false, 'kit-steps');
+//                id       labels             zero-based  vertical?  on_change route id
+El::stepper('kit-steps-v', ['Start', 'Middle', 'End'], 2, true);        // vertical, no callback
+El::stepperItem('Disabled step', true);   // a single step (optional disabled flag)
+```
+
+`on_change` routes to `App->on($id, 'change')` through an `El::cb('change', $onChangeId)`
+marker; the `kitChangeRoutes` gate proves delivery to a PHP handler with a synthetic fire
+(whether a real click emits the event stays a manual-acceptance item, like every part
+callback). The child contract is strict: Stepper accepts only `StepperItem`.
+
+### Tree
+
+```php
+El::tree('kit-tree', [
+    El::treeItem('kit-tree-src', 'src/')->rm('expanded', [true])->child(
+        El::treeItem('kit-tree-main', 'main.php')),      // TreeItem nests TreeItem
+    El::treeItem('kit-tree-lock', 'GPUI.lock'),
+]);
+```
+
+Both `TreeItem(id, label)` arguments must be non-empty (tree.cpp validates verbatim);
+initial expansion uses `->rm('expanded', [true])` — the TreeItem method table has only
+`expanded`/`disabled`, not worth a sugar each. Tree accepts only TreeItem children
+(kAllowed); anything else renders an error node every frame.
+
+### Pagination
+
+```php
+El::pagination('kit-pg', 2, 10, 5, 'kit-pg');   // (id, 1-based current, total, visible buttons, on_change id)
+El::pagination('kit-pg')->rm('compact', []);    // compact form (illustrative; kit tree 2 shows the parameterized form)
+```
+
+Controlled semantics: upstream `on_change` only reports the requested page; the script
+writes `current_page` back (descriptor wording: "so the script can drive `currentPage`").
+
+### Rating
+
+```php
+El::rating('kit-rate', 3.0, 5, false, 'kit-rate');       // interactive, on_change → kit-rate
+El::rating('kit-rate-ro', 4.0, 5, true)->color('#e07b39'); // read-only (Ely Stars display)
+```
+
+Read-only uses the common `disabled` behavior: Rating's method table includes
+`kDisabledMethod`, and materialize reads the `'disabled'` method op into
+`request->disabled` — exactly the name `El::disabled(true)` emits.
+
+### Kbd / KbdCombo
+
+```php
+El::kbd('⌘');
+El::kbd('K')->outline();                 // outlined keycap (zero-arg outline method)
+El::kbdCombo(['⌘', 'Shift', 'P']);       // combo sugar: several Kbd in a row
+```
+
+Kbd itself is static; it shares a row with ShimmerText for layout, and kit tree 1 hides
+the whole row with `->hidden()` for the same reason as Skeleton (the sweep is animated).
+
+### ShimmerText
+
+```php
+El::shimmerText('Loading…');
+El::shimmerText('Slow reverse sweep')->rm('duration_ms', [2400.0])->rm('reverse', [true]);
+```
+
+Variants (`id`/`duration_ms`/`spread`/`reverse`/`once`) pass through `->rm()` — all five
+names are in the ShimmerText method table; no dedicated sugar per name.
+
+### Dialog / AlertDialog / Sheet triggers
+
+```php
+El::dialog('kit-dlg', 'Open confirm',
+    El::vFlex([El::text('Continue this operation?')])->gap(4.0),
+    'Confirm', 'kit-dlg-ok', 'kit-dlg-cancel');
+El::alertDialog('kit-ald', 'Delete data', 'This cannot be undone.', true, 'Warning', 'kit-ald-ok');
+El::sheet('kit-sheet', 'Open drawer',
+    El::vFlex([El::text('Drawer body: slides in from the right.'), El::text('Close via on_close (kit-sheet-close).')])->gap(4.0),
+    'right', 'kit-sheet-close');
+```
+
+These are a **separate path** from `App::openDialog()` / `openSheet()` / `notify()`: each
+renders a real trigger button on the page and the native side opens the window effect on
+click. Three hard constraints (window_effects/mod.cpp:467-476, pinned by the `dialogFamily`
+gate):
+
+- **Dialog and Sheet require the `content` named slot** (`->slot('content', $body)`; the
+  factory's third argument is exactly that) and accept only this one slot name; a missing
+  slot fails every frame ("require exactly one content(element) named slot").
+- **AlertDialog rejects every named slot**; its body goes through the `description` method
+  (the factory's third argument).
+- The third constructor argument `on_effect_error` reports asynchronous effect failures;
+  the factory attaches it automatically as `($id-error, 'click')` — normally with no
+  handler, only firing when an effect fails.
+
+The `on_ok`/`on_cancel`/`on_close` callback ids come from parameters and route as
+`(that id, 'click')`; the `kitClickRoutes` gate proves delivery to PHP with synthetic fires.
+
+### Description list
+
+```php
+El::descriptionList(['Name' => 'typephp-gpui', 'Purpose' => 'Native PHP GUI'], false, true);
+//                                associative items (label => value)   vertical?  border?
+El::descriptionList([
+    El::descriptionItem('Spanning', 'two columns')->rm('span', [2.0]),   // pass Elements for spans
+    El::descriptionItem('Normal', 'one column'),
+], true);
+```
+
+Child contract: DescriptionList accepts only `DescriptionItem`. Ely's PropertyGrid has no
+upstream export; approximate it with this factory (per the plan).
+
+### DataTable (structure connected, data channel not)
+
+```php
+// The real calls live in kit's --selftest gates (the trees deliberately omit it, see below):
+El::dataTable('dt-x', ['Name', 'Count']);           // structural gate: DataTableState + rows/cell markers
+El::dataTable('kit-dt-neg', ['Name', 'Count']);     // negative gate: real renders fail on the spot, probe fails rise
+El::tableToCsv(['Name', 'Count'], [                 // PHP-side to_csv, pure data transform (kit tree 3 shows it)
+    ['Name' => 'comma, inside', 'Count' => 3],
+    ['Name' => 'with "quotes"', 'Count' => 'x'],
+]);
+```
+
+The constructor takes a `DataTableState` entity plus `rows` and `render_cell` callbacks;
+the factory encodes the latter two as `cb` markers, but **the shim callback channel only
+emits events and returns no values** (the shimId branch at runtime.cpp:12922 returns right
+after enqueuing), so upstream `SnapshotRowsWith` never receives a row array and real
+renders fail on the spot — what works today is the structure, not a data table. Behavior
+arguments (`stripe`, `bordered`, `scrollbar_visible`, `row_selectable`,
+`column_selectable`, `cell_selectable`, `row_header`, `sortable`, `column_resizable`,
+`column_movable`) pass through `->rm()`. Two measured facts worth knowing:
+
+1. **This failure reaches no ledger**: DataTable's own `Failure()` returns a Div carrying
+   the error text, so `registeredError()` and `componentFailure()` both miss it. The shim
+   installs upstream's `SetDataTableProbe` seam (families.h:84-85) and reports the counts
+   as `App::stateCounts()['dataTableBuilds'/'dataTableFails']`; the `dataTableRowsCallbackLoud`
+   gate asserts "fails rise, builds stay flat" (not exactly +1: every frame after the
+   negative render re-materializes and fails again, and how many frames run is up to
+   the dirty-driven loop).
+2. The data channel needs a host round trip like `App::listRenderer()`
+   (`cmd/patch-host-list.sh` shape) — tier B. `query`/`filters`/`sorts`/`paged`/`group_by`
+   are not in the upstream kMethods either.
+
+### Settings
+
+```php
+El::settings('kit-set', [
+    El::settingPage('General', [
+        El::settingGroup('Appearance', [
+            El::settingItem('Theme', El::switchBox('Dark')),   // the field control goes into the content slot
+        ]),
+    ]),
+])
+    ->rm('sidebar_width', [200.0])
+    ->rm('sidebar_size_range', [160.0, 240.0]);
+```
+
+A four-level typed-children contract, validated level by level: Settings accepts only
+`SettingPage` (title in the constructor) → `SettingGroup` (title via method) →
+`SettingItem` (title in the constructor). **A SettingItem without the content slot fails**
+("requires content(element)") — the second `settingItem()` argument is that field. Three
+measured pitfalls: ① **Settings and SettingPage reject styles** — adding `->w()` fails
+every frame ("carries data rather than a box, so it does not implement Styled"; the
+descriptor says "style is rejected"); ② **the native sidebar width is a settling layout
+feedback** (ui/setting.cpp: from the second frame it shrinks toward the bottom of its
+size range) — un-pinned it is a pixel-jitter source, so the example pins it with
+`sidebar_width` plus `sidebar_size_range`; ③ search keywords and field layout pass
+through `->rm('keywords', [...])` / `->rm('layout', ['horizontal'])`, and the default
+page uses `default_selected_page`. Ely's SettingsSearch needs an upstream
+searchable_list export name and is not available yet.
+
+### Carousel
+
+```php
+El::carousel('kit-car', [
+    El::vFlex([El::text('Page 1')->font(16.0)->semibold(), El::text('First slide')])->gap(4.0),
+    El::vFlex([/* page 2 */]),
+    El::vFlex([/* page 3 */]),
+])->w(480.0)->h(120.0);
+```
+
+An assembly factory that emits the full eight-piece set (`Carousel`, `CarouselContent`,
+`CarouselItem`, `CarouselPrevious`, `CarouselNext`, `CarouselPagination`,
+`CarouselPaginationItem`); all eight constructors reference **one** `CarouselState`
+(cached by `(kind,key)` with key=`$id`). This is the same semantics as the seven shared
+`El::state('CarouselState', 'ca-car', …)` references in `examples/catalog` tree 2 —
+distinct keys would create unrelated carousels with no visual difference (only
+`stateCounts()['componentStates']` would catch it).
+
+### Spinner
+
+```php
+El::spinner();                                                    // default: medium, loader, linear
+El::spinner()->sizeEnum('large')->spinnerIcon('loader_circle')    // one call per method
+    ->color('#e07b39')->spinnerEase('ease_in_out');
+```
+
+No constructor arguments and **no children** (Materialize wraps the rotating icon in a
+Div; children are never taken). `size` reuses `->sizeEnum()` (upstream `kSizeLiterals`
+matches `El::SIZES`), `color` reuses `->color()` (upstream `ParseColorArgument` takes a
+color string); `icon` (`loader|loader_circle`) and `ease`
+(`linear|ease_in_out|ease_out_quint`) are component-private enums with their own
+whitelisted sugar `->spinnerIcon()` / `->spinnerEase()` (`El::SPINNER_ICONS` /
+`El::SPINNER_EASES`) — a misspelling throws immediately. **Spinner is a rotation
+animation**: it must render `->hidden()` inside a pixel baseline (same phase drift as
+Skeleton; kit tree 1 does exactly that).
+
+### TableFooter
+
+```php
+El::catalog('Table', [], [
+    El::catalog('TableHeader', [], [ /* TableRow > TableHead… */ ]),
+    El::catalog('TableBody', [], [ /* TableRow > TableCell… */ ]),
+    El::tableFooter([
+        El::catalog('TableRow', [], [
+            El::catalog('TableCell', [], [El::text('Total')]),
+        ]),
+    ]),
+]);
+```
+
+**The registered channel is the only path**: the shell `ComponentKind` enum has no
+`TableFooter` (the Table block ends at `TableCaption`), so the shim's `kindFromString`
+cannot reach this export (structured/table.cpp kFooter) — it must go through `reg()`.
+Children accept only `TableRow` (verified literal-by-literal by `MaterializeGroup`'s
+kAllowed), and those rows must be **registered-side**: `TakeTypedChildren` records a
+componentName only for `Registered` children, so the kind-based `El::tableRow()` records
+an empty name and every frame reports an error node. The whole themed table
+(`Table`/`TableHeader`/`TableBody`/`TableFooter`) lives on the registered side; the base
+kind table (`El::table()` and friends) is the unstyled div family (base/table.h) — do not
+mix the two families.
+
+### GroupBox
+
+```php
+El::groupBox('Appearance', [El::text('Content A')])->variant('fill');
+El::groupBox('Border', [El::text('outline form')])->variant('outline');
+El::groupBox('Default', [El::text('normal form')]);   // no variant call means normal
+```
+
+No constructor arguments; the title goes through the method (reusing the `->title()`
+sugar) and children are ordinary children. The variant literal set is
+**normal/fill/outline** (group_box.cpp:78) — not the Tag tone colors. The `->variant()`
+whitelist is therefore the **union** of the components' literal sets (Tag's six tones +
+GroupBox's three forms): values outside the union (like `'card'`) throw in PHP
+immediately, while literals another component does not know (like `'primary'` on
+GroupBox) are rejected loudly by the upstream enum (visible through `registeredError()`)
+— the shared sugar does not double-check that. That is the known cost of one shared
+method name.
+
+### VForm
+
+```php
+El::vForm([
+    El::field([El::checkbox('Weekly digest')])->label('Subscribe'),
+    El::field([El::switchBox('Dark mode')])->label('Appearance'),
+]);
+```
+
+`'VForm'` and `'Form'` are two export names of the **same constructor**
+(`ConstructForm<false>`, form.cpp:276-280; the descriptor table is shared) — the shape is
+identical to `El::form()`: children accept only `Field` (kAllowed checked literally). Use
+it instead of `El::form()` when mirroring upstream example/doc names verbatim.
+
+### InputGroupText
+
+```php
+El::inputGroupText('https://');    // prefix/suffix decoration: muted text
+```
+
+No constructor arguments, no methods, ordinary children (`FinishPart` takes them all);
+`$text` is wrapped in a text node. Standalone rendering is all that works today: the full
+`InputGroup` composition cannot be assembled — the group's `addon` method takes a
+SchemaElement argument (the shim channel cannot produce a SpecId, same gap as EmptyHeader
+media/title), and the `input` slot needs `InputGroupInput`/`InputGroupTextarea` (which
+need retained state entities). The decoration itself renders on its own.
+
+### Text label Label
+
+```php
+El::catalogLabel('src/Element.php')->secondaryLabel('secondary text')
+    ->masked()->labelHighlights('Element');
+```
+
+`->label(string)` is the Button/Field title sugar; PHP does not allow a static and a
+non-static method with the same name in one class, so following the `catalogTooltip`
+precedent the factory carries a `catalog` prefix. The three style methods are the
+registered_methods of upstream Label's method table: `secondary` (muted secondary text),
+`masked` (masking), and `highlights` (search highlight) — **the highlights argument is a
+single match string** (SchemaString; the shell passes it through to
+`Label::Highlights(Str)` as a full-text match, not an array). An empty text is rejected in
+PHP first (upstream `ConstructString` refuses empty strings).
+
+### Toolbar
+
+```php
+El::toolbar('kit-tb', [
+    El::catalogButton('kit-tb-new', 'New')->primary(),
+    El::button('Open'),
+]);
+```
+
+The id must be non-empty and there is no method table; ordinary children fill the contents
+in source order (the "transparent, sizable toolbar container"). Children are not filtered by
+name.
+
+### Status bar StatusBar
+
+```php
+El::statusBar([El::catalogLabel('Ready'), El::catalogLabel('UTF-8')]);
+```
+
+No constructor arguments; ordinary children fill the **middle** region (Materialize adds
+them one by one via `Center`). `left_content`/`right_content` take a
+**SchemaElement** argument (status_bar.cpp:59-60) — the shim's Element branch can only cast
+a number to a SpecId (the Element case in `toComponentArg` in gpui_shim.cpp), so PHP cannot
+produce a legal argument and this factory does **not** emit those two methods; the real
+content waits on the shim Element argument channel (tier B, same gap as EmptyHeader
+media/title). Feeding a string from PHP in a headless environment segfaults native
+materialization (SpecId 0, measured rc=139) — the "loud failure" claim is therefore not
+verifiable headlessly and is not pinned by an assertion that would crash.
+
+### Clipboard
+
+```php
+El::clipboard('kit-clip', 'typephp-gpui', 'Click to copy the repo name');
+```
+
+The id goes into the constructor (non-empty); `value`/`tooltip` go through methods;
+**children are rejected** (`EnsureNoChildren`). The click-to-copy is built-in widget
+behavior (`ClipboardState::OnCopy` -> `ClipboardSetText` in ui/clipboard.cpp): the
+descriptor has no `on_copied` export and no PHP callback, so a synthetic fire cannot reach
+it (kit's premise-based `clipboardCopyRoute` gate pins "no synthetic route"; the real copy
+needs a real click over HID, not verified, not judged red).
+
+### Horizontal radio group HorizontalRadioGroup
+
+```php
+El::hRadioGroup('kit-hrg', ['By name', 'By path', 'By size'], 0, 'kit-hrg');
+```
+
+Children accept only **registered-side** `Radio` (kRadioName={"Radio"} verified literally in
+typed_compound/mod.cpp — the kind-based `El::radio()` has no componentName and would
+report an error node every frame). `$radios` holds label strings, and the factory emits a
+`Radio` per label (derived id `$id-r<i>`, label via the `->label()` sugar); `$selected`
+is zero-based and goes through `selected_index`; if `$onChangeId` is given, `on_change` is
+emitted, the event routes as `($onChangeId,'change')` with the selected index as its value
+(synthetic fire only checks that the route reaches PHP, see the `kitChangeRoutes` note).
+
+### Split button SplitButton (composition sugar, not an independent export)
+
+```php
+El::splitButton('kit-split', 'Export…', ['Export as PNG', 'Export as CSV']);
+```
+
+Neither upstream nor the reference repository has a SplitButton widget (zero hits from grep;
+Ely's implementation is itself a composed piece, menus/hosts.rs). No new widget is worth
+asking for upstream for it. This factory emits only the `DropdownMenu` export name: `$label`
+is the trigger button's text and each `$menuItems` label becomes an item, with the item
+callback id derived as `$id-item-<i>` (events route as `(id,'click')` to `App->on`). For
+"action + menu" two-channel use, emit `El::catalogButton()` and `El::dropdownMenu()` as
+two separate components; this sugar only gives the common "pure menu trigger" shape a name.
+
+### Notification Notification
+
+```php
+El::catalogNotification('kit-not', 'Title', 'A notification message', 'warning',
+    'kit-not-ok', 'kit-not-close')
+    ->notificationOnClick('kit-not-ok')
+    ->notificationOnClose('kit-not-close');
+```
+
+This is **two paths alongside `App::notify()`**: `App::notify()` is the host retained
+notification window effect (retained state, clickable, tracked — see
+[Events and Callbacks](./events)); this factory is the catalog `Notification` export
+name (window_effects/mod.cpp Notification descriptor, 3 ctor args
+id/label/on_effect_error), a component-layer-only node without host retained state.
+The ctor takes three required arguments; `message`/`type` (`info`|`success`|`warning`|
+`error`, `NOTIFICATION_TYPES` whitelist), `on_click`/`on_close`/`autohide` go through the
+method sugars.
+
+### DropdownButton
+
+```php
+El::dropdownButton('kit-db-btn', 'Export menu', 'secondary', 'bottom_right',
+    'kit-db-btn', ['Export as PNG', 'Export as CSV']);
+// sugars: ->dropdownButtonVariant('danger') / ->dropdownButtonAnchor('top_left') /
+//     ->dropdownButtonOnClick($id) / ->dropdownMenuItem('Item X', $itemId)
+```
+
+The ctor takes two non-empty strings, id and label; the variant (`primary`/`secondary`/
+`danger`/`ghost`) and anchor (`top_right`/`bottom_right`/`bottom_left`/`top_left`) are
+private enum whitelists (`DB_DROPDOWN_*` constants); `menu_item` takes label plus a callback
+marker (same shape as `dropdownMenu`'s `item()` sugar). The popup menu is created under
+the button's name in the constructor (each named button keeps its own menu), and the item
+callback ids are derived as `$id-item-<i>`.
+
+### Bubble / Marker
+
+```php
+El::bubble('start', 'filled')->child(El::catalogLabel('Title bubble'));   // alignment/variant
+El::bubble('', 'secondary')->child(El::catalogLabel('Plain bubble'));
+El::marker('kit-mk', 'separator', true, 'spinner');                       // variant/loading/loading_style
+```
+
+Bubble takes no ctor arguments (its ordinary children form the visible content);
+alignment ∈ {start} (chat.cpp `kAlignmentLiterals` is actually `{"start", ""}` — the
+second element is an empty literal) and the variant has seven tone forms; Marker takes a
+non-empty id and its variant (`plain`/`separator`/`border`), `loading` (bool), and
+`loading_style` (`spinner`/`shimmer`) go through private enum whitelists
+(`MARKER_*` constants).
+
+### Message / MessageScroller / Attachment
+
+```php
+El::message('start', [El::catalogLabel('Message A')]);                    // alignment + children
+El::attachment('kit-att', 'uploading', 'vertical', 'large');                // status/axis/size enums
+```
+
+Message takes no ctor arguments (alignment enum + ordinary children into the content slot);
+Attachment takes a non-empty id and its `status` (`pending`/`uploading`/`processing`/
+`failed`/`complete`), `axis` (`horizontal`/`vertical`), and `size` through private enum
+whitelists (`ATTACHMENT_*` constants). **MessageScroller is structure-only**: its ctor takes
+three args id/state/render_item, and `render_item` is a row-returning callback — the shim
+callback channel emits events but does not return values (DataTable's experience), so the
+data channel waits for batch 6 host circuit; it is never put in a tree because that would
+raise `componentStates` and break tree2CarouselState's `==1` gate.
+
+### Five chart families (structure connected, data-channel boundary)
+
+```php
+El::barChart(); El::lineChart(); El::areaChart(); El::pieChart(); El::radarChart();
+// five exports (chart/mod.cpp:495-499): each ctor takes only the rows callback
+// (cx) => { label: string; value: number }[] — the callback channel does not return
+// values, so the data channel waits for batch 6. The negative loud-failure gate is not
+// landed (rendering the negative path segfaults the native process, and the
+// ChartErrorProbe seam has no shim install or read access); the keypoint is recorded in
+// the kit selftest's skipped list.
+```
+
+### Questionnaire family
+
+```php
+El::questionnaire('kit-q', [
+    El::questionnaireItem('age', 'Age', [
+        El::questionnaireChoice('18', 'Under 18', null, false, true),
+    ])->rm('required', [true]),
+], 'letters');
+// root shortcuts ∈ {letters, numbers} (whitelist QUESTIONNAIRE_SHORTCUTS)
+```
+
+The deepest nested family upstream: the Questionnaire root (ctor id) →
+QuestionnaireItem (ctor name/label) → QuestionnaireChoice (ctor value/label) /
+QuestionnaireInput (ctor state + label), typed children checked layer by layer (the root
+accepts only Items; an Item accepts only Choices/Inputs). The root's shortcuts emits an
+enum (letter/number shortcuts). Event-surface audit: the family has **no option-change
+callback** — focus/navigation/submission are driven inside the retained state
+(QuestionnaireState keyed by id, schema-fingerprint-rebuilt only when the schema changes),
+so no new patch is needed. The `questionnaireShape` gate pins the nesting shape plus the
+shortcuts whitelist.
+
+### Accordion catalog version
+
+```php
+El::catalogAccordion('acc-cat', 3, false, true, 'medium', 'acc-cat-tog');
+// the kind version is El::accordionItem's three-part assembly (header/trigger/panel + open(true))
+```
+
+The kind version (`El::accordionItem`) is a three-part assembly (header/trigger/panel four
+kinds); the catalog version (registered Accordion/AccordionItem exports) carries the
+multiple/bordered/size/on_toggle method table — the second face of the same component; pick
+by need. **The title argument is a SchemaElement shim gap** (kTitleArgs =
+{"title", SchemaElement()} — sending a string crashes the native materialize, measured) —
+this factory builds items by **count**, sends no title; titles wait for the shim Element
+channel (tier B). The `accordionCatalogShape` gate pins the ctor shape plus the empty
+childOps (the expected shape with no title).
+
+### Catalog upgrade sugar for four families (Select/Combobox/Popover/TabBar)
+
+```php
+El::catalogSelect('kit-sel', 'Choose one')->selectMenuWidth(200.0);
+El::catalogCombobox('kit-cb', 'Search', 'Search hint', 'kit-cb-change', 'kit-cb-confirm')
+    ->comboboxSearchable()->comboboxMenuWidth(220.0);
+El::catalogPopover('kit-po', 'Popover', El::vFlex([El::catalogLabel('Popover body')])->gap(4.0));
+El::catalogTabBar('kit-tb', ['Name', 'Path', 'Size'])
+    ->tabBarMenu()->tabBarSelectedIndex(1)->tabBarVariant('tab')->tabBarSize('large')
+    ->tabBarOnToggle('kit-tb-toggle');
+```
+
+The kind layer's same-named kinds are not capability-equivalent (bare frame vs styled
+frame with a method table) — the catalog second face follows the catalogButton/button()
+dual-track precedent. The argument shapes per family:
+
+- **Select**: ctor takes four args (id + three callbacks rows/render_row/on_select);
+  rows is a **row-returning** callback (the shim callback channel does not return values —
+  DataTable's experience) — structure only, no data channel; real data waits for batch 6
+  (the SelectProbe seam has no shim read access, same keypoint as the chart families);
+  placeholder goes through the method.
+- **Combobox**: ctor takes four args (id + rows + on_change + on_confirm); method table
+  placeholder/search_placeholder/searchable/menu_width/disabled.
+- **Popover**: ctor takes two args (id/label), content goes through the named slot
+  (hard requirement "require content(element)"); method table card_anchor (8 corners,
+  POPOVER_ANCHORS whitelist) / default_open/open/appearance/overlay_closable booleans +
+  the on_open_change callback. **catalogHoverCard is never put in a tree**: its materialize
+  hard-requires trigger_element (a SchemaElement shim gap — sending a string crashes the
+  native materialize, measured); the structure and the `catalogHoverCardShape` gate still
+  pin the shape (delay/anchor/on_open_change).
+- **TabBar**: ctor takes two args (id + tabs); children accept only registered-side Tab
+  (the kind `El::tab()` is not a registered node — attaching one errors every frame);
+  method table menu/selected_index/variant (tab|outline|pill|segmented|underline
+  whitelist)/size/on_change — each goes through its own instance sugar (parameters with
+  bool/int defaults in the ctor signature are always taken as sugar — the TypePhp translator
+  generates a default-value re-assign defect on mixed-default + partial-arity signatures,
+  which makes the example translation fail outright, measured).
 
 ## Styled form components require state entities
 
@@ -375,6 +1024,63 @@ expanded form family has its own current count and reuse checks.
   `navIcon('home')` uses a separate logical-name vocabulary mapped to native icons, not SVG
   basenames.
 
+### Ring progress ProgressCircle (upstream descriptor gap filled)
+
+```php
+El::progressCircle('pc-x', 62.0)      // id + percentage (0–100, upstream clamps)
+    ->progressCircleLabel()          // percentage printed in the ring (registered_method 'label')
+    ->progressCircleSize(72.0)       // pixel Number (widget's Size(float), not kSizeLiterals)
+    ->progressCircleColor('#e07b39') // ParseColorArgument (same as Spinner)
+    ->progressCircleLoading();       // indeterminate spin (animated — hide for pixel baselines)
+```
+
+The widget shipped with the vendored upstream tree long ago (ui/progress.h); what was missing was
+the catalog surface. Batch 5 added the descriptor via `cmd/patch-progress-circle.sh`, replicating
+the kProgress five-piece pattern in compound/progress.cpp and hooking it into
+`RegisterCompoundProgress` — **a new export name, vocabulary count 137→140**. `value` is a
+percentage Number; `loading` switches to the indeterminate spin, which is animated.
+
+### Popup menus PopupMenu / ContextMenu (upstream descriptor gap filled)
+
+```php
+El::popupMenu('pm-x', ['New task', 'Export CSV']);                  // rows = label strings
+El::contextMenu('cm-x', El::button('Right-click me'), ['Copy', 'Paste']); // 1st child = target
+```
+
+The widget layer (ui/menu.h's `component::PopupMenu`/`ContextMenu` plus base/popup_menu.h's row
+model) was already in the vendored tree; the catalog surface was missing. Batch 5 created
+`overlays/popup_menu.cpp` via `cmd/patch-popup-menu.sh` and hooked it into the overlays
+registration chain. **Rows are ordinary children**: a child element's text is the row label.
+Rows carry **no click handler** — the Func0 userData packing does not expose a callback id
+(honest limitation, documented in the patch script). The ContextMenu's first child is the
+right-click target (upstream `ContextMenu::Child` wiring via OnMouseDownRight; real right-clicks
+need a human HID — the selftest treats it as a premise-based gate).
+
+### Batch 5 low-level gap filling: elementArg and EmptyHeader
+
+`->elementArg($name, $element)` feeds an element into a registered_method's **SchemaElement
+argument**: the bridge (cmd/patch-element-arg.sh) emits the child element first to obtain its
+SpecId, then sends the method with that SpecId as the argument (the slot branch's shape —
+emitTree runs ops before children, so the child must be built first, like a slot).
+`EmptyHeader`'s `media/title/description` are thereby unlocked:
+
+```php
+El::emptyState('icons/square-terminal.svg', 'Title', 'Description', null, true) // 5th arg = header slot route
+// or the direct form:
+El::catalog('EmptyHeader', [])
+    ->elementArg('media', El::catalog('EmptyMedia', [], [El::icon('icons/…svg')])->rm('variant', ['icon']))
+    ->elementArg('title', El::catalog('EmptyTitle', [], [El::text('Title')]))
+    ->elementArg('description', El::catalog('EmptyDescription', [], [El::text('Description')]));
+```
+
+The arguments must be registered Empty part elements (`TakeElementAs` resolves the
+TypedChildBox by tag — feeding a bare icon/text yields "registered EmptyMedia materialized an
+incompatible element", measured). `ResolveElement` is upstream's established SchemaElement
+argument resolution (the same mechanism status_bar/hover_card/input_group use). This bridge
+also unlocks StatusBar's `left_content`/`right_content` (previously a shim gap) — but those two
+do not get factories in this batch.
+
 ## Next
+
 
 - [Events and callbacks](./events)

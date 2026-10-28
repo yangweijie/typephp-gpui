@@ -2153,3 +2153,135 @@ hit id，即哈希）；修为 `upId`（release 时当前 hit id，clickId 已�
 只有 catalog 路径在用。修法：`patch-shell-textarea-frame.sh` 给物化 frame 补
 `theme.inputBorder/radius/inputBg`。门 `textareaThemedFrame`：in-note 框 16,251x528x38
 （补丁前 20 高裸框）。NumberInput 同理出 `patch-number-center.sh`（kind 版数字居中对齐 catalog 版）。
+
+## shim TU 开始依赖宿主符号：headless 测试的链接边界（2026-10-28，Phase 27）
+
+批6（宿主数据回路）让 `gpuiInvokeShimDataCallback`（cpp-src/gpui_shim_events.inc:365）调
+`gpui_data_node_free`。这是**第一个从 shim 指向 bridge 的符号**：防火墙原本只有
+bridge→shim 单向（shim 侧的宿主入口都是 `gpui_shim_set_*` 函数指针登记）。
+后果：`tests/cpp/shim_test.cpp` #include 整个 shim TU，于是要求宿主提供这个符号，
+而生产定义在依赖 phpx 的 `gpui_bridge.cc` 里 ⇒ headless 链接必红
+（`Undefined symbols: _gpui_data_node_free`）。`cmd/build-shim.sh` 的静态库不受影响
+（归档不解析未定义符号，真链接发生在 tpc 那步，bridge 与库一起链）。
+
+修法取"共享生产代码"而不是"测试里抄一份/塞哑桩"：与 phpx 无关的一片
+（`DataAlloc` / `g_dataAllocs` / `gpui_data_node_free`）抽成 `cpp-src/gpui_data_node.inc`
+文本切片（仓库已有 .inc 惯例），bridge 在 FillNode 之前 include、shim_test 在
+gpui_shim.cpp 之后 include。不动 ABI、不动各示例 yml 的 sources（新加 TU 要改 12+ 份 yml）。
+两侧实测：`composer test:all` rc=0、`php bin/gpui build hello --no-native` rc=0（nano c++17）。
+
+**覆盖面边界（别误读这条绿）**：shim_test 仍只测纯函数，数据回调路径（建树→
+DataNodeToValue→free）**没有** headless 覆盖；切片只是让它链得上、且将来要测时
+用的就是生产那份释放逻辑。连续块/根注册表那套所有权约束（注释里记着两次实测 UB）
+目前只有真跑 examples/kit 才碰得到。
+
+**另一条会话留下的现场痕迹（未改）**：`gpui_shim_events.inc:341/347/353` 三处无条件
+`fopen("/tmp/dt3","a")` 调试写——这是"应用自动启用的仪表"，每次数据回调都写盘，
+交付前应改成显式开关或删掉。
+
+## 退出路径的静态析构段错误：自检全绿也照不出（2026-10-28，#101）
+
+**现象**：真人关窗/quit 就崩（用户报过"两个窗口都崩溃了"），而十几支示例 `--selftest` 全绿。
+免人手复现：`./examples/hello/build/hello --automation <新目录>`，目录里放一条 `quit` ⇒ rc=139；
+input 同样 139。两份崩溃报告同栈（hello-2026-10-28-235342.ips 是真人那轮、
+hello-2026-10-29-001350.ips 是复现那轮）：
+`exit → __cxa_finalize_ranges → ~unordered_map<string, php::Variant> → ~Variant → zval_ptr_dtor → SIGSEGV`。
+
+**根因链**：`App::on()`（src/App.php:425-429，批6 加的）把**每个**事件处理器同时登记进 bridge
+的 `g_dataFns`，所以连 hello/input 这种没有列表/表格的示例，表里也存着 PHP callable。
+交互 quit 走"main 正常返回 → exit → 静态析构"，此时 Zend 引擎已关，`~Variant` 再 dtor 就是
+摸已释放内存。**`--selftest` 走 PHP `exit()`，不跑这些 C++ 静态析构**——这就是"自检全绿、
+真人一关窗就崩"的机制，不是抖动。
+
+**修法**：两张进程级登记表（`g_listFns`/`g_dataFns`）改成"引用一个 new 出来的对象"，
+故意不注册析构（进程要死了，内存交给 OS；窗口关闭时仍由 forget* 清）。修后两支都 rc=0。
+新门 `cmd/check-exit-clean.sh`（`composer check:exit-clean`）：先 `build --no-native` 再量、
+断 rc=0 **且**回执含 `commands=1` 与 `#1 quit -> bye`、40s 看门狗（挂住⇒rc=2 未判定）。
+
+**三条可复用的教训**：
+1. **automation 目录不能复用**：`automationTick` 吃过命令文件就 `@unlink`，且只吃"编号恰好
+   是下一号"的那条。复用旧目录＝永远等下一号（实测挂住 4 分钟）。那次挂住是夹具错，
+   既不是门红也不是修法的副作用——差点被我读成"修法把退出弄挂了"。
+2. **分两趟排空数两类事件＝构造恒真式**：热键门第一版先 `drain_count(mouse)` 再
+   `drain_count(hotkey)`，而第一趟用的是"任意事件"排空，已经把热键取走释放了 ⇒
+   「留热键=0」永远成立，红臂也读 0，这条读数没有判别力。改成一次排空同时数两类。
+3. **崩溃报告的符号是"最近导出符号 + 巨大偏移"**：`zval_ptr_dtor + 2498976` 这种偏移说明
+   真正的函数是静态/局部的、不在符号表里；atos 对该二进制也解不出（已 strip 局部符号）。
+   所以"哪一张表"不能靠栈名认定，要靠**改了哪一处之后红变绿**来归因。
+
+**#102 顺手判定（无害）**：`App::on(id,type,fn)` 同时服务事件与数据回调是**有意设计**，
+靠 type 命名空间隔离——bridge 的 `dataKey(win,id,type)` 与 shim 的
+`box->callbacks[shimId] → (id,type)` 都带 type，数据请求的 type 是 `render_rows`/`render_cell`/
+`render_item`（kit 用 `$app->on('kit-dt-pos','render_rows',…)` 注册），普通 click/change 处理器
+存在另一个 type 下，不会被当 rows 快照调。代价只是 `g_dataFns` 多占内存——也正是它让 #101
+在没有列表的 hello 上也能复现。
+
+## bundle 与裸二进制在同一支示例上分歧（2026-10-28 复测，归 #56）
+
+同一份产物、同一个量：hello 裸 `--selftest` rc=0 且 `routeGreen=true`；
+bundle（`php bin/gpui selftest` 固定加 `--expect-bundle`）rc=1 且 `routeGreen=false`
+（EXTRA 里 `nsapp=0/fgTries=0`，bundled/frontmost/bundleGreen 都真）。
+kit 裸 rc=0 `KIT SELFTEST OK`（含 dataTableRowsCallbackSuccess/Loud 两条），
+bundle rc=139 且**两次崩在不同腿**（一次 focusRovingTab 之后、一次 chartFiveShape 中途）
+⇒ bundle 路径的崩溃点不固定，不能拿"某一条腿坏了"来归因。
+`cmd/all-examples.sh` 走的是 bundle 路径，CI 的 Native selftest 与 Domain 循环走裸二进制，
+所以"全量本地跑"与"CI 绿"并不矛盾，但两边的结论必须分开写。
+
+## hello/tree30 的空白态跟前台/key 走，不跟帧数走（2026-10-29 证伪一条假设）
+
+tree30 是本地 HTML 的 WebView（不联网）。全量跑两遍它都绿（gdfrac=0.00000），随后单跑
+3/3 空白（gdfrac=0.56586，与历史"两个离散态"的签名同）。第一反应是"帧数不够"，把
+`loop(120)` 加到 600：**5/5 仍空白，且 md5 与 120 帧的空白态逐字节同** ⇒ 假设证伪，已回退。
+同期 embedded 的 WebView 能画；当前会话的 automation snapshot 是 `active=0 key=0`
+（早些时候那轮是 1/1）。⇒ WKWebView 在应用拿不到前台/key 的会话里不画，`--shot` 的
+`cacheDisplayInRect` 于是拍到空白。**这是 OS 竞争态喂像素门**，与 #56 同族：不能靠加帧、
+加容差或重录解决（重录会把空白态洗成标准答案）。诚实口径：在能拿到前台的会话复验，
+或把这类树改成前提式门（key/main 为真才硬断，否则记未验）——本轮未改门语义。
+教训：先证伪再写注释。我第一版注释把未测量的机制（"空闲机器帧更便宜"）写成了事实，
+测量推翻后立刻撤掉并把证伪读数留在注释里。
+
+## hello/tree23 的陈旧基线：基线里根本没有那颗 checkbox（2026-10-29）
+
+基线 PNG 停在 2026-10-11，而 28f167c（10-27）修好了 kind 路 checkbox 的渲染。
+看图对照：基线的 Preferences 行只有标签和红星、**没有勾选框**；新图有勾选框+Subscribe。
+gdfrac=0.01597 三轮逐字同＝离散态。处置＝只重录这一张（cp 新 shot、md5 对齐），
+**不跑 `record hello`**（它会重写整棵集合，把 tree30 的空白态一起固化）。
+一般形式：像素红先看图再分类——"基线缺了后来才修好的控件"与"渲染回归"长得一样，
+但前者该重录、后者该修代码；git log 基线文件 vs 视觉补丁的日期差是最快的线索。
+
+## #56 六格矩阵此刻全绿；tree30 的空白与 onScreen 无关（2026-10-29 00:46 读数）
+
+`cmd/onscreen-probe.sh input` 同一秒 2×3：纯 AppKit 裸/bundle=1/1、gpui+shim 零 PHP=1/1、
+完整产物 裸/bundle=**1/1**（自报 onScreen 两侧都 true）⇒ rc=0。历史上完整产物 bundle 列
+0/4 的那格**此刻在屏**，所以"bundle 窗不被合成"不是恒定缺陷而是会话态间歇；判别器与
+门 14 仍在，结论按"此刻可验"写，不写成"已修"。
+顺带修好探针自己的链接红：批6 后 shim 归档引用宿主符号 `gpui_data_node_free`，
+零 PHP 的 gpui 臂不链 bridge ⇒ 在 WITH_GPUI 分支 include 同一份 `gpui_data_node.inc`
+（appkit 臂按 objective-c 编，吃不下 C++ 头，必须留在 ifdef 里）。**这是该符号的第二个
+archive-only 消费点**（第一个是 test-shim）；examples 的 nano 路径因 bridge 在场不受影响。
+tree30  refinement：六格全绿（onScreen=1）的同一分钟里 hello --shot 30 仍空白
+（md5 与空白态同）⇒ **"不在屏"解释不了 tree30**；剩下的相关量是 key/active
+（空白轮 snapshot active=0 key=0）。机制未证明前不改门语义。
+
+## #103 日格错位：静态阅读已排除两条，剩 paint/hit 坐标系（2026-10-29）
+
+- 索引数学不可能错：`base/calendar.cpp:525-562` 每格 `ListenerArg(o.onDate,
+  DatePickerDateKey(date))` 带的是**该格自己的 date**，id 也是 `date-YYYY-MM-DD`；
+  没有"下标→日期"的换算可供 off-by-one。
+- z-order 方向正确：`scene.cpp:953-975` 按 sceneContext rank 升序稳定排，
+  `gpui.cpp:8496 HitTestRect` 从尾往前取第一个含点矩形＝后画者优先（顶赢）。
+- 嫌疑落在 deferred overlay：`PlaceAnchored`（gpui.cpp:5039 起）在 taffy 布局**之后**
+  平移锚定子树（含 anchorFlip 翻转到触发器上方）。若 paint 用了平移后的坐标而 hit
+  收集用了平移前的（或合成缝 realClick 的换算只对 popup 偏一格），就会"看着是 A、
+  命中是 B"。下一手必须是判别臂：同一帧 hitProbe 矩形中心 vs 截图日格数字位置，
+  先分"产品命中错"与"合成缝换算错"，再动代码。
+
+**判别臂跑完（同日）：错位不复现，假设全部作废。** 加高窗 + `clickat` 点"画出来的格子"
+三臂：当月 1 号→2026/10/01；外月 27 号→2026/09/27；选外月后**视图跳到九月**，再点其
+末行末列→2026/10/03（正是九月网格该格——我一度以为这是 off-by-four，其实是视图导航，
+期望值要先按当前视图月算）。读回全对、弹层当帧收起；同帧 hits.txt 与截图逐格对齐
+（nav y365、日行 y431/463/495…，32px pitch）。⇒ Phase 26 债务①"错位依旧存在"是陈旧结论，
+最可能是 popup-same-frame 之前**死帧里点击落到下方裸日历**的产物（与"下方弹层高亮 6"
+同源）。input main.php 四处陈旧注释已订正。教训两条：①"点 A 选 B"的期望日期必须按
+**点击那一刻的视图月**算，选外月日会导航；②旧缺陷修好后，描述它的注释与"因它而放宽的
+判据理由"要一起扫掉，否则下一轮还会照着假前提做设计。

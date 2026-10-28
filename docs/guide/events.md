@@ -217,6 +217,12 @@ $h = $app->hitProbe($i);        // + x/y/w/h、id、path、click(0/1)、parent
 （`WebViewFrameVisibility`）：这一帧没渲染到的那颗就 `hidden=YES`，AppKit 会跳过隐藏视图，
 鼠标就还给下面的元素了。
 
+**右键菜单（ContextMenu）没有验收缝**：`El::contextMenu()` 的右键接线在上游
+`ContextMenuState::OnMouseDown`（Bubble 相位 + stopPropagation），但合成缝
+`gpui_selftest_fire` 只认 click/change/hover 三类（没有 mouse_down_right），
+`realClick` 也只发左键——所以 kit selftest 里它是**前提式门**：断"合成路不存在"
+（fire 返回 false）这个事实本身，真右键行为要真人 HID 验收（同 Clipboard 复制的先例）。
+
 ## 2. 保留态取值（Input / Slider）
 
 带 id 的 input/textarea/numberInput/otpInput/slider 在 render 时建 retained 实体（跨帧稳定）。
@@ -320,6 +326,12 @@ $app->notify('已保存', '3 个文件写好了', 'success', 'top_right', 5000, 
 - **一次 `push` 注册两个路由键。** `click` 与 `close` 各是一条 listener。点卡片不会让卡片
   消失，所以 `click` 之后两个键都留着；只有 `close` 会把这一对一起摘掉——注册表的大小
   只跟活通知成正比。
+- **两条通知路**：以上是 `App::notify()`（宿主保留态，`notify()` 传 `$id` 才接线）。
+  还有 catalog 组件版 `El::catalogNotification($id, $label, $message, $type, …)`
+  （window_effects/mod.cpp 的 `Notification` 导出名，factory 见[组件 · kit 工厂批](/guide/components)），
+  它是纯组件层的同语义节点——构造三实参 id/label/on_effect_error，message/type/
+  on_click/on_close/autohide 走方法糖。两条路各自有自己的事件接线，不要混用宿主
+  `push` 的保留态语义。
 
 ## 7. 窗口外的事件（`tray` / `hotkey`）
 

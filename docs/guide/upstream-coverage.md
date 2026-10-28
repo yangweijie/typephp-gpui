@@ -17,8 +17,8 @@
 
 | 面 | 上游 | PHP 可达 | 说明 |
 |---|---|---|---|
-| `ComponentKind` 枚举值 | 66 | 47 个普通 kind 名，另有专用 ABI | `Registered`/`ChildView`/`DockArea` 不靠普通 kind 表构造；不能用 66−47 判实际缺口 |
-| catalog 组件 | 137 个导出名 / 148 个去重方法名 | 专用工厂或 `El::catalog(导出名, 构造实参)` | 通用工厂不替代实体与同步回调。没有专用工厂的那批仍缺 PHP 侧的实参提示与枚举预校验，错误由 `App::registeredError()` 回读；去重方法数不能与各 descriptor 的方法出现次数混用 |
+| `ComponentKind` 枚举值 | 66 | 50 个普通 kind 名（2026-10-28 批3 补 accordion_header/trigger/panel），另有专用 ABI | `Registered`/`ChildView`/`DockArea` 不靠普通 kind 表构造；不能用 50−66 判实际缺口 |
+| catalog 组件 | 140 个导出名 / 158 个去重方法名（原树 137/158；3 个导出名——ProgressCircle/PopupMenu/ContextMenu——由沙箱补丁 cmd/patch-progress-circle.sh、cmd/patch-popup-menu.sh 补） | 专用工厂或 `El::catalog(导出名, 构造实参)` | 通用工厂不替代实体与同步回调。没有专用工厂的那批仍缺 PHP 侧的实参提示与枚举预校验，错误由 `App::registeredError()` 回读；去重方法数不能与各 descriptor 的方法出现次数混用 |
 
 **同一组件的两张脸**：base 的 `ComponentKind::Button` 只有点击与文本；画廊里带圆角、底色、
 变体的那个是 catalog 的 `Button`（13 个方法：`label tooltip loading size outline primary
@@ -27,26 +27,63 @@ secondary danger success warning ghost link compact`；注意它**没有** `vari
 我们的 `El::button()` 走前者，`El::catalogButton()` 走后者。
 35 个导出名有同名 kind，但**能力不等价**——kind 版没有 catalog 版的方法表。
 
-**已经能用的那批**（`El::catalog()` 一通就有）：Accordion 家族、Pagination、Rating、
-Stepper/StepperItem、TabBar、Settings 四件套、Tree/TreeItem、Separator 三件套、Badge、Tag、
-Label、Kbd、Toolbar、StatusBar、Skeleton、Spinner、ShimmerText、Chat 家族、Empty 六件套、
-InputGroupText、五种图表（Area/Bar/Line/Pie/Radar）、DropdownButton、GroupBox、
-DescriptionList/Item、CommandGroup/Item/Separator、NativeMenu 三件套、Resizable、Clipboard、
-Questionnaire 家族、TableFooter、VForm —— 但**没有专用工厂就意味着没有文档化的实参形状**，
-用之前先对着上游 descriptor（`php cmd/upstream-vocab.php` 能打印）。
+**专用工厂与通用工厂的分界（2026-10-28 更新）**：kit 工厂批给 16 组组件补了专用工厂——
+Separator 四件套（含可嵌字 label）、Tooltip（触发器组件）、Skeleton、Empty 五件套（组装式）、
+Badge/Tag（含 `->variant()`/`->pill()`）、Stepper/StepperItem、Tree/TreeItem、Pagination、
+Rating（readOnly 走 disabled 位）、Kbd/KbdCombo、ShimmerText、Dialog/AlertDialog/Sheet
+（真按钮触发的原生窗口效果，Dialog/Sheet 必带 content 具名槽）、DescriptionList/Item、
+DataTable（**结构已接、数据通道未通**，见下）、Settings 四件套、Carousel 八件套（组装式）——
+签名、片段与坑见[组件 · kit 工厂批](./components#kit-工厂批-tier-a-组件的专用工厂)。
+同日的「纯工厂热身」批再补五颗纯 reg() 通道的：Spinner（icon/ease 是私有枚举，各有
+白名单糖）、TableFooter（**只有 registered 一条路**——ComponentKind 枚举里没有它，
+行/格必须用注册侧 TableRow/TableCell）、GroupBox（variant 集 normal/fill/outline，
+已并进 `->variant()` 白名单）、VForm（`'Form'` 同一构造器的第二导出名）、
+InputGroupText（整个 InputGroup 组合今天拼不齐，装饰件独立渲染；见组件页）。
+批2 再补六颗带前置作业的 tier-A 尾洞工厂 + 一个组合糖：Label/Toolbar/StatusBar/
+Clipboard/HorizontalRadioGroup 与 SplitButton（组合形，非独立导出；SplitButton 是
+DropdownMenu 的组合糖）。前置作业结论：Label 的 highlights 实参是 SchemaString
+（单个匹配串，不是清单猜的数组）、StatusBar 的 left/right_content 吃 SchemaElement
+（shim 缺口，只发中段）、Clipboard 的复制是部件内置行为（行为门前提式）、
+HorizontalRadioGroup 只收注册侧 Radio。
+批4 补嵌套结构与第二张脸：Questionnaire 四件（根→Item→Choice/Input 四层嵌套，typed children
+逐层校验；事件面核对过——无选项变化回调，焦点/导航由 retained state 内部驱动，无需新 patch）、
+catalog 版 Accordion（multiple/bordered/size/on_toggle；title 是 SchemaElement shim 缺口，
+按项数建、不发 title）、catalog 四颗升级糖（Select/Combobox 的 rows 是"返回数据"回调
+——只建结构、真数据等批6；Popover 的 content 走具名槽；TabBar 只收注册侧 Tab；
+catalogHoverCard 的 trigger_element 是硬缺口不进树；签名里带 bool/int 默认值的可选参数
+一律收实例糖——TypePhp 翻译器在混合默认值+实参不完整的签名上会生成默认值 re-assign
+缺陷，示例直接翻译失败，实测）。
+仍走 `El::catalog()` 通用通道的是：Accordion 根（`El::accordionItem()` 走的是 base kind 三段件，2026-10-28 批3）、CommandGroup/Item/Separator、NativeMenu 三件套、Resizable —— 但**没有专用工厂就意味着没有文档化的实参形状**，
+用之前先对着上游 descriptor（`php cmd/upstream-vocab.php` 能打印）。SplitButton 是组合糖（内部发 DropdownMenu，身份见[组件 · kit 工厂批](./components#kit-工厂批-tier-a-组件的专用工厂)）不属于 catalog 导出名。批3 补上的 Notification/DropdownButton/Bubble/Marker/Message/MessageScroller/Attachment 与图表五连、批4 的 Questionnaire/Accordion/Select/Combobox/Popover/TabBar 都已出专用工厂；
+批5（第一次越出 PHP 层的批——上游改动全部经 cmd/patch-*.sh 幂等补丁落进**沙箱**
+build/gpui-kit-cpp，upstream/ 原树只读）又补四颗：ProgressCircle（widget 早随 vendored
+上游在树，只差 descriptor——compound/progress.cpp 五件套复刻）、PopupMenu/ContextMenu
+（widget 层在树、descriptor 全缺——新建 overlays/popup_menu.cpp，rows 走普通子节点）、
+EmptyHeader 的 media/title/description（shim 的 SchemaElement 实参缺口——
+cmd/patch-element-arg.sh 给 bridge 加 element_arg op，`->elementArg()` 由此可喂，
+emptyState 加 `$headerSlot=true` 开关走上游原生 header 槽路）。裸通道只剩上述四组。
+顺带的词表可见面修正：提取器此前认不出"具名 constexpr 方法描述符按名收进数组"的写法
+（window_effects 的 `kDialogMethods={kTitle,kOnOk,…}`、图表与 Scrollbar 家族同款），
+kit 工厂批的 `on_ok`/`on_close` 让它假红，修复解一层引用后去重方法名 148→**157**，
+其后树同步与批5 补丁把总数带到 **158**（本页数字按 `php cmd/upstream-vocab.php` 现算；
+沙箱侧 140 个导出名里 3 个是补丁加的）——
+新增的 9 个里 PHP 真正发的是 `on_ok`/`on_close` 两个，其余 7 个
+（`grid`/`linear`/`natural`/`step_after`/`tick_margin`/`x_axis`/`scroll_axis`）
+是图表与 Scrollbar 家族顺带浮出的名字，PHP 侧一个都没发。
 
 **需要上游 entity 状态句柄的那一族，现在按可数的口径说**（旧句子写的是"还需要 16 个"，
 那是 #81/#82/#84 交付之前列的清单，已失真——`check-upstream-parity --info` 打出来的真值是：
 上游 `SchemaEntity` 一共声明 **15** 个 state kind）。
-`php cmd/check-upstream-parity.php` 的**判定**只看 `src/`（11 个：InputState、OtpState、SliderState、
-CalendarState、ColorPickerState、DatePickerState、TimeFieldState、TextareaState、EditorState、
-DiffState、CommandState）——不是因为示例侧没用，而是因为 `examples/input` 的 selftest
+`php cmd/check-upstream-parity.php` 的**判定**只看 `src/`（**13** 个：InputState、OtpState、
+SliderState、CalendarState、ColorPickerState、DatePickerState、TimeFieldState、
+TextareaState、EditorState、DiffState、CommandState、CarouselState（kit 工厂批的
+`El::carousel()` 经 El::state 使用）、DataTableState（同批的 `El::dataTable()`））
+——不是因为示例侧没用，而是因为 `examples/input` 的 selftest
 故意留了一颗 `NoSuchState` 当反向对照（`catalogStateFailureVisible` 门），把它一并判定
 就红成设计而非红成 bug。
-示例侧（含 `examples/_shared/**`）另外出现 **CarouselState**（`_shared/features/catalog.php` 里
-Carousel 六件套共用一颗，由 #84 交付）与那颗对照用的 `NoSuchState`，报告里单列一行不参与判定。
-**所以真正的剩余缺口是 3 个**：`DataTableState`、`MessageScrollerState`、`ScrollbarHandle`
-——对应 DataTable、MessageScroller、滚动条把手，这三颗在我们的 `src/` 与示例里一次都没出现过
+示例侧（含 `examples/_shared/**`）另外出现那颗对照用的 `NoSuchState`，报告里单列一行不参与判定。
+**所以真正的剩余缺口是 2 个**：`MessageScrollerState`、`ScrollbarHandle`
+——对应 MessageScroller 与滚动条把手，这两颗在我们的 `src/` 与示例里一次都没出现过
 （`grep` 零命中），不是"接了没验"而是"根本没接"。
 **造句柄的 API 已于 2026-10-14 打通**（#81：`cmd/patch-host-state.sh` 给上游补了宿主入口
 `ShellRuntime::NewHostState`，PHP 侧是 `El::state($kind, $key, $args)`，见
@@ -55,22 +92,30 @@ Carousel 六件套共用一颗，由 #84 交付）与那颗对照用的 `NoSuchS
 `catalogOtpInput`/`catalogSlider`/`catalogColorPicker`/`catalogCalendar`/`catalogDatePicker`/
 `catalogTimeField`，覆盖 15 种 state kind 里的 7 种；`examples/input` 三条门 + 像素基线）。
 第二族的 `TextareaState`/`EditorState`/`DiffState`/`CommandState`/`CarouselState` 也已有
-实体创建、materialize 与像素验收（`examples/catalog` tree 2）；这不等于所有交互/取值均已验证。
-尚未接完整宿主组合的是 `DataTableState`/`MessageScrollerState`/`ScrollbarHandle`：
-前两者还需各自的返回数据/元素回调，Scroll 还需 viewport 与 handle 的共享关系，不能仅凭 state 入口存在判可用。
+实体创建、materialize 与像素验收（`examples/catalog` tree 2 与 `examples/kit` tree 2）；
+这不等于所有交互/取值均已验证。
+尚未接完整宿主组合的是 `MessageScrollerState`/`ScrollbarHandle`（都需各自的宿主组合），
+以及 **DataTableState 的数据半边**：`El::dataTable()` 已建出实体与 rows/render_cell 两个
+回调标记，但 shim 回调通道不带返回值，行快照当帧失败——失败可见性由探针读数
+（`stateCounts()['dataTableFails']`）钉住，数据通道升 tier B，不能仅凭 state 入口存在判可用。
 
-**看起来缺、其实走了别的路**：Dialog / AlertDialog → `App::openDialog()`；Sheet →
-`App::openSheet()`；Notification → `App::notify()`；Tooltip → 元素上的 `tooltip` op；
+**看起来缺、其实走了别的路**：Dialog / AlertDialog / Sheet —— 2026-10-28 起**两条路都在**：
+`App::openDialog()`/`openSheet()` 的保留态弹窗，与真按钮触发的 catalog 工厂
+`El::dialog()`/`alertDialog()`/`sheet()`（窗口效果族，见
+[组件 · kit 工厂批](./components#kit-工厂批-tier-a-组件的专用工厂)）；Notification →
+`App::notify()`（catalog 的 Notification 导出名尚未出工厂）；Tooltip 同样两条路——
+元素上的 `tooltip` op 与触发器组件工厂 `El::catalogTooltip()`；
 剪贴板 → `App::clipboardText()` / `setClipboardText()`；FpsMonitor → `App::showFpsHud()`。
 
-## 2. 普通 kind 表之外的 19 个枚举值
+## 2. 普通 kind 表之外的 16 个枚举值
 
-ChildView、Accordion、AccordionHeader、AccordionPanel、AccordionTrigger、Pagination、
-AvatarImage、AvatarFallback、PathFill、PathStroke、FpsMonitor、SliderTrack、SliderIndicator、
-SliderThumb、DockArea、DockContent、VVirtualList、HVirtualList、Registered。
+ChildView、Accordion、Pagination、AvatarImage、AvatarFallback、PathFill、PathStroke、
+FpsMonitor、SliderTrack、SliderIndicator、SliderThumb、DockArea、DockContent、
+VVirtualList、HVirtualList、Registered。（AccordionHeader/Panel/Trigger 三件 2026-10-28
+起在 kind 表里——`El::accordionItem()` 的三段部件靠它们拼装。）
 
-这是**词表差集，不是 19 个不可用功能**：Registered 按 descriptor 构造，ChildView 由原生子视图
-工厂使用，DockArea 有 retained Dock 专用 ABI，FpsMonitor 有窗口服务；Accordion/Pagination
+这是**词表差集，不是 16 个不可用功能**：Registered 按 descriptor 构造，ChildView 由原生子视图
+工厂使用，DockArea 有 retained Dock 专用 ABI，FpsMonitor 有窗口服务；Accordion 根/Pagination
 另有 catalog 表达。UniformList 已在普通表里，且 `list` / `uniformList` 均有宿主同步行 renderer。
 
 base Slider/Accordion 未暴露全部低层子 kind，不要凭空写 track/header 等未知节点来拼树。

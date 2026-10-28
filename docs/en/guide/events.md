@@ -236,6 +236,14 @@ human-side checks; the other domains expose only what their `--selftest` asserts
 and an unknown flag exits 2 instead of opening a window. Do not read a missing
 flag as a missing capability — check the domain's `--selftest` gate list first.
 
+**Right-click menus (ContextMenu) have no acceptance seam**: `El::contextMenu()`'s
+right-click wiring lives in upstream's `ContextMenuState::OnMouseDown` (Bubble phase +
+stopPropagation), but the synthetic channel `gpui_selftest_fire` accepts only click/
+change/hover (no mouse_down_right), and `realClick` sends left clicks only — so the kit
+selftest treats it as a **premise-based gate**: it asserts the fact that "no synthetic
+route exists" (fire returns false), and the real right-click behavior needs a human HID
+acceptance run (the precedent is Clipboard's copy).
+
 ## Retained input and slider values
 
 Inputs, textareas, number inputs, OTP inputs, and sliders with ids create retained

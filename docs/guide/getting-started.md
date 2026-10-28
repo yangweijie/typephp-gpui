@@ -47,8 +47,9 @@ php bin/gpui build hello
 产物：`examples/hello/build/hello`。
 
 想看**全部**特性不必翻 API 表：`examples/` 下每一支都是一个功能域（基础原语 / 输入 /
-选择与开关 / 布局 / 表格列表 / catalog 富组件 / 侧栏表单菜单 / 浮层 / 系统能力 / 服务 /
-WebView·Inspector / 样式图标 / mac 集成），`php bin/gpui selftest <域>` 就跑这一域的门。
+选择与开关 / 布局 / 表格列表 / catalog 富组件 / kit 工厂批（tier-A 组件的专用工厂）/
+侧栏表单菜单 / 浮层 / 系统能力 / 服务 / WebView·Inspector / 样式图标 / mac 集成），
+`php bin/gpui selftest <域>` 就跑这一域的门。
 每一处都是真调用，而"有没有漏掉某个 API"由 `tests/ExampleCoverageTest.php` 反射 `src/Element.php`
 与 `src/App.php` 逐名核对——少写一个 CI 就红，所以"展示了所有特性"是可断言的，不是自述。
 它还会逐支示例起一个无头进程，把每一棵树在 FakeBridge 上建一遍并核 handler 不是孤儿

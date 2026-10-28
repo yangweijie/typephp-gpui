@@ -45,6 +45,34 @@ El::hResizable(array $children) / El::vResizable(array $children) / El::resizabl
 El::popup() / El::radioGroup(array $children) / El::toggleGroup(array $children)
 ```
 
+### 批3 完善点（2026-10-28）
+
+- `El::collapsible($label, $content)`：上游 Collapsible 只读 **content** 槽——label 现在是
+  折叠块的第一行（单块折叠、整块随 open 收展），不再是发错槽名的空块。受控展开靠
+  `->open(true/false)` 重渲染（无回调通道）。
+- `El::tab($label)`：label 自动包成 text 子节点（base Tab 的 text 只作 motion identity，
+  屏上内容来自子元素）；placement 四向是 catalog TabBar 的能力面，base Tab 没有。
+- `El::accordionItem($header, $panel, $changeId = null)`：三段部件契约
+  （AccordionItem > AccordionHeader > AccordionTrigger，面板走 AccordionPanel），
+  `$changeId` 给了就接 on_change（事件路由 `$changeId, change`）；`->open(true)` 强展
+  一直是受控展开的回归锚。门：`php bin/gpui selftest catalog` 的 accordionChangeRoute。
+- `El::otpInput($id, $length = 4)`：格数经桥内 otp_length op 传进 retained（上游
+  CreateRetainedOtp 按任意 length 建）；读数 `App::otpLength($id)`。带样式那颗仍是
+  `El::catalogOtpInput($id, $length)`。
+- `El::slider($min, $max, $value)`：量程/初值经桥内 slider_min/slider_max op 进
+  retained（初值用公开的 SliderSetValue 补——CreateRetainedSlider 恒从 min 起）；
+  读数 `App::text($id)`。门：input selftest 的 sliderRangeInitial。
+- `El::avatar($src, $fallback = '')`：默认圆形裁剪+方形比例+40px，fallback 槽放首字
+  兜底（首字用 preg /u 取——nano 扩展表没有 mbstring，`mb_substr` 会让模块启动直接失败）。
+  在线态色点需要 absolute 叠加，未做。
+- `El::image($src, $alt)`：$alt 接进 aria_label op（以前收下即丢）。Ely 的 framed 带框
+  不做组合糖（borderWidth+rounded 自己叠，见样式糖纪律）。
+- `El::svg($path)`：空串/非 .svg 后缀当场拒（svg 走 SvgDraw 直读任意资源路径，没有
+  icon() 那套 icons/ 前缀校验；路径对但文件不在仍是静默空白）。
+- Tab/Shift-Tab 焦点漫游：上游窗口层本就挂着（gpui/window_common.cpp：没人吃的 Tab 走
+  FocusTrapTab），宿主按键缝实测能走到——门：kit selftest 的 focusRovingTab
+  （前提式：窗口不 key/main 的机器记未验）。
+
 ### 表格要按语义搭
 
 上游每一层表格部件都只是"一个带 aria role 的 div"（`base/table.cpp:12-56`），**布局不管、
@@ -332,7 +360,7 @@ $el::cb('click', 'routeId')           // 回调实参标记（DropdownMenu.item 
 ```
 
 枚举常量（对齐 descriptor 白名单）：`El::SIZES` `El::SIDES` `El::COLLAPSE_MODES`
-`El::FIELD_ALIGN` `El::NAV_ICONS` `El::ALERT_VARIANTS`。
+`El::FIELD_ALIGN` `El::NAV_ICONS` `El::ALERT_VARIANTS` `El::SEPARATOR_VARIANTS`。
 
 ## 带样式的表单族要先造一颗 state 实体（catalog Input 一族）
 
@@ -396,7 +424,566 @@ Carousel 那一组把**共享 key** 的意义摆在明面上：根、Content、�
 所以 `El::catalogInput()` 的验收要看**两条**——`registeredError()` 为空，**且**
 `App::inputProbe()` 的框数真的因为这一行变多（`input` 域实测 4→5）。
 
-## 已知限制
+## kit 工厂批（tier-A 组件的专用工厂）
+
+这里是 2026-10-28 落地的三批专用工厂（src/Element.php「tier-A 差距清单」「纯工厂热身」与
+「带前置作业的 S 工厂 + 组合糖」三节）：tier-A 批 27 个 + 纯工厂热身批 5 个
+（Spinner/TableFooter/GroupBox/VForm/InputGroupText，纯 reg() 通道、上游零改动）+
+批2 六颗（Label/Toolbar/StatusBar/Clipboard/HorizontalRadioGroup）与 SplitButton
+（组合糖，非独立导出、上游无 widget）。组件在 component_shell 里
+**早已导出**，工厂只是把 `El::catalog('导出名', …)` 的裸通道换成
+有名字、有默认值、有 PHP 侧枚举预校验的糖。片段与 `examples/_shared/features/kit.php`、
+`examples/kit/src/main.php` 的真调用一致（下文标注的动画件在示例里以 `->hidden()` 渲染，
+理由见 Skeleton 一节）；每颗工厂至少一条门住在 `php bin/gpui selftest kit`
+
+### 分割线 Separator
+
+```php
+El::separator('horizontal')->label('或')->color('#e07b39');   // 可嵌字与语气色是方法表的 label/color
+El::separator($v);   // $v ∈ El::SEPARATOR_VARIANTS 的键：
+                     // horizontal | vertical | dashed | vertical_dashed
+```
+
+四个变体是**四个导出名**（`Separator`/`VerticalSeparator`/`DashedSeparator`/
+`VerticalDashedSeparator`，separator.cpp kConstructors），不是构造实参——写错变体当场抛
+`InvalidArgumentException`，而不是降级成默认横线。可嵌字（Ely 的 `label("or")`）与
+语气色走方法表的 `label`/`color`，分别复用既有链式糖 `->label()` / `->color()`。
+
+### 提示触发器 Tooltip
+
+```php
+El::catalogTooltip('kit-tt', '悬停我', '这是 catalog Tooltip 的受管提示文本');   // (id, 按钮标签, 提示文本) 三实参全非空
+```
+
+上游的 `Tooltip` 是"一颗自带受管提示的按钮"（materialize 出的是 `component::Button`），
+不是任意元素的悬停修饰——后者是实例方法 `->tooltip('…')`（给别的 catalog 组件挂提示）。
+因为与那个实例方法重名，工厂按 `catalogButton` 先例加了 `catalog` 前缀。
+
+### 骨架屏 Skeleton
+
+```php
+El::skeleton()->w(120.0)->h(16.0);              // 默认主色，形状交给样式
+El::skeleton()->secondary()->w(120.0)->h(16.0); // ->secondary() 是上游唯一变体
+```
+
+**Skeleton 是脉冲动画**（"An animated loading placeholder"）：放进截图视口，快照相位随
+帧时序漂，像素基线每跑必抖（实测恒定 gdfrac≈0.025）——kit 树1 里这一行带 `->hidden()`：
+display 级隐藏让 materialize 照常跑（`registeredError()`/`componentFailure()` 两个门
+照常量它），像素恒为零、基线逐字节确定。Ely 的 `SkeletonText/SkeletonCard/…` 变体上游
+没有导出：卡片/文本条等形状用 div+样式链组合（`El::vFlex([...])` 里摆几颗不同宽高的
+Skeleton），真变体需要上游加导出名。
+
+### 空状态 EmptyState
+
+```php
+El::emptyState('icons/square-terminal.svg', '还没有任务', '创建第一个任务开始使用',
+    El::button('新建任务'));            // 第 4 参（动作按钮区）可省
+```
+
+组装式工厂，内部发 `Empty` 五件套：`EmptyMedia`（icon 变体 + `El::icon($icon)`）/
+`EmptyTitle` / `EmptyDescription` / `EmptyContent`（给了 `$content` 才发）。icon
+实参走 `El::icon()` 同一款校验：必须是 `icons/<base>.svg` 且 base 在编译表里，否则静默不画。
+默认走 Empty 根的**普通子节点**（empty.cpp 的 Root 分支）。
+
+第 5 参 `$headerSlot=true` 走上游原生 **header 槽路**：`EmptyHeader` 的
+`media/title/description` 是方法实参 SchemaElement（empty.cpp 的 RecordSlot 方法表），
+由 `->elementArg()` 桥（cmd/patch-element-arg.sh）解锁——见下文「批5 底层补洞」一节。
+注意实参必须是**注册侧 Empty 部件元素**（`El::catalog('EmptyMedia', …)` 等），
+不是裸 icon/text（上游 `TakeElementAs` 按 tag 取值，裸元素会被拒）。两条路视觉不同。
+
+### 徽标 Badge 与标签 Tag
+
+```php
+El::hFlex([El::button('收件箱'), El::badge(9, false, 99)])->gap(4.0); // 数字徽标（超 max 变 +n）
+El::hFlex([El::button('通知'), El::badge(0, true)]);                  // 圆点徽标（dot）
+foreach (['primary', 'secondary', 'success', 'warning', 'danger', 'info'] as $tv) {
+    $tagVariants[] = El::tag($tv, $tv);            // variant: primary|secondary|danger|success|warning|info
+}
+El::tag('草稿', 'secondary')->outline();          // 描边形
+El::tag('圆角', 'info')->pill();                  // 药丸圆角（registered_method 'rounded_full'）
+El::tag('语气改写', 'secondary')->variant('warning'); // ->variant() 是 Tag 方法表的枚举糖
+```
+
+CountBadge/DotBadge 不需要单独工厂：上游 Badge 方法表本身带 `dot`/`count`/`max`，
+`El::badge()` 直接透传（count 0 时上游语义是隐藏数字徽标）。徽标"盖在什么东西上"用
+`->child()`（普通子节点）挂宿主元素。`->variant()` 与 `primary()` 那五个按钮变体糖**不是**
+同一族：后者是 Button 的零参方法，`variant(enum)` 属于 Tag / DropdownButton / Bubble /
+Marker / GroupBox / TabBar 的方法表。
+
+### 步骤条 Stepper
+
+```php
+El::stepper('kit-steps', ['购物车', '下单', '支付'], 1, false, 'kit-steps');
+//                id       步骤标签数组        零基当前步  纵排?   on_change 路由 id
+El::stepper('kit-steps-v', ['起', '承', '转', '合'], 2, true);          // 纵排、不挂回调
+El::stepperItem('禁用步', true);   // 单独一颗步骤（disabled 参可选）
+```
+
+`on_change` 事件以 `($onChangeId, 'change')` 路由到 `App->on($id, 'change')`；实参是一个
+`El::cb('change', $onChangeId)` 标记，送达由 `selftest kit` 的 `kitChangeRoutes` 用合成 fire
+验到 PHP handler（"原生控件真的点了会发"属真人验收，与所有部件回调同一分工）。
+子节点契约是硬的：Stepper 只收 `StepperItem`（typed children 逐字校验）。
+
+### 树形 Tree
+
+```php
+El::tree('kit-tree', [
+    El::treeItem('kit-tree-src', 'src/')->rm('expanded', [true])->child(
+        El::treeItem('kit-tree-main', 'main.php')),      // TreeItem 可嵌 TreeItem
+    El::treeItem('kit-tree-lock', 'GPUI.lock'),
+]);
+```
+
+`TreeItem(id, label)` 两个构造实参都必填非空（tree.cpp 逐字校验）；初始展开态用
+`->rm('expanded', [true])`——TreeItem 方法表只有 `expanded`/`disabled` 两个名字，
+不值得各开一条糖。Tree 只收 TreeItem 子节点（kAllowed），挂别的会每帧报错误节点。
+
+### 分页 Pagination
+
+```php
+El::pagination('kit-pg', 2, 10, 5, 'kit-pg');   // (id, 当前页 1 基, 总页数, 可见页钮数, on_change 路由 id)
+El::pagination('kit-pg')->rm('compact', []);    // 紧凑形（只有前后钮；变体示意，kit 树2 只展示参数形）
+```
+
+受控语义：上游 `on_change` 只"报告读者要去的页号"，当前页仍由脚本写回
+`current_page`（descriptor 原话："so the script can drive `currentPage`"）。
+
+### 评分 Rating
+
+```php
+El::rating('kit-rate', 3.0, 5, false, 'kit-rate');         // 可交互，on_change → kit-rate
+El::rating('kit-rate-ro', 4.0, 5, true)->color('#e07b39'); // 只读（Ely Stars 展示形）
+```
+
+只读走的是 common behavior 的 `disabled` 位：Rating 方法表带 `kDisabledMethod`，
+materialize 把 Method op `'disabled'` 读进 `request->disabled`——`El::disabled(true)`
+发的正是这个名字，所以 `$readOnly=true` 就是这一颗糖。
+
+### 键帽 Kbd / 组合键 KbdCombo
+
+```php
+El::kbd('⌘');
+El::kbd('K')->outline();                 // 描边键帽（零参方法 outline）
+El::kbdCombo(['⌘', 'Shift', 'P']);       // 组合键糖：横排发多颗 Kbd
+```
+
+Kbd 本体是静态的；它和 ShimmerText 同一行是为了排版——kit 树1 里整行带 `->hidden()`，
+理由同 Skeleton（同行的扫光是动画）。
+
+### 微光文字 ShimmerText
+
+```php
+El::shimmerText('正在加载…');
+El::shimmerText('慢速反向扫光')->rm('duration_ms', [2400.0])->rm('reverse', [true]);
+```
+
+**ShimmerText 是扫光动画**：像素基线放不下它（同 Skeleton，示例里 `->hidden()`）。
+变体（`id`/`duration_ms`/`spread`/`reverse`/`once`）走 `->rm()` 透传——五个名字都在
+ShimmerText 方法表在册，但没有各自开糖。
+
+### 弹层触发器 Dialog / AlertDialog / Sheet
+
+```php
+El::dialog('kit-dlg', '打开确认框',
+    El::vFlex([El::text('要继续这个操作吗？'), El::text('确认后不可回退。')])->gap(4.0),
+    '确认操作', 'kit-dlg-ok', 'kit-dlg-cancel');
+El::alertDialog('kit-ald', '删除数据', '此操作不可撤销，确定继续？', true, '警告', 'kit-ald-ok');
+El::sheet('kit-sheet', '打开抽屉',
+    El::vFlex([El::text('抽屉正文：从右侧滑入。'), El::text('关闭走 on_close（kit-sheet-close）。')])->gap(4.0),
+    'right', 'kit-sheet-close');
+```
+
+这一族与 `App::openDialog()` / `openSheet()` / `notify()` 是**两条路**：这三颗是"真按钮
+触发的原生窗口效果"——页面上渲染的是一颗触发按钮，点击后由原生侧开窗。三条硬约束
+（window_effects/mod.cpp:467-476，钉在 `dialogFamily` 门里）：
+
+- **Dialog 与 Sheet 必须带 `content` 具名槽**（`->slot('content', $正文)`，工厂第 3 参就是它），
+  且只收这一个槽名；缺槽每帧 Fail（"require exactly one content(element) named slot"）。
+- **AlertDialog 拒绝一切具名槽**，正文走 `description` 方法（工厂第 3 参）。
+- 构造第三实参 `on_effect_error` 是效果失败的上报回调，工厂自动以
+  `($id-error, 'click')` 挂上——通常无人接，只在效果失败时才有事件。
+
+`on_ok`/`on_cancel`/`on_close` 的回调 id 由参数给入，事件以 `(该id, 'click')` 路由；
+送达由 `kitClickRoutes` 门用合成 fire 验到 PHP。
+
+### 描述列表 DescriptionList
+
+```php
+El::descriptionList(['名称' => 'typephp-gpui', '用途' => 'PHP 原生桌面 GUI'], false, true);
+//                                  关联表项（label => value）       纵排?  横排加边框?
+El::descriptionList([
+    El::descriptionItem('跨列项', '占两格')->rm('span', [2.0]),   // 需要跨列时直接给 Element
+    El::descriptionItem('普通项', '一格'),
+], true);
+```
+
+子节点契约：DescriptionList 只收 `DescriptionItem`。Ely 的 PropertyGrid 没有对应导出，
+用本工厂近似（计划口径如此）。
+
+### 高级表格 DataTable（结构已接，数据通道未通）
+
+```php
+// 真调用都住在 kit 的 --selftest 门里（树里不放它，见下方卡点）：
+El::dataTable('dt-x', ['名', '量']);           // 结构门：DataTableState + render_rows/render_cell 标记
+El::dataTable('kit-dt-neg', ['名称', '数量']); // 负向门：真渲染当帧失败，探针 fails 上涨
+El::tableToCsv(['名', '量'], [                 // Ely to_csv 的 PHP 侧对应物，纯数据变换（kit 树3 展示）
+    ['名' => '带逗号,的值', '量' => 3],
+    ['名' => '带"引号"的值', '量' => 'x'],
+]);
+```
+
+构造三实参是 `DataTableState` 实体 + `rows` 回调 + `render_cell` 回调；工厂把后两个编码成
+`cb` 标记，但 **shim 回调通道只发事件、不带返回值**（runtime.cpp:12922 的 shimId 分支转
+enqueue 即返回），上游 `SnapshotRowsWith` 拿不到行数组，真渲染当帧失败——所以现在能建的
+是结构，不是数据表。行为参数（`stripe`/`bordered`/`scrollbar_visible`/`row_selectable`/
+`column_selectable`/`cell_selectable`/`row_header`/`sortable`/`column_resizable`/
+`column_movable`）用 `->rm()` 透传。两个实测到的事实值得写代码的人知道：
+
+1. **这个失败不走任何账本**：DataTable 的 `Failure()` 自己返回一颗带错误文本的 Div，
+   `registeredError()` 与 `componentFailure()` 都收不到。shim 经上游预留的
+   `SetDataTableProbe` 测试缝（families.h:84-85）把结果记进
+   `App::stateCounts()['dataTableBuilds'/'dataTableFails']`；`selftest kit` 的
+   `dataTableRowsCallbackLoud` 门断"fails 上涨、builds 不动"（不断定恰好 +1：负向渲染后的
+每一帧都会重新 materialize、重新失败，跑几帧是脏驱动决定的）。
+2. 数据通道要走 `App::listRenderer()` 同款宿主回路（`cmd/patch-host-list.sh` 的形状），
+   属 tier B；`query`/`filters`/`sorts`/`paged`/`group_by` 上游 kMethods 里也没有。
+
+### 设置页族 Settings
+
+```php
+El::settings('kit-set', [
+    El::settingPage('通用', [
+        El::settingGroup('外观', [
+            El::settingItem('主题', El::switchBox('深色')),   // 字段控件经 content 槽挂入
+        ]),
+    ]),
+])
+    ->rm('sidebar_width', [200.0])
+    ->rm('sidebar_size_range', [160.0, 240.0]);
+```
+
+四层 typed children 契约逐层校验：Settings 只收 `SettingPage`（title 进构造）→
+`SettingGroup`（title 走方法）→ `SettingItem`（title 进构造）。**SettingItem 缺 content
+槽就 Fail**（"requires content(element)"）——`settingItem()` 第 2 参就是那颗字段。
+三个实测到的坑：① **Settings 与 SettingPage 拒样式**——挂 `->w()` 每帧 Fail
+（"carries data rather than a box, so it does not implement Styled"，descriptor 也写明
+"style is rejected"）；② **原生侧栏宽度是逐帧沉降的布局反馈**（ui/setting.cpp：从第二帧
+起收缩到 size range 下缘），不钉住就是像素抖动源——示例用 `sidebar_width` +
+`sidebar_size_range` 钉死；③ 搜索关键词/字段排布用 `->rm('keywords', [...])` /
+`->rm('layout', ['horizontal'])` 透传，默认页走 `default_selected_page`。Ely 的
+SettingsSearch 需要上游 searchable_list 开名，尚无。
+
+### 轮播 Carousel
+
+```php
+El::carousel('kit-car', [
+    El::vFlex([El::text('第一页')->font(16.0)->semibold(), El::text('轮播内容甲')])->gap(4.0),
+    El::vFlex([/* 第二页 */]),
+    El::vFlex([/* 第三页 */]),
+])->w(480.0)->h(120.0);
+```
+
+组装式工厂一次发齐八件套（`Carousel`/`CarouselContent`/`CarouselItem`/
+`CarouselPrevious`/`CarouselNext`/`CarouselPagination`/`CarouselPaginationItem`），八处
+构造引用**同一颗** `CarouselState`（缓存按 `(kind,key)` 命中，key=`$id`）。这与
+`examples/catalog` tree 2 里手写 `El::state('CarouselState', 'ca-car', …)` 七处共享是同一
+个语义——各写各的 key 就是互不相干的多颗轮播，而画面上看不出区别（只有
+`stateCounts()['componentStates']` 会红）。
+
+### 加载指示器 Spinner
+
+```php
+El::spinner();                                                    // 默认：medium、loader、线性
+El::spinner()->sizeEnum('large')->spinnerIcon('loader_circle')    // 四方法各一笔
+    ->color('#e07b39')->spinnerEase('ease_in_out');
+```
+
+无构造实参、**不收子节点**（Materialize 只把旋转图标包进一颗 Div，children 从不被取用）。
+`size` 走既有 `->sizeEnum()`（上游 `kSizeLiterals` 与 `El::SIZES` 同表），`color` 走
+`->color()`（上游 `ParseColorArgument` 收色串）；`icon`（`loader|loader_circle`）与
+`ease`（`linear|ease_in_out|ease_out_quint`）是本组件私有枚举，各有白名单糖
+`->spinnerIcon()` / `->spinnerEase()`（`El::SPINNER_ICONS` / `El::SPINNER_EASES`），
+拼错当场抛。**Spinner 是旋转动画**：进像素基线必须 `->hidden()`（同 Skeleton 的相位
+抖动，kit 树1 就是这么摆的）。
+
+### 表格页脚 TableFooter
+
+```php
+El::catalog('Table', [], [
+    El::catalog('TableHeader', [], [ /* TableRow > TableHead… */ ]),
+    El::catalog('TableBody', [], [ /* TableRow > TableCell… */ ]),
+    El::tableFooter([
+        El::catalog('TableRow', [], [
+            El::catalog('TableCell', [], [El::text('合计')]),
+        ]),
+    ]),
+]);
+```
+
+**只有 registered 一条路**：shell 的 `ComponentKind` 枚举里没有 `TableFooter`
+（Table 段止于 `TableCaption`），shim 的 `kindFromString` 到不了它——这颗导出名
+（structured/table.cpp kFooter）只能走 `reg()` 通道。children 只收 `TableRow`
+（`MaterializeGroup` 的 kAllowed 逐字校验），且必须是**注册侧**的行：`TakeTypedChildren`
+只给 `Registered` 子节点记 componentName，kind 版 `El::tableRow()` 记出来是空名，
+挂进来每帧报错误节点。整套主题表格（`Table`/`TableHeader`/`TableBody`/`TableFooter`）
+都在注册侧；基座 kind 表（`El::table()` 那批）是无样式 div 族（base/table.h），
+两个家族别混。
+
+### 分组盒 GroupBox
+
+```php
+El::groupBox('外观', [El::text('分组内容甲')])->variant('fill');
+El::groupBox('边框', [El::text('outline 形')])->variant('outline');
+El::groupBox('默认', [El::text('normal 形')]);   // 不发 variant 即 normal
+```
+
+构造无实参；title 走方法（复用 `->title()` 糖），children 是普通子节点。
+variant 的字面量集是 **normal/fill/outline**（group_box.cpp:78）——与 Tag 的语气色
+不是一组。`->variant()` 的白名单因此是各组件字面量集的**并**（Tag 六色 + GroupBox 三形）：
+集外的值（如 `'card'`）PHP 当场抛；集内他组件不认的字面量（如 GroupBox 发 `'primary'`）
+由上游 enum 响亮拒（`registeredError()` 报得出），PHP 侧并表不重复拦——这是共享糖的
+已知代价，换来的是只记一个方法名。
+
+### 纵排表单 VForm
+
+```php
+El::vForm([
+    El::field([El::checkbox('每周摘要')])->label('订阅'),
+    El::field([El::switchBox('深色模式')])->label('外观'),
+]);
+```
+
+`'VForm'` 与 `'Form'` 是**同一构造器** `ConstructForm<false>` 的两个导出名
+（form.cpp:276-280，descriptor 共用同一张方法表）——形状与 `El::form()` 全同：
+children 只收 `Field`（kAllowed 逐字校验）。何时用它而非 `El::form()`：对着上游
+示例/文档的名字逐字复刻时。
+
+### 输入组文字 InputGroupText
+
+```php
+El::inputGroupText('https://');    // 前缀/后缀装饰件：弱化文字
+```
+
+无构造实参、无方法、普通子节点（`FinishPart` 照单全收），`$text` 包成一颗 text。
+今天只能单放：整个 `InputGroup` 组合拼不齐——组的 `addon` 方法吃 SchemaElement 实参
+（shim 通道给不出 SpecId，同 EmptyHeader media/title 的缺口）、`input` 槽要
+`InputGroupInput`/`InputGroupTextarea`（另需 retained state 实体）。装饰件本身独立渲染。
+
+### 文本标签 Label
+
+```php
+El::catalogLabel('src/Element.php')->secondaryLabel('辅')->masked()->labelHighlights('Element');
+// catalogLabel 带 catalog 前缀：本类已有实例糖 ->label(string)（Button/Field 的标题），
+// PHP 不允许同类里静态/实例同名方法并存——按 catalogTooltip 先例加前缀。
+```
+
+`El::label` 同名静态法在 PHP 里不允许与实例糖并存，所以工厂命名为 `catalogLabel`
+（语义区别同 `catalogButton`：这是 Label 组件本身，那是给别的组件挂标题）。
+构造一个非空字符串（上游拒空串）；次级灰字走 `->secondaryLabel()`、掩码走
+`->masked()`、搜索高亮走 `->labelHighlights()`。**highlights 的实参是单个匹配串**
+（controls/text.cpp:193-194 是 `SchemaString`，shell 侧 `Label::Highlights(Str)`
+走全文匹配——清单侦察时猜的数组是错的，开工前已按 descriptor 核实）。
+
+### 工具栏 Toolbar
+
+```php
+El::toolbar('kit-tb', [
+    El::catalogButton('kit-tb-new', '新建')->primary(),   // 子节点不挑名字（普通子节点）
+    El::button('打开'),
+    El::catalogLabel('3 项已选'),
+]);
+```
+
+id 非空；**无方法表**；普通子节点按源序进 Contents（display/toolbar.cpp 原话："a
+transparent, sizable toolbar container whose controls render in source order"）。
+按钮若要带样式变体（primary 等），用 `El::catalogButton()` 而不是 `El::button()->primary()`
+——后者是 gpui-base 原语，`->primary()` 打上去会被实例糖拒（只对 catalog 组件有效）。
+
+### 状态条 StatusBar
+
+```php
+El::statusBar([El::catalogLabel('就绪'), El::catalogLabel('UTF-8')]);   // 普通子节点填中段
+```
+
+构造无实参；**普通子节点填中段**（Materialize 逐颗 `bar->Center()`）。`left_content` /
+`right_content` 两方法吃 **SchemaElement** 实参（status_bar.cpp:59-60）——shim 的
+Element 分支只会把一个数字当 SpecId（gpui_shim.cpp `toComponentArg` 的 Element case），
+PHP 侧给不出合法实参，与 EmptyHeader media/title 同一个 shim 缺口（tier B）。本工厂
+**不发**这两个方法；硬发 `->rm('left_content', …)` 的下场是 native 物化阶段段错误
+（自测里这条探针因此被注释掉、按"不可无头验证"处理，见 kit selftest 的说明）。
+
+### 复制按钮 Clipboard
+
+```php
+El::clipboard('kit-clip', 'typephp-gpui', '点击复制仓库名');
+// （value/tooltip 两个方法可省；拒 children——EnsureNoChildren）
+```
+
+id 进构造；`value`/`tooltip` 走方法。**点击复制是部件内置行为**
+（ui/clipboard.cpp `ClipboardState::OnCopy` → `ClipboardSetText`）：descriptor 没有
+`on_copied` 导出、没有 PHP 回调，selftest 的合成 fire 按 (id,type) 查回调表到不了——
+行为门 `clipboardCopyRoute` 是**前提式**：断"没有合成路"这个事实本身，真复制要真人
+点击（HID），未验不判红（focusRovingTab 先例）。
+
+### 横排单选组 HorizontalRadioGroup
+
+```php
+El::hRadioGroup('kit-hrg', ['按名称', '按路径', '按大小'], 1, 'kit-hrg');
+//              id            标签串（内部发注册侧 Radio，id 派生 $id-r<i>）
+//                selected 零基走 selected_index；onChangeId 给了就挂 on_change（事件以 ($id,'change') 路由，值是选中下标）
+```
+
+与 `El::radioGroup()` 同形状（typed_compound/mod.cpp:456-465 的
+`ConstructRadioGroup<Axis::Horizontal>`）：children **只收注册侧 Radio**
+（kRadioName={"Radio"} 逐字校验，compound/radio.cpp:140——kind 版 `El::radio()`
+没有 componentName，挂进来每帧报错误节点）。`on_change` 实参是 `El::cb('change', $id)`
+标记，路由由 `kitChangeRoutes` 门用合成 fire 验到 PHP。
+
+### 分裂按钮 SplitButton（组合糖）
+
+```php
+El::splitButton('kit-split', '导出…', ['导出为 PNG', '导出为 CSV']);
+// item 回调 id 派生为 $id-item-<i>（事件以 (该id,'click') 路由）
+```
+
+**这是组合形，不是独立导出**：上游与参考仓都没有 SplitButton widget（grep src/ 零命中；
+Ely 的实现 `ely-core/src/menus/hosts.rs` 本身就是"按钮+挂 Menu"的组合件），不值得为
+它写新 widget。本工厂只发 DropdownMenu 导出名（触发钮 + 菜单项），与
+`El::catalogButton()` + `El::dropdownMenu()` 各发一颗的组合是**两个独立组件的组合**，
+本糖只是把"纯菜单触发的按钮"这最常见的一形起了名字。签名字段 `$menuItems` 是菜单标签
+串，回调 id 派生，`splitButtonShape` 门钉住。
+
+### 通知 Notification
+
+```php
+El::catalogNotification('kit-not', '标题', '一条提示消息', 'warning',
+    'kit-not-ok', 'kit-not-close')
+    ->notificationOnClick('kit-not-ok')
+    ->notificationOnClose('kit-not-close');
+```
+
+与 `App::notify()` 是**两条路**：`App::notify()` 是宿主保留态的通知窗效果（保留态、
+可点可追踪，见[事件与回调](/guide/events)）；这个 factory 是
+catalog 的 `Notification` 导出名（window_effects/mod.cpp:730-738），纯组件层、没有
+宿主保留态。构造三实参 id/label/on_effect_error 必填（factory 按 dialog 家族先例自动
+挂 on_effect_error 回调标记）；message/type（info|success|warning|error 白名单）/
+on_click/on_close/autohide 走方法糖（枚举走 NOTIFICATION_TYPES 白名单）。
+
+### 下拉按钮 DropdownButton
+
+```php
+El::dropdownButton('kit-db-btn', '导出菜单', 'secondary', 'bottom_right',
+    'kit-db-btn', ['导出 PNG', '导出 CSV']);
+// 糖：->dropdownButtonVariant('danger') / ->dropdownButtonAnchor('top_left') /
+//     ->dropdownButtonOnClick($id) / ->dropdownMenuItem('项X', $itemId)
+```
+
+构造 id/label 两个非空串；变体（primary/secondary/danger/ghost）、锚点
+（top_right/bottom_right/bottom_left/top_left）是私有枚举白名单（`DB_DROPDOWN_*` 常量）；
+`menu_item` 吃 label + 回调标记（与 dropdownMenu 的 `item()` 糖同形）。菜单弹层在
+构造时按 `$id` 建在按钮名下（同名按钮各一棵菜单），行回调 id 派生 `$id-item-<i>`。
+
+### 气泡 / 标记 Bubble / Marker
+
+```php
+El::bubble('start', 'filled')->child(El::catalogLabel('标题气泡'));   // alignment/variant
+El::bubble('', 'secondary')->child(El::catalogLabel('普通气泡'));
+El::marker('kit-mk', 'separator', true, 'spinner');                   // variant/loading/loading_style
+```
+
+Bubble 构造无实参（普通子节点是其可见内容），alignment ∈ {start}（chat.cpp
+kAlignmentLiterals 实为 {"start", ""}，第二个是空字面量）、variant 七种语气形；
+Marker 构造 id 非空，variant（plain/separator/border）、loading(bool)、
+loading_style（spinner/shimmer）走私有枚举白名单（`MARKER_*` 常量）。
+
+### 消息 / 消息滚动 / 附件 Message / MessageScroller / Attachment
+
+```php
+El::message('start', [El::catalogLabel('消息甲')]);                    // alignment + 子节点
+El::attachment('kit-att', 'uploading', 'vertical', 'large');            // status/axis/size 三枚举
+```
+
+Message 构造无实参（alignment 枚举 + 普通子节点进内容槽）；Attachment 构造 id 非空，
+status（pending/uploading/processing/failed/complete）、axis（horizontal/vertical）、
+size 走私有枚举白名单（`ATTACHMENT_*` 常量）。**MessageScroller 只建结构**：它的
+ctor 三实参 id/state/render_item，其中 render_item 是"返回元素"的回调——shim 回调
+通道只发事件不带返回值（DataTable 实证，见 Element.php 的 dataTable 注释），真数据等
+批6宿主回路；state 经 `El::state('MessageScrollerState', …)` 标记。它不进任何树
+（会让 componentStates 计数涨，破坏 tree2CarouselState 的 ==1 门）。
+
+### 图表五连（结构已接，数据通道边界）
+
+```php
+El::barChart(); El::lineChart(); El::areaChart(); El::pieChart(); El::radarChart();
+// 五个导出名（chart/mod.cpp:495-499）：构造只吃 rows 回调
+// (cx) => { label: string; value: number }[]——回调通道只发事件不带返回值，
+// 真数据等批6宿主数据回路；负向响亮失败门未落地（native 渲染负向时进程段错误、
+// ChartErrorProbe 探针 shim 无读口，卡点见 selftest skipped 记录）。
+```
+
+
+### 问卷 Questionnaire 家族
+
+```php
+El::questionnaire('kit-q', [
+    El::questionnaireItem('age', '年龄', [
+        El::questionnaireChoice('18', '18 岁以下', null, false, true),
+    ])->rm('required', [true]),
+], 'letters');
+// 根 shortcuts ∈ {letters, numbers}（白名单 QUESTIONNAIRE_SHORTCUTS）
+```
+
+上游最深的嵌套家族：Questionnaire 根（ctor id）→ QuestionnaireItem（ctor name/label）
+→ QuestionnaireChoice（ctor value/label）/ QuestionnaireInput（ctor state + label），
+typed children 逐层校验（Questionnaire 只收 Item；Item 只收 Choice/Input）。根的
+shortcuts 发枚举（字母/数字快捷键）；事件面核对过——该家族**没有**选项变化回调，
+焦点/导航/提交由 retained state 内部驱动（QuestionnaireState 按 id 键保留、schema
+指纹变化才重建），无需新 patch。`questionnaireShape` 门钉住嵌套形状 + shortcuts 白名单。
+
+### Accordion catalog 版
+
+```php
+El::catalogAccordion('acc-cat', 3, false, true, 'medium', 'acc-cat-tog');
+// kind 版是 El::accordionItem 三段件（header/trigger/panel + open(true)）——两版同组件。
+```
+
+kind 版（`El::accordionItem`）是三段件组合（header/trigger/panel 四个 kind），
+catalog 版（registered Accordion/AccordionItem 导出）带 multiple/bordered/size/
+on_toggle 方法表——同一组件的第二张脸，用法按需求选。**title 是 SchemaElement shim
+缺口**（kTitleArgs = {"title", SchemaElement()}——发字符串实参在 native 物化阶段段错误，
+实测）——本工厂按**项数**建 item、不发 title，标题留到 shim Element 通道（tier B）；
+`accordionCatalogShape` 门钉住构造形状与 childOps 为空（无 title 的预期形状）。
+
+### catalog 四颗升级糖（Select/Combobox/Popover/TabBar）
+
+```php
+El::catalogSelect('kit-sel', '请选择')->selectMenuWidth(200.0);
+El::catalogCombobox('kit-cb', '下拉搜索', '搜索提示', 'kit-cb-change', 'kit-cb-confirm')
+    ->comboboxSearchable()->comboboxMenuWidth(220.0);
+El::catalogPopover('kit-po', '弹窗', El::vFlex([El::catalogLabel('弹窗正文')])->gap(4.0));
+El::catalogTabBar('kit-tb', ['名称', '路径', '大小'])
+    ->tabBarMenu()->tabBarSelectedIndex(1)->tabBarVariant('tab')->tabBarSize('large')
+    ->tabBarOnToggle('kit-tb-toggle');
+```
+
+kind 层同名能力不等价（裸框 vs 带样式/方法表）——catalog 第二张脸按
+catalogButton/button() 双轨先例。四颗各自的实参形状：
+
+- **Select**：ctor 四实参（id + rows/render_row/on_select 三回调）；rows 是**返回数据**
+  的回调（shim 回调通道不带返回值，DataTable 实证）——只建结构、不发数据通道，
+  真数据等批6（SelectProbe 探针无 shim 读口，同图表五连卡点）；placeholder 走方法。
+- **Combobox**：ctor 四实参（id + rows + on_change + on_confirm）；方法表
+  placeholder/search_placeholder/searchable/menu_width/disabled。
+- **Popover**：ctor 两实参（id/label），content 走具名槽（硬约束 require content(element)）；
+  方法表 card_anchor（8 角 POPOVER_ANCHORS 白名单）/default_open/open/appearance/
+  overlay_closable 布尔 + on_open_change 回调。**catalogHoverCard 不进树**：其 materialize
+  硬要求 trigger_element（SchemaElement shim 缺口——发字符串实参 native 段错误，实测），
+  结构与 `catalogHoverCardShape` 门仍钉住（开延迟/锚点/on_open_change 形状）。
+- **TabBar**：ctor 两实参（id + tabs）；children 只收注册侧 Tab（kind 版 `El::tab()` 不是
+  注册节点，挂进去每帧报错）；方法表 menu/selected_index/variant（tab|outline|pill|
+  segmented|underline 白名单）/size/on_change——菜单开关/选中下标/变体/尺寸/回调各走
+  实例糖（构造签名里带 bool/int 默认值的参数一律收糖——TypePhp 翻译器在"混合默认值 +
+  实参个数不完整"的签名形状上会生成默认值 re-assign 缺陷，示例直接翻译失败，实测）。
 
 - **MenuBar**：已由宿主应用身份与 app-effect trampoline 接通；子节点必须遵守 Menu/Item 契约，不能用缺 Root 作为不可用理由。
 - **Dock**：默认原生 chrome、面板与布局读写已接通；PHP 自定义 chrome 和真人拖拽验收尚未提供。
@@ -416,6 +1003,58 @@ Carousel 那一组把**共享 key** 的意义摆在明面上：根、Content、�
   （映射到 SquareTerminal/LayoutDashboard/Settings2/BookOpen/User），与 `icons/x.svg`
   的 base 不是一个命名空间。
 
+### 环形进度 ProgressCircle（上游 descriptor 补洞）
+
+```php
+El::progressCircle('pc-x', 62.0)      // id + 百分比（0–100，上游自己 clamp）
+    ->progressCircleLabel()          // 环心印百分比（registered_method 'label'）
+    ->progressCircleSize(72.0)       // 像素 Number（widget 的 Size(float)，不是 kSizeLiterals 枚举）
+    ->progressCircleColor('#e07b39') // ParseColorArgument（spinner 同款）
+    ->progressCircleLoading();       // 不定态旋转（动画——进像素基线要 hidden，同 Skeleton）
+```
+
+widget 早就随 vendored 上游在树里（ui/progress.h），缺的是 catalog 面：批5 用
+`cmd/patch-progress-circle.sh` 在 compound/progress.cpp 照 kProgress 的五件套样式补了
+descriptor 并并入 `RegisterCompoundProgress`——**新导出名，词表计数 137→140**。
+`value` 是百分比 Number（0–100）；`loading` 转不定态旋转，是动画。
+
+### 弹层菜单 PopupMenu / ContextMenu（上游 descriptor 补洞）
+
+```php
+El::popupMenu('pm-x', ['新建任务', '导出 CSV']);                 // rows 是行标签串数组
+El::contextMenu('cm-x', El::button('右键目标'), ['复制', '粘贴']); // 第 1 子节点是右键目标
+```
+
+widget 层（ui/menu.h 的 `component::PopupMenu`/`ContextMenu` + base/popup_menu.h 的行模型）
+早已在 vendored 上游，缺的是 catalog 面：批5 用 `cmd/patch-popup-menu.sh` 新建
+`overlays/popup_menu.cpp`（注册链并入 overlays）。**rows 走普通子节点**：子元素的 text
+是行标签。行**不带点击处理器**——Func0 的 userData 打包不暴露回调 id（如实限制，
+`cmd/patch-*.sh` 注释有记）。ContextMenu 的第一个子节点是右键目标（上游
+`ContextMenu::Child` 接线 OnMouseDownRight；真右键要真人 HID，selftest 里是前提式门）。
+
+### 批5 底层补洞总览：elementArg 与 EmptyHeader
+
+`->elementArg($name, $element)` 给 registered_method 的 **SchemaElement 实参**喂一个元素：
+bridge（cmd/patch-element-arg.sh）先 emitTree 子元素拿 SpecId、再以它当实参发方法
+（slot 分支的同形状；emitTree 的 op 顺序在 children 之前，所以必须像 slot 一样先建子）。
+`EmptyHeader` 的 `media/title/description` 由此可喂：
+
+```php
+El::emptyState('icons/square-terminal.svg', '标题', '描述', null, true)  // 第 5 参 = header 槽路
+// 或直接用形：
+El::catalog('EmptyHeader', [])
+    ->elementArg('media', El::catalog('EmptyMedia', [], [El::icon('icons/…svg')])->rm('variant', ['icon']))
+    ->elementArg('title', El::catalog('EmptyTitle', [], [El::text('标题')]))
+    ->elementArg('description', El::catalog('EmptyDescription', [], [El::text('描述')]));
+```
+
+实参必须是注册侧 Empty 部件元素（`TakeElementAs` 按 TypedChildBox tag 取值——
+空 elementArg 发裸 icon/text 会得 "registered EmptyMedia materialized an
+incompatible element"，实测）。`ResolveElement` 是上游成熟的 SchemaElement 实参解析
+（status_bar/hover_card/input_group 同款机制）。这条桥还解锁了 StatusBar 的
+`left_content`/`right_content`（此前是 shim 缺口）——但那两颗的工厂化不在本批。
+
 ## 下一步
+
 
 - [事件与回调](/guide/events)

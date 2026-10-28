@@ -13,13 +13,15 @@
 | 6 | doctor | `php bin/gpui doctor` | 工具链 + 全部补丁 marker 校验（清单见 `GPUI.lock`） | 部分 |
 | 7 | C++17 可解析性 | `bash cmd/check-cxx17.sh` | `cmd/patch-concepts.sh` 的门禁：`gpui.h` 在 `-std=c++17` 与 `-std=c++20` 下都要能解析，且 `EmitsEvent` 降级后判据**双向**正确（有特化为真、无特化为假） | 是（头文件） |
 | 8 | C ABI 纯 C | `bash cmd/check-c-abi.sh` | 防火墙的主张本身：`gpui_shim.h` 用 `clang -x c -std=c11 -Wall -Wextra` 编得过，且文本里没有 `namespace`/`template`/`std::`/非 C 标准头的 `#include <>`。头里漏进 C++ 时，报错原本要晚到几分钟后的链接期 | 否 |
-| 9 | 构建输入在册 | `php cmd/check-build-inputs.php` | 「克隆出来能不能构建」：bin/gpui 点名的每支补丁脚本都已跟踪、cmd/ 下每支 `patch-*.sh` 都在清单里、每个示例 yml 的 `sources:` 都在版本控制里，外加一条全仓不变式——**索引里不许有"路径在册但 blob 是空的"的文件**。最后这条是 2026-10-15 补的：`git add -N`（intent-to-add，本仓库登记新文件的惯例）只记路径，索引里是空 blob（sha `e69de29…`），而 `git ls-files -- <path>` 照样把它列成"在册"，于是前三条会在"提交出去是 0 字节文件"的状态下全绿——实测当时有 13 个这种路径（含 4 支补丁脚本、整族英文指南、一份像素基线）。所以判"在版本控制里"要看 **内容 sha**，不是看名字；提交前必须先 `git add <路径>`。审核 P0-1 量到这三类输入当时全未跟踪，而本地跑起来一切正常。现在共六条：除上述三条 + 空 blob 不变式外，还核 **CI 点名的 `cmd/*.(php|sh)` 都在册**（新增步骤忘了 `git add` = runner 打不开文件）与 **`composer.json` scripts 点名的本地路径/示例名都存在**（删掉一个示例后最容易留下的就是这种坏入口）| 否 |
+| 9 | 构建输入在册 | `php cmd/check-build-inputs.php` | 「克隆出来能不能构建」：bin/gpui 点名的每支补丁脚本都已跟踪、cmd/ 下每支 `patch-*.sh` 都在清单里、每个示例 yml 的 `sources:` 都在版本控制里，外加一条全仓不变式——**索引里不许有"路径在册但 blob 是空的"的文件**。最后这条是 2026-10-15 补的：`git add -N`（intent-to-add，本仓库登记新文件的惯例）只记路径，索引里是空 blob（sha `e69de29…`），而 `git ls-files -- <path>` 照样把它列成"在册"，于是前三条会在"提交出去是 0 字节文件"的状态下全绿——实测当时有 13 个这种路径（含 4 支补丁脚本、整族英文指南、一份像素基线）。所以判"在版本控制里"要看 **内容 sha**，不是看名字；提交前必须先 `git add <路径>`。审核 P0-1 量到这三类输入当时全未跟踪，而本地跑起来一切正常。现在共六条：除上述三条 + 空 blob 不变式外，还核 **CI 点名的 `cmd/*.(php\|sh)` 都在册**（新增步骤忘了 `git add` = runner 打不开文件）与 **`composer.json` scripts 点名的本地路径/示例名都存在**（删掉一个示例后最容易留下的就是这种坏入口）| 否 |
 | 10 | 三层契约 parity | `composer test`（`tests/ContractTest.php`） | stub ↔ FakeBridge ↔ `gpui_bridge.cc` 的名字与元数一一对齐；`src/App.php` 里调用的 `gpui_*` 必须在 stub 里声明过；Element 能发出的每个 kind 都必须在 shim 的 `kKindNames` 表里在册（静态解析表的 `{...}` 体内，不越界读后面的代码；webview/inspector/notifications/dock_area 四个专用 bridge 路径豁免）。`setAppMenus` 键名那族错就是四层各自"看着对"，编译期没人查 | 否 |
-| 11 | 上游词表 parity | `composer parity:upstream` / `php cmd/check-upstream-parity.php` | 我们发出的每个"上游按名字查表"的符号都必须在册：kind ↔ `ComponentKind` 枚举、method/callback/槽名 ↔ `materialize.cpp` 的 101 个 op 名与 prelude 槽表、catalog 导出名与方法名 ↔ descriptor 表（含 bridge 里硬编码的那两个）。上游对**带参未知名**是静默丢弃（`materialize.cpp:451-454` 链尾无 else），五层门禁都不报，这条是唯一的哨兵。取数端 `cmd/upstream-vocab.php` 读的是 vendored 的 `upstream/gpui-kit-cpp`，克隆即可跑 | 否 |
+| 11 | 上游词表 parity | `composer parity:upstream` / `php cmd/check-upstream-parity.php` | 我们发出的每个"上游按名字查表"的符号都必须在册：kind ↔ `ComponentKind` 枚举、method/callback/槽名 ↔ `materialize.cpp` 的 101 个 op 名与 prelude 槽表、catalog 导出名与方法名 ↔ descriptor 表（含 bridge 里硬编码的那两个）。上游对**带参未知名**是静默丢弃（`materialize.cpp:451-454` 链尾无 else），五层门禁都不报，这条是唯一的哨兵。取数端 `cmd/upstream-vocab.php` 读的是 vendored 的 `upstream/gpui-kit-cpp`，克隆即可跑。批5 起补丁在沙箱侧加的 descriptor 导出名（ProgressCircle/PopupMenu/ContextMenu）经**自校验豁免表**放行：每个豁免名必须在 `cmd/patch-*.sh` 里真出现，防「加了导出名却忘了补丁」或「豁免了没补丁的名字」 | 否 |
 | 12 | 示例覆盖率与拆分漂移 | `composer test`（`tests/ExampleCoverageTest.php`） | 反射出 `Element`/`App` 的每个公开成员与每个枚举取值，断言**任一示例**（`examples/**/*.php`）里真调用过，再静态核每次调用的实参个数。同一支文件里还有四条防漂移的门：每支示例都有 `project.macos.yml` 且它列的源都在、`examples/_shared/features/*.php` 每份至少被一支收录、逐支起无头进程把每棵树在 FakeBridge 上建一遍并核 handler 不是孤儿（门本体是 `cmd/headless-trees.php`）、以及**带"未知开关"扫描的示例里实际读取的开关集合与提示文本里声明的集合双向相等**（2026-10-22 加：`--automation` 曾只在 `runInteractive()` 里读 `$argv`，被自己那道扫描拒掉，说明书上也没这颗）——把一域搬去独立示例却忘记补 yml，无头 PHP 全绿、只有编译产物缺那个函数 | 否 |
 | 13 | 文档锚点解析 | `php cmd/check-doc-anchors.php`（CI docs job 里跟着 `docs:build` 跑） | 补上 `docs:build` 看不到的那一半：它**只查页面存在、不解析 `#fragment`**（实测放过一根指向已改名标题的真死锚）。这条门拿**产物里真实渲染出的 `id="…"`** 比对照料内链接的锚（比源码标题可靠：VitePress 生成 id 含中文转写与去重），当前扫 60 条站内链接 / 11 条带锚 / 0 问题；一条链接都没扫到就 rc=2，防空跑 | 否 |
 | 14 | bundle 在屏资格 | `php cmd/check-bundle-signature.php`（`composer check:bundle`；CI 原生 job 里跟着 `Native selftest` 跑） | #56 的常驻哨兵。断两件**产物属性**（不是 OS 竞争态，所以能硬断）：① `Contents/MacOS/<CFBundleExecutable>` 必须是**正规文件**——符号链接会让 `codesign` 直接拒签（"the main executable or Info.plist must be a regular file"）；② bundle 签名必须把 Info.plist 绑进去（`codesign -dvv` 出 `Info.plist entries=N`，再过 `codesign --verify --strict`）。这两条坏掉时**窗口从不在 WindowServer 的在屏账本里**，而 `windowState()` 的 active/key/visible/main 全真、像素门全绿（`--shot` 走进程内 `cacheDisplayInRect`），只有真人手点才撞得上——所以它必须在 CI 里，不能靠人记着查。实测四象限：symlink / 真文件未签 / 硬链接未签 ⇒ `onScreen=false`；真文件 + 绑定 plist 的签名当时读到 `onScreen=true`，但同一产物隔 20 分钟连五次读到 `false` ⇒ 这两条是**必要而非充分**条件，本门保证的是"bundle 造得可签、身份齐"，不保证"这扇窗一定上屏"（在屏资格在本机仍会飘，见 17-E）。一个 `.app` 都没扫到就 rc=2（"产物没建"不算通过），未知开关也 rc=2 | 否 |
 | 15 | 帧/节点预算棘轮 | `composer bench:tree`（= `php cmd/bench-tree.php --check cmd/bench-tree-budgets.txt`；CI 的 php job 里排在 Pest 之后） | 只量 PHP 半边（view builder + `toArray()`）：5 个规模各跑 5 次取 **min** 与预算比，超一档即红，`us/node` 单独一档。取 min 而不是中位数是同机 A/B 量出来的——中位数随机器状态漂（med 48ms 的序列里混着 max 94ms 的停顿），min 在快/慢状态间只差 10~20%。内存只报不门（2 万行峰值 168MB 是框架特性，不是回归信号）。红臂实测：注入真 O(n²) ⇒ 大档全超（60001 档 302ms、µs/node 5.04）rc=1，小档仍 OK。机器正忙时的显式逃生阀 `GPUI_SKIP_BENCH_TREE=1` | 否 |
+| 16 | 热键泵不吃鼠标（#99） | `composer check:hotkey-pump`（= `bash cmd/check-hotkey-pump.sh`；CI 原生 job 里跟着 bundle 门跑） | 驱动**生产 `gpui_mac_pump()`**（把 `cpp-src/gpui_mac.mm` 编进来一起链），不是它的抄本——抄本只能证明设计成立，生产改回去它照样绿。免人手三臂：①注册一颗真热键（泵在 `g_hotkeys` 为空时早退，不注册就没测到那条路），塞「热键在队头、鼠标紧跟其后」一对再跑生产泵 ⇒ 鼠标必须还在、热键必须被取走**且 sink 真收到一条 hotkey**（「事件不见了」≠「事件被派发了」）；②撤掉热键再塞一对，泵必须一个都不碰（`empty()` 早退那条路）；③负向对照用修复前那版「任意事件」排空，它**必须**吃掉鼠标，否则这条自证没有判别力 ⇒ rc=2 未判定。**自带红臂**：把生产源里 peek 的 `false` 翻成 `true` 编一份临时副本（生产文件一个字不动），门必须随之变红。实测正向 `旧排空吃鼠标=1 生产泵留鼠标=1 留热键=0 热键送达=1 无热键时留鼠标=1 留热键=1`、红臂 `生产泵留鼠标=0 热键送达=0` ⇒ `HOTKEY-PUMP GATE OK（正向绿 + 红臂红）`。量的是**队列层**（down 有没有被摘走），不是像素也不是真人送达；前置产物缺、热键注册不上、红臂锚点不唯一、未知开关都 rc=2 | 是（gpui.o + 窗口会话） |
+| 17 | 正常退出不段错误（#101） | `composer check:exit-clean`（= `bash cmd/check-exit-clean.sh`；CI 原生 job 里跟着热键泵门跑） | 交互 quit／关窗走「main 正常返回 → exit → `__cxa_finalize_ranges` → 静态析构」，而 bridge 的登记表里存着 PHP callable（`php::Variant`）：Zend 引擎先关、析构后跑 ⇒ `~Variant → zval_ptr_dtor` 摸已释放内存，SIGSEGV。**`--selftest` 走 PHP `exit()`，不跑这些析构**，所以十几支自检全绿也照不出这条路——真人一关窗就崩。免人手复现：`--automation <dir>` 放一条 `quit`，**目录每轮新建**（命令文件吃过就 unlink，复用旧目录会永远等下一号，那是夹具错不是门红）。门先 `build --no-native` 再量（失败的建设会留下上一版二进制），断 rc=0 **且**回执里 `commands=1` 与 `#1 quit -> bye` 都在（「没跑起来」不许冒充通过）；挂住超 40s 看门狗、产物建不出来、未知开关都 rc=2 未判定。红侧修前实测 hello／input 都 139，修后都 0 | 是（二进制 + 窗口会话） |
 
 一键：`composer test:all`（Pest + PHPStan + 上游词表 parity + shim_test）。
 全量示例跑一遍：`composer examples:all` = `bash cmd/all-examples.sh`
@@ -55,8 +57,9 @@ headless、不开窗口，故任意环境可跑。`cmd/test-shim.sh` 两步编�
 
 它是 **bug #18（arena 字符串悬垂）** 的回归守卫：`AStr` 测试改写源缓冲后断言 arena 副本不变。
 
-还有一条**上游 kind 表漂移警报**：`kKindNames` 当前 47 项；C++ 门排除 `Registered` 与
-`ChildView` 后，钉住剩余未映射值为 17。parity 信息行不作这两项排除，所以原始差集是 19。
+还有一条**上游 kind 表漂移警报**：`kKindNames` 当前 50 项；C++ 门排除 `Registered` 与
+`ChildView` 后，钉住剩余未映射值为 14（批3 登记 accordion_header/trigger/panel 三件后
+从 17 降到 14）。parity 信息行不作这两项排除，所以原始差集是 16。
 两个数都不是“PHP 不可用功能数”：例如 DockArea 仍在差集中，却已有专用宿主 ABI。
 上游增删 kind 或删掉表里已登记的条目会触发漂移门，要求明确决定是否暴露，不是强求每个
 特殊 kind 都能通过字符串构造。
@@ -171,6 +174,8 @@ sleep 2 && cat /tmp/auto/snapshot.txt
 | `change <id> [文本]` | 设值（给了文本时）+ 合成一条 change 事件 | 补 #93 与"无会话环境"的空缺：这一路在 agent/CI 里只能靠它验 |
 | `value <id>` | 把输入框/部件当前值读进回执 | 断言"写进去了没有"用这句 |
 | `focus <id>` | 把焦点放到部件上 | 真侧目前返回 `-1001`、`focused` 仍为 `-`，焦点这一层仍是缺口（见 #62/#56）；作诊断用 |
+| `clickat <x> <y>` | 按坐标合成一次真点击（与 selftest 的 `realClick` 同源） | id 缝够不着的部件（slot 按钮、catalog 日期触发器）只能按矩形点；#103 的判别臂用它。input 的 `--automation <dir> [height]` 第三参可加高窗，够到折线外的目标 |
+| `hits` | 把这一帧命中表整张落盘 `<dir>/hits.txt` | 行格式 `i id x y w h click down drag`（tab 分隔，gpui 视图系坐标）；与同帧 `screenshot` 对照可分「产品命中错」与「合成缝坐标换算错」 |
 | `screenshot <标签>` | 先强制渲染一帧再出 PNG | 标签净化过，产物逃不出目录 |
 | `quit` | 退出主循环并写最后一轮回执 | CI 能跑完的前提，否则只能 kill 进程 |
 
@@ -338,7 +343,8 @@ type 2/3 = 只按下/只抬起，中间按段发移动并在每段后跑一帧�
 （点进挂原生视图那节再点回来打字）仍然绿。一条门能不能抓住房 bug，只看它被否掉时会不会红，
 不看它长得像不像。
 
-按功能域拆出去的独立示例（`ls examples/` 里 hello 之外的那十二支，名字就是域）
+按功能域拆出去的独立示例（`ls examples/` 里 hello 之外的那十三支，名字就是域——
+2026-10-28 起多了 kit：tier-A 工厂批那 16 组组件的门住在它那支 `--selftest` 里）
 各带一支自己的 `--selftest`，CI 里由 `Domain examples`
 那一步按 `examples/*/project.macos.yml` 自动发现并逐支编译（`--no-native`，只跑 tpc 那一段）+ 跑门。
 它们的分工是：**同一份 UI 源**（`examples/_shared/features/*.php`）被各支的 yml 各自编译，

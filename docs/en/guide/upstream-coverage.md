@@ -21,12 +21,21 @@ The scripts read the vendored source, not a remote documentation snapshot.
 
 | Surface | Upstream vocabulary | PHP access | Boundary |
 |---|---|---|---|
-| `ComponentKind` | 66 enum values | 47 names in `kKindNames`, plus dedicated ABI paths | Subtracting 47 from 66 does not measure missing features |
-| Catalog | 137 export names; 148 distinct method names | Convenience factories and `El::catalog($name, $args)` | Stateful constructors and synchronous callbacks still need host integration |
+| `ComponentKind` | 66 enum values | 50 names in `kKindNames` (2026-10-28 batch 3 added accordion_header/trigger/panel), plus dedicated ABI paths | Subtracting 50 from 66 does not measure missing features |
+| Catalog | 140 export names; 158 distinct method names (pristine tree: 137/158; three export names — ProgressCircle/PopupMenu/ContextMenu — come from the sandbox patches `cmd/patch-progress-circle.sh` and `cmd/patch-popup-menu.sh`) | Dedicated factories and `El::catalog($name, $args)` | Stateful constructors and synchronous callbacks still need host integration. Factories without a dedicated constructor still lack PHP-side argument hints and enum validation; failures come back through `App::registeredError()` |
 
 Distinct method names are not the sum of methods across descriptors. A shared
 method such as `size` occurs in several descriptors but counts once in the distinct
 vocabulary. Do not compare that number with older descriptor-occurrence totals.
+(The 2026-10-28 kit batch raised the count from 148 to 157: the vocabulary
+extractor previously could not see through named constexpr method descriptors
+collected by reference, such as the Dialog family's `kDialogMethods = {kTitle,
+kOnOk, …}`. Of the nine newly visible names, PHP actually emits only `on_ok` and
+`on_close`; the other seven (`grid`, `linear`, `natural`, `step_after`,
+`tick_margin`, `x_axis`, `scroll_axis`) surface from the chart and Scrollbar
+families and are never sent from PHP. A later tree sync brought the distinct count to
+158; batch 5 added three more export names in the sandbox, which brings the usable total
+to 140 — the numbers above are recomputed with `php cmd/upstream-vocab.php`.)
 
 ### Base and catalog are not interchangeable
 
@@ -41,12 +50,72 @@ component name does not imply a matching method table.
 
 ### Generic catalog construction
 
-`El::catalog()` provides access to descriptors without dedicated PHP factories.
-Examples include Accordion, Pagination, Rating, Stepper, TabBar, Settings,
-Tree/TreeItem, separators, Badge, Tag, Label, Kbd, Toolbar, StatusBar, Skeleton,
-Spinner, ShimmerText, Chat, Empty, InputGroupText, charts, DropdownButton,
-GroupBox, DescriptionList, CommandGroup/Item/Separator, NativeMenu, Resizable,
-Clipboard, Questionnaire, TableFooter, and VForm.
+Since 2026-10-28, dedicated factories exist in `src/Element.php` across three batches
+(tier-A gap list, pure-factory warm-up, and the S-factory-prerequisite batches) — 27,
+then 5, then 6 tier-A factories plus one composition sugar (SplitButton) — each replacing
+the bare `El::catalog('ExportName', …)` channel:
+Separator (four variants, with the embedded-label method), Tooltip (the trigger
+component), Skeleton, Empty (assembled from the quintet), Badge/Tag (with
+`->variant()`/`->pill()`), Stepper/StepperItem, Tree/TreeItem, Pagination, Rating
+(read-only goes through the disabled behavior), Kbd/KbdCombo, ShimmerText,
+Dialog/AlertDialog/Sheet (real button-triggered native window effects; Dialog/Sheet
+require the `content` named slot), DescriptionList/Item, DataTable (**structure only —
+the data channel is not connected**), Settings, and Carousel (assembled eight-piece set).
+Signatures, snippets and pitfalls:
+[Components · Kit factories](./components#kit-factories-dedicated-factories-for-tier-a-families).
+The "pure factory warm-up" batch added five more on the plain `reg()` channel: Spinner
+(`icon`/`ease` are component-private enums with their own whitelisted sugar), TableFooter
+(**registered-only** — the ComponentKind enum has no such kind; rows and cells must be
+registered-side TableRow/TableCell), GroupBox (variant set
+normal/fill/outline, merged into the `->variant()` whitelist), VForm (a second export
+name of the same constructor as `'Form'`), and InputGroupText (the full InputGroup
+composition is not assemblable today; the decoration renders standalone — see the
+components page).
+The "S factories with prerequisite work" batch added six more with prerequisite checks
+plus one composition sugar: Label/Toolbar/StatusBar/Clipboard/HorizontalRadioGroup and
+SplitButton (a composition sugar on `DropdownMenu`, not an independent export). The
+prerequisite conclusions: Label's `highlights` argument is a `SchemaString` (one match
+string, not the array the checklist guessed), StatusBar's `left_content`/`right_content`
+take a SchemaElement (shim gap, middle region only), Clipboard's copy is built-in widget
+behavior (premise-based gate), HorizontalRadioGroup accepts only registered-side Radio.
+
+The "m" batch added seven factories on the same `reg()` channel with structural gates:
+Notification (catalog component, two-way alongside `App::notify()`), DropdownButton
+(`->menuItem()` sugar, private variant/anchor whitelists), Bubble/Marker (component-private
+enum whitelists), Message/MessageScroller/Attachment (MessageScroller's
+render_item is a row-returning callback — data channel pending batch 6; it is never put
+in a tree because it would raise `componentStates`), and the five chart families
+(structure only — their data-channel failure gate is not landed: rendering the negative
+path segfaults the native process and the `ChartErrorProbe` seam has no shim install or
+read access; the keypoint is recorded in the kit selftest's skipped list).
+
+The batch-4 batch adds nested structure and second faces: the Questionnaire family (four
+layers of typed nesting — root > Item > Choice/Input, checked layer by layer; the event
+surface audit found no option-change callback — focus/navigation live inside the retained
+state, no new patch needed), the catalog Accordion (multiple/bordered/size/on_toggle; the
+title argument is a SchemaElement shim gap — items are built by count with no title), and
+the four catalog upgrade sugars (Select/Combobox's rows is a row-returning callback —
+structure only, real data pending batch 6; Popover's content goes through the named slot;
+TabBar accepts only registered-side Tab; catalogHoverCard's trigger_element is a hard gap
+so it never enters a tree; optional parameters with bool/int defaults always go through
+instance sugars — the TypePhp translator generates a default-value re-assign defect on
+mixed-default + partial-arity signatures, which fails the example translation outright,
+measured).
+
+Batch 5 is the first batch to reach past the PHP layer: all upstream changes go through
+idempotent `cmd/patch-*.sh` scripts applied to the **sandbox** `build/gpui-kit-cpp` (the
+`upstream/` tree is read-only; `sync-upstream.sh` copies upstream → sandbox and the patch
+chain replays from there). Four more components got factories: ProgressCircle (the widget
+shipped with the vendored tree long ago — only the descriptor was missing; the five-piece
+pattern is replicated into compound/progress.cpp), PopupMenu/ContextMenu (widget layer
+present, descriptors entirely missing — `overlays/popup_menu.cpp` is created, rows are
+ordinary children), and `EmptyHeader`'s `media/title/description` (a SchemaElement shim
+gap — `cmd/patch-element-arg.sh` adds an `element_arg` op to the bridge so `->elementArg()`
+can feed them, and `emptyState()` gains a `$headerSlot = true` switch for the upstream
+native header slot route).
+
+`El::catalog()` remains the channel for the rest: the Accordion root (`El::accordionItem()` uses the base-kind three parts, batch 3),
+CommandGroup/Item/Separator, NativeMenu, and Resizable.
 
 Consult the constructor schema from `upstream-vocab.php` before using a generic
 factory. These names do not all have PHP-side argument hints or enum validation.
@@ -68,22 +137,31 @@ and pixel evidence in `examples/input`:
 
 They cover seven state kinds; the reuse check expects eight entities on both the
 early and late frame. `examples/catalog` tree 2 adds TextareaState, EditorState,
-DiffState, CommandState, and CarouselState. Together these cover 12 of the 15
-state kinds for creation and materialization, not every value or event payload.
+DiffState, CommandState, and CarouselState; the 2026-10-28 kit batch put
+CarouselState (via `El::carousel()`) and DataTableState (via `El::dataTable()`) into
+`src/` as well. Together these cover 13 of the 15 state kinds for creation and
+materialization — not every value or event payload.
 
-DataTableState, MessageScrollerState, and ScrollbarHandle still need complete
-host compositions. The first two require data or element-returning callbacks;
-Scroll requires a shared viewport/handle relationship. A state constructor alone
-does not finish those integrations.
+MessageScrollerState and ScrollbarHandle still need complete host compositions;
+they never appear in `src/` or the examples. DataTableState's **data half** is also
+open: `El::dataTable()` builds the entity plus the `rows`/`render_cell` callback
+markers, but the shim callback channel returns no values, so the row snapshot fails
+per frame — the failure is pinned by the probe counters
+(`stateCounts()['dataTableFails']`) and the data channel is a tier-B item. A state
+constructor alone does not finish those integrations.
 
 ### Alternate host APIs
 
+Since 2026-10-28 some of these have a second route through the catalog's
+trigger-based window effects (see
+[Components · Kit factories](./components#kit-factories-dedicated-factories-for-tier-a-families)):
+
 | Upstream concept | PHP route |
 |---|---|
-| Dialog / AlertDialog | `App::openDialog()` |
-| Sheet | `App::openSheet()` |
-| Application notification | `App::notify()` plus `El::notifications()` |
-| Tooltip | Element `tooltip()` method |
+| Dialog / AlertDialog | `App::openDialog()`, or the trigger factory `El::dialog()` / `El::alertDialog()` |
+| Sheet | `App::openSheet()`, or the trigger factory `El::sheet()` |
+| Application notification | `App::notify()` plus `El::notifications()` (the catalog `Notification` export has no factory yet) |
+| Tooltip | Element `tooltip()` method, or the trigger factory `El::catalogTooltip()` |
 | Clipboard | `App::clipboardText()` / `setClipboardText()` / `clipboardItem()` |
 | FpsMonitor | `App::showFpsHud()` |
 | DockArea | `App::createDock()` and `El::dockArea()` |
@@ -91,14 +169,14 @@ does not finish those integrations.
 
 ## 2. What the kind table does not express
 
-The 19 enum values outside the ordinary string table are:
+The 16 enum values outside the ordinary string table are:
 
-ChildView, Accordion, AccordionHeader, AccordionPanel, AccordionTrigger,
-Pagination, AvatarImage, AvatarFallback, PathFill, PathStroke, FpsMonitor,
-SliderTrack, SliderIndicator, SliderThumb, DockArea, DockContent, VVirtualList,
-HVirtualList, and Registered.
+ChildView, Accordion, Pagination, AvatarImage, AvatarFallback, PathFill, PathStroke,
+FpsMonitor, SliderTrack, SliderIndicator, SliderThumb, DockArea, DockContent,
+VVirtualList, HVirtualList, and Registered. (AccordionHeader/Panel/Trigger joined the
+kind table on 2026-10-28 — `El::accordionItem()` assembles its three parts from them.)
 
-This is a **table difference**, not a list of 19 unavailable PHP features:
+This is a **table difference**, not a list of 16 unavailable PHP features:
 
 - Registered is constructed by descriptor index.
 - ChildView is used by dedicated native-view APIs.

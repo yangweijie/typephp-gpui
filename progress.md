@@ -2465,3 +2465,127 @@ bin/gpui、GPUI.lock、tests/baseline/input/tree1.png（两度重录）、compos
 
 **验收边界**：真人鼠标/IME 只能真人验（#96）；两轮真人复验已完成，
 最终轮"验收完毕"未报新问题。
+
+## 排队任务（2026-10-27，等 dwfrun-341a90ac 完成后启动）
+
+**任务**：/workflow 从延后清单实现剩余组件（tier B/C/D——需上游 ui 层加组件、bridge/渲染大改或应用级），参考 /Volumes/data/git/c/gpui-kit-cpp 的实现风格。
+
+**准备侦察**：/Volumes/data/git/c/gpui-kit-cpp 与本项目 vendored 上游同构（src/{base,component_shell,gpui,shell}/ + src/ui/ 组件家族 accordion/alert/avatar/badge/breadcrumb/bubble/button/carousel/chart…）。
+启动时要做的第一件事：逐组件 diff 参考仓 ui/ 与本项目 upstream ui/，找出参考仓已实现而本项目没有的组件（tier B 的移植成本会大降）；再对照 Phase 26 尾洞报告的延后清单（tier B/C/D）定批次。
+
+**排程约束**：用户明确要求等 dwfrun-341a90ac（Ely 组件差距盘点+批1-3 实施）完成后再启动；届时先读该 run 的报告（延后清单+本期 skipped），再建工作流。
+
+## 2026-10-28 Phase 27：#99 根治（peek 排空）+ 新门；补回 bench:tree
+
+- 接手 28f167c 终态；composer.json 丢的 `bench:tree` 已补回（复跑 OK）。
+- #99：pump 改 peek 优先（inRemoveFromQueue=false，队头是热键才取）。新门
+  `composer check:hotkey-pump`：旧排空吃鼠标=1（负向红）/新排空留鼠标=1、留热键=0 ⇒ GATE OK。
+  hello/mac selftest rc=0。第一版 inTypes 过滤 SIGBUS 的教训留在代码注释。
+- 新立 #100：input 三条日期门确定性红＝触发器在 620 窗外（y≈764）+ 示例不滚屏；
+  与 #99 无关（input 无热键）；不放宽门，另修布局/窗高。
+- 待办：#99 真人验收、#100、17-H 提交授权、排队工作流等 dwfrun-341a90ac。
+
+### Phase 27 续（同日）：#100 修好 + test:all 的链接红修好
+
+- #100：runSelfTest 改用 `$selfH = 1100` 的高窗（函数内 6 处 snapshot 一并改），
+  `--shot` 那扇仍 620 ⇒ 基线不动。修前三条日期门确定性 FAIL → 修后 `INPUT SELFTEST OK`，
+  shotdiff input `gdfrac=0.00000`。
+- `composer test:all` 曾 rc=1：`Undefined symbols: _gpui_data_node_free`（shim_test.o）。
+  根因＝批6 让 shim TU 引用了宿主符号，而生产定义在依赖 phpx 的 gpui_bridge.cc，
+  headless 测试链不进来。修法＝抽 `cpp-src/gpui_data_node.inc`（DataAlloc / g_dataAllocs /
+  gpui_data_node_free，与 phpx 无关），bridge 与 shim_test include 同一份生产代码。
+  先删旧 shim_test/shim_test.o 再建（陈旧产物会假绿）。
+- 读数：`bash cmd/test-shim.sh` rc=0 `SHIM CPP TESTS OK`；`composer test:all` rc=0
+  （Pest 126 passed / 715 assertions、PHPStan `[OK] No errors`、`UPSTREAM PARITY OK`、
+  `SHIM CPP TESTS OK`）；`php bin/gpui build hello --no-native` rc=0（nano c++17 侧也通）。
+- 顺手发现（未改，属另一条会话在飞的时候）：`cpp-src/gpui_shim_events.inc:341/347/353`
+  有三处无条件 `fopen("/tmp/dt3","a")` 调试写；`src/FakeBridge.php` 的 `$dataHandlers`
+  docblock 曾被写成 int 键（PHPStan 红），已订正为 `array<string, callable>`。
+
+### Phase 27 续 2（同日深夜）：门绑到生产代码 + 揪出"关窗就崩"
+
+- **热键门升级**：原来探针里是 pump 的抄本（生产改回去它照样绿）。改成把 cpp-src/gpui_mac.mm
+  编进来一起链、直接调 `gpui_mac_pump()`；加"撤掉热键后一个都不碰"臂与 sink 送达计数；
+  脚本加 `--arm=both|green|red`，红臂把生产 peek 的 false 翻 true 编临时副本（生产不动）。
+  实测：正向 `留鼠标=1 留热键=0 热键送达=1 无热键时留鼠标=1 留热键=1`、红臂 `留鼠标=0 热键送达=0`
+  ⇒ `HOTKEY-PUMP GATE OK（正向绿 + 红臂红）` rc=0。
+  踩到的坑：第一版分两趟排空数鼠标/热键，第一趟（任意事件）就把热键吃了 ⇒「留热键=0」是
+  构造出来的恒真式，红臂也读 0；改成一次排空同时数两类才有判别力。
+- **#101 关窗段错误（新立并修好）**：`hello --automation <新目录>`（一条 quit）rc=139，
+  input 同样 139，而 `--selftest` rc=0。两份 .ips 同栈：exit → __cxa_finalize_ranges →
+  ~unordered_map<string,Variant> → ~Variant → zval_ptr_dtor → SIGSEGV。
+  根因：`App::on()`（src/App.php:425-429）把每个事件处理器也塞进 bridge 的 g_dataFns，
+  静态析构在 Zend 引擎关掉之后才跑。修法＝两张登记表改引用堆对象、故意不析构。
+  修后 hello/input 都 rc=0。新门 `composer check:exit-clean`（先建再量、断言回执
+  `commands=1` 与 `#1 quit -> bye`、40s 看门狗；挂住/建不出/未知开关 rc=2）⇒ GATE OK（2 支）。
+  夹具坑：automation 吃过命令文件就 `@unlink`，**复用旧目录会永远等下一号**（实测挂住 4 分钟，
+  那是我的夹具错，不是门红，也不是修法的副作用）。
+- **bare vs bundle A/B（同一份产物、同一个量）**：hello 裸 selftest rc=0 `routeGreen=true`；
+  bundle（`php bin/gpui selftest`＝--expect-bundle）rc=1 `routeGreen=false`。
+  kit 裸 rc=0 `KIT SELFTEST OK`（54+2 腿全 ok，含 dataTableRowsCallbackSuccess/Loud）；
+  bundle rc=139，且两次崩在不同腿（一次 focusRovingTab 之后、一次 chartFiveShape 中途）。
+  ⇒ 全量跑里 hello/kit 的红是 bundle 路径（#56 族），不是本轮回归；CI 跑的是裸二进制。
+  embedded shotdiff gdfrac=0.00272 复跑绿＝抖动（仍计红）；hello shotdiff tree23 gdfrac=0.01597
+  复跑仍红，待单跑复核。
+- **门禁全扫**：test:all rc=0（Pest 126/715、PHPStan No errors、PARITY OK、SHIM CPP TESTS OK）；
+  bench-tree/build-inputs/parity --info/cxx17/c-abi/hotkey-pump/bundle/doctor/docs-build/
+  doc-anchors 全 rc=0；exit-clean rc=0。两张 testing.md 表各 19 行、列数零失配。
+- **仓库卫生**：`examples/_tmprepro`（另一条会话的一次性复现，main.php 调 `El::baz()`）
+  移到 /tmp/g28-parked/_tmprepro（可逆，未删）——它让 build-inputs 报 2 条 sources 未跟踪、
+  让 bundle 门报"没有 Info.plist"。移走后 build-inputs OK、bundle 扫 14 个 0 问题。
+  `git add`（未提交）：cmd/patch-{progress-circle,popup-menu,element-arg,host-data}.sh（清单点名
+  却未跟踪）、cmd/check-hotkey-pump.sh、cmd/hotkey-pump-probe.cpp、cmd/check-exit-clean.sh、
+  cpp-src/gpui_data_node.inc。
+- **文档**：testing.md 中英各补第 16/17 行（热键泵、退出干净）；顺手修好两行里
+  `cmd/*.(php|sh)` 的裸竖线（GFM 表格里 code span 内的 `|` 照样切列 ⇒ 那两行多出一列），
+  改成 `\|`。CI 原生 job 加两步（hotkey-pump、exit-clean）。
+- **像素门收尾（tree23 重录、tree30 定性）**：
+  - tree23 基线停在 2026-10-11（3ce13fa），而 28f167c（10-27）让 kind 路 checkbox 真画出来了。
+    看图对照：基线里 Preferences 行**没有 checkbox**，新图有勾选框+Subscribe ⇒ 有意视觉改进
+    留下的陈旧基线（gdfrac=0.01597 三轮逐字同＝离散态，不是抖动）。**只外科式重录这一张**
+    （cp 新 shot、md5 对齐），不跑 `record hello`——那会把 tree30 的空白态一起洗进基线。
+    重录后 tree23 绿，其余 17 棵不动。
+  - tree30 仍红，且**不是帧数不够**：120→600 帧后 5/5 仍空白，md5 与 120 帧的空白态逐字节同
+    ⇒ "帧数是墙钟代理、空闲机器上不够"这条假设被证伪，已回退 120 并把证伪写进注释。
+    同期 embedded 的 WebView 能画（gdfrac=0.00000）；当前会话 snapshot `active=0 key=0`
+    （00:13 那轮是 1/1），而全量跑那两遍 tree30 都绿 ⇒ WebView 画不画与"应用拿不拿得到
+    前台/key"这个 OS 竞争态相关，属 #56 族环境边界。**未重录、未放宽容差**；要么在能拿到
+    前台的会话复验，要么按前提式门改造（本轮未做，记为开放项）。
+  - 终态产物复验：hello selftest rc=0、check-exit-clean hello rc=0。
+
+### Phase 28（2026-10-29 凌晨）：#56 六格复测全绿 + #103 错位证伪 + 驱动缝补两动词
+
+- `cmd/onscreen-probe.sh input` 同一秒 2×3 **全 1**（纯 AppKit 1/1、gpui+shim 1/1、
+  完整产物 裸/bundle=1/1，自报 onScreen 两侧 true）⇒ rc=0。历史"完整产物 bundle 列 0/4"
+  的那格此刻在屏 ⇒ 按"此刻可验"记录，不写成"已修"；#56 仍开放（会话态间歇）。
+  顺带修好探针自己的链接红：批6 后 shim 归档引用宿主符号 gpui_data_node_free，零 PHP 的
+  gpui 臂不链 bridge ⇒ 在 WITH_GPUI 分支 include 同一份 gpui_data_node.inc（appkit 臂按
+  objective-c 编，必须留在 ifdef 里）。这是该符号第二个 archive-only 消费点。
+- **#103 证伪**：新增 `clickat x y`（与 selftest realClick 同源）+ `hits`（整张命中表落盘）
+  两动词、input `--automation <dir> [height]` 第三参加高窗（不新增开关名）。三臂点"画出来
+  的格子"：当月 1→2026/10/01、外月 27→2026/09/27、选外月后视图跳九月再点末行末列→
+  2026/10/03（九月网格该格），读回全对、当帧收起；同帧 hits 与截图逐格对齐。
+  ⇒ Phase 26 债务①"错位依旧存在"是陈旧结论（应是死帧点击落到裸日历的产物），
+  input main.php 四处陈旧注释订正。中间我自己差点误判 off-by-four：期望日期必须按
+  点击那一刻的视图月算（选外月日会导航）。
+- 门禁：input selftest rc=0（INPUT SELFTEST OK）、pest 126/715、docs build/anchors rc=0、
+  中英 testing.md 门表列数零失配；动词表各补两行（clickat/hits）。
+- 仍开放：#56（会话态间歇）、tree30 环境边界（onScreen=1 仍空白 ⇒ 相关量剩 key/active，
+  机制未证明前不改门语义）、17-H 提交授权、排队工作流等 dwfrun-341a90ac 报告。
+
+### Phase 28 收尾：终态全量矩阵 + 17-H 审计读数
+
+- 终态 `cmd/all-examples.sh both`：**13/13 selftest rc=0**；shotdiff 12/13 rc=0，
+  唯一红＝hello tree30（gdfrac=0.56586，与历史空白态签名同；tree23 重录后已绿）。
+  该红按已记录的环境边界口径处理：不重录、不放宽容差、不改门语义。
+- 终态无头门链：`composer test:all` rc=0（Pest 126/715、PHPStan No errors、PARITY OK、
+  SHIM CPP TESTS OK）、`check-build-inputs` OK、`doctor` rc=0 且 ✗ 0 条。
+- **#56 定性结案**（非"已修"）：六格此刻全绿 ⇒ 间歇而非恒定缺陷；门 14 + onscreen-probe
+  常驻、run 默认裸二进制。剩余现象无内部协变量可预测，按已知边界记录。
+- **提交面盘点（等授权，未提交）**：索引里混有另一条会话的批5/批6 交付（examples/kit、
+  四支 patch-*.sh、parity 脚本、kit/layout 基线等）与本轮交付（gpui_data_node.inc、
+  check-hotkey-pump/check-exit-clean、onscreen-probe 修、testing.md 中英、ci.yml 两步、
+  input 的动词/高窗/注释订正、hello tree23 基线一张）。授权后按名字分批 add/commit，
+  绝不 `git add -A`（.workbuddy-ai/ 不在 .gitignore）。
+- 仍待用户/外部：17-H 提交授权；dwfrun-341a90ac 报告（排队工作流 tier B/C/D 的启动前提）。
+

@@ -2492,3 +2492,115 @@ C·checkbox 点不勾、D·时间框点死区无响应、E·日期弹层不收/�
 
 **验证边界**：真人鼠标最终复验已做完两轮（第一轮报出 E/T/N/P，第二轮"验收完毕"未报新问题）；
 IME 候选窗行为只能真人验。
+
+## Phase 27：#99 热键吃 down 的根治 + 一条新门；接手另一条会话的终态（2026-10-28）
+
+**接手状态**：HEAD=28f167c（Phase 26 五连修已提交、真人验收完毕）。发现 composer.json 在
+另一条会话"还原"时丢了 `bench:tree`（cmd/bench-tree.php 与 budgets 都在、CI 也点名），
+已补回；`composer bench:tree` 复跑 BENCH-TREE OK。
+
+**#99 根因与修法**：`gpui_mac_pump` 每帧 `ReceiveNextEvent(0, NULL, …, true, …)` 排空
+Carbon 队列＝"任意事件"，把 AppKit 队列里的 leftMouseDown 摘走丢给没人接的派发目标。
+第一版改"全类 mask + inTypes 过滤"在 `ReceiveNextEventCommon` 里 SIGBUS
+（input-2026-10-23-074136.ips），SDK 也无 GetEventMaskForClass/PeekEvent ⇒ 放弃。
+**现行修法＝peek 优先**：`inRemoveFromQueue=false` 只看不取，队头是
+`kEventClassKeyboard/kEventHotKeyPressed` 才再取一次派发，否则停手留给 AppKit。
+
+**新门（免人手、两侧都动）**：`cmd/hotkey-pump-probe.cpp` + `cmd/check-hotkey-pump.sh`
+（`composer check:hotkey-pump`）。往队列塞"热键在队头、鼠标在其后"一对：
+正向断言 peek 排空取走热键、留下鼠标；负向对照用旧排空必须吃掉鼠标（否则 rc=2 未判定）。
+实测：`旧排空吃鼠标=1 新排空留鼠标=1 留热键=0 ⇒ 修法成立` ⇒ `HOTKEY-PUMP GATE OK`。
+重链后 `hello --selftest` rc=0、`mac --selftest` rc=0（这两支注册热键，是旧缺陷的受害者）。
+
+**新立 #100（与 #99 无关，不放宽门）**：input 的三条日期门
+（datePickerInitialClosed / datePickerSyntheticReadout / datePickerPopupLifecycle）
+确定性红（连跑两遍同集合）。根因实测：selftest 窗 560×620、示例从不滚屏，而日期触发器
+命中矩形在 y≈764（窗外）⇒ realClick 落空、弹层开不了；新渲染 tree1 也见日期字段在折线处。
+input 不注册热键 ⇒ peek 泵对它恒早退，与 HEAD 行为逐字节相同 ⇒ 这三条红在 HEAD 就存在，
+是门与布局的不匹配，另立任务修（加高 selftest 窗/先滚屏/上移字段，三选一，红绿两侧实测）。
+
+**#100 已修（红→绿两侧实测）**：selftest 用自己的高窗（`$selfH = 1100`，runSelfTest 内
+6 处 snapshot 同步改高），`--shot` 那扇仍是 INPUT_H=620 ⇒ 像素基线不受影响。
+修前：三条日期门确定性 FAIL；修后：`INPUT SELFTEST OK`，shotdiff input gdfrac=0.00000。
+
+**test:all 的链接红已修（另一条会话批6 的余波）**：shim TU 现在引用宿主符号
+`gpui_data_node_free`，其生产定义在依赖 phpx 的 gpui_bridge.cc 里，headless 的
+tests/cpp/shim_test.cpp 链不进来 ⇒ `Undefined symbols: _gpui_data_node_free`。
+修法＝把与 phpx 无关的一片（DataAlloc / g_dataAllocs / gpui_data_node_free）抽成
+`cpp-src/gpui_data_node.inc` 文本切片，bridge 与 shim_test **include 同一份生产代码**
+（不抄副本、不改 ABI、不动各示例 yml 的 sources）。实测：`composer test:all` rc=0
+（Pest 126 passed / 715 assertions、PHPStan No errors、UPSTREAM PARITY OK、SHIM CPP TESTS OK），
+`php bin/gpui build hello --no-native` rc=0（证明切片在 nano c++17 下也编得过、链得上）。
+
+**#99 结案（队列级门 + 真人读数两侧都有）**：门改成驱动**生产 `gpui_mac_pump()`**
+（把 gpui_mac.mm 编进来一起链），不再用抄本；三臂＝注册真热键后「热键在队头、鼠标紧跟」
+（断鼠标还在、热键被取走**且 sink 真收到一条**）／撤掉热键后泵一个都不碰／旧排空负向对照。
+**自带红臂**：把生产源 peek 的 `false` 翻成 `true` 编临时副本，门必须变红。
+实测正向 `旧排空吃鼠标=1 生产泵留鼠标=1 留热键=0 热键送达=1 无热键时留鼠标=1 留热键=1`、
+红臂 `生产泵留鼠标=0 热键送达=0` ⇒ `HOTKEY-PUMP GATE OK（正向绿 + 红臂红）`。
+真人侧：/tmp/g28-hello-accept.log 43 条本地监视器读数，type=1 的 down 每条都配到一条
+`GPUI-RESIZE down`（注入点在 upstream window_mac.cpp 的 `-mouseDown:`，y 轴翻转一致
+600-400=200）⇒ 物理 down 真到了 gpui 宿主视图，另有 6 条 keyDown + TSM/IMK 日志。
+第一版探针有个构造性恒真式（分两趟排空，第一趟就把热键吃了 ⇒「留热键=0」红臂也读 0），
+已改成一次排空同时数两类。
+
+**#100 结案**：全量复跑里 input selftest rc=0、shotdiff rc=0（树=1）。
+
+**新立并修好 #101：正常退出段错误（真人关窗就崩）**。根因链：`App::on()` 把每个事件处理器
+**也**登记进 bridge 的 `g_dataFns`（批6 加的），于是 hello/input 这种没有列表的示例表里也有
+PHP callable；交互 quit／关窗走 main 正常返回 → exit → `__cxa_finalize_ranges` → 静态析构，
+Zend 引擎已关 ⇒ `~Variant → zval_ptr_dtor` 摸已释放内存 SIGSEGV
+（hello-2026-10-28-235342.ips、hello-2026-10-29-001350.ips 同栈）。
+**`--selftest` 走 PHP `exit()` 不跑这些析构**，所以十几支自检全绿照不出这条路。
+修法：两张进程级登记表（g_listFns/g_dataFns）改成引用堆对象、**故意不析构**（窗口关闭时仍由
+forget* 清）。免人手复现＝`--automation <新目录>` 放一条 quit；修前 hello/input 都 139、修后都 0。
+新门 `composer check:exit-clean`（cmd/check-exit-clean.sh，先建再量 + 回执确认 + 40s 看门狗，
+挂住/建不出/未知开关都 rc=2），已进 CI 原生 job 与 docs/guide/testing.md 第 17 行（含英文）。
+
+**门禁全扫读数（本轮）**：test:all rc=0（Pest 126 passed/715 assertions、PHPStan No errors、
+UPSTREAM PARITY OK、SHIM CPP TESTS OK）；bench-tree/build-inputs/parity --info/cxx17/c-abi/
+hotkey-pump/bundle/doctor/docs-build/doc-anchors 全 rc=0（doc-anchors 69 链接/16 带锚/0 问题）。
+全量示例复跑见 progress.md。**bundle 路径仍红（属 #56，不是本轮回归）**：同一份产物
+裸二进制 hello selftest rc=0 且 `routeGreen=true`，bundle（`gpui selftest` 走 --expect-bundle）
+rc=1 且 `routeGreen=false`；kit 裸 rc=0 `KIT SELFTEST OK`（含两条 DataTable 门）、bundle rc=139
+且两次崩在不同腿。CI 的 Native selftest 与 Domain 循环跑的都是裸二进制。
+
+**仍开放**：#56（bundle 在屏/路由资格）；hello/tree30 像素门的环境边界（WebView 在拿不到
+前台/key 的会话里不画，加帧已证伪无效；未重录未放宽，待能拿前台的会话复验或改前提式门）；
+17-H 的提交授权（本轮只 `git add` 了构建输入，未提交；另外外科式重录了 tests/baseline/hello/tree23.png
+一张，理由与看图证据见 progress.md）；排队工作流仍等 dwfrun-341a90ac（本地无其报告，不启动）。
+
+## Phase 28：#56 六格复测全绿 + #103 日格错位证伪 + 驱动缝补两动词（2026-10-29）
+
+- **#56 读数更新**：onscreen-probe 同一秒 2×3 全 1（含完整产物 bundle 列，历史 0/4 的那格
+  此刻在屏）⇒ rc=0。结论按"此刻可验"写，不写成"已修"；间歇性仍在，判别器与门 14 常驻。
+  探针 gpui 臂的链接红（批6 宿主符号、第二个 archive-only 消费点）已修：WITH_GPUI 分支
+  include 同一份 gpui_data_node.inc。
+- **#103 结案（证伪旧债务）**：Phase 26 债务①"弹层日格点 A 选 B 依旧存在"复测不复现。
+  判别臂＝加高窗 + clickat 点画出来的格子三臂（当月 1→2026/10/01、外月 27→2026/09/27、
+  导航后九月末行末列→2026/10/03），读回全对、当帧收起；同帧 hits 与截图逐格对齐。
+  旧错位应是 popup-same-frame 之前死帧里点击落到下方裸日历的产物。四处陈旧注释订正。
+  绝对日期回读的 rc 级门还缺 DatePicker 值回读口（未加，记将来工作）。
+- **驱动缝**：automation 新增 `hits`（命中表整张落盘 hits.txt）与 `clickat x y`（坐标缝，
+  与 realClick 同源）；input `--automation <dir> [height]` 第三参加高窗（不新增开关名，
+  开关自洽门不受影响）。中英文档动词表各补两行。
+- **门禁**：input selftest rc=0、pest 126/715、docs build/anchors rc=0、门表列数零失配。
+- **仍开放**：#56（会话态间歇）、tree30 环境边界（onScreen=1 仍空白，相关量剩 key/active；
+  机制未证明前不改门语义）、17-H 提交授权、排队工作流等 dwfrun-341a90ac。
+
+### Phase 28 收尾审计（终态树，2026-10-29）
+
+- 全量：`all-examples both` = 13/13 selftest rc=0；shotdiff 12/13 rc=0，唯一红 hello tree30
+  （gdfrac=0.56586 空白态签名，环境边界，不重录/不放宽/不改门语义）；tree23 重录后绿。
+- 无头门链终态：test:all rc=0（126/715、PHPStan、PARITY、SHIM）、bench:tree OK、
+  build-inputs OK、doctor rc=0 ✗0、cxx17/c-abi OK、hotkey-pump 正向绿+红臂红、
+  exit-clean OK、docs build+anchors OK（门表/动词表列数零失配）。
+- showcase 一致性：examples/ 13 域无 showcase；docs/tests 仅历史注释（input main.php:743
+  一条讲由来的旧注释）；parity 门绿 ⇒ 名字册与上游一致。
+- **#56 定性结案**（非"已修"）：六格此刻全绿 ⇒ 会话态间歇；门 14 + onscreen-probe 常驻、
+  run 默认裸二进制；无内部协变量可预测，按已知边界记录，不再当代码回归查。
+- **代码可执行的待办已清空**。剩两项非代码前提：①17-H 提交授权（索引混有另一条会话的
+  批5/批6 交付，授权后按名字分批提交，绝不 git add -A）；②dwfrun-341a90ac 报告
+  （排队工作流 tier B/C/D 的启动前提，本地仍无）。tree30 若要在无前台会话也绿，
+  需用户定夺是否改前提式门（本轮未改）。
+
