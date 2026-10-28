@@ -137,7 +137,7 @@ uint64_t gpui_shim_retained_input(void* win, const char* id, int textarea,
                                   const char* placeholder, const char* value,
                                   int rows);
 uint64_t gpui_shim_retained_slider(void* win, const char* id, double min,
-                                   double max, double step);
+                                   double max, double step, double value);
 /* 为 DatePicker/Select/Combobox 创建常驻 Focus 实体（按 id 幂等）。返回 EntityHandle。 */
 uint64_t gpui_shim_retained_focus(void* win, const char* id);
 /* 把焦点放进一颗已有焦点身份的部件（bridge 以 "id:t"/"id:c" 造过 handle 的那些），
@@ -148,6 +148,8 @@ int gpui_shim_focus_named(void* win, const char* id);
  * 没有它整颗 otp_input 静默降级成 Div。length 目前由 bridge 定（4 格）。 */
 uint64_t gpui_shim_retained_otp(void* win, const char* id, int length,
                                 const char* value, int masked);
+/* 批3：OTP 格数回读（state->length）。无此 id / 非 Otp 时返回 0。 */
+int gpui_shim_otp_length(void* win, const char* id);
 /* 读取某 input 元素当前文本值：写入 out（至多 outlen-1 字节 + '\0'），返回长度。 */
 int gpui_shim_input_value(void* win, const char* id, char* out, int outlen);
 /* 程序化设置某 input 元素文本（InputSetValue）。成功返回 1。供自检/预填用。 */
@@ -480,6 +482,31 @@ int gpui_shim_state(void* win, const char* kind, const char* key,
 typedef int (*GpuiListRenderFn)(void* win, const char* list_id, int first, int end,
                                 uint32_t* out_roots, int cap);
 void gpui_shim_set_list_renderer(GpuiListRenderFn fn);
+
+/* 批6 宿主数据回路：materialize 途中同步回调 PHP 处理器（DataTable rows / 图表
+ * rows / SearchableList items 的数据回调），返回值经这棵树回填。
+ * GpuiDataNode 由 bridge 建（堆上）、shim 走（转 shell::ComponentDataValue）、
+ * bridge 释放（gpui_data_node_free）。kind/str/num/b 按 kind 取用；ARRAY 时
+ * items/count 有效，keys 非空表示关联数组（shim 侧落成 Object，空表示索引数组）。 */
+typedef struct GpuiDataNode {
+    GpuiArgKind kind;
+    double num;
+    int b;
+    const char* str;
+    struct GpuiDataNode* items;
+    const char* const* keys;
+    int count;
+} GpuiDataNode;
+
+/* bridge 侧：按 (win,id,type) 找 PHP 处理器并 php::call，返回值编成一棵
+ * GpuiDataNode。NULL = 没有登记处理器或返回 null（shim 侧落成 Null 结果，
+ * descriptor 自己会响亮失败）。 */
+typedef GpuiDataNode* (*GpuiDataCallbackFn)(void* win, const char* id,
+                                           const char* type);
+void gpui_shim_set_data_callback(GpuiDataCallbackFn fn);
+
+/* shim 走完树后调用释放（递归；keys 数组由 bridge 分配）。 */
+void gpui_data_node_free(GpuiDataNode* node);
 uint32_t gpui_shim_push_list(void* win, const char* id, int uniform, int count);
 
 /* Dock 面板描述独立持有 arena；begin/end 之间只描述树，不泵帧或重入窗口 API。 */

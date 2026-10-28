@@ -65,6 +65,14 @@ cat > "$TMP/control.m" <<'EOF'
 #include <unistd.h>
 #ifdef WITH_GPUI
 #include "gpui_shim.h"
+// 批6 起 shim TU 引用宿主符号 gpui_data_node_free。本探针零 PHP、不链 bridge，
+// 于是自己当宿主：include 与 bridge / shim_test 同一份生产切片（不抄副本）。
+// 只在 WITH_GPUI 分支里：appkit 臂按 objective-c 编，吃不下 C++ 头。
+#include <cstring>
+#include <string>
+#include <unordered_map>
+#include <vector>
+#include "gpui_data_node.inc"
 #endif
 int main(int argc, char **argv) {
     @autoreleasepool {

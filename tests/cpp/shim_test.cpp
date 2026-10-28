@@ -13,6 +13,10 @@
 #include <unistd.h>
 #include <string>
 
+// shim 走完宿主数据树后要调 gpui_data_node_free（宿主符号）。本 TU 在测试里就是
+// 那个"宿主"，include 与 bridge 同一份生产切片，不抄副本（抄一份就等于测了别的代码）。
+#include "gpui_data_node.inc"
+
 namespace {
 
 int g_failures = 0;
@@ -57,7 +61,11 @@ void testKindFromString() {
     CHECK(kindFromString("div") == K::Div);
 
     // 漂移警报：上游动了 ComponentKind 表就必须注意到。
-    // 只检查未登记值的个数；UniformList 已加入，剩余 17 个不能按普通 kind 构造。
+    // 只检查未登记值的个数；UniformList 已加入，剩余 14 个不能按普通 kind 构造
+    // （批3 给 El::accordionItem 登记了 accordion_header/trigger/panel 三件后从 17 降到
+    // 14；这 14 个是文档已载的"PHP 表达不了"组：Accordion/Pagination/Avatar*/Path*/
+    // FpsMonitor/SliderTrack/Indicator/Thumb/DockArea/DockContent/VVirtualList/
+    // HVirtualList，外加豁免的 Registered 与 ChildView 两个，parity 原始差集 16）。
     bool covered[256] = {};
     for (const KindName& e : kKindNames) {
         covered[(unsigned)e.kind] = true;
@@ -66,7 +74,7 @@ void testKindFromString() {
     // （按描述符索引），ChildView 是 shim 内部挂原生子视图用的。
     const K unnameable[] = {K::Registered, K::ChildView};
 
-    const int kExpectedUnnamed = 17;
+    const int kExpectedUnnamed = 14;
     int unnamed = 0;
     for (unsigned v = 0; v <= (unsigned)K::Registered; v++) {
         if (covered[v]) continue;

@@ -277,4 +277,95 @@ void gpuiEnqueueShimCallback(App* app, EntityId view, uint64_t shimId) {
     NotifyApp(app);
 }
 
+// 批6 宿主数据回路：runtime 的 CallInLayout 命中 shimId 时调此（覆盖 runtime.cpp
+// 的弱符号）。view 是注册回调时的 EntityId，EntityGet 取回 PhpView* 再经 g_views
+// 反查 Box2；shimId 即 box 侧 callbackId，callbacks 表给出 (elemId,type)——
+// 处理器由 PHP 经 gpui_set_data_handler 登记给 bridge，bridge 的 php::call 同步
+// 调它并返回一棵 GpuiDataNode，这里转成 shell::ComponentDataValue 回填（materialize
+// 途中同步，桥侧存储活到本函数返回前）。无处理器/返回 null → Null 结果（descriptor
+// 自己会响亮失败，与 JS 路返回 null 的语义一致）。
+namespace {
+
+shell::ComponentDataValue DataNodeToValue(const GpuiDataNode& n, Arena* a) {
+    using namespace gpui::shell;
+    switch (n.kind) {
+        case GPUI_ARG_NIL:
+            return ComponentDataValue::Null();
+        case GPUI_ARG_BOOL:
+            return ComponentDataValue::Boolean(n.b != 0);
+        case GPUI_ARG_NUM: {
+            return ComponentDataValue::Number(n.num);
+        }
+        case GPUI_ARG_STR:
+            return ComponentDataValue::String(StrDup(a, Str(n.str)));
+        case GPUI_ARG_ARRAY: {
+            ComponentDataValue* items =
+                n.count > 0 ? (ComponentDataValue*)Alloc(
+                                 a, (int)(sizeof(ComponentDataValue) *
+                                          (size_t)n.count))
+                          : nullptr;
+            for (int i = 0; i < n.count; i++)
+                items[i] = DataNodeToValue(n.items[i], a);
+            if (n.keys) {
+                // 关联数组：keys 与 items 等长，落成 Object（ComponentDataFromJs
+                // 的 object 分支同形状）。
+                Str* keys =
+                    n.count > 0 ? (Str*)Alloc(a, (int)(sizeof(Str) *
+                                                        (size_t)n.count))
+                              : nullptr;
+                for (int i = 0; i < n.count; i++)
+                    keys[i] = StrDup(a, Str(n.keys[i]));
+                ComponentDataValue v;
+                v.kind = DataKind::Object;
+                v.items = items;
+                v.keys = keys;
+                v.count = n.count;
+                return v;
+            }
+            return ComponentDataValue::Array(items, n.count);
+        }
+        default:
+            return ComponentDataValue::Null();
+    }
+}
+
+} // namespace
+
+bool gpuiInvokeShimDataCallback(App* app, EntityId view, uint64_t shimId,
+                                const shell::ComponentDataValue* arguments,
+                                int count, shell::ComponentDataValue* out,
+                                Arena* a, Str* error) {
+    (void)arguments;
+    (void)count;
+    auto* pv = (PhpView*)EntityGet(app, view);
+    // 调试写默认关：无条件 fopen("/tmp/dt3") 会让交付产物每次数据回调都写盘
+    // （仪表自动启用就不再是观察者）。要现场时 GPUI_DATA_DEBUG=1。
+    if (getenv("GPUI_DATA_DEBUG")) { FILE* m = fopen("/tmp/dt3", "a"); if (m) { fprintf(m, "SH2-entityget pv=%p\n", (void*)pv); fclose(m); } }
+    if (!pv) {
+        *error = StrDup(a, StrL("host data callback: dead view"));
+        return false;
+    }
+    Box2* box = boxForView((void*)pv);
+    if (getenv("GPUI_DATA_DEBUG")) { FILE* m = fopen("/tmp/dt3", "a"); if (m) { fprintf(m, "SH4-box=%p viewEntityIdx=%d viewEntityGen=%u\n", (void*)box, box ? box->viewEntity.index : -1, box ? box->viewEntity.gen : 0); fclose(m); } }
+    if (!box || !g_dataCallback) {
+        *error = StrDup(a, StrL("host data callback is not installed"));
+        return false;
+    }
+    auto it = box->callbacks.find(shimId);
+    if (getenv("GPUI_DATA_DEBUG")) { FILE* m = fopen("/tmp/dt3", "a"); if (m) { fprintf(m, "SH-hook box=%p shimId=%llu found=%d\n", (void*)box, (unsigned long long)shimId, (int)(it != box->callbacks.end())); fclose(m); } }
+    if (it == box->callbacks.end()) {
+        *error = StrDup(a, StrL("host data callback: unknown callback id"));
+        return false;
+    }
+    GpuiDataNode* node =
+        g_dataCallback(box, it->second.first.c_str(), it->second.second.c_str());
+    if (!node) {
+        *out = shell::ComponentDataValue::Null();
+        return true;
+    }
+    *out = DataNodeToValue(*node, a);
+    gpui_data_node_free(node);
+    return true;
+}
+
 } // namespace gpui

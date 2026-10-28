@@ -196,6 +196,7 @@ uint32_t emitTree(void* win, Array node) {
         || kind == "number_input" || kind == "otp_input") {
         std::string ph, val = value;
         int rows = 0;
+        double otpLen = 4, sMin = 0, sMax = 100, sVal = 0;
         Variant opsV0 = node.get("ops");
         if (opsV0.isArray()) {
             Array ops0 = opsV0.toArray();
@@ -206,10 +207,21 @@ uint32_t emitTree(void* win, Array node) {
                 if (strOf(op.get("kind")) != "method") continue;
                 std::string mn = strOf(op.get("name"));
                 Variant args = op.get("args");
-                std::string a0 = args.isArray() ? strOf(args.toArray().get(0)) : std::string();
+                // 数字实参的读取要走 isInt/isFloat（strOf 对 Double 返回空串——
+                // slider_min 首跑就这么被吞成默认量程的）。没有数字实参时才有 a0。
+                Variant a0v = args.isArray() ? args.toArray().get(0) : Variant();
+                bool hasNum = a0v.isInt() || a0v.isFloat();
+                double aNum = hasNum ? a0v.toFloat() : 0.0;
+                std::string a0 = args.isArray() ? strOf(a0v) : std::string();
                 if (mn == "placeholder" && !a0.empty()) ph = a0;
+                else if (kind == "slider" && mn == "value" && hasNum) sVal = aNum;
                 else if (mn == "value" && !a0.empty()) val = a0;
                 else if (mn == "rows" && !a0.empty()) rows = (int)atoll(a0.c_str());
+                // 桥内专用 op（Element 工厂发、parity 的 internalOps 白名单）：
+                // otp 的格数与 slider 的量程，建 retained 时消费，不到上游。
+                else if (mn == "otp_length" && hasNum) otpLen = aNum;
+                else if (mn == "slider_min" && hasNum) sMin = aNum;
+                else if (mn == "slider_max" && hasNum) sMax = aNum;
             }
         }
         if (id.empty()) {
@@ -217,13 +229,14 @@ uint32_t emitTree(void* win, Array node) {
             gpui_shim_set_error(win, (kind + ": 缺 id，retained 实体建不出来（会静默降级成 Div）").c_str());
         }
         if (kind == "otp_input") {
-            // 4 格：shell 目前没有把"格子数"传下来的通道（OtpInput 的 ctor 只吃 handle），
-            // 所以长度定在 bridge 里；要可配的话得先给 Element/桥加一条 length 通道。
-            gpui_shim_retained_otp(win, id.c_str(), 4, val.c_str(), 0);
+            // 格数经 Element::otpInput($id, $length) 的 otp_length op 下来
+            // （上游 CreateRetainedOtp 本就按任意 length 建）；缺省 4，<=0 归 4。
+            int len = (int)otpLen;
+            gpui_shim_retained_otp(win, id.c_str(), len > 0 ? len : 4, val.c_str(), 0);
         } else if (kind == "slider") {
-            // slider 的 min/max 未进树（Element.slider 只记 value op）；用默认量程。
-            double lo = 0, hi = 100, st = 1;
-            gpui_shim_retained_slider(win, id.c_str(), lo, hi, st);
+            // 量程/初值经 Element::slider($min,$max,$value) 的 slider_min/slider_max
+            // op 下来；shim 侧按 $value 补初值（CreateRetainedSlider 恒从 min 起）。
+            gpui_shim_retained_slider(win, id.c_str(), sMin, sMax, 1, sVal);
         } else {
             gpui_shim_retained_input(win, id.c_str(), kind == "textarea" ? 1 : 0,
                                      ph.c_str(), val.c_str(), rows);
@@ -374,6 +387,23 @@ uint32_t emitTree(void* win, Array node) {
                 if (childV.isArray()) {
                     uint32_t child = emitTree(win, childV.toArray());
                     gpui_shim_slot(win, spec, child, name.c_str());
+                }
+            } else if (opKind == "element_arg") {
+                // typephp-gpui: element arg bridge. A registered_method
+                // whose SchemaElement argument is another element of the tree:
+                // emit it first (the slot branch's shape — children before the
+                // parent's ops), then pass its SpecId as the element argument.
+                // The shim's Element branch casts ga.num to SpecId; the child's
+                // spec is valid because emitTree just created it.
+                Variant argV = op.get("arg");
+                if (argV.isArray()) {
+                    uint32_t child = emitTree(win, argV.toArray());
+                    std::vector<GpuiArg> eargs(1);
+                    eargs[0].kind = GPUI_ARG_NUM;
+                    eargs[0].num = (double)child;
+                    std::string ename = strOf(op.get("name"));
+                    gpui_shim_registered_method(win, spec, ename.c_str(),
+                                                eargs.data(), (int)eargs.size());
                 }
             } else if (opKind == "registered_method") {
                 std::deque<std::string> strPool;
@@ -552,7 +582,15 @@ Array php_gpui_dock_probe(Variant boxVar, String id) {
 // (窗口, 列表 id) → PHP 闭包。闭包签名 fn(int $start, int $end): array，返回值是一组
 // Element::toArray() 结果（App::listRenderer 包了这一层）。持有 Variant 即持有一份引用，
 // 闭包活到被替换或窗口关闭。
-static std::unordered_map<std::string, Variant> g_listFns;
+// 进程级登记表，**故意不析构**：里面是 PHP callable（php::Variant）。正常返回退出时 Zend
+// 引擎先关，__cxa_finalize_ranges 再跑静态析构 ⇒ ~Variant → zval_ptr_dtor 摸已释放内存，
+// SIGSEGV（hello-2026-10-28-235342.ips 与 hello-2026-10-29-001350.ips，栈同为
+// exit → __cxa_finalize_ranges → ~unordered_map<string,Variant>）。--selftest 走 PHP exit()，
+// 不跑这些析构，所以它一直 rc=0、把这条路掩盖了。免人手复现：--automation <dir> 放一条 quit
+// （命令文件吃过就 unlink，目录不能复用）。实测 hello/input 都由 139 → 0。
+// 进程都要死了，内存交给 OS；窗口关闭时仍由 forgetListRenderers/forgetDataHandlers 清。
+static std::unordered_map<std::string, Variant>& g_listFns =
+    *new std::unordered_map<std::string, Variant>();
 
 static std::string listKey(void* win, const char* id) {
     char p[32];
@@ -596,6 +634,122 @@ void php_gpui_set_list_renderer(Variant boxVar, String id, Variant fn) {
     g_listFns[listKey(win, i.c_str())] = fn;
 }
 
+// ── 批6 宿主数据回路：SchemaCallback 数据回调的同步回路 ────────────────────
+// (窗口, id, type) → PHP 处理器（App::on 登记时同步登记给 bridge，见
+// php_gpui_set_data_handler）。materialize 途中 shim 调 invokeDataCallback：
+// php::call 处理器（本线程本 zend 栈的重入调用，同 renderListRows）→ 返回值编成
+// GpuiDataNode 树 → shim 转 shell::ComponentDataValue 回填（runtime 的
+// CallInLayout shimId 分叉，cmd/patch-host-data.sh）。
+// 进程级登记表，**故意不析构**（同 g_listFns，理由见那里）。
+static std::unordered_map<std::string, Variant>& g_dataFns =
+    *new std::unordered_map<std::string, Variant>();
+
+static std::string dataKey(void* win, const char* id, const char* type) {
+    char p[32];
+    std::snprintf(p, sizeof(p), "%p|", win);
+    return std::string(p) + (id ? id : "") + "\x1f" + (type ? type : "");
+}
+
+// DataAlloc / g_dataAllocs / gpui_data_node_free 是与 phpx 无关的一片，而 shim 走完
+// 树就要调 gpui_data_node_free ⇒ headless 的 shim_test 也得链同一份，故抽成文本切片。
+#include "gpui_data_node.inc"
+
+// 填一个已分配（连续块里的）节点。标量直接填；数组先数元素、连续分配子块、
+// 再逐元素填——子块地址在填之前就确定，items[i] 的索引才成立。
+static void FillNode(DataAlloc& al, GpuiDataNode* n, const Variant& v) {
+    n->kind = GPUI_ARG_NIL;
+    if (v.isUndef() || v.isNull()) return;
+    if (v.isBool()) {
+        n->kind = GPUI_ARG_BOOL;
+        n->b = v.isTrue() ? 1 : 0;
+        return;
+    }
+    if (v.isInt() || v.isFloat()) {
+        n->kind = GPUI_ARG_NUM;
+        n->num = v.isInt() ? (double)v.toInt() : v.toFloat();
+        return;
+    }
+    if (v.isString()) {
+        n->kind = GPUI_ARG_STR;
+        n->str = al.AddString(v.toStdString());
+        return;
+    }
+    if (v.isArray()) {
+        Array arr = v.toArray();
+        size_t nKids = 0;
+        bool allIndexed = true;
+        for (auto it = arr.begin(); it != arr.end(); ++it) {
+            nKids++;
+            if (!(*it).key.isInt()) allIndexed = false;
+        }
+        GpuiDataNode* kids =
+            nKids > 0 ? new GpuiDataNode[nKids] : nullptr;
+        al.arrays.push_back(kids);
+        n->kind = GPUI_ARG_ARRAY;
+        n->items = kids;
+        n->count = (int)nKids;
+        std::vector<std::string> keyStrings;
+        size_t i = 0;
+        for (auto it = arr.begin(); it != arr.end(); ++it) {
+            FillNode(al, &kids[i], (*it).value);
+            if ((*it).key.isInt()) {
+                keyStrings.push_back("");
+            } else {
+                keyStrings.push_back((*it).key.toStdString());
+            }
+            i++;
+        }
+        n->keys = allIndexed ? nullptr : al.AddKeys(keyStrings);
+        return;
+    }
+    // PHP 对象等其它形状：Null——descriptor 自己会响亮失败（"must return an
+    // array of rows"），与 JS 路返回 null 的语义一致。
+}
+
+static GpuiDataNode* ToDataNode(DataAlloc& al, const Variant& v) {
+    GpuiDataNode* n = new GpuiDataNode();
+    FillNode(al, n, v);
+    return n;
+}
+
+static GpuiDataNode* invokeDataCallback(void* win, const char* id,
+                                        const char* type) {
+    auto it = g_dataFns.find(dataKey(win, id, type));
+    if (it == g_dataFns.end()) return nullptr;
+    Variant handler = it->second;
+    Array args;  // 批6 的三族数据回调实参为空（rows/items 快照不带参）
+    Variant r = php::call(handler, args);
+    if (r.isUndef() || r.isNull()) return nullptr;
+    DataAlloc* al = new DataAlloc();
+    GpuiDataNode* root = ToDataNode(*al, r);
+    g_dataAllocs[root] = al;
+    return root;
+}
+
+void php_gpui_set_data_handler(Variant boxVar, String id, String type,
+                               Variant fn) {
+    void* win = winOf(boxVar);
+    if (!win) return;
+    static bool hooked = false;
+    if (!hooked) {
+        gpui_shim_set_data_callback(&invokeDataCallback);
+        hooked = true;
+    }
+    std::string i(id.data(), id.length());
+    std::string t(type.data(), type.length());
+    g_dataFns[dataKey(win, i.c_str(), t.c_str())] = fn;
+}
+
+static void forgetDataHandlers(void* win) {
+    const std::string prefix = dataKey(win, "", "");
+    for (auto it = g_dataFns.begin(); it != g_dataFns.end();) {
+        if (it->first.compare(0, prefix.size(), prefix) == 0)
+            it = g_dataFns.erase(it);
+        else
+            ++it;
+    }
+}
+
 static void forgetListRenderers(void* win) {
     const std::string prefix = listKey(win, "");
     for (auto it = g_listFns.begin(); it != g_listFns.end();) {
@@ -608,6 +762,7 @@ void php_gpui_window_close(Variant boxVar) {
     void* win = winOf(boxVar);
     if (!win) return;
     forgetListRenderers(win);
+    forgetDataHandlers(win);
     gpui_shim_close(win);
 }
 
@@ -798,6 +953,13 @@ Int php_gpui_open_dialog(Variant boxVar, Array tree, Bool escape, Bool backdrop)
     return gpui_shim_dialog_show(win, dlg, escape ? 1 : 0, backdrop ? 1 : 0);
 }
 
+// 批3：OTP 格数回读（App::otpLength）。见 gpui_shim_otp_length。
+Int php_gpui_otp_length(Variant boxVar, String id) {
+    void* win = winOf(boxVar);
+    std::string i(id.data(), id.length());
+    return win ? gpui_shim_otp_length(win, i.c_str()) : 0;
+}
+
 Int php_gpui_dialog_count(Variant boxVar) {
     void* win = winOf(boxVar);
     return win ? gpui_shim_dialog_count(win) : 0;
@@ -879,6 +1041,7 @@ Array php_gpui_state_counts(Variant boxVar) {
         "inputHandles", "lastValues", "webviews", "inspectors", "notifyLists",
         "dialogs", "watchCtx", "httpResponses", "boxesAlive", "viewsAlive",
         "listCalls", "listItems", "componentStates", "dockStates", "dockPanels",
+        "dataTableBuilds", "dataTableFails",
     };
     Array out;
     long long c[32] = {0};

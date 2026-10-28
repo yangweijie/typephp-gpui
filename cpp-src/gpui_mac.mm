@@ -274,28 +274,31 @@ void gpui_mac_pump(void) {
     if (getenv("GPUI_KEY_DEBUG")) {
         EnsureKeyTrace();
     }
-    /* 只排空热键那一类。这里原来传的是 (0, NULL) —— Carbon 里"mask=0 且 types=NULL"
-     * 的语义是**任意事件**，于是它把 AppKit 队列里的 leftMouseDown 一起摘走、丢给
-     * Carbon 派发目标（没人接），鼠标按下就此消失，而后续 dragged 仍由我们的泵收到
-     * ——这就是"能拖窗口、什么都点不动"的根因。
-     * A/B 实测（build/cpp-input-demo/pump_ab，同一份 gpui.o、只差这一句）：
-     *   manual 臂 3/3 收到 down；manual-carbon 臂 0/3，而会话层 tap 显示
-     *   系统确实把那些 down 判给了该进程（target_pid 对上）。
+    /* 历史（#98/#99）：这里原来每帧 `ReceiveNextEvent(0, NULL, …, true, …)` 排空 Carbon
+     * 队列——mask=0 且 types=NULL 在 Carbon 里是"任意事件"，于是把 AppKit 队列里的
+     * leftMouseDown 一起摘走丢给没人接的派发目标 ⇒ "能拖窗口、什么都点不动"。
+     * A/B 实测（build/cpp-input-demo/pump_ab，同一份 gpui.o 只差这一句）：
+     * manual 臂 3/3 收到 down、manual-carbon 臂 0/3，会话层 tap 证明系统确实判给了该进程。
+     * 带 inTypes 的过滤版会在 ReceiveNextEventCommon 里 SIGBUS
+     * （input-2026-10-23-074136.ips），SDK 也没有 GetEventMaskForClass/PeekEvent。
      *
-     * 为什么不能"带类型排空"：本机 SDK 里 `GetEventMaskForClass`/`PeekEvent` 既无声明
-     * 也未导出，而 `ReceiveNextEvent(mask, &spec, …)` 传非空 inTypes 会在
-     * `ReceiveNextEventCommon` 里 EXC_BAD_ACCESS/SIGBUS（崩溃报告
-     * input-2026-10-23-074136.ips，栈顶就是它）——那版修复比原缺陷更糟，已退回来。
-     *
-     * 现在做的是**收窄危害**：没注册热键就一句都不排。没热键的示例（input/layout/table…）
-     * 因此鼠标立刻可用；注册了热键的那几支（hello/mac）仍然会吃 down，
-     * 这一格是明确未修的债：热键要改成不碰共享队列的拿法（见 task_plan.md Phase 25）。 */
+     * 现行做法：**peek 优先**。`inRemoveFromQueue=false` 只看不取；队头是热键事件才
+     * 再取一次派发，否则立刻停手、把事件留给 AppKit。这样热键照旧能触发，而鼠标/普通
+     * 键盘事件一个都不会被我们摘走。下面那句 empty() 只是省一次 peek 的优化。 */
     if (g_hotkeys.empty()) {
         return;
     }
-    // 我们的泵只有 [NSApp nextEventMatchingMask:]，Carbon 队列不会自己排空，所以每帧
-    // 在这里零等待地取一次。SendEventToEventTarget(dispatcher) 会走到 OnHotKeyPressed。
     for (;;) {
+        EventRef peeked = nullptr;
+        if (ReceiveNextEvent(0, NULL, kEventDurationNoWait, false, &peeked) != noErr ||
+            !peeked) {
+            return;
+        }
+        // 不取走时事件仍归队列所有，不能 ReleaseEvent(peeked)。
+        if (GetEventClass(peeked) != kEventClassKeyboard ||
+            GetEventKind(peeked) != kEventHotKeyPressed) {
+            return;
+        }
         EventRef event = nullptr;
         if (ReceiveNextEvent(0, NULL, kEventDurationNoWait, true, &event) != noErr ||
             !event) {

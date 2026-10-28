@@ -497,6 +497,12 @@ static const KindName kKindNames[] = {
     {"popup", K::Popup},
     {"avatar", K::Avatar},
     {"accordion_item", K::AccordionItem},
+    // 手风琴三件（materialize.cpp:2548/2571/2588 的 kind 分支在上游）：没有这三条
+    // 登记名，El::accordionItem 的 header/trigger/panel 部件造不出来（kindFromString
+    // 不认就静默降级），折叠头永远是一颗空按钮。
+    {"accordion_header", K::AccordionHeader},
+    {"accordion_trigger", K::AccordionTrigger},
+    {"accordion_panel", K::AccordionPanel},
     {"table_header", K::TableHeader},
     {"table_body", K::TableBody},
     {"table_head", K::TableHead},
@@ -970,10 +976,21 @@ gpui::Anchor NotifyAnchorFor(const char* s) {
     return A::TopRight;  // gpui 自己的默认（notification.h:53）
 }
 
+// DataTable 构建探针的进程级读数（见 ensureApp 里的安装注释）：
+// 每次成功的 cell 构建计一次 built，每次失败（rows 快照非数组 / cell 渲染失败）计一次
+// failed。门读增量，不读绝对值。
+static long long g_dtProbeBuilt = 0;
+static long long g_dtProbeFailed = 0;
+
+static void DataTableProbeTick(bool built) {
+    if (built) g_dtProbeBuilt++;
+    else g_dtProbeFailed++;
+}
+
 void ensureApp() {
     if (g_app) return;
     // 先转前台应用再建窗口：非 bundle 的二进制不转的话激活会被拒，
-    // 真实鼠标/键盘就永远到不了元素（见 gpui_mac.h 的 gpui_mac_become_foreground）。
+    // 真实鼠标/键盘就永远到不到元素（见 gpui_mac.h 的 gpui_mac_become_foreground）。
     gpui_mac_become_foreground();
     g_app = gpui::AppNew();
     // 再转一次：AppNew→PlatInit 里才 [NSApplication sharedApplication]，
@@ -982,6 +999,12 @@ void ensureApp() {
     // mac 集成的事件出口：owner 是注册时传进去的 Box2*，回调时原样带回来，所以多窗口
     // 各回各的队列。只装一次。
     gpui_mac_set_sink(&MacEventSink);
+    // DataTable 的构建探针（上游 families.h 给适配器的测试缝）：DataTable 的失败
+    // 不走 request->Fail，而是它自己的 Failure()——返回一颗带错误文本的 Div，
+    // component-failure 账本与 registeredError 都收不到。进程级计数经
+    // gpui_shim_state_counts 的 dataTableBuilds/dataTableFails 两位读出，
+    // examples/kit 的 dataTableRowsCallbackLoud 门据此断"失败看得见"。
+    gpui::component_shell::SetDataTableProbe(&DataTableProbeTick);
     gpui::component::Init(g_app);
     const gpui::shell::FrozenComponentRegistry* components =
         gpui::component_shell::Components();
@@ -1280,6 +1303,9 @@ int gpui_shim_state_counts(void* win, long long* out, int cap) {
         (size_t)(g_runtime ? g_runtime->ComponentStateCount() : 0),
         box->docks.size(),
         [&]() { size_t n = 0; for (const auto& dock : box->docks) n += dock.second->panels.size(); return n; }(),
+        // 20/21：DataTable 构建探针（进程级，见 DataTableProbeTick）。
+        (size_t)g_dtProbeBuilt,
+        (size_t)g_dtProbeFailed,
     };
     int n = (int)(sizeof(all) / sizeof(all[0]));
     if (n > cap) n = cap;
@@ -1309,6 +1335,12 @@ int gpui_shim_element_value(void* win, const char* id, double* out_num,
 static GpuiListRenderFn g_listRender = nullptr;
 
 void gpui_shim_set_list_renderer(GpuiListRenderFn fn) { g_listRender = fn; }
+
+// 批6 宿主数据回路：materialize 途中同步回调 PHP 的处理器（DataTable rows /
+// 图表 rows / SearchableList items）。见 gpuiInvokeShimDataCallback。
+static GpuiDataCallbackFn g_dataCallback = nullptr;
+
+void gpui_shim_set_data_callback(GpuiDataCallbackFn fn) { g_dataCallback = fn; }
 
 uint32_t gpui_shim_push_list(void* win, const char* id, int uniform, int count) {
     auto* box = static_cast<Box2*>(win);
@@ -1395,16 +1427,26 @@ uint64_t gpui_shim_retained_input(void* win, const char* id, int textarea,
 }
 
 uint64_t gpui_shim_retained_slider(void* win, const char* id, double min,
-                                   double max, double step) {
+                                   double max, double step, double value) {
     auto* box = static_cast<Box2*>(win);
     if (!box || !id || !*id) return 0;
     auto it = box->inputHandles.find(id);
     if (it != box->inputHandles.end()) return it->second;
     uint64_t h = g_runtime->CreateRetainedSlider(
         (float)min, (float)max, (float)step, g_app, box->viewEntity, box);
-    box->inputHandles[id] = h;
-    if (auto* e = g_runtime->Retained((gpui::shell::EntityHandle)h))
+    // CreateRetainedSlider 的初值恒为 min（runtime.cpp:489 SliderSingle(min)），
+    // 没有初值形参——用公开的 SliderSetValue（gpui.h:6015）把脚本要的初值补上，
+    // 量程裁剪交给 SliderValueClamp 同款语义。
+    if (auto* e = g_runtime->Retained((gpui::shell::EntityHandle)h)) {
+        if (e->kind == gpui::shell::RetainedKind::Slider && e->slider) {
+            gpui::SliderValue initial =
+                gpui::SliderValueClamp(gpui::SliderSingle((float)value),
+                                       (float)min, (float)max);
+            gpui::SliderSetValue(e->slider, initial);
+        }
         box->retainedIdToElem[e->id] = id;
+    }
+    box->inputHandles[id] = h;
     return h;
 }
 
@@ -1423,6 +1465,20 @@ uint64_t gpui_shim_retained_otp(void* win, const char* id, int length,
     return h;
 }
 
+
+// 批3：OTP 格数回读（RetainedKind::Otp 的 state->length）。Element::otpInput 的
+// otp_length 通道建 retained 时消费，运行期没有其他读口——otpLengthSix 门用它判
+// "格数真的配到 6 而不是 4"（OtpSetValue 不裁剪，塞 9 字符存 9 个，值回读分不出）。
+int gpui_shim_otp_length(void* win, const char* id) {
+    auto* box = static_cast<Box2*>(win);
+    if (!box || !id || !*id) return 0;
+    auto it = box->inputHandles.find(id);
+    if (it == box->inputHandles.end()) return 0;
+    auto* e = g_runtime->Retained((gpui::shell::EntityHandle)it->second);
+    if (!e || e->kind != gpui::shell::RetainedKind::Otp) return 0;
+    auto* st = e->otp.Get(e->app);
+    return st ? st->length : 0;
+}
 
 uint64_t gpui_shim_retained_focus(void* win, const char* id) {
     auto* box = static_cast<Box2*>(win);
@@ -1499,6 +1555,14 @@ int gpui_shim_input_value(void* win, const char* id, char* out, int outlen) {
         } else {
             return 0;
         }
+    } else if (e->kind == gpui::shell::RetainedKind::Slider && e->slider) {
+        // 批3：slider 的值回读。单值滑块的值在 SliderValue::hi（gpui.h 注释：
+        // "A single-value slider only uses hi"），按 F64DisplayTemp 的整数口径吐出，
+        // App::text('slider-id') 就能读——量程/初值门（sliderRangeInitial）靠它。
+        char buf[32];
+        std::snprintf(buf, sizeof(buf), "%.0f",
+                      (double)e->slider->value.Start());
+        v = gpui::Str(buf);
     } else {
         return 0;
     }
