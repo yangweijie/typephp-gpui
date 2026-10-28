@@ -47,6 +47,10 @@ function exampleState(): array
         'dockChanges' => 0, 'dockButton' => false,
         'listMaxStart' => 0, 'listRowHandlers' => true,
         'listClicked' => '', 'listRight' => '', 'listItem' => '', 'listSecondary' => [],
+        // kit 域（tier-A 工厂批）：部件回调的路由读数，键 = 事件源 id。
+        'kitLog' => [],
+        // 批3 完善点：手风琴折叠回调（catalog 域）。
+        'lastAcc' => '—',
     ];
 }
 

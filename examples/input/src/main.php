@@ -76,12 +76,15 @@ function inputDispatch(array $argv): void
     // 只有 `--trace --automation` 才进得去——真二进制实测过这条分歧。
     $autoIdx = array_search('--automation', $argv, true);
     $autoDir = $autoIdx === false ? '' : (string) ($argv[$autoIdx + 1] ?? '');
+    // 可选第三参＝窗高：日期触发器在 y≈764，默认 620 的窗把它放在折线外，
+    // 坐标缝够不着（#100 的同一条几何）。给驱动方一个不改示例布局就能加高窗的口。
+    $autoH = $autoIdx === false ? 0 : (int) ($argv[$autoIdx + 2] ?? 0);
     if ($autoIdx !== false && ($autoDir === '' || str_starts_with($autoDir, '--'))) {
-        echo "用法: --automation <dir>\n";
+        echo "用法: --automation <dir> [height]\n";
         exit(2);
     }
     if (in_array('--trace', $argv, true) || $autoDir !== '') {
-        runInteractive(in_array('--trace', $argv, true), $autoDir);
+        runInteractive(in_array('--trace', $argv, true), $autoDir, $autoH);
         return;
     }
     $shotIdx = array_search('--shot', $argv, true);
@@ -97,7 +100,7 @@ function inputDispatch(array $argv): void
         if (is_string($arg) && str_starts_with($arg, '--')) {
             echo '未知开关: ' . $arg . "\n"
                 . "可用：--sections / --selftest / --shot <path> [tree] / --wait-key <秒> / --trace\n"
-                . "     / --automation <dir>（dropbox 动词，单独用即可，不必搭 --trace）\n"
+                . "     / --automation <dir> [height]（dropbox 动词，单独用即可，不必搭 --trace；height 加高窗够折线外）\n"
                 . "诊断：--bare-window（只建窗跑帧，#56 用）配合 --no-app-create（跳过 App::create）\n"
                 . "     --wait-key 期间可加 --synthetic-key 让合成键也计数\n";
             exit(2);
@@ -119,7 +122,7 @@ function inputTree(): El
 }
 
 
-function runInteractive(bool $trace = false, string $autoDir = ''): void
+function runInteractive(bool $trace = false, string $autoDir = '', int $autoH = 0): void
 {
     ExampleState::boot(['section' => 2, 'trace' => $trace]);
     $app = new App();
@@ -133,7 +136,8 @@ function runInteractive(bool $trace = false, string $autoDir = ''): void
     if ($autoDir !== '') {
         $app->automation($autoDir);
     }
-    $app->run('Input · 保留态取值', INPUT_W, INPUT_H, 'inputTree');
+    $h = $autoH > 0 ? $autoH : INPUT_H;
+    $app->run('Input · 保留态取值', INPUT_W, $h, 'inputTree');
 }
 
 /** 收到过某类事件的不同 id 数。 */
@@ -365,7 +369,11 @@ function runSelfTest(): void
     ExampleState::boot(['section' => 2]);
     $app = new App();
     $app->create();
-    $app->createWindow('Input Selftest', INPUT_W, INPUT_H);
+    // #100：整页（含日期触发器 y≈764 与其下的 in-ccal 裸日历）放不进 620 高的窗，
+    // 合成点击会落窗外、弹层永远开不了。selftest 用自己的高窗；--shot 那扇仍是
+    // INPUT_H，像素基线不受影响。本函数内的 snapshot 一律用同一高度。
+    $selfH = 1100;
+    $app->createWindow('Input Selftest', INPUT_W, $selfH);
     // 前台自举（runWaitKey 同款先例）：enterResolves / timeFieldPressTakesFocus
     // 这两条真输入门的前提是窗口 key/main，后台 shell 里 macOS 正当拒绝抢焦点时
     // 它们只能记"未验"——框架自己先试 20 帧，能抢到就在本机拿到真读数；抢不到
@@ -442,15 +450,35 @@ function runSelfTest(): void
     //    把它当成"没有值可读"，setInput 直接回 false 而 registeredError 还是空的
     //    ——这一条是这一支示例第一次跑出来才发现的，画廊那 13 节里它一直挂着。
     $pull = [];
-    foreach (['in-name' => '甲', 'in-note' => '乙丙', 'in-num' => '7', 'in-otp' => '1234'] as $id => $val) {
+    foreach (['in-name' => '甲', 'in-note' => '乙丙', 'in-num' => '7',
+                 'in-otp' => '1234', 'in-otp6' => '123456'] as $id => $val) {
         $set = $app->setInput($id, $val);
         $got = $app->text($id);
         if (!$set || $got !== $val) {
             $pull[] = $id . '=' . var_export($got, true) . '/set=' . var_export($set, true);
         }
     }
-    step('retainedRoundtrip', $pull === [], $pull === [] ? '四颗各自回环一致' : implode(' ', $pull));
+    step('retainedRoundtrip', $pull === [], $pull === [] ? '五颗各自回环一致' : implode(' ', $pull));
     $ok = $ok && $pull === [];
+
+    // 3b) 批3：slider 的量程与初值（in-sld2 = 10..90、初值 40）。建 retained 时桥读
+    //     slider_min/slider_max op 传给 gpui_shim_retained_slider，初值经公开的
+    //     SliderSetValue 补（CreateRetainedSlider 恒从 min 起——不补就是 10）。
+    //     读数走 shim 的 input_value 新开 slider 分支（App::text 读 state->value.hi）。
+    //     判据是「初值 40、界内」，不判恰好渲染位置——那是像素层。
+    $sld = (string) $app->text('in-sld2');
+    $sldOk = $sld !== '' && (float) $sld === 40.0;
+    step('sliderRangeInitial', $sldOk, "text(in-sld2)={$sld}（期望 '40'：量程 10..90、初值 40）");
+    $ok = $ok && $sldOk;
+
+    // 3c) 批3：OTP 格数回读门。OtpSetValue 不裁剪（塞 9 字符存 9 个），值回读分不出
+    //     "格数 4 还是 6"——真读数走 App::otpLength()（shim 新开的 state->length 口）。
+    //     对照臂：in-otp（默认 4）必须还是 4，防"回读恒 0/恒同值"的假绿。
+    $len4 = $app->otpLength('in-otp');
+    $len6 = $app->otpLength('in-otp6');
+    $otp6Ok = $len4 === 4 && $len6 === 6;
+    step('otpLengthSix', $otp6Ok, "otpLength(in-otp)={$len4}（期望 4） otpLength(in-otp6)={$len6}（期望 6：El::otpInput 第二参）");
+    $ok = $ok && $otp6Ok;
 
     // 4) change 路由：合成 fire → gpuiEnqueueChange → 队列 → poll → dispatch → handler。
     //    那条缝只认三类（cpp-src/gpui_shim.cpp 的 gpui_shim_selftest_fire 只有
@@ -511,10 +539,10 @@ function runSelfTest(): void
     //   「已勾选/未勾选」换字）；boot 帧本身由重录后的 tree1.png 基线在 shotdiff 那头锚住。
     $agreeShotBefore = sys_get_temp_dir() . '/input-agree-before.png';
     $agreeShotAfter = sys_get_temp_dir() . '/input-agree-after.png';
-    $snapBefore = $app->snapshot($agreeShotBefore, INPUT_W, INPUT_H);
+    $snapBefore = $app->snapshot($agreeShotBefore, INPUT_W, $selfH);
     $app->render(inputTree());
     $app->loop(2);
-    $snapAfter = $app->snapshot($agreeShotAfter, INPUT_W, INPUT_H);
+    $snapAfter = $app->snapshot($agreeShotAfter, INPUT_W, $selfH);
     $agreeLine = '';
     foreach (explode("\n", (string) \gpui_debug_tree($app->handle())) as $line) {
         if (str_contains($line, ':id("in-agree")')) {
@@ -1056,8 +1084,12 @@ function runSelfTest(): void
     //        被点的日子上，与「下方弹层高亮 6、字段 2026/10/23 对不上」的截图吻合；
     //        「弹层不收起」的主体若是它，观感上就是弹层区总有个日历面板。死帧砍掉后
     //        弹层可见的那一帧命中面就在（下面 mount1 门钉住）。
-    //      · **命中错位（点 A 选 B）**依旧存在（本轮未动，见旧注释与报告）：错位让
-    //        绝对坐标不可信，所以这里的判据全部取「键差/条数」这类错位不敏感读数。
+    //      · **命中错位（点 A 选 B）2026-10-29 复测不再复现**：加高窗（--automation
+    //        <dir> 1100）+ 坐标缝点"画出来的格子"三臂——当月 1 号→2026/10/01、外月
+    //        27 号→2026/09/27、选外月后视图跳到九月再点其末行末列→2026/10/03（正是
+    //        九月网格该格），读回全对且当帧收起；同帧 hits.txt 与截图逐格对齐（32px
+    //        pitch、行距 32）。旧"错位"应是 popup-same-frame 之前死帧里点击落到下方
+    //        裸日历的产物。判据仍保留键差/条数形状（稳定），但不再以"错位"为由。
     //      · **真人路径 2026-10-27 报的「一进来弹层就展开、点日历图标收不起来」**：
     //        五条合成变体（含滚屏后、慢按、图标落点）全部当帧开合、初始帧命中表里
     //        没有任何弹层矩形——contentReady 同帧直通改不出「初始就挂载」（弹层挂载
@@ -1152,10 +1184,10 @@ function runSelfTest(): void
         $shotOpen = sys_get_temp_dir() . '/input-dp-open.png';
         $shotPicked = sys_get_temp_dir() . '/input-dp-picked.png';
         $shotReopen = sys_get_temp_dir() . '/input-dp-reopen.png';
-        $app->snapshot($shotBefore, INPUT_W, INPUT_H);
+        $app->snapshot($shotBefore, INPUT_W, $selfH);
         // 关态命中键集：后面每一段都拿「相对这张表的键差」当弹层在不在的判据——
-        // 错位缺陷让绝对坐标不可信，但"开弹层新增哪些键 / 收弹层退掉哪些键"是
-        // 结构读数，不随错位变。
+        // "开弹层新增哪些键 / 收弹层退掉哪些键"是结构读数，不随布局微调变。
+        // （2026-10-29 已复测命中与画面对齐，见上面结论史；键差形状保留是为稳定。）
         $baseKeys = [];
         for ($i = 0; $i < $n0; $i++) {
             $h = $app->hitProbe($i);
@@ -1204,8 +1236,9 @@ function runSelfTest(): void
                 }
             }
             if ($cells !== []) {
-                // 点网格中段：首格是上个月尾的禁用日（点了没反应），中段必是本月
-                // 可点日。错位已知存在（点哪选哪差一格），门只断「选中→收起」。
+                // 点网格中段：首格是上个月尾的外月日，中段必是本月可点日。
+                // 2026-10-29 三臂复测点画出的格子读回日期全对（见结论史）；门断
+                // 「选中→收起」。绝对日期回读还缺一个 DatePicker 值回读口（未加）。
                 $c = $cells[intdiv(count($cells), 2)];
                 $app->realClick($c[0], $c[1]);
             }
@@ -1239,7 +1272,7 @@ function runSelfTest(): void
                 $surface = [(int) $h['x'], (int) $h['y'], (int) $h['w'], (int) $h['h']];
             }
         }
-        $app->snapshot($shotOpen, INPUT_W, INPUT_H);
+        $app->snapshot($shotOpen, INPUT_W, $selfH);
         $openDiffers = is_file($shotBefore) && is_file($shotOpen)
             && md5_file($shotBefore) !== md5_file($shotOpen);
         $rcPicked = -1;
@@ -1254,7 +1287,7 @@ function runSelfTest(): void
             $rcPicked = $app->renderCount();
             [$pickedCnt, $pickedCells] = $dpDiff();
             $readN[2] = (int) ($app->hitProbe()['n'] ?? 0);
-            $app->snapshot($shotPicked, INPUT_W, INPUT_H);
+            $app->snapshot($shotPicked, INPUT_W, $selfH);
             $pickedDiffers = md5_file($shotOpen) !== md5_file($shotPicked);
             // 「选中落账」不走 debug_tree：标题在物化树里（spec 树无值可读），shim
             // 也没有 DatePicker 的值回读口。像素证据由 pickedDiffers（弹层关 +
@@ -1265,7 +1298,7 @@ function runSelfTest(): void
             $rcReopen = $app->renderCount();
             [$reopenCnt, $reopenCells] = $dpDiff();
             $readN[3] = (int) ($app->hitProbe()['n'] ?? 0);
-            $app->snapshot($shotReopen, INPUT_W, INPUT_H);
+            $app->snapshot($shotReopen, INPUT_W, $selfH);
             $reopenDiffers = md5_file($shotPicked) !== md5_file($shotReopen);
             $dpDetail = 'surface=' . ($surface === null ? '无' : implode(',', $surface))
                 . ' 开弹层像素变了=' . var_export($openDiffers, true)
@@ -1278,8 +1311,8 @@ function runSelfTest(): void
                 . count($cellXs) . 'x' . count($cellYs) . '）'
                 . ' 选后残留键=' . $pickedCnt . '（日格=' . $pickedCells . ' 颗）'
                 . ' 复开新增键=' . $reopenCnt . '（日格=' . $reopenCells . ' 颗）'
-                . '（错位缺陷未修，见注释；真人差异留验收：真机点选后弹层当帧收起、'
-                . '复开高亮=字段值，连续三次）';
+                . '（2026-10-29 复测命中与画面对齐、点格读回正确；真人差异留验收：'
+                . '真机点选后弹层当帧收起、复开高亮=字段值，连续三次）';
             step('datePickerSyntheticReadout', true, $dpDetail . '（读数步，不判 rc）');
         } else {
             step('datePickerSyntheticReadout', false,

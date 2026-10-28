@@ -153,6 +153,21 @@ function runCatalogSelfTest(): void
     step('dropdownItemOps', $ddOk, 'item 条数=' . $itemOps . '/2');
     $ok = $ok && $ddOk;
 
+    // 3b) 批3：手风琴折叠回调。AccordionTrigger 的 on_change 经 behavior 回调
+    //     （ChangeLister → 队列），事件类型是 change；合成 fire 走 (id,type) 缝，
+    //     送达由 handler 写 state 证明。真点击翻 open 的那半（trigger 点击 →
+    //     open 翻转）属真人验收，与所有部件回调同一分工。
+    ExampleState::$v['lastAcc'] = '—';
+    $firedAcc = \gpui_selftest_fire($app->handle(), 'ca-acc-1', 'change');
+    $accEvent = \gpui_poll_event($app->handle());
+    if (!empty($accEvent)) {
+        $app->dispatch($accEvent);
+    }
+    $accOk = $firedAcc && ExampleState::$v['lastAcc'] === '手风琴一节';
+    step('accordionChangeRoute', $accOk, 'fired=' . var_export($firedAcc, true)
+        . ' lastAcc=' . var_export(ExampleState::$v['lastAcc'], true));
+    $ok = $ok && $accOk;
+
     // 4) 要 state 实体的那一族（#84）：渲染第二棵树，量"建得出来 + 实体数对 + 跨帧不涨"。
     //    为什么三条一起看：registered 组件建不出来时 gpui 只把那一颗画成
     //    "Failed to render X"，而实体建不出来时 bridge 下发 NIL 实参（#81 的修法）——

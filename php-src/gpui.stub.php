@@ -66,6 +66,10 @@ function gpui_snapshot(mixed $window, string $path, int $w, int $h): bool {}
 function gpui_real_mouse(mixed $window, int $x, int $y, int $type): int {}
 /** 宿主渲染虚拟列表：登记 (窗口, 列表 id) 的行渲染闭包 fn(int $start, int $end): array。 */
 function gpui_set_list_renderer(mixed $window, string $id, mixed $fn): void {}
+/** 批6 宿主数据回路：登记 (窗口, id, type) 的数据回调处理器（App::on 时同步登记）。
+ *  返回值形状由各 descriptor 的 schema 决定（DataTable rows 是行数组、图表 rows 是
+ *  {label,value} 数组、SearchableList items 是 {title,value} 数组）。 */
+function gpui_set_data_handler(mixed $window, string $id, string $type, mixed $fn): void {}
 function gpui_dock_create(mixed $window, string $id): bool {}
 function gpui_dock_panel(mixed $window, string $id, string $name, string $title, array $tree, string $placement, float $size): bool {}
 function gpui_dock_select(mixed $window, string $id, string $name): bool {}
@@ -106,6 +110,9 @@ function gpui_open_dialog(mixed $window, array $tree, bool $escape, bool $backdr
 
 /** 当前打开的 dialog 数。 */
 function gpui_dialog_count(mixed $window): int {}
+
+/** 批3：OTP 格数回读（state->length）。无此 id / 非 Otp retained 时返回 0。 */
+function gpui_otp_length(mixed $window, string $id): int {}
 
 /**
  * 当前生效的焦点陷阱 id（0 = 没有）。dialog/sheet 的键盘行为（Escape 关框、Tab 只在框内走）

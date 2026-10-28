@@ -32,6 +32,13 @@ function wireData(App $app): void
         $rows = [];
         for ($i = $start; $i < $end; $i++) {
             // uniform_list 以 MinContent 测高；不换行才能避免文本按一像素宽度逐字换行。
+            // 行内"动作按钮"（Ely row_action 那种行尾小钮）宿主列表今天做不了：
+            // shim 的行包装层（gpui_shim_events.inc HostListRow：Div->PathClick(rowId)
+            // ->SizeFull()->Child(row) + 行级 OnClick）按命中链"取最后注册矩形"的规则
+            // 整行吞掉点击，行内带监听的子元素永远排在它前面——实测星标钮真点
+            // listStar 不落账。要放开得动包装层的命中语义（tier B）。行级动作
+            // （整行带 id、onClick/onMouseDownRight）是今天可用的形状，门在
+            // table selftest 的 virtualRowListeners/virtualItemEvents。
             $row = El::text("第 {$i} 行")->font(12.0)->truncate()->px(8.0)->py(3.0)
                 ->id('da-item-' . $i);
             if ((bool) ExampleState::$v['listRowHandlers']) {

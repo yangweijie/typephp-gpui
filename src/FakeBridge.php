@@ -56,6 +56,9 @@ namespace TypePHP\Gpui {
 
         /** @var array<string,callable> "windowId\x1flistId" → App::listRenderer 包好的行闭包 */
         public static array $listRenderers = [];
+
+        /** @var array<string, callable> "windowId\x1felementId\x1ftype" → 数据回调（同 gpui_set_data_handler） */
+        public static array $dataHandlers = [];
         /** @var array<string,array> */
         public static array $docks = [];
 
@@ -157,6 +160,7 @@ namespace TypePHP\Gpui {
             self::$menuRows = [];
             self::$lastValues = [];
             self::$listRenderers = [];
+            self::$dataHandlers = [];
             self::$docks = [];
             self::$clipboard = null;
             self::$clipboardImage = null;
@@ -405,6 +409,9 @@ namespace {
         foreach (array_keys(FakeBridge::$listRenderers) as $key) {
             if (str_starts_with($key, $prefix)) unset(FakeBridge::$listRenderers[$key]);
         }
+        foreach (array_keys(FakeBridge::$dataHandlers) as $key) {
+            if (str_starts_with($key, $prefix)) unset(FakeBridge::$dataHandlers[$key]);
+        }
         foreach (array_keys(FakeBridge::$docks) as $key) {
             if (str_starts_with($key, $prefix)) unset(FakeBridge::$docks[$key]);
         }
@@ -496,6 +503,12 @@ namespace {
     {
         // 替身没有 gpui 画帧，就记下来；测试按需自己调它，模拟"要 [start,end) 那一批"。
         FakeBridge::$listRenderers[((int) $window) . "\x1f" . $id] = $fn;
+    }
+
+    function gpui_set_data_handler(mixed $window, string $id, string $type, mixed $fn): void
+    {
+        // 替身没有 materialize 途中的同步调用，记下来；测试按需自己调它。
+        FakeBridge::$dataHandlers[((int) $window) . "\x1f" . $id . "\x1f" . $type] = $fn;
     }
 
     function gpui_dock_create(mixed $window, string $id): bool
@@ -621,6 +634,13 @@ namespace {
         return FakeBridge::$dialogCount;
     }
 
+    function gpui_otp_length(mixed $window, string $id): int
+    {
+        // 批3：OTP 格数回读。假桥没有 retained 实体表，恒 0——用它的门必须
+        // 只跑在原生 selftest 里（与 dataTableBuilds/dataTableFails 同一条纪律）。
+        return 0;
+    }
+
     function gpui_dialog_count(mixed $window): int
     {
         return FakeBridge::$dialogCount;
@@ -684,6 +704,9 @@ namespace {
             // 真侧第 15 项是上游保留态实体表的长度（#81）。假侧没有那张表。
             'componentStates' => 0, 'listCalls' => 0, 'listItems' => 0,
             'dockStates' => $dockStates, 'dockPanels' => $dockPanels,
+            // DataTable 构建探针（2026-10-28）：假桥没有原生探针可装，恒 0——
+            // 用它断言的门必须只跑在原生 selftest 里。
+            'dataTableBuilds' => 0, 'dataTableFails' => 0,
         ];
     }
 

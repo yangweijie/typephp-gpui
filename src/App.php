@@ -38,6 +38,9 @@ final class App
     private bool $buildingList = false;
     /** @var array<string, callable> */
     private array $listRenderers = [];
+    /** 批6 宿主数据回路：on() 登记的处理器同步登记给 bridge（materialize 途中
+     *  要被 php::call 同步调用）；建窗时统一装入（见 createWindow）。 */
+    private array $dataHandlers = [];
 
     /** @var string|null 自动化 dropbox 目录；null = 未启用（见 automation()）。 */
     private ?string $automationDir = null;
@@ -97,6 +100,11 @@ final class App
         $this->winH = $height;
         foreach ($this->listRenderers as $id => $render) {
             \gpui_set_list_renderer($this->window, $id, $render);
+        }
+        foreach ($this->dataHandlers as $id => $types) {
+            foreach ($types as $type => $handler) {
+                \gpui_set_data_handler($this->window, $id, $type, $handler);
+            }
         }
         return $this->window;
     }
@@ -411,6 +419,13 @@ final class App
     public function on(string $id, string $type, callable $handler): void
     {
         $this->handlers[$id][$type] = [$handler, $this->arityOf($handler)];
+        // 批6：数据回调（rows/items 快照）要被 materialize 途中同步调用——
+        // 处理器必须同时登记给 bridge（事件泵仍走 handlers，两条路互不替代）。
+        // 窗口已建就直接登记；建窗前登记的由 createWindow 批量装入。
+        $this->dataHandlers[$id][$type] = $handler;
+        if ($this->window !== null) {
+            \gpui_set_data_handler($this->window, $id, $type, $handler);
+        }
     }
 
     /** 注册通配处理器，接收所有元素的该类型事件。 */
@@ -458,6 +473,14 @@ final class App
     // ── Overlay：toast / dialog ──
 
     /** 弹一条 toast。$level = info|success|warning|error；$timeoutMs<=0 用默认。 */
+    /** 批3：OTP 格数回读（Element::otpInput($id,$length) 的 length 落到 retained 的
+     *  state->length）。无此 id / 非 Otp retained 返回 0——otpLengthSix 门据此判
+     *  "格数真的配到 6"。 */
+    public function otpLength(string $id): int
+    {
+        return (int) \gpui_otp_length($this->handle(), $id);
+    }
+
     public function toast(string $title, string $desc = '', string $level = 'info', int $timeoutMs = 0): void
     {
         \gpui_toast($this->handle(), $title, $desc, $level, $timeoutMs);
@@ -1506,6 +1529,35 @@ final class App
                     $out[] = "hit[$i] x={$h['x']} y={$h['y']} w={$h['w']} h={$h['h']} id={$h['id']} p={$h['parent']} click={$h['click']} down={$h['down']}";
                 }
                 return implode(' | ', $out);
+
+            case 'clickat':
+                // 坐标缝（与 selftest 的 realClick 同源）：id 缝够不着的部件
+                // （slot 按钮、catalog 日期触发器）只能按矩形点。#103 的判别臂用它。
+                if (!isset($args[0], $args[1])) {
+                    return 'err missing x y';
+                }
+                $cx = (int) $args[0];
+                $cy = (int) $args[1];
+                $clicked = $this->realClick($cx, $cy);
+                $this->automationForceFrame();
+                return 'clickat ' . $cx . ',' . $cy . ' -> ' . ($clicked ? '1' : '0');
+
+            case 'hits':
+                // 几何判别臂（#103）：把这一帧的命中表整张落盘 hits.txt，与同帧
+                // screenshot 对照就能分"产品命中错"与"合成缝坐标换算错"。只读不改状态。
+                // 行格式：i id x y w h click down drag（tab 分隔，坐标是 gpui 视图系）。
+                $this->automationForceFrame();
+                $probe0 = $this->hitProbe(-1);
+                $n = (int) $probe0['n'];
+                $lines = [];
+                for ($i = 0; $i < $n; $i++) {
+                    $h = $this->hitProbe($i);
+                    $lines[] = $i . "\t" . $h['id'] . "\t" . $h['x'] . "\t" . $h['y']
+                        . "\t" . $h['w'] . "\t" . $h['h'] . "\t" . $h['click']
+                        . "\t" . $h['down'] . "\t" . $h['drag'];
+                }
+                file_put_contents($this->automationDir . '/hits.txt', implode("\n", $lines) . "\n");
+                return 'hits n=' . $n;
 
             case 'screenshot':
                 $label = (string) ($args[0] ?? '');

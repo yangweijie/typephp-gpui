@@ -39,7 +39,8 @@ function sectionCatalog(array $s): El
         El::hFlex([
             El::icon('icons/square-terminal.svg')->sizeEnum('large')->color('#e07b39')->rotate(0.0),
             El::icon('icons/settings.svg')->rm('rotate', [1.57]),
-            El::avatar('assets/missing.png'),
+            // 批3：avatar 工厂默认圆形+方形比例+40px，fallback 槽放首字兜底。
+            El::avatar('assets/missing.png', '杨'),
         ])->gap(12.0)->itemsCenter(),
         El::hFlex([
             // collapsed() 只在 Sidebar 上有注册（sidebar.cpp:473），Collapsible 没有这个方法，
@@ -48,7 +49,11 @@ function sectionCatalog(array $s): El
             El::popover('popover', El::text('popover 内容')->font(12.0)),
             El::hoverCard('hoverCard', El::text('悬停出现的卡片')->font(12.0)),
         ])->gap(12.0)->itemsCenter(),
-        El::accordionItem('手风琴一节', El::text('手风琴内容')->font(12.0)->p(8.0)),
+        // 批3：header 槽现在发 AccordionHeader>AccordionTrigger（真可点、翻 open），
+        // changeId 给了就接 on_change；第二颗 ->open(true) 强展是受控展开的回归锚。
+        El::accordionItem('手风琴一节', El::text('手风琴内容')->font(12.0)->p(8.0), 'ca-acc-1'),
+        El::accordionItem('手风琴二节（强展）', El::text('常开内容')->font(12.0)->p(8.0))
+            ->open(true),
         El::dropdownMenu('ca-dd', 'DropdownMenu')
             ->item('第一项', 'ca-dd-1')
             ->item('第二项', 'ca-dd-2', 'click'),
@@ -59,6 +64,9 @@ function sectionCatalog(array $s): El
 /** 本域元素的接线。 */
 function wireCatalog(App $app): void
 {
+    $app->on('ca-acc-1', 'change', function (): void {
+        ExampleState::$v['lastAcc'] = '手风琴一节';
+    });
     $app->on('ca-dd-1', 'click', function (): void {
         ExampleState::$v['lastDd'] = '第一项';
     });

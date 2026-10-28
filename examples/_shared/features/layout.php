@@ -61,9 +61,11 @@ function sectionLayout(array $s): El
             El::resizablePanel(El::text('上')->font(12.0)->p(6.0))->size('50%'),
             El::resizablePanel(El::text('下')->font(12.0)->p(6.0))->size('50%'),
         ], 'lay-vsplit')->h(90.0)->id('lay-vsplit')->onResize(),
+        // 批3：El::tab 的 label 自动包成 text 子节点（base Tab 的 text 只作 motion
+        // identity，屏上内容来自子元素）——不再需要手工 ->child(El::text(...))。
         El::tabs('lay-tabs')->children([
-            El::tab('总览')->child(El::text('tab 内容一')->font(12.0)->p(8.0)),
-            El::tab('明细')->child(El::text('tab 内容二')->font(12.0)->p(8.0)),
+            El::tab('总览'),
+            El::tab('明细'),
         ])->h(90.0),
     ])->sizeFull()->gap(10.0)->p(16.0)->overflowYScroll();
 }

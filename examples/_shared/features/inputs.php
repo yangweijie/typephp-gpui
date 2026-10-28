@@ -58,10 +58,21 @@ function sectionInputs(array $s): El
                 ->slot('decrement_button', El::button('－')->id('num-dec'))
                 ->slot('increment_button', El::button('＋')->id('num-inc')),
             El::otpInput('in-otp')->placeholder('4 位'),
+            // 批3：格数可配——El::otpInput 第二参经桥内 otp_length op 传进
+            // gpui_shim_retained_otp（上游 CreateRetainedOtp 本就按任意 length 建）。
+            El::otpInput('in-otp6', 6)->placeholder('6 位'),
         ])->gap(12.0),
         El::hFlex([
             El::slider(0.0, 100.0, (float) $s['vol'])->id('in-vol')->onChange(),
             El::text("vol={$s['vol']}")->font(12.0)->textRight(),
+        ])->gap(10.0)->itemsCenter(),
+        El::hFlex([
+            // 批3：量程与初值不再静默丢弃——slider_min/slider_max 由桥在建 retained
+            // 时读走传给 gpui_shim_retained_slider，初值用公开的 SliderSetValue 补
+            // （CreateRetainedSlider 恒从 min 起）。回读门见 input selftest 的
+            // sliderRangeInitial（App::text('in-sld2') 走 shim 新开的 slider 分支）。
+            El::slider(10.0, 90.0, 40.0)->id('in-sld2'),
+            El::text('量程 10..90 · 初值 40')->font(12.0)->textRight(),
         ])->gap(10.0)->itemsCenter(),
         El::hFlex([
             // 勾选态必须从 **state** 读，不能写死 false：App::run 的 view 闭包每帧重建，

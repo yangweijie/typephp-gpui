@@ -1,0 +1,47 @@
+name: gpui-kit
+mode: bin
+output: build/kit
+
+# TypePHP GPUI — macOS arm64，nano 模式。功能域独立示例：tier-A 差距清单的 catalog 工厂批。
+#
+# 差别只在 sources：这里只列本域那份 feature 源（../_shared/features/kit.php）+ 共用状态表，
+# 所以改 kit 工厂的示例面只编译这一支，selftest 也只跑 kit 的门。
+# nano 强制 c++17，gpui amalgam 与 shim 是 c++20，已预编译成 cpp-src/build/libgpui_shim.a。
+# 构建前须先跑 cmd/build-shim.sh（或直接 php bin/gpui build kit，它会按序把四步都跑掉）。
+
+sources:
+  - src/main.php
+  - ../_shared/state.php
+  - ../_shared/features/kit.php
+  - ../../src/App.php
+  - ../../src/Element.php
+  - ../../src/El.php
+  - ../../php-src/gpui.stub.php
+  - ../../cpp-src/gpui_bridge.cc
+
+build-dir: build
+
+cxx-std: c++17
+optimize: 2
+
+include-paths:
+  - ../../cpp-src
+  - ../../php-src
+
+# 静态库绝对路径：tpc 不解析相对 ld-flags，故用 @ROOT@ 占位，由 `bin/gpui build`
+# 在编译期替换为仓库绝对根并写到 project.macos.gen.yml。
+ld-flags:
+  - "@ROOT@/cpp-src/build/libgpui_shim.a"
+  - -framework Cocoa
+  - -framework CoreServices
+  - -framework CoreText
+  - -framework CoreGraphics
+  - -framework ImageIO
+  - -framework IOKit
+  - -framework WebKit
+  - -framework AudioToolbox
+  - -framework AVFoundation
+  - -framework Speech
+  - -framework Metal
+  - -framework QuartzCore
+  - -framework Carbon
