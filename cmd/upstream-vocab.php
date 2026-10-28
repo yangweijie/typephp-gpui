@@ -69,13 +69,29 @@ final class UpstreamVocab
         $len = strlen($text);
         for ($i = $open; $i < $len; $i++) {
             $c = $text[$i];
-            if ($c === '"' || $c === "'") {          // 跳过字符串字面量里的花括号
+            // 字符串字面量先吞（字符串里的 `//`、`'` 都不算注释/引号）。
+            if ($c === '"' || $c === "'") {
                 $q = $c;
                 $i++;
                 while ($i < $len && $text[$i] !== $q) {
                     if ($text[$i] === '\\') { $i++; }
                     $i++;
                 }
+                continue;
+            }
+            // C++ 注释里的引号（如 popover.cpp 的 `runtime's`）不是字符串字面量——
+            // 注释先跳过，否则注释里的 `'` 会被当成字符串起点，把后面的花括号
+            // 全吞掉（popover 的整张 kMethods 表因此取不到，overlay_closable 判成
+            // "上游没有声明"，parity 门假红）。
+            if ($c === '/' && $i + 1 < $len && $text[$i + 1] === '/') {
+                $i = strpos($text, "\n", $i);
+                if ($i === false) { break; }
+                continue;
+            }
+            if ($c === '/' && $i + 1 < $len && $text[$i + 1] === '*') {
+                $end = strpos($text, '*/', $i + 2);
+                if ($end === false) { break; }
+                $i = $end + 1;
                 continue;
             }
             if ($c === '{') { $depth++; } elseif ($c === '}') {
@@ -107,6 +123,19 @@ final class UpstreamVocab
                 $cur .= $c;
                 continue;
             }
+            // 注释同样跳过（注释里的引号/逗号都不算数据——同 braceBody 的注释处理）。
+            if ($c === '/' && $i + 1 < $len && $body[$i + 1] === '/') {
+                $nl = strpos($body, "\n", $i);
+                if ($nl === false) { break; }
+                $i = $nl;
+                continue;
+            }
+            if ($c === '/' && $i + 1 < $len && $body[$i + 1] === '*') {
+                $end = strpos($body, '*/', $i + 2);
+                if ($end === false) { break; }
+                $i = $end + 1;
+                continue;
+            }
             if ($c === '{') { $depth++; } elseif ($c === '}') { $depth--; }
             if ($c === ',' && $depth === 0) { $out[] = $cur; $cur = ''; continue; }
             $cur .= $c;
@@ -130,7 +159,26 @@ final class UpstreamVocab
         if ($body === null) { return []; }
         $rows = [];
         foreach (self::splitEntries($body) as $e) {
-            if (strpos($e, '{') !== false) { $rows[] = $e; }
+            if (strpos($e, '{') !== false) {
+                $rows[] = $e;
+                continue;
+            }
+            // 命名常量引用（`kDialogMethods[] = {kTitle, kOnOk, …}`）：window_effects/mod.cpp
+            // 的 Dialog/AlertDialog/Sheet/Notification 家族把共享的 MethodDescriptor 定义成
+            // 具名 constexpr 再按名收进数组——直接过滤无 `{` 的条目会把 on_ok/on_close/
+            // on_cancel/title 整族漏成"上游没声明"（parity 门因此假红过一次）。同一文件里
+            // 按 `constexpr <类型> <名> = {…}` 解一层引用；共享描述符（kTitle 被四颗复用）
+            // 每次展开都得到同一条目，跟重复内联的效果一致。
+            $ref = trim($e);
+            if (preg_match('/^[A-Za-z_]\w*$/', $ref)
+                && preg_match('/constexpr\s+\w+\s+' . preg_quote($ref, '/') . '\s*=\s*\{/', $text, $rm, PREG_OFFSET_CAPTURE)) {
+                $refBody = self::braceBody($text, $rm[0][1] + strlen($rm[0][0]) - 1);
+                // 注意：单条 descriptor 的本体没有内层大括号
+                // （`MethodDescriptor kOnOk = {"on_ok", …}`），不能按"含 { "过滤。
+                if ($refBody !== null) {
+                    $rows[] = $refBody;
+                }
+            }
         }
         return $rows;
     }

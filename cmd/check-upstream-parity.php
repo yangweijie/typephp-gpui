@@ -70,6 +70,12 @@ function upstreamParityProblems(string $repo, string $tree): array
         // gpui_bridge.cc 的 retained 输入建状态时读这两个 method op 的实参，
         // 它们从不下游到 materialize（placeholder 不是上游 op 名）。
         'placeholder',
+        // 2026-10-28 批3：同一条 retained 通道的桥内专用 op——otp 的格数与 slider
+        // 的量程由 Element 工厂发、bridge 建 retained 时读走（gpui_shim_retained_otp/
+        // gpui_shim_retained_slider），从不下游到 materialize。
+        'otp_length',
+        'slider_min',
+        'slider_max',
     ];
     $src = (string) file_get_contents($repo . '/src/Element.php');
     $bridge = (string) file_get_contents($repo . '/cpp-src/gpui_bridge.cc');
@@ -180,6 +186,23 @@ function upstreamParityProblems(string $repo, string $tree): array
         foreach ($rec['ctors'] as $e => $a) { $exports[] = $e; $compOfExport[$e] = $comp; }
         foreach ($rec['methods'] as $mn => $a) { $methods[$mn] = true; }
     }
+    // 批5 补丁豁免表（第一次越出 PHP 层的批）：ProgressCircle/PopupMenu/ContextMenu
+    // 这三个 descriptor 由 cmd/patch-*.sh 在**沙箱**（build/gpui-kit-cpp）里补——
+    // upstream/ 只读、sync-upstream.sh 的方向是 upstream → 沙箱，补丁只在沙箱侧打，
+    // 所以词表门（读只读原树）看不到它们。豁免不是手抄：每个名字必须真出现在
+    // cmd/patch-*.sh 里（自校验），防"加了导出名却忘了补丁"或"豁免了没补丁的名字"。
+    $patchExports = ['ProgressCircle', 'PopupMenu', 'ContextMenu'];
+    $patchSrc = '';
+    foreach (glob($repo . '/cmd/patch-*.sh') ?: [] as $pf) {
+        $patchSrc .= (string) file_get_contents($pf);
+    }
+    $patchOrphan = array_values(array_filter($patchExports,
+        static fn (string $n): bool => !str_contains($patchSrc, $n)));
+    if ($patchOrphan !== []) {
+        $problems[] = '这些补丁豁免名在 cmd/patch-*.sh 里找不到出处（补丁登记缺失或豁免手误）：'
+            . implode(', ', $patchOrphan);
+    }
+
     $usedExports = [];
     if (preg_match_all('/self::reg\(/', $src, $rm, PREG_OFFSET_CAPTURE)) {
         foreach ($rm[0] as $hit) {
@@ -220,7 +243,8 @@ function upstreamParityProblems(string $repo, string $tree): array
     // 从导出名里豁免的，只有"确实写在 state( 位置上、且上游真有这个 kind"的那几个——
     // 否则一个拼错的导出名撞上合法 kind 名就悄悄过了。
     $excused = array_intersect(array_keys($usedStateKinds), $validStates);
-    $badExports = array_values(array_diff(array_keys($usedExports), $exports, $excused));
+    $badExports = array_values(array_diff(
+        array_keys($usedExports), $exports, $excused, $patchExports));
     sort($badExports);
     if ($badExports !== []) {
         $problems[] = '这些 catalog 导出名上游 descriptor 表里没有（会 build 不出来 → 降级成 Div）：'
@@ -269,8 +293,10 @@ function upstreamParityProblems(string $repo, string $tree): array
     if ($badMethods !== []) {
         $problems[] = '这些 registered_method 名没有任何 descriptor 声明过：' . implode(', ', $badMethods);
     }
-    $info[] = sprintf('catalog：我们用到 %d 个导出名 / %d 个方法名，上游共 %d / %d',
-        count($usedExports), count(array_unique($rmNames)), count($exports), count($methods));
+    $info[] = sprintf('catalog：我们用到 %d 个导出名 / %d 个方法名，上游原树共 %d / %d'
+        . '（另有补丁加的 %d 个导出名在沙箱侧：%s）',
+        count($usedExports), count(array_unique($rmNames)), count($exports), count($methods),
+        count($patchExports), implode(', ', $patchExports));
 
     // 归属矩阵只报信息：糖打在"没有这个方法"的组件上会静默丢，那是用法问题，
     // 名字本身在册，不该让门红。

@@ -20,7 +20,7 @@
 
 ## 补丁清单（幂等；marker 缺失 = 半补丁，amalgam 行为不对）
 （真源是 `bin/gpui` 的 patchManifest()——doctor 与 build 都按它校验；本表是它的可读副本，
-2026-10-25 与 manifest 对齐。）
+2026-10-28 与 manifest 对齐（批6 追加）。）
 | 脚本 | 目标文件 | marker |
 |------|----------|--------|
 | cmd/patch-nano.sh          | `$NANO_DIR/src/extension.cpp`   | `Engine-provided modules` |
@@ -61,6 +61,11 @@
 | cmd/patch-checkbox-click-id.sh | `$GPUI_DIR/src/shell/materialize.cpp` | `typephp-gpui: checkbox click id = callback id` |
 | cmd/patch-shell-checkbox.sh | `$GPUI_DIR/src/shell/materialize.cpp` | `typephp-gpui: checkbox/switch use themed component` |
 | cmd/patch-shell-textarea-frame.sh | `$GPUI_DIR/src/shell/materialize.cpp` | `typephp-gpui: shell textarea themed frame` |
+| cmd/patch-progress-circle.sh | `$GPUI_DIR/src/component_shell/compound/progress.cpp` | `kProgressCircle` |
+| cmd/patch-popup-menu.sh       | `$GPUI_DIR/src/component_shell/overlays/popup_menu.cpp` | `RegisterOverlaysPopupMenu` |
+| cmd/patch-popup-menu.sh       | `$GPUI_DIR/src/component_shell/overlays/mod.cpp` | `RegisterOverlaysPopupMenu` |
+| cmd/patch-element-arg.sh      | `$root/cpp-src/gpui_bridge.cc` | `typephp-gpui: element arg bridge` |
+| cmd/patch-host-data.sh        | `$GPUI_DIR/src/shell/runtime.cpp` | `typephp-gpui: host data loop` |
 
 （patch-view 还改 `window_mac.cpp` 的入口改名 + GpuiAppRunStep；以 view.cpp 的 marker 为准判整体。）
 

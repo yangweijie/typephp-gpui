@@ -97,6 +97,11 @@ function patchManifest(): array {
         ['patch-shell-checkbox.sh', "$gpui/src/shell/materialize.cpp", 'typephp-gpui: checkbox/switch use themed component'],
         ['patch-checkbox-click-id.sh', "$gpui/src/shell/materialize.cpp", 'typephp-gpui: checkbox click id = callback id'],
         ['patch-shell-textarea-frame.sh', "$gpui/src/shell/materialize.cpp", 'typephp-gpui: shell textarea themed frame'],
+        ['patch-progress-circle.sh', "$gpui/src/component_shell/compound/progress.cpp", 'kProgressCircle'],
+        ['patch-popup-menu.sh',     "$gpui/src/component_shell/overlays/popup_menu.cpp", 'RegisterOverlaysPopupMenu'],
+        ['patch-popup-menu.sh',     "$gpui/src/component_shell/overlays/mod.cpp", 'RegisterOverlaysPopupMenu'],
+        ['patch-element-arg.sh',    "$root/cpp-src/gpui_bridge.cc", 'typephp-gpui: element arg bridge'],
+        ['patch-host-data.sh',      "$gpui/src/shell/runtime.cpp", 'typephp-gpui: host data loop'],
     ];
 }
 

@@ -28,3 +28,6 @@ examples/*/project.macos.gen.yml
 *.swp
 .idea/
 .vscode/
+
+# 补丁脚本留下的一次性备份（cmd/patch-element-arg.sh 等）
+*.bak
