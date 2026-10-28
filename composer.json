@@ -43,6 +43,9 @@
         "test:cpp": "bash cmd/test-shim.sh",
         "parity:upstream": "@php cmd/check-upstream-parity.php",
         "check:bundle": "@php cmd/check-bundle-signature.php",
+        "check:hotkey-pump": "bash cmd/check-hotkey-pump.sh",
+        "check:exit-clean": "bash cmd/check-exit-clean.sh",
+        "bench:tree": "@php cmd/bench-tree.php --check cmd/bench-tree-budgets.txt",
         "test:all": [
             "@php vendor/bin/pest",
             "@php vendor/bin/phpstan analyse --no-progress",

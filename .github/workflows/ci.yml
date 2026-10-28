@@ -197,6 +197,20 @@ jobs:
       - name: Bundle on-screen qualification (regular exec + plist-bound signature)
         run: php cmd/check-bundle-signature.php
 
+      # #99：注册了热键的示例曾"能拖窗口、什么都点不动"——泵每帧排空 Carbon 队列时
+      # 用的是"任意事件"，把 AppKit 的 leftMouseDown 一起摘走了。这条门驱动**生产
+      # gpui_mac_pump()**（不是抄本），并自带红臂：把生产源里 peek 的 false 翻成 true
+      # 编一份临时副本，门必须随之变红——否则"绿"只证明设计成立，不证明门绑在生产参数上。
+      # 要窗口会话，与上面的 Native selftest 同类；热键注册不上/前置产物缺 ⇒ rc=2 未判定。
+      - name: Hotkey pump leaves mouse events (#99, green + red arm)
+        run: bash cmd/check-hotkey-pump.sh
+
+      # #101：交互 quit／关窗走"main 正常返回 → exit → 静态析构"，登记表里的 PHP callable
+      # 在 Zend 引擎关掉之后才析构 ⇒ SIGSEGV。--selftest 走 PHP exit()，不跑这些析构，
+      # 所以自检全绿也照不出这条路（真人一关窗就崩）。这条门用 --automation + quit 免人手复现。
+      - name: Clean exit on the interactive quit path (#101)
+        run: bash cmd/check-exit-clean.sh
+
       # 画廊（examples/showcase）已按功能域拆完并删除。它当年独占的四类证据各有主人：
       #   · 覆盖率反射 → tests/ExampleCoverageTest.php（php job，不需要原生）
       #   · 每支示例"没有错误节点、能力真有返回" → 下面 Domain examples 那圈循环
