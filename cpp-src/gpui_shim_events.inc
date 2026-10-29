@@ -338,21 +338,17 @@ bool gpuiInvokeShimDataCallback(App* app, EntityId view, uint64_t shimId,
     (void)arguments;
     (void)count;
     auto* pv = (PhpView*)EntityGet(app, view);
-    // 调试写默认关：无条件 fopen("/tmp/dt3") 会让交付产物每次数据回调都写盘
     // （仪表自动启用就不再是观察者）。要现场时 GPUI_DATA_DEBUG=1。
-    if (getenv("GPUI_DATA_DEBUG")) { FILE* m = fopen("/tmp/dt3", "a"); if (m) { fprintf(m, "SH2-entityget pv=%p\n", (void*)pv); fclose(m); } }
     if (!pv) {
         *error = StrDup(a, StrL("host data callback: dead view"));
         return false;
     }
     Box2* box = boxForView((void*)pv);
-    if (getenv("GPUI_DATA_DEBUG")) { FILE* m = fopen("/tmp/dt3", "a"); if (m) { fprintf(m, "SH4-box=%p viewEntityIdx=%d viewEntityGen=%u\n", (void*)box, box ? box->viewEntity.index : -1, box ? box->viewEntity.gen : 0); fclose(m); } }
     if (!box || !g_dataCallback) {
         *error = StrDup(a, StrL("host data callback is not installed"));
         return false;
     }
     auto it = box->callbacks.find(shimId);
-    if (getenv("GPUI_DATA_DEBUG")) { FILE* m = fopen("/tmp/dt3", "a"); if (m) { fprintf(m, "SH-hook box=%p shimId=%llu found=%d\n", (void*)box, (unsigned long long)shimId, (int)(it != box->callbacks.end())); fclose(m); } }
     if (it == box->callbacks.end()) {
         *error = StrDup(a, StrL("host data callback: unknown callback id"));
         return false;

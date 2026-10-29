@@ -130,6 +130,26 @@ headless、不开窗口，故任意环境可跑。`cmd/test-shim.sh` 两步编�
 21. 进程与存储：白名单里的 `/bin/echo` 跑通并带回 stdout；`/bin/cat` 被拒且原因含
     "白名单"。存储没授权时 `storageSet` 必须 false，授权后 set/get/len 自洽。
 
+## 宿主数据回路（批6：rows 回调的返回值通道）
+
+批6 的 `cmd/patch-host-data.sh` 让 rows 回调（`render_rows` 等）能**返回真数据**——
+补丁在 `CallInLayout` 顶部加 shimId 分叉：回调表项的 shimId 非零 ⇒ 宿主登记的回调
+（`PushShimCallback`），走 `gpuiInvokeShimDataCallback` → bridge 的 `php::call` 同步
+调 PHP handler → 返回值编组回填（`GpuiDataNode` 树 → `ComponentDataValue` → JS）。
+四段式与 `cmd/patch-host-list.sh` 同款（宿主登记 → shim 分叉 → php::call → 回填）。
+
+**怎么测**（kit selftest 的正/负路门）：
+- `dataTableRowsCallbackSuccess`：注册 `render_rows` 处理器返回对象行数组 → 探针
+  fails 不动（快照成功）、账本干净——"成功看得见"。
+- `dataTableRowsCallbackLoud`：不注册处理器 → 探针 fails +1——"失败也看得见"。
+- `candlestickChartRenderSuccess` / `sankeyChartRenderSuccess` / `searchableListRowRender`：
+  三张新图的正路门（rows 回调返回真数组 → 图表/列表渲染无 registeredError）。
+- 负路门（`*NoHandlerQuiet`）：不注册处理器 → Failure Div（不进 request->Fail，账本干净）。
+
+**已知限制**：元素通道（`render_cell` / `render_row` 等返回**元素**的回调）未实现——
+走 `BuildComponentElement` 的 shimId 分叉 → 非确定性 SIGBUS（DataTable paint 实证，
+约 1/3 概率崩）。批6 只做数据通道（返回**数据**的回调）。
+
 ## `--clip`：把"能改粘贴板的东西"变成测试装置
 
 图像与文件两条通道要有**真数据**才验得到，而自检不能依赖粘贴板里恰好有什么。

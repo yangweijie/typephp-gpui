@@ -18,7 +18,7 @@
 | 面 | 上游 | PHP 可达 | 说明 |
 |---|---|---|---|
 | `ComponentKind` 枚举值 | 66 | 50 个普通 kind 名（2026-10-28 批3 补 accordion_header/trigger/panel），另有专用 ABI | `Registered`/`ChildView`/`DockArea` 不靠普通 kind 表构造；不能用 50−66 判实际缺口 |
-| catalog 组件 | 140 个导出名 / 158 个去重方法名（原树 137/158；3 个导出名——ProgressCircle/PopupMenu/ContextMenu——由沙箱补丁 cmd/patch-progress-circle.sh、cmd/patch-popup-menu.sh 补） | 专用工厂或 `El::catalog(导出名, 构造实参)` | 通用工厂不替代实体与同步回调。没有专用工厂的那批仍缺 PHP 侧的实参提示与枚举预校验，错误由 `App::registeredError()` 回读；去重方法数不能与各 descriptor 的方法出现次数混用 |
+| catalog 组件 | 146 个导出名 / 161 个去重方法名（原树 137/158；9 个导出名——批5 的 ProgressCircle/PopupMenu/ContextMenu + 批6 的 CandlestickChart/SankeyChart/SearchableList + 批7 的 Typewriter/GradientText/AnimatedNumber——由沙箱补丁 cmd/patch-*.sh 补） | 专用工厂或 `El::catalog(导出名, 构造实参)` | 通用工厂不替代实体与同步回调。没有专用工厂的那批仍缺 PHP 侧的实参提示与枚举预校验，错误由 `App::registeredError()` 回读；去重方法数不能与各 descriptor 的方法出现次数混用 |
 
 **同一组件的两张脸**：base 的 `ComponentKind::Button` 只有点击与文本；画廊里带圆角、底色、
 变体的那个是 catalog 的 `Button`（13 个方法：`label tooltip loading size outline primary
@@ -65,11 +65,11 @@ emptyState 加 `$headerSlot=true` 开关走上游原生 header 槽路）。裸�
 顺带的词表可见面修正：提取器此前认不出"具名 constexpr 方法描述符按名收进数组"的写法
 （window_effects 的 `kDialogMethods={kTitle,kOnOk,…}`、图表与 Scrollbar 家族同款），
 kit 工厂批的 `on_ok`/`on_close` 让它假红，修复解一层引用后去重方法名 148→**157**，
-其后树同步与批5 补丁把总数带到 **158**（本页数字按 `php cmd/upstream-vocab.php` 现算；
-沙箱侧 140 个导出名里 3 个是补丁加的）——
-新增的 9 个里 PHP 真正发的是 `on_ok`/`on_close` 两个，其余 7 个
-（`grid`/`linear`/`natural`/`step_after`/`tick_margin`/`x_axis`/`scroll_axis`）
-是图表与 Scrollbar 家族顺带浮出的名字，PHP 侧一个都没发。
+其后树同步与批5/批6/批7 补丁把总数带到 **161**（本页数字按 `php cmd/upstream-vocab.php` 现算；
+沙箱侧 146 个导出名里 9 个是补丁加的）——
+新增的 13 个里 PHP 真正发的是 `on_ok`/`on_close`/`pad` 三个，其余 10 个
+（`grid`/`linear`/`natural`/`step_after`/`tick_margin`/`x_axis`/`scroll_axis`/`show_values`/`speed`）
+是图表与 Scrollbar 家族顺带浮出的名字，PHP 侧一个都没发。批6 的三颗（CandlestickChart/SankeyChart/SearchableList）走数据回路正路，rows 回调返回真数组。批7 的三颗（Typewriter/GradientText/AnimatedNumber）是唯一从零写 C++ widget 的批，特效族视觉验收只能逐帧快照/真人。
 
 **需要上游 entity 状态句柄的那一族，现在按可数的口径说**（旧句子写的是"还需要 16 个"，
 那是 #81/#82/#84 交付之前列的清单，已失真——`check-upstream-parity --info` 打出来的真值是：

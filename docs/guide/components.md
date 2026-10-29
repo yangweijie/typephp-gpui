@@ -581,6 +581,26 @@ El::shimmerText('慢速反向扫光')->rm('duration_ms', [2400.0])->rm('reverse'
 变体（`id`/`duration_ms`/`spread`/`reverse`/`once`）走 `->rm()` 透传——五个名字都在
 ShimmerText 方法表在册，但没有各自开糖。
 
+### 批7 特效三件（唯一从零写 C++ widget 的批）
+
+```php
+El::typewriter('打字机效果演示文本');
+El::typewriter('快速打字')->rm('speed', [10.0]);
+El::gradientText('渐变文字效果演示', '#ff6600', '#0066ff');
+El::animatedNumber('kit-an', 42.5, 1)->pad(3);
+```
+
+- **Typewriter 打字机文本**：逐字 reveal，`speed` = ms/字符（默认 50）。MotionAppear
+  动画，与 ShimmerText 同款内部 state 管理。方法：`speed`/`id`/`color`。
+- **GradientText 渐变文字**：静态渐变，每字 `RgbaMix(from,to,t)` 插值，无动画。
+  ctor 三实参 `text/from/to`（from/to 是颜色字符串）。方法：`id`。
+- **AnimatedNumber 数字滚动**：count_up 动画（0→value），`decimals` 小数位、`pad`
+  整数位补零。MotionAppear 管理动画 state，不需要额外 retained 实体。方法：`color`/`pad`。
+
+三件都在 `ui/text_effects.h/.cpp`（新写，Ely spec 描述、上游无），descriptor 在
+`controls/text.cpp`（`cmd/patch-text-effects.sh`）。特效族视觉验收只能逐帧快照/真人
+——selftest 只断"不崩 + 账本干净"，动画本身由 MotionAppear 内部管理。
+
 ### 弹层触发器 Dialog / AlertDialog / Sheet
 
 ```php
@@ -911,16 +931,39 @@ ctor 三实参 id/state/render_item，其中 render_item 是"返回元素"的回
 批6宿主回路；state 经 `El::state('MessageScrollerState', …)` 标记。它不进任何树
 （会让 componentStates 计数涨，破坏 tree2CarouselState 的 ==1 门）。
 
-### 图表五连（结构已接，数据通道边界）
+### 图表七连（批6 数据回路接通）
 
 ```php
+// 五图（结构已接，数据通道未通——回调通道只发事件不带返回值）
 El::barChart(); El::lineChart(); El::areaChart(); El::pieChart(); El::radarChart();
 // 五个导出名（chart/mod.cpp:495-499）：构造只吃 rows 回调
-// (cx) => { label: string; value: number }[]——回调通道只发事件不带返回值，
-// 真数据等批6宿主数据回路；负向响亮失败门未落地（native 渲染负向时进程段错误、
-// ChartErrorProbe 探针 shim 无读口，卡点见 selftest skipped 记录）。
+// (cx) => { label: string; value: number }[]——真数据等宿主数据回路。
+
+// 批6 新接的两张图（数据回路已通）：
+El::candlestickChart('kit-candle');
+// CandlestickChart（chart/mod.cpp kCandlestickChart，cmd/patch-candlestick.sh）：
+// rows 回调吃 {open,high,low,close} 四字段行，与五图同一条 SnapshotRowsWith 路。
+// up/down 色由 widget 的 New 取 theme chartBullish/chartBearish。
+
+El::sankeyChart('kit-sankey');
+// SankeyChart（chart/mod.cpp kSankeyChart，cmd/patch-sankey.sh）：双回调
+// render_nodes（[{label}…]）+ render_links（[{source,target,value}…]），
+// descriptor 命令式建图（New → Node×n → Link×n）。新 Op::ShowValues（show_values）。
 ```
 
+
+### SearchableList 可搜索列表（批6 数据回路接通）
+
+```php
+El::searchableList('kit-sl', 'kit-sl-rows')->w(320.0)->h(200.0);
+// SearchableList（delegate_collections/searchable_list.cpp，cmd/patch-searchable-list.sh）：
+// rows 回调吃 [{title,value?,section?,disabled?,badge?}]，descriptor 转
+// SearchableListItem 数组 + SearchableListDelegate::Items 工厂（默认函数表：
+// matches 是 title 的大小写不敏感子串）。query 传 null（widget 安全跳过搜索输入框）。
+// 行渲染不发 render_item 回调：delegate 的 renderItem 留 null，widget 用默认行
+// （title + icon + badge）。元素通道（render_cell/renderRow）未实现（批6 只做数据
+// 通道），发元素回调会走 BuildComponentElement 的 shimId 分叉 → 非确定性 SIGBUS。
+```
 
 ### 问卷 Questionnaire 家族
 

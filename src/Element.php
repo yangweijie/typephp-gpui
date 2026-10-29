@@ -885,6 +885,8 @@ class Element
     public function navIcon(string $name): self { self::enumCheck('navIcon', $name, self::NAV_ICONS); return $this->catalogMethod('icon', [$name]); }
     public function rotate(float $rad): self { return $this->catalogMethod('rotate', [$rad]); }
     public function color(string $c): self { return $this->catalogMethod('color', [$c]); }
+    /** catalog 组件的 pad 方法（批7 AnimatedNumber：整数位补零）。 */
+    public function pad(int $digits): self { return $this->catalogMethod('pad', [$digits]); }
     public function align(string $a): self { self::enumCheck('align', $a, self::FIELD_ALIGN); return $this->catalogMethod('align', [$a]); }
     /** catalog 组件的语义尺寸（走 registered_method 'size'，枚举预校验）。 */
     public function sizeEnum(string $s): self { self::enumCheck('sizeEnum', $s, self::SIZES); return $this->catalogMethod('size', [$s]); }
@@ -1751,6 +1753,37 @@ class Element
     }
 
     /**
+     * 批7 特效三件（唯一从零写 C++ widget 的批）：
+     *
+     * Typewriter 打字机文本——逐字 reveal，MotionAppear 动画，speed = ms/字符。
+     * descriptor 在 controls/text.cpp（cmd/patch-text-effects.sh）。ctorArgs = [text]。
+     * 方法：speed(float)/id(string)/color(string)。
+     */
+    public static function typewriter(string $text): self
+    {
+        return self::reg('Typewriter', [$text]);
+    }
+
+    /**
+     * GradientText 渐变文字——静态渐变，每字 RgbaMix(from,to,t)，无动画。
+     * ctorArgs = [text, from, to]（from/to 是颜色字符串）。方法：id(string)。
+     */
+    public static function gradientText(string $text, string $from, string $to): self
+    {
+        return self::reg('GradientText', [$text, $from, $to]);
+    }
+
+    /**
+     * AnimatedNumber 数字滚动——count_up 动画，MotionAppear 0→value。
+     * ctorArgs = [id, value, decimals]。方法：color(string)/pad(int)。
+     * id 是 MotionName 键（动画跨帧续跑）+ 事件路由键。
+     */
+    public static function animatedNumber(string $id, float $value, int $decimals = 0): self
+    {
+        return self::reg('AnimatedNumber', [$id, $value, $decimals])->id($id);
+    }
+
+    /**
      * Dialog 家族：真按钮触发的原生窗口效果（window_effects/mod.cpp）。构造三实参
      * id/label/on_effect_error：label 是触发按钮的字，on_effect_error 是效果失败
      * 的上报回调——这里自动以 ($id-error, 'click') 挂上（通常无人接，只在效果
@@ -2418,6 +2451,66 @@ class Element
     public static function radarChart(): self
     {
         return self::reg('RadarChart', [self::cb('render_rows', 'kit-chart')])->id('kit-chart');
+    }
+    /**
+     * CandlestickChart 蜡烛图（批6：chart/mod.cpp kCandlestickChart，
+     * cmd/patch-candlestick.sh）。widget 早已在上游（ui/chart.h:706-799：
+     * CandlestickChart::New(opens,highs,lows,closes,n)，up/down 色由 New 取
+     * theme chartBullish/chartBearish），descriptor 两仓同缺、本批补上。
+     *
+     * rows 回调吃 {open,high,low,close} 四字段行（schema 见 kCandlestickRowsArgs），
+     * 与五图同一条 SnapshotRowsWith 路——即批6 宿主数据回路的第一个图表受益者。
+     * 与五图不同：本工厂带 $id（五图固定 demo id 'kit-chart' 只建结构；本图要
+     * 真数据，handler 键必须是独立 id，否则与五图的 render_rows 键撞车）。
+     * ctorArgs[0] 是 cb('render_rows',$id)，element id 走 ->id($id)（chart/mod.cpp
+     * Render 按 request->elementId 取名，与 dataTable 同款）。
+     */
+    public static function candlestickChart(string $id = 'kit-candle'): self
+    {
+        return self::reg('CandlestickChart', [self::cb('render_rows', $id)])->id($id);
+    }
+    /**
+     * SankeyChart 桑基图（批6：chart/mod.cpp kSankeyChart，cmd/patch-sankey.sh）。
+     * widget 早已在上游（ui/chart.h:1019-1104：SankeyChart::New(cx) + Node/Link/
+     * ShowValues/IntoEl，布局在 base/sankey.h），descriptor 两仓同缺、本批补上。
+     *
+     * 与五图/Candlestick 不同的数据面：桑基图是**命令式**建图（New → Node×n →
+     * Link×n），descriptor 吃**双回调**——nodes（[{label}…]）+ links
+     * （[{source,target,value}…]），分别经 SnapshotRowsWith 快照（批6宿主数据回路
+     * 的第三个受益者）。ctorArgs = [cb('render_nodes',$id), cb('render_links',$id)]，
+     * 两个回调共用同一 $id 但 type 不同（bridge 按 (id,type) 键存 handler）。
+     */
+    public static function sankeyChart(string $id = 'kit-sankey'): self
+    {
+        return self::reg('SankeyChart', [
+            self::cb('render_nodes', $id),
+            self::cb('render_links', $id),
+        ])->id($id);
+    }
+    /**
+     * SearchableList 可搜索列表（批6：delegate_collections/searchable_list.cpp，
+     * cmd/patch-searchable-list.sh）。widget 早已在上游（ui/searchable_list.h:336-378：
+     * SearchableList::New(cx,id,state,query) + Items/Delegate/IntoEl），descriptor
+     * 两仓同缺、本批新建。
+     *
+     * rows 回调吃 [{title,value?,section?,disabled?,badge?}]——批6宿主数据回路的
+     * 第四个受益者。descriptor 经 SnapshotRowsWith 快照 → SearchableListItem 数组 →
+     * SearchableListDelegate::Items 工厂（默认函数表：matches 是 title 的大小写
+     * 不敏感子串）。query 传 null（widget 安全跳过搜索输入框）。
+     *
+     * ctorArgs = [id, cb('render_rows',$id)]——与 List 同款（id 是字符串实参进
+     * ctorArgs[0]，rows 回调进 ctorArgs[1]）。行渲染不发 render_item 回调：delegate
+     * 的 renderItem 留 null，widget 用默认行（title + icon + badge）。元素通道
+     * （render_cell/renderRow）未实现（批6 只做数据通道），发元素回调会走
+     * BuildComponentElement 的 shimId 分叉 → 非确定性 SIGBUS（DataTable 实证）。
+     */
+    public static function searchableList(string $id, string $rowsId = ''): self
+    {
+        $rowsId = $rowsId !== '' ? $rowsId : $id;
+        return self::reg('SearchableList', [
+            $id,
+            self::cb('render_rows', $rowsId),
+        ])->id($id);
     }
 
     // ── 批4：嵌套结构 + catalog 第二张脸（Questionnaire 家族 / Accordion catalog 版 /

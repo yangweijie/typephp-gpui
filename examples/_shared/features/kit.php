@@ -313,6 +313,13 @@ function sectionKitData(array $s): El
             El::pieChart(),
             El::radarChart(),
         ])->gap(12.0)->itemsStart(),
+        // 批7 特效段：Typewriter/GradientText（纯样式，无状态）。Typewriter 逐字
+        // reveal（MotionAppear），GradientText 静态渐变（RgbaMix 每字插值）。
+        // 特效族视觉验收只能逐帧快照/真人——selftest 只断"不崩 + 账本干净"。
+        El::text('Typewriter 打字机文本（逐字 reveal，speed=50ms/字符）')->font(13.0)->semibold(),
+        El::typewriter('打字机效果演示文本'),
+        El::text('GradientText 渐变文字（#ff6600 → #0066ff 静态渐变）')->font(13.0)->semibold(),
+        El::gradientText('渐变文字效果演示', '#ff6600', '#0066ff'),
         // 枚举覆盖：各白名单常量的其余取值也出现在示例里（枚举覆盖门要求每个
         // 取值都有真调用）。
         El::hFlex([
@@ -369,7 +376,32 @@ function sectionKitData(array $s): El
             El::catalogTabBar('kit-tb', ['名称', '路径', '大小'])
                 ->tabBarMenu()->tabBarSelectedIndex(1)->tabBarVariant('tab')
                 ->tabBarSize('large')->tabBarOnToggle('kit-tb-toggle'),
-        ])->gap(16.0)->itemsStart(),
+            ])->gap(16.0)->itemsStart(),
+        // 批6 金融段：CandlestickChart 蜡烛图——宿主数据回路的第一个图表受益者
+        // （rows 回调经 CallInLayout 的 shimId 分叉同步回填，handler 键 = kit-candle，
+        // 见 wireKit）。行 schema {open,high,low,close}，与五图（tree1）同一条
+        // SnapshotRowsWith 路但独立 handler id（五图固定 'kit-chart' 只建结构）。
+        El::text('CandlestickChart 蜡烛图（宿主数据回路：render_rows 返回 '
+            . '{open,high,low,close} 四字段行）')->font(13.0)->semibold(),
+        El::candlestickChart('kit-candle'),
+        // 批6 流量段：SankeyChart 桑基图——宿主数据回路的第三个受益者。与蜡烛图
+        // 不同：双回调（render_nodes + render_links），descriptor 命令式建图
+        // （New → Node×n → Link×n）。节点是四档收入/支出，链接是流向。
+        El::text('SankeyChart 桑基图（宿主数据回路：render_nodes 返回 {label} 行、'
+            . 'render_links 返回 {source,target,value} 行）')->font(13.0)->semibold(),
+        El::sankeyChart('kit-sankey'),
+        // 批6 搜索段：SearchableList 可搜索列表——宿主数据回路的第四个受益者。
+        // rows 回调返回 [{title,value,section,disabled,badge}]，descriptor 转
+        // SearchableListItem 数组 + SearchableListDelegate::Items 工厂（默认
+        // matches：title 大小写不敏感子串）。query 传 null（无搜索输入框）。
+        El::text('SearchableList 可搜索列表（宿主数据回路：render_rows 返回 '
+            . '{title,value,section,disabled,badge} 行；delegate 的 matches 按 title '
+            . '子串过滤）')->font(13.0)->semibold(),
+        El::searchableList('kit-sl', 'kit-sl-rows')->w(320.0)->h(200.0),
+        // 批7 特效段：AnimatedNumber 数字滚动（count_up 动画，MotionAppear 0→value）。
+        // id 是 MotionName 键（动画跨帧续跑）。decimals=1, pad=3。
+        El::text('AnimatedNumber 数字滚动（count_up 0→42.5，decimals=1，pad=3）')->font(13.0)->semibold(),
+        El::animatedNumber('kit-an', 42.5, 1)->pad(3),
         El::text('最近一次部件回调：' . (string) ($s['kitLog']['last'] ?? '—'))->font(11.0),
     ]))->sizeFull()->gap(10.0)->p(16.0)->overflowYScroll();
 }
@@ -493,5 +525,50 @@ function wireKit(App $app): void
     });
     $app->on('kit-db-btn', 'click', static function () use ($log): void {
         $log('dbOk', 'ok');
+    });
+    // 批6 金融段：CandlestickChart 的 rows 回调——宿主数据回路的图表侧正路。
+    // 六个交易日 OHLC；up/down 色由 widget 的 New 取 theme chartBullish/chartBearish。
+    $app->on('kit-candle', 'render_rows', static function (): array {
+        return [
+            ['open' => 42.0, 'high' => 44.5, 'low' => 41.2, 'close' => 43.8],
+            ['open' => 43.8, 'high' => 45.0, 'low' => 43.1, 'close' => 44.2],
+            ['open' => 44.2, 'high' => 44.8, 'low' => 42.0, 'close' => 42.5],
+            ['open' => 42.5, 'high' => 43.0, 'low' => 40.5, 'close' => 41.0],
+            ['open' => 41.0, 'high' => 42.5, 'low' => 40.8, 'close' => 42.2],
+            ['open' => 42.2, 'high' => 44.0, 'low' => 42.0, 'close' => 43.5],
+        ];
+    });
+    // 批6 流量段：SankeyChart 的双回调——nodes（标签）+ links（流向）。与蜡烛图
+    // 单回调不同：descriptor 吃两个 cb（render_nodes + render_links），bridge 按
+    // (id,type) 键分别存 handler。四档收支节点 + 五条流向链接。
+    $app->on('kit-sankey', 'render_nodes', static function (): array {
+        return [
+            ['label' => '收入'],
+            ['label' => '运营'],
+            ['label' => '投资'],
+            ['label' => '支出'],
+            ['label' => '储蓄'],
+        ];
+    });
+    $app->on('kit-sankey', 'render_links', static function (): array {
+        return [
+            ['source' => 0, 'target' => 3, 'value' => 50],
+            ['source' => 0, 'target' => 4, 'value' => 30],
+            ['source' => 1, 'target' => 3, 'value' => 20],
+            ['source' => 1, 'target' => 4, 'value' => 10],
+            ['source' => 2, 'target' => 4, 'value' => 15],
+        ];
+    });
+    // 批6 搜索段：SearchableList 的 rows 回调——宿主数据回路的列表侧正路。
+    // 三档分类 + 禁用项 + 徽标，覆盖 SearchableListItem 的各字段。
+    $app->on('kit-sl-rows', 'render_rows', static function (): array {
+        return [
+            ['title' => '苹果', 'value' => 'apple', 'section' => 0],
+            ['title' => '香蕉', 'value' => 'banana', 'section' => 0],
+            ['title' => '樱桃', 'value' => 'cherry', 'section' => 0],
+            ['title' => '胡萝卜', 'value' => 'carrot', 'section' => 1, 'badge' => '新'],
+            ['title' => '芹菜', 'value' => 'celery', 'section' => 1, 'disabled' => true],
+            ['title' => '茄子', 'value' => 'eggplant', 'section' => 2],
+        ];
     });
 }

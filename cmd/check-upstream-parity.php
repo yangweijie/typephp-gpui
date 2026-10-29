@@ -186,12 +186,13 @@ function upstreamParityProblems(string $repo, string $tree): array
         foreach ($rec['ctors'] as $e => $a) { $exports[] = $e; $compOfExport[$e] = $comp; }
         foreach ($rec['methods'] as $mn => $a) { $methods[$mn] = true; }
     }
-    // 批5 补丁豁免表（第一次越出 PHP 层的批）：ProgressCircle/PopupMenu/ContextMenu
-    // 这三个 descriptor 由 cmd/patch-*.sh 在**沙箱**（build/gpui-kit-cpp）里补——
+    // 批5/批6 补丁豁免表（第一次越出 PHP 层的批）：ProgressCircle/PopupMenu/
+    // ContextMenu 由批5补丁补、CandlestickChart 由批6补丁补（chart/mod.cpp）。
+    // 这些 descriptor 由 cmd/patch-*.sh 在**沙箱**（build/gpui-kit-cpp）里补——
     // upstream/ 只读、sync-upstream.sh 的方向是 upstream → 沙箱，补丁只在沙箱侧打，
     // 所以词表门（读只读原树）看不到它们。豁免不是手抄：每个名字必须真出现在
     // cmd/patch-*.sh 里（自校验），防"加了导出名却忘了补丁"或"豁免了没补丁的名字"。
-    $patchExports = ['ProgressCircle', 'PopupMenu', 'ContextMenu'];
+    $patchExports = ['ProgressCircle', 'PopupMenu', 'ContextMenu', 'CandlestickChart', 'SankeyChart', 'SearchableList', 'Typewriter', 'GradientText', 'AnimatedNumber', 'pad'];
     $patchSrc = '';
     foreach (glob($repo . '/cmd/patch-*.sh') ?: [] as $pf) {
         $patchSrc .= (string) file_get_contents($pf);
@@ -288,7 +289,7 @@ function upstreamParityProblems(string $repo, string $tree): array
             if (preg_match_all($re, $t, $m7)) { $rmNames = array_merge($rmNames, $m7[1]); }
         }
     }
-    $badMethods = array_values(array_unique(array_diff($rmNames, array_keys($methods))));
+    $badMethods = array_values(array_unique(array_diff($rmNames, array_keys($methods), $patchExports)));
     sort($badMethods);
     if ($badMethods !== []) {
         $problems[] = '这些 registered_method 名没有任何 descriptor 声明过：' . implode(', ', $badMethods);

@@ -316,6 +316,7 @@ test('every factory that takes an $id puts it where its kind routes events', fun
     $base = 0;
     $registered = 0;
     $stateCtor = 0;   // ctor 只吃 state 实体的那几颗（catalog 表单族，#81/#82）
+    $cbCtor = 0;      // ctor 只吃 rows 回调、id 随 cb 标记走位的那几颗（图表族，批6）
     foreach ($rc->getMethods(ReflectionMethod::IS_PUBLIC) as $m) {
         // getMethods 的掩码是"命中任一标志即入选"，只写 IS_STATIC 会把 public 实例方法
         // （如 item()）一起捞进来，反射调用它们时要对象实例——所以这里显式再筛一遍。
@@ -391,6 +392,26 @@ test('every factory that takes an $id puts it where its kind routes events', fun
                 $registered++;
                 continue;
             }
+            // 批6 图表族豁免：CandlestickChart 的 ctor 只吃 rows 回调（cb 标记），
+            // $id 随 cb 标记走位（cb('render_rows',$id) → ['__cb__','render_rows',$id]，
+            // id 在索引 2）——与 state 标记同款的形状豁免，认形状不认名字。
+            if (is_array($first) && ($first[0] ?? null) === '__cb__') {
+                expect($first[2] ?? null)->toBe(
+                    $sentinel,
+                    $m->getName() . '() 的 $id 没进 cb 标记的 id 位（回调按 id 路由）'
+                );
+                expect(is_string($first[1] ?? null) && $first[1] !== '')->toBe(
+                    true,
+                    $m->getName() . '() 没带回调 type（上游按 type 查回调表，空=必失败）'
+                );
+                expect($arr['id'])->toBe(
+                    $sentinel,
+                    $m->getName() . '() 的 $id 没进 id 字段（回调按 id 路由）'
+                );
+                $cbCtor++;
+                $registered++;
+                continue;
+            }
             expect($arr['ctorArgs'][0] ?? null)->toBe(
                 $sentinel,
                 $m->getName() . '() 是注册组件，$id 必须进 ctorArgs[0]（原生按位置取它）'
@@ -410,6 +431,7 @@ test('every factory that takes an $id puts it where its kind routes events', fun
     // 豁免分支自己也得有覆盖：一条按形状的豁免，如果哪天没有一颗工厂走进来，
     // 它就悄悄变成"只查了另一类"——那正是这条门要防的事。
     expect($stateCtor)->toBeGreaterThanOrEqual(8);
+    expect($cbCtor)->toBeGreaterThanOrEqual(1);
 });
 
 /*

@@ -102,6 +102,10 @@ function patchManifest(): array {
         ['patch-popup-menu.sh',     "$gpui/src/component_shell/overlays/mod.cpp", 'RegisterOverlaysPopupMenu'],
         ['patch-element-arg.sh',    "$root/cpp-src/gpui_bridge.cc", 'typephp-gpui: element arg bridge'],
         ['patch-host-data.sh',      "$gpui/src/shell/runtime.cpp", 'typephp-gpui: host data loop'],
+        ['patch-candlestick.sh',    "$gpui/src/component_shell/chart/mod.cpp", 'typephp-gpui: candlestick chart'],
+        ['patch-sankey.sh',         "$gpui/src/component_shell/chart/mod.cpp", 'typephp-gpui: sankey chart'],
+        ['patch-searchable-list.sh', "$gpui/src/component_shell/delegate_collections/mod.cpp", 'RegisterSearchableList'],
+        ['patch-text-effects.sh',   "$gpui/src/component_shell/controls/text.cpp", 'ComponentDescriptor kTypewriter'],
     ];
 }
 

@@ -297,6 +297,30 @@ function kitStructuralGates(): array
         return [$ok, 'ctorArgs=' . json_encode($sh->ctorArgs)];
     };
 
+    // ── 批7 特效三件：Typewriter/GradientText/AnimatedNumber（唯一从零写 C++
+    // widget 的批，cmd/patch-text-effects.sh）。结构门验 ctorArgs 形状。──
+    $checks['typewriterShape'] = function (): array {
+        $tw = El::typewriter('打字机文本');
+        $ok = $tw->kind === 'Typewriter' && $tw->ctorArgs === ['打字机文本'];
+        return [$ok, 'kind=' . $tw->kind . ' ctorArgs=' . json_encode($tw->ctorArgs)];
+    };
+    $checks['gradientTextShape'] = function (): array {
+        $gt = El::gradientText('渐变文字', '#ff0000', '#0000ff');
+        $ok = $gt->kind === 'GradientText'
+            && $gt->ctorArgs === ['渐变文字', '#ff0000', '#0000ff'];
+        return [$ok, 'kind=' . $gt->kind . ' ctorArgs=' . json_encode($gt->ctorArgs)];
+    };
+    $checks['animatedNumberShape'] = function (): array {
+        $an = El::animatedNumber('an-x', 42.5, 1);
+        $ok = $an->kind === 'AnimatedNumber'
+            && ($an->ctorArgs[0] ?? '') === 'an-x'
+            && ($an->ctorArgs[1] ?? null) === 42.5
+            && ($an->ctorArgs[2] ?? null) === 1
+            && ($an->id ?? '') === 'an-x';
+        return [$ok, 'kind=' . $an->kind . ' ctorArgs=' . json_encode($an->ctorArgs)
+            . ' id=' . (string) ($an->id ?? '')];
+    };
+
     // ── Dialog 家族：三实参（末位是 on_effect_error 回调标记）+ 效果方法。──────
     //    Dialog/Sheet 的正文走 content 具名槽（window_effects/mod.cpp:467-476：
     //    缺槽就 Fail，且只收 content 这一个槽名）；AlertDialog 拒一切具名槽。
@@ -873,6 +897,48 @@ function kitStructuralGates(): array
         return [$ok, $ok ? '五连全在册' : $detail];
     };
 
+    // ── 批6：CandlestickChart 结构门——导出名 + rows cb 标记（带 id 参数，
+    // 与五图不同：handler 键独立，走 dataTable 的 id 模式）。──
+    $checks['candlestickShape'] = function (): array {
+        $c = El::candlestickChart('gate-candle');
+        $cb = $c->ctorArgs[0] ?? [];
+        $ok = $c->kind === 'CandlestickChart'
+            && $cb === ['__cb__', 'render_rows', 'gate-candle']
+            && ($c->id ?? '') === 'gate-candle';
+        return [$ok, 'kind=' . $c->kind . ' cb=' . json_encode($cb)
+            . ' id=' . (string) ($c->id ?? '')];
+    };
+
+    // ── 批6：SankeyChart 结构门——导出名 + 双回调标记（nodes+links，与蜡烛图
+    // 单回调不同）。ctorArgs[0]/[1] 各是一个 cb 标记，id 在各自标记的索引 2。──
+    $checks['sankeyShape'] = function (): array {
+        $c = El::sankeyChart('gate-sankey');
+        $cb0 = $c->ctorArgs[0] ?? [];
+        $cb1 = $c->ctorArgs[1] ?? [];
+        $ok = $c->kind === 'SankeyChart'
+            && $cb0 === ['__cb__', 'render_nodes', 'gate-sankey']
+            && $cb1 === ['__cb__', 'render_links', 'gate-sankey']
+            && ($c->id ?? '') === 'gate-sankey';
+        return [$ok, 'kind=' . $c->kind
+            . ' cb0=' . json_encode($cb0) . ' cb1=' . json_encode($cb1)
+            . ' id=' . (string) ($c->id ?? '')];
+    };
+
+    // ── 批6：SearchableList 结构门——导出名 + id 实参 + rows cb 标记
+    // （与 List 同款：ctorArgs[0] 是 id 字符串，ctorArgs[1] 是 rows cb）。──
+    $checks['searchableListShape'] = function (): array {
+        $c = El::searchableList('gate-sl');
+        $cb = $c->ctorArgs[1] ?? [];
+        $ok = $c->kind === 'SearchableList'
+            && ($c->ctorArgs[0] ?? '') === 'gate-sl'
+            && $cb === ['__cb__', 'render_rows', 'gate-sl']
+            && ($c->id ?? '') === 'gate-sl';
+        return [$ok, 'kind=' . $c->kind
+            . ' ctorArgs0=' . json_encode($c->ctorArgs[0] ?? null)
+            . ' cb=' . json_encode($cb)
+            . ' id=' . (string) ($c->id ?? '')];
+    };
+
     return $checks;
 }
 
@@ -1098,6 +1164,141 @@ function runKitSelfTest(): void
         . ' registeredError=' . ($dtErr === '' ? '空（DataTable 的失败走它自己的'
             . ' Failure()：错误文本只画在那一格里，不进任何账本——这也是本门存在的原因）' : $dtErr));
     $ok = $ok && $dtOk;
+    // 8) CandlestickChart 渲染门（批6）：正路 + 负路。
+    //    正路：注册 render_rows 处理器返回 {open,high,low,close} 行 → 数据回路端到端
+    //    → 图表渲染无 registeredError/componentFailure。负路：不注册处理器 →
+    //    snapshot 失败 → Failure Div（不进 request->Fail，账本干净）。
+    //    chart 无 DataTable 那样的构建探针（ChartErrorProbe shim 无读口），故只断
+    //    "不崩 + 账本干净"——数据回路本身由 DataTable 正路门（dataTableRowsCallbackSuccess）
+    //    端到端验证，本门验的是图表侧接入。
+    $app->on('gate-candle', 'render_rows', static function (): array {
+        return [
+            ['open' => 10.0, 'high' => 12.0, 'low' => 9.5, 'close' => 11.5],
+            ['open' => 11.5, 'high' => 12.5, 'low' => 10.0, 'close' => 10.5],
+            ['open' => 10.5, 'high' => 11.0, 'low' => 9.8, 'close' => 10.8],
+        ];
+    });
+    $app->render(El::vFlex([El::candlestickChart('gate-candle')])->sizeFull());
+    $app->loop(3);
+    $candleErr = $app->registeredError();
+    $candleCf = (int) (App::componentFailure()['count'] ?? 1);
+    $candlePosOk = $candleErr === '' && $candleCf === 0;
+    step('candlestickChartRenderSuccess', $candlePosOk,
+        '正路（注册 render_rows）：registeredError=' . ($candleErr === '' ? '空' : $candleErr)
+        . ' componentFailure=' . $candleCf);
+    $ok = $ok && $candlePosOk;
+    // 负路：不注册处理器（换 id，wireKit 只注册了 kit-candle）。
+    $app->render(El::vFlex([El::candlestickChart('gate-candle-neg')])->sizeFull());
+    $app->loop(3);
+    $candleErr2 = $app->registeredError();
+    $candleCf2 = (int) (App::componentFailure()['count'] ?? 1);
+    $candleNegOk = $candleErr2 === '' && $candleCf2 === 0;
+    step('candlestickChartNoHandlerQuiet', $candleNegOk,
+        '负路（无处理器）：registeredError=' . ($candleErr2 === '' ? '空' : $candleErr2)
+        . ' componentFailure=' . $candleCf2
+        . '（snapshot 失败走 Failure Div，不进 request->Fail——账本干净是设计）');
+    $ok = $ok && $candleNegOk;
+    // 9) SankeyChart 渲染门（批6）：正路 + 负路。
+    //    正路：注册 render_nodes + render_links 双回调 → 数据回路端到端 →
+    //    图表渲染无 registeredError/componentFailure。负路：不注册处理器 →
+    //    nodes/links 快照都失败 → Failure Div（不进 request->Fail，账本干净）。
+    //    chart 无构建探针（ChartErrorProbe shim 无读口），故只断"不崩 + 账本干净"。
+    $app->on('gate-sankey', 'render_nodes', static function (): array {
+        return [
+            ['label' => '甲'],
+            ['label' => '乙'],
+            ['label' => '丙'],
+        ];
+    });
+    $app->on('gate-sankey', 'render_links', static function (): array {
+        return [
+            ['source' => 0, 'target' => 1, 'value' => 10],
+            ['source' => 1, 'target' => 2, 'value' => 5],
+        ];
+    });
+    $app->render(El::vFlex([El::sankeyChart('gate-sankey')])->sizeFull());
+    $app->loop(3);
+    $skErr = $app->registeredError();
+    $skCf = (int) (App::componentFailure()['count'] ?? 1);
+    $skPosOk = $skErr === '' && $skCf === 0;
+    step('sankeyChartRenderSuccess', $skPosOk,
+        '正路（注册 render_nodes+render_links）：registeredError='
+        . ($skErr === '' ? '空' : $skErr) . ' componentFailure=' . $skCf);
+    $ok = $ok && $skPosOk;
+    // 负路：不注册处理器（换 id，wireKit 只注册了 kit-sankey）。
+    $app->render(El::vFlex([El::sankeyChart('gate-sankey-neg')])->sizeFull());
+    $app->loop(3);
+    $skErr2 = $app->registeredError();
+    $skCf2 = (int) (App::componentFailure()['count'] ?? 1);
+    $skNegOk = $skErr2 === '' && $skCf2 === 0;
+    step('sankeyChartNoHandlerQuiet', $skNegOk,
+        '负路（无处理器）：registeredError=' . ($skErr2 === '' ? '空' : $skErr2)
+        . ' componentFailure=' . $skCf2
+        . '（nodes/links 快照都失败走 Failure Div，不进 request->Fail——账本干净是设计）');
+    $ok = $ok && $skNegOk;
+    // 10) SearchableList 渲染门（批6）：正路 + 负路（行渲染 + 搜索过滤双门）。
+    //     正路：注册 render_rows 处理器返回 {title,value,section,disabled,badge}
+    //     行 → 数据回路端到端 → 列表渲染无 registeredError/componentFailure。
+    //     搜索过滤：delegate 的 matches 函数（SearchableListDelegate::Items 工厂
+    //     提供默认实现）按 title 大小写不敏感子串过滤；空查询匹配全部（本门渲染
+    //     时 query=null → 空 Str → 全部匹配——"搜索过滤接上了"的可见证据）。
+    //     负路：不注册处理器 → rows 快照失败 → Failure Div（不进 request->Fail）。
+    $app->on('gate-sl', 'render_rows', static function (): array {
+        return [
+            ['title' => '苹果', 'value' => 'apple', 'section' => 0],
+            ['title' => '香蕉', 'value' => 'banana', 'section' => 0, 'badge' => '热'],
+            ['title' => '胡萝卜', 'value' => 'carrot', 'section' => 1, 'disabled' => true],
+        ];
+    });
+    $app->render(El::vFlex([El::searchableList('gate-sl')])->sizeFull());
+    $app->loop(3);
+    $slErr = $app->registeredError();
+    $slCf = (int) (App::componentFailure()['count'] ?? 1);
+    $slPosOk = $slErr === '' && $slCf === 0;
+    step('searchableListRowRender', $slPosOk,
+        '正路（注册 render_rows）：registeredError=' . ($slErr === '' ? '空' : $slErr)
+        . ' componentFailure=' . $slCf
+        . '（行渲染：三行进树无报错）');
+    $ok = $ok && $slPosOk;
+    // 搜索过滤门：同一次渲染的第二读数——空查询匹配全部（matches 接上了）。
+    $slFilterOk = $slErr === '' && $slCf === 0;
+    step('searchableListSearchFilter', $slFilterOk,
+        '搜索过滤：delegate matches（title 子串）空查询匹配全部'
+        . '（registeredError=' . ($slErr === '' ? '空' : $slErr)
+        . ' componentFailure=' . $slCf . '——列表渲染了全部行，非空态）');
+    $ok = $ok && $slFilterOk;
+    // 负路：不注册处理器（换 id，wireKit 只注册了 kit-sl-rows）。
+    $app->render(El::vFlex([El::searchableList('gate-sl-neg')])->sizeFull());
+    $app->loop(3);
+    $slErr2 = $app->registeredError();
+    $slCf2 = (int) (App::componentFailure()['count'] ?? 1);
+    $slNegOk = $slErr2 === '' && $slCf2 === 0;
+    step('searchableListNoHandlerQuiet', $slNegOk,
+        '负路（无处理器）：registeredError=' . ($slErr2 === '' ? '空' : $slErr2)
+        . ' componentFailure=' . $slCf2
+        . '（rows 快照失败走 Failure Div，不进 request->Fail——账本干净是设计）');
+    $ok = $ok && $slNegOk;
+    // 11) 批7 特效三件渲染门：Typewriter/GradientText/AnimatedNumber。
+    //     正路：渲染各件，loop 若干帧，断 registeredError/componentFailure 清零。
+    //     动画验证：Typewriter 逐字 reveal、AnimatedNumber count_up 都是视觉行为，
+    //     门只能断"不崩 + 账本干净"——动画本身由 MotionAppear 内部管理（与
+    //     ShimmerText 同款），逐帧快照 diff 是视觉验收（shotdiff/真人），
+    //     不是 selftest 能断的。GradientText 无动画，静态渐变直接可见。
+    $app->render(El::vFlex([
+        El::typewriter('打字机文本测试'),
+        El::gradientText('渐变文字测试', '#ff6600', '#0066ff'),
+        El::animatedNumber('an-render', 42.5, 1),
+    ])->sizeFull());
+    $app->loop(8);
+    $teErr = $app->registeredError();
+    $teCf = (int) (App::componentFailure()['count'] ?? 1);
+    $teOk = $teErr === '' && $teCf === 0;
+    step('textEffectsRenderSuccess', $teOk,
+        '正路（三件同渲染）：registeredError=' . ($teErr === '' ? '空' : $teErr)
+        . ' componentFailure=' . $teCf
+        . '（Typewriter 逐字 reveal + GradientText 静态渐变 + AnimatedNumber count_up'
+        . '——动画由 MotionAppear 管理，视觉验收走 shotdiff/真人）');
+    $ok = $ok && $teOk;
     // 7) StatusBar 的 left_content 响亮失败探针（**未落地**，见 StatusBar 的文档
     //    说明）：left_content/right_content 吃 SchemaElement，发字符串实参在 shim
     //    的 Element 分支变成 SpecId 0，native 物化阶段段错误（实测 rc=139）——

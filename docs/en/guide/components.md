@@ -503,6 +503,30 @@ El::shimmerText('Slow reverse sweep')->rm('duration_ms', [2400.0])->rm('reverse'
 Variants (`id`/`duration_ms`/`spread`/`reverse`/`once`) pass through `->rm()` — all five
 names are in the ShimmerText method table; no dedicated sugar per name.
 
+### Batch 7 text effects (the only batch that writes C++ widgets from scratch)
+
+```php
+El::typewriter('Typewriter effect demo text');
+El::typewriter('Fast typing')->rm('speed', [10.0]);
+El::gradientText('Gradient text effect demo', '#ff6600', '#0066ff');
+El::animatedNumber('kit-an', 42.5, 1)->pad(3);
+```
+
+- **Typewriter**: reveals characters one by one, `speed` = ms per character (default 50).
+  MotionAppear animation with the same internal state management as ShimmerText. Methods:
+  `speed`/`id`/`color`.
+- **GradientText**: static gradient, each character gets `RgbaMix(from,to,t)` interpolation,
+  no animation. Ctor takes `text/from/to` (from/to are color strings). Methods: `id`.
+- **AnimatedNumber**: counts up from 0 to value, `decimals` decimal places, `pad` leading
+  zeros. MotionAppear manages the animation state — no separate retained entity needed.
+  Methods: `color`/`pad`.
+
+All three live in `ui/text_effects.h/.cpp` (new-written, described by the Ely spec, absent
+from upstream); descriptors are in `controls/text.cpp` (`cmd/patch-text-effects.sh`). The
+effect family's visual verification requires frame-by-frame snapshots or human inspection —
+the selftest only asserts "no crash + clean ledger"; the animation itself is managed by
+MotionAppear internally.
+
 ### Dialog / AlertDialog / Sheet triggers
 
 ```php
@@ -863,16 +887,39 @@ callback channel emits events but does not return values (DataTable's experience
 data channel waits for batch 6 host circuit; it is never put in a tree because that would
 raise `componentStates` and break tree2CarouselState's `==1` gate.
 
-### Five chart families (structure connected, data-channel boundary)
+### Seven chart families (batch 6 data loop connected)
 
 ```php
+// Five original charts (structure connected, data channel not yet live)
 El::barChart(); El::lineChart(); El::areaChart(); El::pieChart(); El::radarChart();
 // five exports (chart/mod.cpp:495-499): each ctor takes only the rows callback
-// (cx) => { label: string; value: number }[] — the callback channel does not return
-// values, so the data channel waits for batch 6. The negative loud-failure gate is not
-// landed (rendering the negative path segfaults the native process, and the
-// ChartErrorProbe seam has no shim install or read access); the keypoint is recorded in
-// the kit selftest's skipped list.
+// (cx) => { label: string; value: number }[] — real data waits for the host data loop.
+
+// Batch 6 adds two charts with the data loop live:
+El::candlestickChart('kit-candle');
+// CandlestickChart (chart/mod.cpp kCandlestickChart, cmd/patch-candlestick.sh):
+// rows callback takes {open,high,low,close} rows, same SnapshotRowsWith path as the
+// five. up/down colors come from the widget's New (theme chartBullish/chartBearish).
+
+El::sankeyChart('kit-sankey');
+// SankeyChart (chart/mod.cpp kSankeyChart, cmd/patch-sankey.sh): dual callbacks
+// render_nodes ([{label}…]) + render_links ([{source,target,value}…]), built
+// imperatively (New → Node×n → Link×n). New Op::ShowValues (show_values).
+```
+
+### SearchableList (batch 6 data loop connected)
+
+```php
+El::searchableList('kit-sl', 'kit-sl-rows')->w(320.0)->h(200.0);
+// SearchableList (delegate_collections/searchable_list.cpp, cmd/patch-searchable-list.sh):
+// rows callback takes [{title,value?,section?,disabled?,badge?}], the descriptor converts
+// to SearchableListItem array + SearchableListDelegate::Items factory (default function
+// table: matches is a case-insensitive title substring). query is null (the widget safely
+// skips the search input). Row rendering does not send a render_item callback: the delegate's
+// renderItem stays null and the widget uses the default row (title + icon + badge). The
+// element channel (render_cell/renderRow) is not implemented (batch 6 does the data channel
+// only); sending an element callback hits the shimId branch in BuildComponentElement →
+// non-deterministic SIGBUS (DataTable-verified).
 ```
 
 ### Questionnaire family

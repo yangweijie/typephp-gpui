@@ -22,7 +22,7 @@ The scripts read the vendored source, not a remote documentation snapshot.
 | Surface | Upstream vocabulary | PHP access | Boundary |
 |---|---|---|---|
 | `ComponentKind` | 66 enum values | 50 names in `kKindNames` (2026-10-28 batch 3 added accordion_header/trigger/panel), plus dedicated ABI paths | Subtracting 50 from 66 does not measure missing features |
-| Catalog | 140 export names; 158 distinct method names (pristine tree: 137/158; three export names — ProgressCircle/PopupMenu/ContextMenu — come from the sandbox patches `cmd/patch-progress-circle.sh` and `cmd/patch-popup-menu.sh`) | Dedicated factories and `El::catalog($name, $args)` | Stateful constructors and synchronous callbacks still need host integration. Factories without a dedicated constructor still lack PHP-side argument hints and enum validation; failures come back through `App::registeredError()` |
+| Catalog | 146 export names; 161 distinct method names (pristine tree: 137/158; nine export names — batch 5's ProgressCircle/PopupMenu/ContextMenu + batch 6's CandlestickChart/SankeyChart/SearchableList + batch 7's Typewriter/GradientText/AnimatedNumber — come from the sandbox patches `cmd/patch-*.sh`) | Dedicated factories and `El::catalog($name, $args)` | Stateful constructors and synchronous callbacks still need host integration. Factories without a dedicated constructor still lack PHP-side argument hints and enum validation; failures come back through `App::registeredError()` |
 
 Distinct method names are not the sum of methods across descriptors. A shared
 method such as `size` occurs in several descriptors but counts once in the distinct
@@ -113,6 +113,22 @@ ordinary children), and `EmptyHeader`'s `media/title/description` (a SchemaEleme
 gap — `cmd/patch-element-arg.sh` adds an `element_arg` op to the bridge so `->elementArg()`
 can feed them, and `emptyState()` gains a `$headerSlot = true` switch for the upstream
 native header slot route).
+
+Batch 6 continues the patch pattern and adds the host data loop (`cmd/patch-host-data.sh`
+routes shim callbacks through `php::call` for return values): CandlestickChart and
+SankeyChart (chart/mod.cpp — widgets already vendored, descriptors added; both take rows
+callbacks that return real arrays through the data loop), and SearchableList
+(delegate_collections/searchable_list.cpp — new file; rows callback → SearchableListItem
+array → delegate defaults).
+
+Batch 7 is the only batch that writes C++ widgets from scratch in the upstream ui layer
+(the Ely spec describes them; neither the upstream tree nor the reference repo has them):
+Typewriter, GradientText, and AnimatedNumber (`ui/text_effects.h/.cpp` — new files;
+`cmd/patch-text-effects.sh`). All three follow the ShimmerText three-layer pattern:
+widget → descriptor (`controls/text.cpp`) → PHP factory. Typewriter and GradientText are
+pure style; AnimatedNumber uses MotionAppear for count-up. Visual verification of the
+effect family requires frame-by-frame snapshots or human inspection — not fully
+automatable, which is why this batch is last.
 
 `El::catalog()` remains the channel for the rest: the Accordion root (`El::accordionItem()` uses the base-kind three parts, batch 3),
 CommandGroup/Item/Separator, NativeMenu, and Resizable.

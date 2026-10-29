@@ -173,6 +173,32 @@ A negative control earns a regression claim only for what it removes. Removing
 the Dock event wiring and observing failures is not the same experiment as
 removing the complete upstream Dock patch.
 
+## Host data loop (batch 6: rows-callback return-value channel)
+
+Batch 6's `cmd/patch-host-data.sh` lets rows callbacks (`render_rows` etc.) return
+**real data** — the patch adds a shimId branch at the top of `CallInLayout`: a callback
+table entry with a non-zero shimId means a host-registered callback (`PushShimCallback`),
+routed through `gpuiInvokeShimDataCallback` → the bridge's `php::call` synchronously
+invokes the PHP handler → the return value is marshalled back (`GpuiDataNode` tree →
+`ComponentDataValue` → JS). The four-piece pattern matches `cmd/patch-host-list.sh`
+(host registers → shim fork → php::call → backfill).
+
+**How to test** (kit selftest positive/negative gates):
+- `dataTableRowsCallbackSuccess`: register a `render_rows` handler returning object row
+  arrays → the probe's fails count does not move (snapshot succeeded), ledger clean —
+  "success is visible."
+- `dataTableRowsCallbackLoud`: no handler registered → probe fails +1 — "failure is visible."
+- `candlestickChartRenderSuccess` / `sankeyChartRenderSuccess` / `searchableListRowRender`:
+  positive-path gates for the three new charts (rows callback returns real arrays → chart/
+  list renders with no registeredError).
+- Negative-path gates (`*NoHandlerQuiet`): no handler → Failure Div (does not enter
+  request->Fail, ledger stays clean).
+
+**Known limitation**: the element channel (`render_cell` / `render_row` etc. — callbacks
+that return **elements**) is not implemented — it goes through the `BuildComponentElement`
+shimId branch → non-deterministic SIGBUS (DataTable paint verified, ~1/3 crash rate).
+Batch 6 does the data channel only (callbacks that return **data**).
+
 ## Clipboard and modal-dialog diagnostics
 
 ```bash
