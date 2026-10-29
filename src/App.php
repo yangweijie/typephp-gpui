@@ -341,6 +341,13 @@ final class App
      * 表里根本没这条（绘制侧没登记）、这条不在那个位置（坐标换算）、位置对但 click=0
      * （监听器没挂上）。按 y 扫屏幕猜行位置会被这些情况全部伪装成"点不动"。
      */
+    /** 区域平均色（gpui 视图系坐标，0-255）；空数组＝取不到。
+     *  "泵到 WebView 真画出来"的内容判据用（hello tree30），帧数预算不可靠。 */
+    public function regionRgb(int $x, int $y, int $w, int $h): array
+    {
+        return \gpui_region_rgb($this->handle(), (float) $x, (float) $y, (float) $w, (float) $h);
+    }
+
     public function hitProbe(int $index = -1): array
     {
         return \gpui_hit_probe($this->handle(), $index);

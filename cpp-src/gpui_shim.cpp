@@ -1660,6 +1660,53 @@ int gpui_shim_snapshot(void* win, const char* path, int dip_w, int dip_h) {
     }
 }
 
+/* 区域平均色（0-255）：给"泵到画出来为止"的内容判据用。hello tree30 的 WebView
+ * 首帧未进 cacheDisplay 背板时整块是页面底色，而帧数预算猜不准（120 与 600 帧都曾
+ * 全空白，2026-10-29 读数）⇒ 判"画没画"只能读内容本身。坐标是 gpui 视图系（y 向下）；
+ * 只_capture_，不停指针不泵帧（泵由调用方负责）。失败返回 0，out 不动。 */
+int gpui_shim_region_rgb(void* win, double x, double y, double w, double h, double* out3) {
+    auto* box = static_cast<Box2*>(win);
+    if (!box || !out3 || w <= 0 || h <= 0) return 0;
+    @autoreleasepool {
+        void* nat = box->window ? gpui::WindowNativeHandle(box->window) : nullptr;
+        NSWindow* nswin = nat ? (__bridge NSWindow*)nat : nullptr;
+        if (!nswin) return 0;
+        NSView* view = [nswin contentView];
+        if (!view) return 0;
+        NSRect bounds = [view bounds];
+        NSBitmapImageRep* rep = [view bitmapImageRepForCachingDisplayInRect:bounds];
+        if (!rep) return 0;
+        [view cacheDisplayInRect:bounds toBitmapImageRep:rep];
+        const double sx = rep.pixelsWide / bounds.size.width;
+        const double sy = rep.pixelsHigh / bounds.size.height;
+        NSInteger px = (NSInteger)(x * sx);
+        NSInteger py = (NSInteger)(y * sy);
+        NSInteger pw = (NSInteger)(w * sx);
+        NSInteger ph = (NSInteger)(h * sy);
+        if (px < 0 || py < 0 || pw <= 0 || ph <= 0 ||
+            px + pw > rep.pixelsWide || py + ph > rep.pixelsHigh) {
+            return 0;
+        }
+        double acc[3] = {0, 0, 0};
+        NSInteger n = 0;
+        for (NSInteger ry = py; ry < py + ph; ry += 2) {
+            for (NSInteger rx = px; rx < px + pw; rx += 2) {
+                NSColor* c = [rep colorAtX:rx y:ry];
+                if (!c) continue;
+                acc[0] += c.redComponent * 255.0;
+                acc[1] += c.greenComponent * 255.0;
+                acc[2] += c.blueComponent * 255.0;
+                n++;
+            }
+        }
+        if (n == 0) return 0;
+        out3[0] = acc[0] / n;
+        out3[1] = acc[1] / n;
+        out3[2] = acc[2] / n;
+        return 1;
+    }
+}
+
 int gpui_shim_debug_tree(void* win, char* out, int outlen) {
     auto* box = static_cast<Box2*>(win);
     if (!box || outlen <= 0) return 0;

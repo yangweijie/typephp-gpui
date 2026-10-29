@@ -807,6 +807,18 @@ Bool php_gpui_snapshot(Variant boxVar, String path, Int w, Int h) {
     return gpui_shim_snapshot(win, p.c_str(), (int)w, (int)h) != 0;
 }
 
+Array php_gpui_region_rgb(Variant boxVar, Float x, Float y, Float w, Float h) {
+    Array out;
+    void* win = winOf(boxVar);
+    double rgb[3] = {0, 0, 0};
+    if (win && gpui_shim_region_rgb(win, x, y, w, h, rgb)) {
+        out["r"] = (Int)(rgb[0] + 0.5);
+        out["g"] = (Int)(rgb[1] + 0.5);
+        out["b"] = (Int)(rgb[2] + 0.5);
+    }
+    return out;
+}
+
 Array php_gpui_input_probe(Variant boxVar, Int index) {
     Array out;
     void* win = winOf(boxVar);

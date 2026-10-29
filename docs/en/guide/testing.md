@@ -15,7 +15,7 @@ four different claims. Report which one a check actually establishes.
 | PHPStan | `composer analyse` | Level 5 analysis of `src/` | No |
 | C++ shim tests | `composer test:cpp` | Kind lookup, arenas, argument schemas, native service predicates, Dock layout checks | Built `gpui.o` |
 | Native selftest | `php bin/gpui selftest hello` | Compiled PHP/bridge/shim round trips | Native build and window session |
-| Pixel comparison | `php bin/gpui shotdiff check hello` | Per-tree screenshots against baselines | Built binary and usable display |
+| Pixel comparison | `php bin/gpui shotdiff check hello` | Per-tree screenshots against baselines. Before capturing tree30's WebView the shot pumps until the region mean colour turns the HTML's blue (`App::regionRgb`, a content predicate sampled on the flat blue area away from the rounded corners): frame budgets are unreliable — 120 and 600 frames both produced fully blank captures; if it never paints, the shot is taken anyway and prints `painted=0` so the red is diagnosable | Built binary and usable display |
 | Doctor | `php bin/gpui doctor` | Toolchain, C ABI, and required patch markers | Partial |
 | C++17 parsing | `bash cmd/check-cxx17.sh` | Header parsing under C++17/C++20 and both outcomes of the EmitsEvent trait | Upstream headers |
 | Pure C ABI | `bash cmd/check-c-abi.sh` | C11 compilation and forbidden C++ syntax/header checks | No gpui object |

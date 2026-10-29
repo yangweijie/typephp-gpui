@@ -939,14 +939,27 @@ function runShot(string $path, int $tree = 0): void
         $app->loop(120);
     }
     if ($tree === 30) {
-        // WebView 的 HTML 是异步渲染进图层的：泵得太少会拍到"还没画"的那一态。
-        // 与 embedded 出图前的 `$app->loop(80)` 是同一条理由（那边注释写得更早）。
-        // 实测这一棵首跑 2/3 红、复跑绿，且两次红图的 gdfrac **完全相同**（0.56586）——
-        // 两个离散态，不是渲染噪声；所以这里给足帧数，而不是靠容差或重录咽下去。
-        // 2026-10-29 复核：加到 600 帧**无效**（空闲态 5/5 仍空白、md5 与 120 帧的空白态
-        // 逐字节同），所以"帧数不够"不是这一轮空白的因；别再往帧数上加。空白态与会话/
-        // 合成状态相关（同进程 embedded 的 WebView 同期能画），归 #56 族的环境边界。
-        $app->loop(120);
+        // WebView 的 HTML 异步渲染进图层：首帧没进 cacheDisplay 背板时整块是页面底色
+        // （gdfrac=0.56586 的离散空白态）。帧数预算猜不准——120 与 600 帧都曾 5/5 全空白
+        // （2026-10-29 读数），而同一分钟 embedded 能画 ⇒ 不是会话整体问题，是这颗
+        // WebContent 的首画时机。改用**内容判据**：泵到 webview 区域平均色变成 HTML 的
+        // 蓝（#1e6fd9）为止再拍；泵不出来就照拍并打印 painted=0，让门红得可诊断。
+        // 采样矩形必须落在平整蓝区（260,220）：webview 圆角边缘是白的，第一版取
+        // (24,70) 恒白 ⇒ painted 恒 0（负向对照实测 tries=30）。竖向扫描确认蓝区
+        // y≈120..600、x 中段，坐标系与 hits 同（y 向下）。
+        $app->loop(20);
+        $painted = false;
+        $rgb = [];
+        for ($try = 0; $try < 30; $try++) {
+            $rgb = $app->regionRgb(260, 220, 40, 40);
+            if ($rgb !== [] && $rgb['b'] > 150 && $rgb['b'] > $rgb['r'] + 40) {
+                $painted = true;
+                break;
+            }
+            $app->loop(20);
+        }
+        echo 'tree30 painted=' . ($painted ? '1' : '0') . ' tries=' . $try
+            . ' rgb=' . json_encode($rgb) . "\n";
     }
     if ($tree === 28) {
         $n = $app->openSheet(

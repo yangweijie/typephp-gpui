@@ -166,6 +166,9 @@ int gpui_shim_selftest_fire_registered(void* win, const char* elem_id,
 /* 离屏渲染当前窗口内容并存成 PNG（WindowDrawFrame → CGBitmapContext → ImageIO）。
  * dip_w/dip_h 为逻辑点尺寸，内部按 2x 取像素。成功返回 1。 */
 int gpui_shim_snapshot(void* win, const char* path, int dip_w, int dip_h);
+/* 区域平均色（0-255，gpui 视图系坐标 y 向下）：cacheDisplay 背板上采样，只读不泵。
+ * 给"泵到 WebView 真画出来"的内容判据用（帧数预算不可靠）。成功 1，失败 0。 */
+int gpui_shim_region_rgb(void* win, double x, double y, double w, double h, double* out3);
 /* 诊断：把当前 spec arena 树 dump 成文本写入 out（至多 outlen-1 字节），返回长度。 */
 int gpui_shim_debug_tree(void* win, char* out, int outlen);
 /* 取本帧最近一次 registered 构造/方法失败的原因，写入 out（至多 outlen-1 字节 +

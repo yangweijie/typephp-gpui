@@ -606,6 +606,11 @@ namespace {
         return 0;
     }
 
+    function gpui_region_rgb(mixed $window, float $x, float $y, float $w, float $h): array
+    {
+        return [];
+    }
+
     function gpui_snapshot(mixed $window, string $path, int $w, int $h): bool
     {
         // 无头替身：记录请求即可，不真正出图。

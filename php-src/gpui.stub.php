@@ -62,6 +62,7 @@ function gpui_selftest_fire_registered(mixed $window, string $id, string $type):
 
 /** 离屏渲染窗口内容存成 PNG（$w/$h 为逻辑点，内部 2x）；成功返回 true。 */
 function gpui_snapshot(mixed $window, string $path, int $w, int $h): bool {}
+function gpui_region_rgb(mixed $window, float $x, float $y, float $w, float $h): array {}
 /** 真输入验收缝：type 0=移动 1=左键单击 2=只按下 3=只抬起（2/3 组合起来才是拖）。返回 1 = PHP 队列里确实多出一条事件。 */
 function gpui_real_mouse(mixed $window, int $x, int $y, int $type): int {}
 /** 宿主渲染虚拟列表：登记 (窗口, 列表 id) 的行渲染闭包 fn(int $start, int $end): array。 */

@@ -2589,3 +2589,21 @@ bin/gpui、GPUI.lock、tests/baseline/input/tree1.png（两度重录）、compos
   绝不 `git add -A`（.workbuddy-ai/ 不在 .gitignore）。
 - 仍待用户/外部：17-H 提交授权；dwfrun-341a90ac 报告（排队工作流 tier B/C/D 的启动前提）。
 
+### Phase 29（2026-10-29 晚）：tree30 用内容判据结案 + 基线投毒取证
+
+- 取证：md5 三方对照发现**工作区 tree30 基线被并发会话的 record 冻成空白态**
+  （b94c01bd，13322B），HEAD 仍是加载态（ca712f64，19131B）；当前新拍=加载态=HEAD。
+  已 `git restore` 该一张基线（空白件同 md5 副本留在 /tmp/g28-t30-1.png）。tree27 属 HUD
+  抖动类（md5 本就每次不同），不动。
+- 修法：`gpui_shim_region_rgb` → bridge/stub/FakeBridge/`App::regionRgb` 四层；hello tree30
+  出图前泵到采样区（260,220,40,40，平整蓝区）变蓝为止，30×20 帧上限，失败照拍打印 painted=0。
+  record 走同一条 --shot ⇒ 今后不会再把空白录成基线。
+- 臂：绿 painted=1 tries=0、新拍==HEAD 基线、`shotdiff check hello` 18 棵全 OK；
+  负向对照采样放圆角白边 ⇒ painted=0 tries=30（fail-closed 可诊断）；竖向扫描定蓝区与坐标向。
+  恢复臂（空白→救回）因空白态当前复现不出而未量，已在 findings 标明。
+- 门：`composer test:all` rc=0（126/729，含新函数四层 parity）、PHPStan/parity/shim 绿。
+  `check-build-inputs` rc=1 的 4 条红是**并发会话**新登记进 manifest 却未跟踪的
+  patch-candlestick/sankey/searchable-list/text-effects.sh（干净克隆必红的正确红），非本轮改动。
+- 本轮改动未提交（等授权按一批提交）：shim 三件 + bridge + stub + FakeBridge + App +
+  hello main.php + 中英 testing.md 第 5 行。
+
