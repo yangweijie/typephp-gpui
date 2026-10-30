@@ -429,6 +429,34 @@ namespace {
         return true;
     }
 
+    function gpui_input_replace_token(mixed $window, string $id, string $token_id,
+                                      string $text, string $label): bool {
+        FakeBridge::$inputValues[$id . ':token'] = $token_id;
+        return true;
+    }
+
+    function gpui_real_key_flags(mixed $window, int $keycode, string $chars,
+                                 int $flags): int {
+        return 1;
+    }
+
+    function gpui_window_open_opts(string $title, int $width, int $height,
+                                   array $opts): mixed {
+        return gpui_window_open($title, $width, $height);
+    }
+
+    function gpui_window_action(mixed $window, string $action): bool {
+        return $action === 'close';
+    }
+
+    function gpui_bind_keys(mixed $window, array $bindings): int {
+        return count($bindings);
+    }
+
+    function gpui_keymap_has(string $action): bool {
+        return true;
+    }
+
     function gpui_selftest_fire(mixed $window, string $id, string $type): bool
     {
         FakeBridge::pushEvent((int) $window, $type, $id, null);

@@ -165,11 +165,37 @@ with human HID input.
 
 ### Links and inline tokens
 
-`onLinkClick()`, `onTokenClick()`, and `onTokenHover()` emit recognized names, but
-their PHP delivery has not been accepted. In upstream schemas, token click and
-hover are ordinary `void` listeners. The separate `token` operation is a rendering
-callback that must return an element or null; it is not implemented merely by
-registering the two event helpers.
+Batch 4 (2026-10-31) quantified delivery for this family. `App::inputReplaceToken(
+$id, $tokenId, $text, $label)` (InputReplaceWithToken, base/input.cpp:5780) mints a
+token in a retained input; `on_token_click` / `on_token_hover` then reach PHP
+through DispatchTokenClick/Hover → Dispatch → DispatchArgs's shimId early-return —
+the same queue as clicks. The kit selftest's tokenDeliveryRender gate asserts
+`gpui_selftest_fire_registered` delivery (fire=true, delivered ✓); native
+mouse hit-testing of the token itself remains human-HID. **The queue type is the
+short name** (`token_click` / `token_hover` — eventType strips the `on_` prefix);
+`App::on` and fire both use short names. `on_link_click`'s real consumer is the
+**TextView markdown link** (materialize.cpp:1728 OnLinkWithContext; the base-kind
+Link's click semantics open the href and never consume on_link_click) — delivery
+quantified in the linkDelivery gate (fire=true ✓; native realClick reached the
+OnTextLink dispatch point, but the down/up frame-boundary href dangling crashes
+under the current machine state — see the batch-3 environment record).
+
+The `token` operation is the rendering callback that must return an element or
+null; its host wiring landed with batch 4 via two patches:
+`cmd/patch-token-render.sh` forks RenderInlineToken on shimId (weak
+gpuiRenderShimToken), and `cmd/patch-host-element-cb.sh` forks
+BuildComponentElement for the whole element-returning family (MessageScroller
+render_item, DataTable render_cell, Select render_row — same seam). Two traps
+are pinned in the patch headers: the shim's re-prefix turns `token` into
+`on_token` (the upstream op name is the unprefixed `token`, compared verbatim —
+special-cased), and the element fork's batch must live in the cx->a frame arena —
+the JS path's RenderSnapshot/frameSnapshots must NOT be used for shim entries
+(their entry->view is a PhpView entity; Get<ScriptView> has no type check and the
+Vec gets a garbage allocator — measured as a malloc abort). Acceptance boundary:
+the callback chain is fully proven (tokenDeliveryRender renderCalls=2630,
+messageRowRender renderCalls=15); the chip/row pixel placement depends on
+upstream BoundsOut multi-frame settlement and is unstable headless under the
+current machine state — recorded as an advisory reading.
 
 The current total is 24 declared callback names, with 20 having native delivery
 evidence. That count does not include a claim of human-input acceptance.
@@ -417,6 +443,17 @@ table is bounded; overflow is reported through `App::lastError()`.
 Window-local `realClick()` cannot click the separate macOS menu-bar window. A
 row-table check plus `dispatchAction()` proves those two stages, not the actual
 OS menu click. Preserve that distinction in test reports.
+
+Batch 2 (2026-10-30) adds a third source: the catalog NativeMenu rows. Inside
+`El::nativeMenuTrigger(...)` hang `El::nativeMenuItem('Copy path', 'kit-nm-copy')`
+rows; clicking the trigger pops an OS native menu (a keyed event effect), and row
+selection dispatches a ShellAction through the same reverse-lookup seam
+(`gpuiAppActionHandler`, cpp-src/gpui_shim.cpp:293-302) — the event id is the action
+name. Unlike sources ①/②, the trigger lives **inside the window content**: really
+clicking it and choosing a row are two human interactions (NSMenu row selection is a
+modal session synthetic clicks cannot reach) — the kit selftest only pins the factory
+shape and the `$app->on($action, 'action', …)` wiring; delivery evidence stays with
+human acceptance.
 
 ## Foreground state and human input
 

@@ -39,7 +39,7 @@
     },
     "scripts": {
         "test": "@php vendor/bin/pest",
-        "analyse": "@php vendor/bin/phpstan analyse --no-progress",
+        "analyse": "@php vendor/bin/phpstan analyse --no-progress --memory-limit=1G",
         "test:cpp": "bash cmd/test-shim.sh",
         "parity:upstream": "@php cmd/check-upstream-parity.php",
         "check:bundle": "@php cmd/check-bundle-signature.php",
@@ -48,7 +48,7 @@
         "bench:tree": "@php cmd/bench-tree.php --check cmd/bench-tree-budgets.txt",
         "test:all": [
             "@php vendor/bin/pest",
-            "@php vendor/bin/phpstan analyse --no-progress",
+            "@php vendor/bin/phpstan analyse --no-progress --memory-limit=1G",
             "@php cmd/check-upstream-parity.php",
             "bash cmd/test-shim.sh"
         ],

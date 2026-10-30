@@ -49,6 +49,12 @@ Additional base factories include `numberInput($id)`, `otpInput($id)`, `progress
   with `$changeId` the trigger wires on_change (routes as `$changeId, change`), and
   `->open(true)` remains the controlled-expansion anchor. Gate: `accordionChangeRoute`
   in `php bin/gpui selftest catalog`.
+- `El::accordion($id, $items)` (2026-10-30 batch 3): the base-kind **root** — upstream's
+  body is a Div+Id+Role(Group) (base/accordion.cpp:5-8); its value is legalizing a tree
+  of the three-part assemblies. The shim `kKindNames` gained the
+  `{"accordion", K::Accordion}` entry (without it the node is rejected outright).
+  Items accept only accordionItem() (typed check). See the three-expression comparison
+  under [Accordion catalog version](#accordion-catalog-version).
 - `El::otpInput($id, $length = 4)`: the length travels through the bridge-internal
   `otp_length` op into the retained state; read it back with `App::otpLength($id)`.
   The styled one is still `El::catalogOtpInput($id, $length)`.
@@ -148,7 +154,10 @@ Catalog Button centers and clips its label to its box. A base Button can be more
 for fixed-width navigation with long labels. Its constructor id and element `id()` must
 agree for event routing; `catalogButton()` sets both.
 
-There are 72 exposed nullary style names out of 137 upstream keywords. `style()`,
+There are **135** exposed nullary style names out of 137 upstream keywords
+(2026-10-30 batch 1 closed the 63-keyword diff; the remaining two, `h_flex`/`v_flex`,
+go through `El::hFlex()`/`El::vFlex()` kind names and never belonged on the nullary
+style call surface). `style()`,
 `paramStyle()`, `method()` and `callback()` are private; there is no public arbitrary-name
 escape hatch for base operations. Remaining gaps are listed in [Upstream coverage](./upstream-coverage).
 
@@ -178,8 +187,157 @@ Each maps to one upstream keyword rather than combining unrelated concepts. The 
 Those seven keywords are the only nullary entries with tracked style-field masks, which
 upstream animation uses; this does not mean PHP exposes `transition()` or `spring()`.
 
-The native `style` selftest invokes all 47 helpers and checks distinct emitted names.
-Running the compiled artifact matters: a missing nano method can abort instead of throwing.
+### Batch 1 style keyword diff (2026-10-30)
+
+The 63 keywords that lacked helpers before batch 1 are now all exposed as one-line sugars
+(72→135). Grouped as in `src/Element.php`:
+
+```php
+// Grid placement (grid without template columns falls back to auto flow)
+El::text('…')->colSpanFull()->rowSpanFull()->colStartAuto()->colEndAuto()
+    ->rowStartAuto()->rowEndAuto();
+// Flex fixed values (interlocked with paramStyle flexGrow($v)/flexShrink($v); later call wins)
+El::text('…')->flexGrow0()->flexGrow1()->flexShrink0()->flexShrink1();
+// Multi-row distribution + main-axis fill
+El::div()->contentStart()->contentEnd()->contentNormal()->justifyEnd();
+// Cross-axis self_* and weight
+El::text('…')->selfBaseline()->selfFlexStart()->selfFlexEnd();
+El::text('…')->fontExtrabold()->fontExtralight();
+// Text face
+El::text('…')->textLeft()->textEllipsisMiddle()->textEllipsisStart()
+    ->whitespaceNormal()->notItalic();
+El::text('…')->overflowXHidden()->overflowYHidden();
+// Shadow four steps
+El::div()->shadow2xs()->shadowXs()->shadowXl()->shadow2xl();
+// Text decoration (thickness needs a decoration line to be visible; pair with underline()/lineThrough())
+El::text('…')->underline()->textDecorationSolid()->textDecoration8();
+// Cursors (18; only visible on hover, not in static snapshots)
+El::text('…')->cursorAlias()->cursorGrabbing()->cursorWResize(); // …all 18
+// Debug family (7; no-op in release builds via DEBUG/NDEBUG, op still emitted)
+El::text('…')->debugRed()->debugPink()->debug();
+```
+
+The native `style` selftest invokes all 110 helpers (47 + 63) on a detached element and
+checks distinct emitted names. Running the compiled artifact matters: a missing nano
+method can abort instead of throwing.
+
+### Element-level overlay behavior sugar (batch 1, 2026-10-30)
+
+Four sugars run on the kind-node behavior chain as method ops, for `El::popover()` /
+`El::hoverCard()` / `El::dialog()` and any other kind node:
+
+```php
+El::popover('t', $body)->defaultOpen(true)->overlayClosable(false);
+El::hoverCard('t', $body)->openDelayMs(120)->closeDelayMs(80);
+```
+
+- `default_open`: read only on the **first-frame seeding** of a held popup state
+  (materialize.cpp:2503-2508); does not flip an already-open held state.
+- `overlay_closable`: whether clicking outside closes the popup
+  (base/popover.cpp:174/237).
+- `open_delay` / `close_delay`: milliseconds, consumed by HoverCard only
+  (base/hover_card.cpp:58, materialize.cpp:2633-2634); range 0–60000 enforced in PHP,
+  out-of-range throws (upstream `AsNumber` silently accepts negative/oversized values —
+  rejecting is better than silent modification).
+
+**Channel boundary**: registered catalog nodes (`catalogPopover` / `catalogHoverCard`)
+route their same-named configuration through the descriptor's `registered_method` table
+(factory ctor args already cover this). These four sugars are for kind nodes; the two
+channels must not be confused.
+
+### Advanced scroll op sugar (batch 1, 2026-10-30)
+
+Same family as the existing `overflowYScroll()` / `overflowScroll()`, but each sugar
+has a different consumer:
+
+```php
+El::div()->overflowScrollbar()->scrollbarMode('always');
+El::div()->viewportFromLayout(true)->scrollSize(600.0, 400.0);
+El::uniformList('u', 10)->withItemToMeasureIndex(2);
+```
+
+- `overflow_scrollbar`: scrolls both axes and **attaches a native scrollbar**
+  (behavior.scrollbar=true skips HideScrollbar, materialize.cpp:2782-2786) — a sibling
+  of `overflowScroll()`.
+- `mode`: three-value whitelist `hover` / `always` / `scrolling`; unknown values are
+  silently mapped to Scrolling upstream (:385-388 has no else-reject), so the whitelist
+  rejects on the spot.
+- `viewport_from_layout`: parsed on the behavior chain (:386-387 records the flag) but
+  **consumed nowhere today**; the real consumer is the catalog Scrollbar descriptor
+  (whose constructor needs a ScrollbarHandle PHP cannot create). Passing `false` emits
+  no op — upstream sets true on name alone, ignoring the argument.
+- `scroll_size`: parsed (:388-390) but **no read site in the tree**; the descriptor side
+  also lacks this method name. The sugar emits, upstream does not consume — the name is
+  kept, the boundary pinned by comment.
+- `with_item_to_measure_index`: lands on UniformList only (:1180-1181 logs "ignored on
+  a list" for plain list, :1209-1210 reads the value).
+
+The kit selftest's `scrollbarModePaintPair` gate checks the structural side
+(registeredError/componentFailure cleared), with regionRgb pixel A/B downgraded to an
+advisory reading — macOS headless rendering auto-hides native scrollbars, so both
+boxes' right-edge readings are expected to be identical; "always actually draws a
+scrollbar" needs real HID or --shot verification (see [Testing and gates](./testing)).
+
+### Path drawing: PathFill / PathStroke + six commands (batch 5, 2026-10-31)
+
+```php
+El::pathFill('tri', '#2f6fed')
+    ->moveTo(10, 90)->lineTo(50, 10)->lineTo(90, 90)->closePath()
+    ->w(100.0)->h(100.0);
+El::pathStroke('arc', 3.0, '#e05a2b')
+    ->moveTo(10, 80)->arcTo(40, 40, 0, false, true, 90, 80)
+    ->w(100.0)->h(100.0);
+El::pathFillGradient('g', '#ff0000', '#0000ff')->moveTo(…)->…;
+```
+
+- The six commands: `moveTo` (2 args) / `lineTo` (2) / `curveTo` (4, quadratic —
+  upstream converts to cubic) / `cubicBezierTo` (6) / `arcTo` (7: rx,ry,rot,
+  large,sweep,x,y) / `closePath` (0), arities verbatim against
+  runtime.cpp:8154-8177. Coordinates are bounds origin + pixels (percent strings
+  scale by extent); **the element needs w/h** (the source of bounds).
+- background/strokeWidth go through the dedicated `gpui_shim_push_path` ABI
+  (fills Component.background/strokeWidth before Push); the bridge's emitTree
+  path branch consumes the `path_bg` / `path_bg_gradient` / `path_stroke_width`
+  meta ops.
+- Pixel evidence: the kit selftest's pathPaintGate (the triangle centroid reads
+  the exact #2f6fed fill).
+
+### In-app keymap bindKeys (batch 5, 2026-10-31)
+
+```php
+$app->bindKeys([
+    ['keystroke' => 'cmd-s', 'action' => 'kit::save'],
+]);
+$app->on('kit::save', 'action', fn () => …);   // unclaimed actions arrive as action events
+```
+
+Three steps after upstream NativeBindKeys (runtime.cpp:9568-9641): KeyChordsParse
+per entry → ShellActionOf → KeymapBind; **whole-list pre-validation** (an
+unparsable keystroke rejects the whole list and throws). The install receipt and
+the table probe (KeymapAnyBindingForAction) are the bindKeysGate hard assertion;
+synthesized cmd-key delivery is advisory (NSApp swallows cmd chords with no menu
+row; native keyboard is human HID).
+
+### Window options and action verbs (batch 5, the TitleBar period-B slice)
+
+```php
+$app->createWindow('Borderless', 360, 220,
+    ['borderless' => true, 'clientTitleBar' => true]);
+$app->windowAction('zoom');      // minimize | zoom | close
+```
+
+- With clientTitleBar the top 34px (title_bar.h kTitleBarHeight) is the caption
+  band: double-click maximize goes through window_common.cpp:2526, and macOS's
+  system traffic lights are still drawn by Cocoa over the transparent title bar
+  (the WinOpts comment in gpui.h) — PHP draws the title-strip visuals; the
+  controls stay with the system/window actions.
+- `windowAction('close')` leaving isOpen=false is the titlebarWindowGate hard
+  evidence.
+- **Period-C design (not implemented)**: upstream component::TitleBar is neither
+  a descriptor export nor a ComponentKind (the PHP spec channel cannot build it)
+  — it needs cmd/patch-title-bar.sh to give title_bar.h a descriptor/kind plus a
+  `kDialogMethods`-style named-method table (the coverage.md:65-67 precedent) and
+  an `El::titleBar()` factory. The blocker and path live on the coverage page.
 
 ### Accessibility and keyboard navigation
 
@@ -959,6 +1117,66 @@ this factory builds items by **count**, sends no title; titles wait for the shim
 channel (tier B). The `accordionCatalogShape` gate pins the ctor shape plus the empty
 childOps (the expected shape with no title).
 
+**The kind-version root exists since batch 3** (2026-10-30): `El::accordion($id, $items)`
+— upstream's body is a Div+Id+Role(Group) (base/accordion.cpp:5-8, very thin); its value
+is legalizing a tree of accordionItem three-part assemblies. The shim's `kKindNames`
+gained the `{"accordion", K::Accordion}` entry this batch (without it kindFromString
+refuses the name and gpui_shim_push rejects the node with lastError — the three
+three-part entries sit right beside it). Items accept only `accordionItem()` (typed
+check throws on the spot). The accordion now has **three expressions**: kind three-part
+parts, kind root (aria group semantics), and the catalog finished product
+(multiple/bordered/size).
+
+### Scroll viewport + Scrollbar bar (batch 3, 2026-10-30, shared ScrollbarHandle)
+
+The last of the 15 upstream state kinds, `ScrollbarHandle`, closed in this batch (the
+creator takes no arguments; `NewHostState` passes argc=0 straight through, measured):
+
+```php
+// Scroll viewport: children + generic style both legal, vertical by default; Scrollbar
+// bar: rejects children/generic style (materializes to an absolutely-placed empty Div
+// over the viewport), the bar itself is painted by the viewport sharing the handle.
+El::vFlex([
+    El::catalogScroll('kit-sb', [$rows])->gap(4.0)->p(8.0)->w(220.0)->h(96.0),
+    El::catalogScrollbar('kit-sb', 'vertical', 'always'),   // same key = shared handle
+])->relative();
+```
+
+- **The same key string is the "handle controls viewport" seam**: `El::state('ScrollbarHandle', $key)`
+  caches by (kind,key); Scroll and Scrollbar must pass the same `$key` to share one entity.
+- The `scrollAxis()` sugar whitelists `vertical|horizontal|both` — the method is named
+  `scroll_axis`, not `axis` (the runtime element prototype intercepts `axis` first and
+  `both` would never reach the registered component — upstream renamed it on purpose).
+- The Scrollbar's `mode` three values share the names of the kind-face `scrollbarMode()`
+  but run on a different channel (registered_method vs behavior chain).
+- Pixel evidence: the kit selftest's `scrollbarHandleProbe` gate (entity probe plus
+  with-bar/without-box right-edge regionRgb comparison — the upstream ApplyBar
+  self-painting path, unaffected by macOS NSScroller auto-hide).
+
+### transition / spring motion sugars (batch 3, 2026-10-30)
+
+```php
+El::vFlex([El::text('')])
+    ->id('kit-anim-box')                      // must carry an id: the cross-frame motion
+                                              // identity is the id op
+    ->w(240.0)
+    ->transition('width', 300.0);             // or spring('width', 250, 1, 0.001)
+```
+
+- Upstream is a **sampler** inside materialize (MotionValue/SpringValue write
+  element->style back every frame, stored in WindowMotionState which persists across
+  frames), not a CSS animation.
+- **Only five properties are actually sampled**: opacity/width/height/left/top (width
+  reads the `w`/`size` style op, height reads `h`/`size`) — the `MOTION_PROPERTIES`
+  whitelist rejects other names on the spot.
+- Easing whitelist `linear|ease-in|ease-in-out` (empty string = upstream default);
+  spring response/damping/epsilon default 250/1/0.001.
+- The kit selftest's `transitionInterpolation` gate runs a three-arm assertion: initial
+  frame probe = background, 2 frames after the flip still = background (ruling out the
+  per-frame jump-cut that a specId identity drift would cause), pumped-to-convergence =
+  box color — the early arm and the converged arm together are what "interpolation
+  visible" means.
+
 ### Catalog upgrade sugar for four families (Select/Combobox/Popover/TabBar)
 
 ```php
@@ -985,10 +1203,14 @@ dual-track precedent. The argument shapes per family:
 - **Popover**: ctor takes two args (id/label), content goes through the named slot
   (hard requirement "require content(element)"); method table card_anchor (8 corners,
   POPOVER_ANCHORS whitelist) / default_open/open/appearance/overlay_closable booleans +
-  the on_open_change callback. **catalogHoverCard is never put in a tree**: its materialize
-  hard-requires trigger_element (a SchemaElement shim gap — sending a string crashes the
-  native materialize, measured); the structure and the `catalogHoverCardShape` gate still
-  pin the shape (delay/anchor/on_open_change).
+  the on_open_change callback. **catalogHoverCard can enter a tree since batch 2**
+  (corrected 2026-10-30: the earlier "never put in a tree — trigger_element is a shim
+  gap" note is stale; the batch-5 element_arg bridge already carries SchemaElement
+  method arguments, and the factory takes an `?self $trigger` eleventh argument fed
+  through `->elementArg('trigger_element', …)`; upstream treats a missing trigger as a
+  loud per-frame Fail "HoverCard requires trigger_element(element)"
+  (hover_card.cpp:79-82/145) — a hard requirement, not a silent gap; the kit tree 3
+  carries a real-trigger sample).
 - **TabBar**: ctor takes two args (id + tabs); children accept only registered-side Tab
   (the kind `El::tab()` is not a registered node — attaching one errors every frame);
   method table menu/selected_index/variant (tab|outline|pill|segmented|underline
@@ -996,6 +1218,53 @@ dual-track precedent. The argument shapes per family:
   bool/int defaults in the ctor signature are always taken as sugar — the TypePhp translator
   generates a default-value re-assign defect on mixed-default + partial-arity signatures,
   which makes the example translation fail outright, measured).
+
+### Bare-channel dedicated factories, three groups (batch 2, 2026-10-30)
+
+Of the bare-channel list on the coverage page, everything but the Accordion root got
+factories read straight off the upstream descriptors (pure PHP, no bridge, no patches):
+
+```php
+// Command palette trio (command.cpp): Group(label) accepts only Items; Item(label)
+// methods disabled/keyword/checked/action go through ->rm(); Separator() takes nothing.
+// catalogCommand's children whitelist is tightened to the three export names.
+El::catalogCommand('kit-cmd', [
+    El::commandGroup('Files', [
+        El::commandItem('New file')->rm('action', ['kit-cmd-new'])->rm('keyword', ['new create']),
+    ]),
+    El::commandSeparator(),
+    El::commandItem('Toggle theme')->rm('checked', [true]),
+]);
+
+// NativeMenu trio (native_menu.cpp): the trigger's on_effect_error is a materialize
+// **hard requirement** (missing = per-frame Fail), so the error-callback id is a
+// required third argument; children accept only Item(label,action)/Separator. Row
+// selection dispatches ShellAction → the 'action' event (event id = the action name);
+// `$app->on('kit-nm-copy', 'action', …)` receives it — real selection needs a human.
+El::nativeMenuTrigger('kit-nm', 'Native menu', 'kit-nm-err', [
+    El::nativeMenuItem('Copy path', 'kit-nm-copy'),
+    El::nativeMenuSeparator(),
+]);
+
+// Resizable catalog second face (layout/resizable.cpp): same component as the kind-face
+// hResizable()/vResizable(), different child shape — catalog ctor id, children accept
+// only catalogResizablePanel, layout state held by upstream keyed state internally
+// (PHP feeds no ResizableState).
+El::catalogResizable('kit-rz', [
+    El::catalogResizablePanel(El::text('A'))->panelSize(180.0)->panelSizeRange(120.0, 320.0),
+    El::catalogResizablePanel(El::text('B'))->panelVisible(true),
+])->axis('horizontal')->crossSize(96.0);
+```
+
+- `axis()` has a two-value whitelist `horizontal|vertical` (upstream loud-Fails unknown
+  values); `crossSize`/`panelSize`/`panelSizeRange` front-run the upstream FinitePositive
+  and min≤max checks and throw on the spot.
+- The panel's `size`/`visible` collide with kind-face helpers of the same names
+  (the `size` enum sugar, the `visible` nullary style), so they ship under the
+  catalogButton alias convention as `panelSize`/`panelSizeRange`/`panelVisible`.
+- The Resizable drag handle needs a real human (the patch-resize-handle.sh probe
+  standard) — the static baseline only pins that the panel tree builds and the sugars
+  emit their names.
 
 ## Styled form components require state entities
 

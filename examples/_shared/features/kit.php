@@ -12,7 +12,8 @@ declare(strict_types=1);
  * 其中 StatusBar 只发中段——left/right_content 吃 SchemaElement 是 shim 缺口），
  * 批4 嵌套结构与第二张脸（Questionnaire 四件、catalog 版 Accordion（title 是
  * SchemaElement 缺口按项数建）、catalog 四颗升级糖 Select/Combobox/Popover/TabBar；
- * catalogHoverCard 因 trigger_element 硬缺口不进树）。
+ * catalogHoverCard 的 trigger_element 已由批2 经 element_arg 桥喂入（原"硬缺口
+ * 不进树"注已订正——批5 桥早已通用）。
  * 三棵树按"基础件 / 数据与导航 / 弹层与 CSV"分：native --selftest 逐棵渲染、
  * registeredError/componentFailure 逐棵清零——哪一棵里哪颗工厂建不出来，报告停在那一棵。
  *
@@ -199,6 +200,263 @@ function sectionKitBasics(array $s): El
             El::spinner()->spinnerEase('linear'),
             El::spinner()->spinnerEase('ease_out_quint'),
         ])->gap(16.0)->itemsCenter()->hidden(),
+        // ── 批1（2026-10-30）：零参样式糖差集补齐（72→135/137，剩 h_flex/v_flex 两颗
+        // 走 El::hFlex()/vFlex() 的 kind 名不算洞）+ 高级滚动 op 糖。每组至少一段真调用
+        // （门 12 逐颗查示例源码里的调用；63 颗"在编出来的产物里逐个调"的全量门住在
+        // examples/style 的 --selftest，detached 链像素不动）。本段各行都在树 1 视口
+        // 折叠线之下——与 ProgressCircle 同款处境：materialize 照常跑（滚动不虚拟化），
+        // 像素基线逐字节不变，原生侧证据 = tree1 registeredError/componentFailure 清零门
+        // + kitStructuralGates 的 styleSugarDiff 门。
+        El::text('样式糖差集·阴影四档（shadow_2xs/xs/xl/2xl；none/sm/md/lg 旧批已有）')->font(13.0)->semibold(),
+        El::hFlex([
+            El::vFlex([El::text('2xs')->font(11.0)])->w(110.0)->h(48.0)->itemsCenter()->justifyCenter()
+                ->bg('#ffffff')->rounded(8.0)->shadow2xs(),
+            El::vFlex([El::text('xs')->font(11.0)])->w(110.0)->h(48.0)->itemsCenter()->justifyCenter()
+                ->bg('#ffffff')->rounded(8.0)->shadowXs(),
+            El::vFlex([El::text('xl')->font(11.0)])->w(110.0)->h(48.0)->itemsCenter()->justifyCenter()
+                ->bg('#ffffff')->rounded(8.0)->shadowXl(),
+            El::vFlex([El::text('2xl')->font(11.0)])->w(110.0)->h(48.0)->itemsCenter()->justifyCenter()
+                ->bg('#ffffff')->rounded(8.0)->shadow2xl(),
+        ])->gap(24.0)->itemsCenter(),
+        El::text('样式糖差集·文字装饰：样式三档（none 取消下划线）+ 粗细五档（要有装饰线才见粗细）')->font(13.0)->semibold(),
+        El::hFlex([
+            El::text('none')->font(12.0)->underline()->textDecorationNone(),
+            El::text('solid')->font(12.0)->underline()->textDecorationSolid(),
+            El::text('wavy')->font(12.0)->underline()->textDecorationWavy(),
+            El::text('粗0')->font(12.0)->underline()->textDecoration0(),
+            El::text('粗1')->font(12.0)->underline()->textDecoration1(),
+            El::text('粗2')->font(12.0)->underline()->textDecoration2(),
+            El::text('粗4')->font(12.0)->underline()->textDecoration4(),
+            El::text('粗8')->font(12.0)->underline()->textDecoration8(),
+        ])->gap(16.0)->itemsBaseline(),
+        El::text('样式糖差集·光标图例 18 颗（悬停才换形，静态快照不显形；pointer/text/move/'
+            . 'not_allowed/grab 旧批已有）')->font(13.0)->semibold(),
+        El::hFlex([
+            El::text('alias')->font(11.0)->px(6.0)->py(2.0)->borderWidth(1.0)->rounded(4.0)->cursorAlias(),
+            El::text('col_resize')->font(11.0)->px(6.0)->py(2.0)->borderWidth(1.0)->rounded(4.0)->cursorColResize(),
+            El::text('context_menu')->font(11.0)->px(6.0)->py(2.0)->borderWidth(1.0)->rounded(4.0)->cursorContextMenu(),
+            El::text('copy')->font(11.0)->px(6.0)->py(2.0)->borderWidth(1.0)->rounded(4.0)->cursorCopy(),
+            El::text('crosshair')->font(11.0)->px(6.0)->py(2.0)->borderWidth(1.0)->rounded(4.0)->cursorCrosshair(),
+            El::text('default')->font(11.0)->px(6.0)->py(2.0)->borderWidth(1.0)->rounded(4.0)->cursorDefault(),
+            El::text('e_resize')->font(11.0)->px(6.0)->py(2.0)->borderWidth(1.0)->rounded(4.0)->cursorEResize(),
+            El::text('ew_resize')->font(11.0)->px(6.0)->py(2.0)->borderWidth(1.0)->rounded(4.0)->cursorEwResize(),
+            El::text('grabbing')->font(11.0)->px(6.0)->py(2.0)->borderWidth(1.0)->rounded(4.0)->cursorGrabbing(),
+        ])->gap(8.0)->itemsCenter(),
+        El::hFlex([
+            El::text('n_resize')->font(11.0)->px(6.0)->py(2.0)->borderWidth(1.0)->rounded(4.0)->cursorNResize(),
+            El::text('nesw_resize')->font(11.0)->px(6.0)->py(2.0)->borderWidth(1.0)->rounded(4.0)->cursorNeswResize(),
+            El::text('no_drop')->font(11.0)->px(6.0)->py(2.0)->borderWidth(1.0)->rounded(4.0)->cursorNoDrop(),
+            El::text('ns_resize')->font(11.0)->px(6.0)->py(2.0)->borderWidth(1.0)->rounded(4.0)->cursorNsResize(),
+            El::text('nwse_resize')->font(11.0)->px(6.0)->py(2.0)->borderWidth(1.0)->rounded(4.0)->cursorNwseResize(),
+            El::text('row_resize')->font(11.0)->px(6.0)->py(2.0)->borderWidth(1.0)->rounded(4.0)->cursorRowResize(),
+            El::text('s_resize')->font(11.0)->px(6.0)->py(2.0)->borderWidth(1.0)->rounded(4.0)->cursorSResize(),
+            El::text('vertical_text')->font(11.0)->px(6.0)->py(2.0)->borderWidth(1.0)->rounded(4.0)->cursorVerticalText(),
+            El::text('w_resize')->font(11.0)->px(6.0)->py(2.0)->borderWidth(1.0)->rounded(4.0)->cursorWResize(),
+        ])->gap(8.0)->itemsCenter(),
+        // 调试族：DEBUG/NDEBUG 条件编译——release 产物（-rel）里 DebugBorder/ShellDebug
+        // 是上游侧 no-op（style.cpp:885-901/907-920），op 照发、像素不动。如实记录，
+        // 不假装这张图里看得见描边。
+        El::text('样式糖差集·调试族 7 颗（release 构建里是上游 no-op，op 照发）')->font(13.0)->semibold(),
+        El::hFlex([
+            El::text('debug')->font(11.0)->px(8.0)->py(3.0)->borderWidth(1.0)->debug(),
+            El::text('below')->font(11.0)->px(8.0)->py(3.0)->borderWidth(1.0)->debugBelow(),
+            El::text('red')->font(11.0)->px(8.0)->py(3.0)->borderWidth(1.0)->debugRed(),
+            El::text('blue')->font(11.0)->px(8.0)->py(3.0)->borderWidth(1.0)->debugBlue(),
+            El::text('yellow')->font(11.0)->px(8.0)->py(3.0)->borderWidth(1.0)->debugYellow(),
+            El::text('green')->font(11.0)->px(8.0)->py(3.0)->borderWidth(1.0)->debugGreen(),
+            El::text('pink')->font(11.0)->px(8.0)->py(3.0)->borderWidth(1.0)->debugPink(),
+        ])->gap(10.0)->itemsStart(),
+        El::text('样式糖差集·弹性定值（flex_grow_0/1、flex_shrink_0/1）与 justify_end：四颗全被'
+            . '推到行尾（justifyEnd 生效的形状）')->font(13.0)->semibold(),
+        El::hFlex([
+            El::text('grow0')->font(11.0)->px(6.0)->py(2.0)->borderWidth(1.0)->flexGrow0(),
+            El::text('grow1')->font(11.0)->px(6.0)->py(2.0)->borderWidth(1.0)->flexGrow1(),
+            El::text('shrink0')->font(11.0)->px(6.0)->py(2.0)->borderWidth(1.0)->flexShrink0(),
+            El::text('shrink1')->font(11.0)->px(6.0)->py(2.0)->borderWidth(1.0)->flexShrink1(),
+        ])->gap(8.0)->w(420.0)->justifyEnd(),
+        El::text('样式糖差集·交叉轴 self_*（flex_start/baseline/flex_end 各配不同盒高）与多行 '
+            . 'content_*（start/normal/end 三盒对拍，同内容）')->font(13.0)->semibold(),
+        El::hFlex([
+            El::vFlex([El::text('高 24 flex_start')->font(11.0)])->h(24.0)->px(8.0)->py(2.0)
+                ->borderWidth(1.0)->selfFlexStart(),
+            El::vFlex([El::text('高 24 baseline')->font(11.0)])->h(24.0)->px(8.0)->py(2.0)
+                ->borderWidth(1.0)->selfBaseline(),
+            El::vFlex([El::text('高 40 flex_end')->font(11.0)])->h(40.0)->px(8.0)->py(2.0)
+                ->borderWidth(1.0)->selfFlexEnd(),
+        ])->gap(10.0)->itemsStart()->h(48.0),
+        El::hFlex([
+            El::hFlex([El::text('start 甲')->font(11.0), El::text('start 乙')->font(11.0),
+                El::text('start 丙')->font(11.0), El::text('start 丁')->font(11.0)])
+                ->w(150.0)->h(52.0)->flexWrap()->contentStart()->borderWidth(1.0)->p(4.0),
+            El::hFlex([El::text('normal 甲')->font(11.0), El::text('normal 乙')->font(11.0),
+                El::text('normal 丙')->font(11.0), El::text('normal 丁')->font(11.0)])
+                ->w(150.0)->h(52.0)->flexWrap()->contentNormal()->borderWidth(1.0)->p(4.0),
+            El::hFlex([El::text('end 甲')->font(11.0), El::text('end 乙')->font(11.0),
+                El::text('end 丙')->font(11.0), El::text('end 丁')->font(11.0)])
+                ->w(150.0)->h(52.0)->flexWrap()->contentEnd()->borderWidth(1.0)->p(4.0),
+        ])->gap(12.0)->itemsStart(),
+        El::text('样式糖差集·网格放置（*_span_full 跨满、*_start/end_auto 回自动流；grid 无'
+            . '模板列可发，形状交给上游自动流）')->font(13.0)->semibold(),
+        El::vFlex([
+            El::text('列 span 全跨')->font(11.0)->px(6.0)->py(2.0)->borderWidth(1.0)->colSpanFull(),
+            El::hFlex([
+                El::text('col_start_auto')->font(11.0)->px(6.0)->py(2.0)->borderWidth(1.0)->colStartAuto(),
+                El::text('col_end_auto')->font(11.0)->px(6.0)->py(2.0)->borderWidth(1.0)->colEndAuto(),
+                El::text('row_start_auto')->font(11.0)->px(6.0)->py(2.0)->borderWidth(1.0)->rowStartAuto(),
+                El::text('row_end_auto')->font(11.0)->px(6.0)->py(2.0)->borderWidth(1.0)->rowEndAuto(),
+            ])->gap(6.0),
+            El::text('行 span 全跨')->font(11.0)->px(6.0)->py(2.0)->borderWidth(1.0)->rowSpanFull(),
+        ])->grid()->gap(6.0)->w(420.0)->itemsStart(),
+        El::text('样式糖差集·文字面：text_left / 省略号 middle·start / whitespace_normal / '
+            . 'not_italic / 字重两档 / 分轴隐藏')->font(13.0)->semibold(),
+        El::vFlex([
+            El::text('左对齐（text_left）')->font(12.0)->textLeft(),
+            El::text('中间省略号：这段文本足够长所以会从中间收起只留两头')->font(12.0)->w(200.0)->textEllipsisMiddle(),
+            El::text('起点省略号：这段文本足够长所以会从起点收起只留尾部')->font(12.0)->w(200.0)->textEllipsisStart(),
+            El::text('whitespace normal 会 按空格 换行 所以 这段 超长的 文本 不截断 只折行')->font(12.0)->w(200.0)->whitespaceNormal(),
+            El::text('先 italic 再 not_italic（后者胜）')->font(12.0)->italic()->notItalic(),
+            El::text('extrabold 特粗')->font(12.0)->fontExtrabold(),
+            El::text('extralight 特细')->font(12.0)->fontExtralight(),
+        ])->gap(6.0)->itemsStart(),
+        El::hFlex([
+            El::text('x_hidden 超宽内容被裁剪 不换行不滚动 这是一段很长的文本还在继续')->font(11.0)
+                ->w(150.0)->h(30.0)->overflowXHidden(),
+            El::text('y_hidden 超高内容被裁剪 第一行 第二行 第三行 第四行 第五行')->font(11.0)
+                ->w(150.0)->h(30.0)->overflowYHidden(),
+        ])->gap(16.0)->itemsStart(),
+        // 高级滚动·滚动条三态（批1 op 糖）：overflow_scrollbar = 横竖都滚且**挂原生滚动条**
+        // （behavior.scrollbar=true 时 materialize.cpp:2782-2786 不再 HideScrollbar）。
+        // hover/always 两盒同内容同尺寸——"对拍"由自检的 regionRgb 像素门
+        // （scrollbarModePaintPair：常驻滚动条只出现在 always 盒右缘）与基线共同钉住；
+        // scrolling 档由 kitStructuralGates 的 advancedScrollSugar 门发出（词表在册）。
+        El::text('高级滚动·滚动条三态小样：左盒 hover（悬停才见滚动条）、右盒 always（常驻）'
+            . '——内容相同，右缘滚动条只该出现在右盒')->font(13.0)->semibold(),
+        El::hFlex([
+            El::vFlex([
+                El::text('hover 盒 · 第 01 行')->font(11.0),
+                El::text('hover 盒 · 第 02 行')->font(11.0),
+                El::text('hover 盒 · 第 03 行')->font(11.0),
+                El::text('hover 盒 · 第 04 行')->font(11.0),
+                El::text('hover 盒 · 第 05 行')->font(11.0),
+                El::text('hover 盒 · 第 06 行')->font(11.0),
+                El::text('hover 盒 · 第 07 行')->font(11.0),
+                El::text('hover 盒 · 第 08 行')->font(11.0),
+            ])->gap(4.0)->p(8.0)->w(220.0)->h(120.0)->bg('#ffffff')->rounded(6.0)
+                ->overflowScrollbar()->scrollbarMode('hover'),
+            El::vFlex([
+                El::text('always 盒 · 第 01 行')->font(11.0),
+                El::text('always 盒 · 第 02 行')->font(11.0),
+                El::text('always 盒 · 第 03 行')->font(11.0),
+                El::text('always 盒 · 第 04 行')->font(11.0),
+                El::text('always 盒 · 第 05 行')->font(11.0),
+                El::text('always 盒 · 第 06 行')->font(11.0),
+                El::text('always 盒 · 第 07 行')->font(11.0),
+                El::text('always 盒 · 第 08 行')->font(11.0),
+            ])->gap(4.0)->p(8.0)->w(220.0)->h(120.0)->bg('#ffffff')->rounded(6.0)
+                ->overflowScrollbar()->scrollbarMode('always'),
+        ])->gap(24.0)->itemsStart(),
+        // 批2（2026-10-30）：Resizable catalog 第二张脸——与 kind 面 hResizable()/
+        // vResizable() 同组件、两套孩子形态（catalog 版只收 catalogResizablePanel、
+        // 布局状态上游 keyed state 内部持有；kind 版是布局原语 + name 键）。
+        // axis/cross_size 走实例糖；面板尺寸/范围走 panelSize/panelSizeRange。
+        // 拖拽本身要真人 HID（patch-resize-handle.sh 的既有探针口径）——静态基线
+        // 只钉"面板树真的建出来了、cross_size 生效"，拖拽验收不在此帧。
+        El::text('Resizable catalog 版（第二张脸）：horizontal 两面板，左窄右宽，'
+            . 'cross_size 96；拖拽把手验收属真人 HID')->font(13.0)->semibold(),
+        El::catalogResizable('kit-rz', [
+            // Resizable 本体拒样式（descriptor："Resizable does not implement Styled;
+            // style its parent or panels"——首次落树实测 loud Fail），高度打到 panel。
+            El::catalogResizablePanel(El::vFlex([El::catalogLabel('面板甲')]))
+                ->panelSize(180.0)->panelSizeRange(120.0, 320.0)->h(96.0),
+            El::catalogResizablePanel(El::vFlex([El::catalogLabel('面板乙（cross_size 作用于组）')]))
+                ->panelVisible(true)->h(96.0),
+        ])->axis('horizontal')->crossSize(96.0),
+        // 批5（2026-10-31）：路径绘制——PathFill 实心三角 + PathStroke 圆弧。
+        // 命令坐标按 bounds 解析，元素要有 w/h。像素证据在 selftest 的
+        // pathPaintGate（三角质心取到填充色）。
+        El::text('路径绘制：PathFill 三角 + PathStroke 圆弧（六命令 move_to/…）')
+            ->font(13.0)->semibold(),
+        El::hFlex([
+            El::pathFill('kit-path-tri', '#2f6fed')
+                ->moveTo(10, 90)->lineTo(50, 10)->lineTo(90, 90)->closePath()
+                ->w(100.0)->h(100.0),
+            El::pathStroke('kit-path-arc', 3.0, '#e05a2b')
+                ->moveTo(10, 80)->arcTo(40, 40, 0, false, true, 90, 80)
+                ->w(100.0)->h(100.0),
+        ])->gap(24.0)->itemsStart(),
+        El::hFlex([
+            // 渐变填充 + 二次/三次曲线（门12 逐工厂真调用）
+            El::pathFillGradient('kit-path-grad', '#ff0000', '#0000ff', 90.0)
+                ->moveTo(10, 10)->curveTo(40, 60, 90, 10)
+                ->lineTo(90, 90)->lineTo(10, 90)->closePath()
+                ->w(100.0)->h(100.0),
+            El::pathFill('kit-path-bez', '#2fae5c')
+                ->moveTo(10, 50)->cubicBezierTo(30, 10, 70, 90, 90, 50)
+                ->closePath()->w(100.0)->h(100.0),
+        ])->gap(24.0)->itemsStart(),
+        // 批3（2026-10-30）：base kind 手风琴根——本体是 Div+Id+Role(Group)
+        // （base/accordion.cpp:5-8），价值在把 accordionItem 三段件合法挂树；
+        // 与 catalog 版 catalogAccordion（带 multiple/bordered/size 方法表）是
+        // 两张脸。shim 的 kKindNames 本批加了 {"accordion", K::Accordion} 登记
+        // （不登记 kindFromString 不认、节点直接拒建）。
+        El::text('Accordion 根（base kind 版）：Div+Group role 挂三段件；'
+            . '点头部翻 open（on_change → kit-acc-i0/i1）')->font(13.0)->semibold(),
+        El::accordion('kit-acc', [
+            El::accordionItem('第一节（点我翻页）', El::text('第一节的折叠内容。')->font(12.0), 'kit-acc-i0'),
+            El::accordionItem('第二节', El::vFlex([El::text('第二节的折叠内容。')->font(12.0)])
+                ->gap(4.0), 'kit-acc-i1'),
+        ])->w(420.0),
+        // 批3：ScrollbarHandle/Scroll/Scrollbar 三件——15 个 state kind 的最后一个
+        // 缺口闭合（Scroll 视口与 Scrollbar 条共用一颗 ScrollbarHandle，条本体由
+        // 共享 handle 的视口侧画，scroll.cpp:133-136 ApplyBar）。Scrollbar 自己
+        // 拒 children/泛 style（物化成绝对定位空 Div 覆在视口上）。
+        El::text('Scroll 视口 + Scrollbar 条（共享 ScrollbarHandle；always 常驻条'
+            . '画在视口右缘）')->font(13.0)->semibold(),
+        El::hFlex([
+            El::vFlex([
+                El::catalogScroll('kit-sb', [
+                    El::text('视口行 01')->font(11.0), El::text('视口行 02')->font(11.0),
+                    El::text('视口行 03')->font(11.0), El::text('视口行 04')->font(11.0),
+                    El::text('视口行 05')->font(11.0), El::text('视口行 06')->font(11.0),
+                ])->gap(4.0)->p(8.0)->w(220.0)->h(96.0)->bg('#ffffff')->rounded(6.0),
+                // Scrollbar 是绝对定位覆盖层：盖在视口右缘（同 relative 容器内）。
+                El::catalogScrollbar('kit-sb', 'vertical', 'always'),
+            ])->relative()->w(220.0),
+            El::text('↑ 视口 6 行在 96px 高里溢出，常驻条在右缘。'),
+        ])->gap(16.0)->itemsStart(),
+        // 批3：transition 宽度动画两态（点按钮在 40↔240 间过渡，transition 走
+        // materialize 采样器 MotionValue 每帧回写）。要动画的元素**必须 ->id()**
+        // ——跨帧动画身份 = id op（behavior.key），不落 id 就退化成 specId 逐帧跳变。
+        // 静态基线里是窄态；selftest 的 transitionInterpolation 门用专属窗口做
+        // "早期帧≠终值、多帧后=终值"的插值断言。
+        El::text('transition 宽度动画（点按钮 40↔240，300ms 插值）')->font(13.0)->semibold(),
+        El::hFlex([
+            El::button((string) (($s['animWide'] ?? false) ? '收窄' : '展宽'))
+                ->id('kit-anim-toggle')
+                ->onClick(),
+            El::vFlex([El::text('')])
+                ->id('kit-anim-box')
+                ->w((bool) ($s['animWide'] ?? false) ? 240.0 : 40.0)
+                ->h(32.0)->bg('#2f6fed')->rounded(4.0)
+                ->transition('width', 300.0),
+            El::text('animWide=' . var_export((bool) ($s['animWide'] ?? false), true)),
+        ])->gap(16.0)->itemsCenter(),
+        // 五属性 × 三缓动图例（枚举覆盖门要求每个取值有真调用；这些元素没有
+        // 两态驱动，transition 声明挂着但目标值不变——采样器收敛在原值，不动）。
+        El::hFlex([
+            El::text('宽·linear')->font(11.0)->px(6.0)->py(2.0)->borderWidth(1.0)
+                ->id('kit-an-w')->transition('width', 300.0, 0.0, 'linear'),
+            El::text('高·ease-in')->font(11.0)->px(6.0)->py(2.0)->borderWidth(1.0)
+                ->id('kit-an-h')->transition('height', 300.0, 0.0, 'ease-in'),
+            El::text('透明·ease-in-out')->font(11.0)->px(6.0)->py(2.0)->borderWidth(1.0)
+                ->id('kit-an-o')->transition('opacity', 300.0, 0.0, 'ease-in-out'),
+            El::text('左')->font(11.0)->px(6.0)->py(2.0)->borderWidth(1.0)
+                ->id('kit-an-l')->transition('left', 300.0),
+            El::text('顶')->font(11.0)->px(6.0)->py(2.0)->borderWidth(1.0)
+                ->id('kit-an-t')->transition('top', 300.0),
+            El::text('弹簧 width')->font(11.0)->px(6.0)->py(2.0)->borderWidth(1.0)
+                ->id('kit-an-s')->spring('width', 250.0, 1.0, 0.001),
+        ])->gap(10.0)->itemsCenter(),
     ]))->sizeFull()->gap(10.0)->p(16.0)->overflowYScroll();
 }
 
@@ -293,9 +551,9 @@ function sectionKitData(array $s): El
             . '值是选中下标）')->font(13.0)->semibold(),
         El::hRadioGroup('kit-hrg', ['按名称', '按路径', '按大小'], 0, 'kit-hrg'),
         // 批3 数据：聊天域静态件（Bubble/Message/Attachment/Marker）。MessageScroller
-        // 的 render_item 是"返回元素"的回调（shim 通道只发事件不带返回值，DataTable
-        // 实证）——真数据等批6，本批只建结构、不进树（会让 componentStates 计数涨，
-        // 破坏 tree2CarouselState 的 ==1 门）。
+        // 的 render_item 是"返回元素"的回调——批4 的宿主元素回调分叉
+        // （patch-host-element-cb.sh）落地后已能真渲染（见树 2 的 kit-msgs 样与
+        // messageRowRender 门）；"不进树"的旧限制随分叉落地作废。
         El::hFlex([
             El::bubble('start', 'filled')->child(El::catalogLabel('标题气泡')),
             El::bubble('', 'secondary')->child(El::catalogLabel('普通气泡')),
@@ -398,6 +656,30 @@ function sectionKitData(array $s): El
             . '{title,value,section,disabled,badge} 行；delegate 的 matches 按 title '
             . '子串过滤）')->font(13.0)->semibold(),
         El::searchableList('kit-sl', 'kit-sl-rows')->w(320.0)->h(200.0),
+        // 批2（2026-10-30）：Command 命令面板三件套专用工厂——CommandGroup(label)
+        // 只收 CommandItem、CommandItem(label) 方法 disabled/keyword/checked/action
+        // 走 ->rm()、CommandSeparator() 无参。根 catalogCommand 是 retained
+        // CommandState（与 catalog.php 通用通道同一条路，这里换有校验的工厂糖）。
+        // Item 的 action 是 ShellAction 名：真选中要真人键盘导航（面板焦点/搜索是
+        // retained 状态），action 事件链与 NativeMenu 同一反查缝。
+        El::text('Command 命令面板（catalogCommand + commandGroup/Item/Separator 三件套；'
+            . 'action 选中派发 ShellAction，真选中需真人操作）')->font(13.0)->semibold(),
+        El::catalogCommand('kit-cmd', [
+            El::commandGroup('文件', [
+                El::commandItem('新建文件')->rm('action', ['kit-cmd-new'])->rm('keyword', ['new create']),
+                El::commandItem('打开…')->rm('keyword', ['open']),
+            ]),
+            El::commandSeparator(),
+            El::commandItem('切换主题')->rm('checked', [true]),
+        ])->h(160.0)->w(420.0),
+        // 批4（2026-10-31）：MessageScroller 数据半边——render_item 是"返回元素"的
+        // 回调，宿主元素回调分叉（patch-host-element-cb.sh）让它经 emitTree 进
+        // 临时 arena 物化成真消息行（此前 shim 表项 function 空、必落 "Failed to
+        // render message row" 错误行）。处理器经 App::elementCallback 登记描述数组。
+        // 2026-10-30 的"只建结构、不进树"旧注随之作废——现在真进树、真渲染。
+        El::text('MessageScroller 消息行宿主渲染（render_item → 宿主元素；'
+            . '正/负路门 messageRowRender）')->font(13.0)->semibold(),
+        El::messageScroller('kit-msgs', 3)->w(360.0)->h(140.0),
         // 批7 特效段：AnimatedNumber 数字滚动（count_up 动画，MotionAppear 0→value）。
         // id 是 MotionName 键（动画跨帧续跑）。decimals=1, pad=3。
         El::text('AnimatedNumber 数字滚动（count_up 0→42.5，decimals=1，pad=3）')->font(13.0)->semibold(),
@@ -459,13 +741,19 @@ function sectionKitOverlays(array $s): El
         ])->gap(24.0)->itemsStart(),
         // 批4 弹层：Popover / HoverCard catalog 版（ctor 实参 + 锚点/开延迟/外观 +
         // on_open_change 回调；content 走具名槽——Popover/HoverCard 硬约束
-        // require content(element)）。trigger_element 是 SchemaElement shim 缺口
-        // （与 StatusBar left_content 同）——不给空参，文档注明。
+        // require content(element)）。
         El::catalogPopover('kit-po', '弹窗',
             El::vFlex([El::catalogLabel('弹窗正文')])->gap(4.0)),
-        // catalogHoverCard 不进树：HoverCard materialize **硬要求** trigger_element
-        // （SchemaElement shim 缺口——发字符串实参在 native 物化阶段段错误，实测），
-        // 结构与形状门仍钉住 catalogHoverCardShape。
+        // 批2 订正（2026-10-30）：catalogHoverCard 的 trigger_element 原注"SchemaElement
+        // shim 缺口、不进树"已失真——批5 的 element_arg 桥（patch-element-arg.sh）
+        // 把这类方法实参打通用（EmptyHeader 在用），HoverCard 直接受益。上游对
+        // trigger_element 是**硬要求**（hover_card.cpp:79-82/145：缺了每帧 Fail
+        // "HoverCard requires trigger_element(element)"），所以工厂加 $trigger 实参、
+        // 经 elementArg 桥喂入；下面这颗就是真进树的（trigger 是 kind button——
+        // 上游 ResolveElement 只要求 Element 并物化它，不限注册侧）。
+        El::catalogHoverCard('kit-hc',
+            El::vFlex([El::catalogLabel('悬停卡正文（catalog 版）')])->gap(4.0),
+            '', 120.0, 80.0, false, null, El::button('悬停我（catalog HoverCard）')),
         El::hFlex([
             // POPOVER_ANCHORS 八个取值各来一颗（枚举覆盖门要求每个取值有真调用）。
             El::catalogPopover('po-top-left', '左上', El::vFlex([El::catalogLabel('正文')])->gap(4.0)),
@@ -477,16 +765,66 @@ function sectionKitOverlays(array $s): El
             El::catalogPopover('po-left-center', '左中', El::vFlex([El::catalogLabel('正文')])->gap(4.0), 'left_center'),
             El::catalogPopover('po-right-center', '右中', El::vFlex([El::catalogLabel('正文')])->gap(4.0), 'right_center'),
         ])->gap(8.0)->itemsStart(),
+        // 批1（2026-10-30）：**元素级**浮层行为糖——kind 节点的行为链。default_open 只在
+        // 保留态**首帧播种**时读（materialize.cpp:2503-2508 held->open = defaultOpen），
+        // 所以左下这颗 kind popover 在基线里就是开着的（打开的弹层正文压在锚点行上，
+        // 属预期——这就是"糖真的到了部件"的像素证据）；overlay_closable=false 是"点外
+        // 不收"（base/popover.cpp:174/237），静态帧不显形。open/close_delay 的消费端只有
+        // HoverCard（base/hover_card.cpp:58、materialize.cpp:2633-2634），悬停才见效、
+        // 快照不显形——发名证据由 overlayBehaviorSugar 结构门钉住。
+        // 通道分界：registered catalog 节点（上面那排 catalogPopover）的同名配置走
+        // descriptor 的 registered_method 表（EachMethod 只认 RegisteredMethod op），
+        // 工厂 ctor 实参已覆盖；这四颗糖是给 kind 节点用的，两条通道别混。
+        El::text('元素级浮层行为糖：kind popover 默认打开 + 点外不收（弹层在基线里是开着的）；'
+            . 'kind hoverCard 开/收延迟（悬停才见效）')->font(13.0)->semibold(),
+        El::hFlex([
+            El::popover('元素级糖·默认打开', El::vFlex([El::catalogLabel('开箱即见的正文')])->gap(4.0))
+                ->defaultOpen(true)->overlayClosable(false),
+            El::hoverCard('元素级糖·悬停卡', El::vFlex([El::catalogLabel('120ms 后出现，80ms 后收起')])->gap(4.0))
+                ->openDelayMs(120)->closeDelayMs(80),
+        ])->gap(24.0)->itemsStart(),
+        // 批2（2026-10-30）：NativeMenu 三件套专用工厂——NativeMenuTrigger(id,label)
+        // **materialize 硬要求 on_effect_error(callback)**（native_menu.cpp
+        // MaterializeTrigger），所以错误回调 id 是必填第三参；typed children 只收
+        // NativeMenuItem(label,action)/NativeMenuSeparator。行选中派发 ShellAction →
+        // gpuiAppActionHandler 反查回 'action' 事件（事件 id = action 名，
+        // cpp-src/gpui_shim.cpp:293-302），wireKit 已接 $app->on(...,'action')；
+        // 真点选（NSMenu 行选择是模态会话）要真人 HID——本域路由门是前提式，同 clipboard。
+        El::text('NativeMenu 原生菜单触发器（trigger + item(label,action) + separator；'
+            . '点触发器弹 OS 菜单，行选中派发 action 事件——真点选需真人）')->font(13.0)->semibold(),
+        El::nativeMenuTrigger('kit-nm', '原生菜单', 'kit-nm-err', [
+            El::nativeMenuItem('复制路径', 'kit-nm-copy'),
+            El::nativeMenuSeparator(),
+            El::nativeMenuItem('删除记录', 'kit-nm-delete')->rm('disabled', [true]),
+        ]),
+        // 批4（2026-10-31）：token 造粒 + 事件/渲染量化。inputReplaceToken 给
+        // retained 输入当前选区造 token（InputReplaceWithToken）；on_token_click/
+        // on_token_hover 经 Dispatch→DispatchArgs 的 shimId 早返回自动入队（送达
+        // 量化在 selftest 的 tokenDeliveryRender 门，native 鼠标命中 token 属真人
+        // HID）；'token' 渲染回调经 patch-token-render.sh 由宿主出元素（正/负对拍
+        // = 徽章 vs label chip）。link 的 on_link_click 用 realClick 全原生路径量化。
+        El::text('TokenInput：造 token + on_token_click/hover + token 渲染回调；'
+            . 'link 的 on_link_click（realClick 全原生路径）')->font(13.0)->semibold(),
+        El::hFlex([
+            El::input('kit-tok-in')->placeholder('输入 @ 提及…')
+                ->tokenRenderer()->onTokenClick()->onTokenHover()->w(320.0),
+            El::link('打开文档', 'https://example.com')->id('kit-link')->onLinkClick(),
+        ])->gap(16.0)->itemsCenter(),
+        // 批5（TitleBar B 期）：无边框 + clientTitleBar 窗口的样例在 selftest 的
+        // titlebarWindowGate（独立窗口：PHP 自拼 34px 标题条 + windowAction 三动词；
+        // 系统红绿灯由 Cocoa 画在透明标题栏上）。C 期（TitleBar 出 descriptor/kind）
+        // 仅立项设计，见 coverage 页。
         El::text('dialogCount=' . (string) ($s['dialogCount'] ?? 0)
             . ' kitLog=' . json_encode((array) ($s['kitLog'] ?? [])))->font(11.0),
         El::text('El::tableToCsv（Ely to_csv 的 PHP 侧对应物，纯数据变换）：')->font(13.0)->semibold(),
         El::text($csv)->font(12.0)->p(8.0)->borderWidth(1.0)->rounded(6.0),
-        El::text('El::dataTable()：工厂与形状门已落（DataTableState + rows/render_cell 两个回调标记），'
-            . '但 rows 回调要"返回数据"，shim 通道只发事件不带返回值——真渲染当帧失败。'
-            . '这个失败不走 request->Fail：DataTable 的 Failure() 自己返回一颗带错误文本的 '
-            . 'Div，账本收不到；shim 经上游 SetDataTableProbe 探针把它记进 stateCounts 的 '
-            . 'dataTableBuilds/dataTableFails 两位，--selftest 的 dataTableRowsCallbackLoud '
-            . '门据此断"失败看得见"。宿主数据回路（listRenderer 同款）属 tier B。')
+        El::text('El::dataTable()：rows 数据半边已于批 6 接通（宿主数据回路 '
+            . 'cmd/patch-host-data.sh——rows 快照经 shimId 分叉同步回填，'
+            . '$app->on($id,\'render_rows\',…) 返回真数组；正/负路门 dataTableRowsCallbackSuccess '
+            . '/ dataTableRowsCallbackLoud，探针 dataTableFails 留作负路证据）。还没通的是 '
+            . 'render_cell 那半边：它返回的是元素不是数据，宿主数据回路只运"返回数据"回调'
+            . '——元素回调是 BuildComponentElement shimId 分叉会 SIGBUS 的实证禁区，'
+            . 'cell 现走上游 cellText 默认渲染。')
             ->font(12.0)->p(8.0)->borderWidth(1.0)->rounded(6.0),
     ]))->sizeFull()->gap(10.0)->p(16.0)->overflowYScroll();
 }
@@ -526,6 +864,61 @@ function wireKit(App $app): void
     $app->on('kit-db-btn', 'click', static function () use ($log): void {
         $log('dbOk', 'ok');
     });
+    // 批2：NativeMenu 的两条 PHP 侧接缝——on_effect_error（触发器物化的硬要求回调，
+    // 原生菜单异步失败时响）与行选中的 action 事件（事件 id = item 的 action 名，
+    // gpuiAppActionHandler 反查；真点选 NSMenu 行要真人 HID，这里把路由先接好，
+    // selftest 的 nativeMenuShape 门断形状，送达证据同 clipboard 是前提式）。
+    $app->on('kit-nm-err', 'click', static function () use ($log): void {
+        $log('nmErr', 'effect-error');
+    });
+    foreach (['kit-nm-copy' => 'nmCopy', 'kit-nm-delete' => 'nmDelete',
+              'kit-cmd-new' => 'cmdNew'] as $actionId => $key) {
+        $app->on($actionId, 'action', static function () use ($log, $key): void {
+            $log($key, 'action');
+        });
+    }
+    // 批5：应用内键位表——'cmd-s' → 'kit::save'。keymap 派发到窗口无人接时
+    // gpuiAppActionHandler enqueue 成 'action' 事件（菜单先例），这里接住落账。
+    // 合成验收在 selftest 的 bindKeysGate（realKeyFlags 带 Command 修饰）。
+    $app->bindKeys([
+        ['keystroke' => 'cmd-s', 'action' => 'kit::save'],
+    ]);
+    $app->on('kit::save', 'action', static function () use ($log): void {
+        $log('keymapSave', 'action');
+    });
+    // 批5：TitleBar B 期的三动词由 titlebarWindowGate 用独立窗口验证（windowAction
+    // 直接调），wireKit 不挂树。
+    // 批3：手风琴三段件的 on_change（trigger 翻 open 的回调）与 transition 两态
+    // 的切换钮——点一下在 40↔240 间过渡（ExampleState 记宽态，重渲染时目标值变，
+    // materialize 采样器逐帧插值）。
+    foreach (['kit-acc-i0' => 'accI0', 'kit-acc-i1' => 'accI1'] as $id => $key) {
+        $app->on($id, 'change', static function () use ($log, $key): void {
+            $log($key, 'toggled');
+        });
+    }
+    $app->on('kit-anim-toggle', 'click', static function () use ($log): void {
+        ExampleState::$v['animWide'] = !((bool) (ExampleState::$v['animWide'] ?? false));
+        $log('animToggle', (bool) ExampleState::$v['animWide'] ? 'wide' : 'narrow');
+    });
+    // 批4：MessageScroller 的 render_item 宿主渲染（元素描述经 App::elementCallback
+    // 包装；行内容带可辨读的宿主标记，正路门的像素探针据此断）。
+    $app->elementCallback('kit-msgs', 'render_item', static function (): El {
+        return El::hFlex([El::text('宿主消息行·批4')->font(12.0)])
+            ->p(6.0)->bg('#eef4ff');
+    });
+    // 批4：token 渲染回调（null 对拍 = label chip 回落）+ token/link 事件落账。
+    $app->elementCallback('kit-tok-in', 'token', static function (): ?El {
+        return (bool) (ExampleState::$v['tokenRenderNull'] ?? false) ? null
+            : El::hFlex([El::text('提及')->font(11.0)])->px(6.0)->py(2.0)
+                ->bg('#2f6fed')->rounded(4.0);
+    });
+    foreach (['on_token_click' => 'tokClick', 'on_token_hover' => 'tokHover',
+              'on_link_click' => 'linkClick'] as $type => $key) {
+        $id = $type === 'on_link_click' ? 'kit-link' : 'kit-tok-in';
+        $app->on($id, $type, static function () use ($log, $key): void {
+            $log($key, 'delivered');
+        });
+    }
     // 批6 金融段：CandlestickChart 的 rows 回调——宿主数据回路的图表侧正路。
     // 六个交易日 OHLC；up/down 色由 widget 的 New 取 theme chartBullish/chartBearish。
     $app->on('kit-candle', 'render_rows', static function (): array {

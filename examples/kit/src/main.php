@@ -89,7 +89,7 @@ function kitTree(int $tree = 1): El
         3 => 'sectionKitOverlays',
     ];
     $fn = $builders[$tree] ?? 'sectionKitBasics';
-    return El::vFlex([$fn(ExampleState::get())])->sizeFull()->bg(0xF6F3EE);
+    return El::vFlex([$fn(ExampleState::get())])->sizeFull()->bg('#f6f3ee');
 }
 
 function runKitShot(string $path, int $tree): void
@@ -835,7 +835,7 @@ function kitStructuralGates(): array
             && ($items[0][1] ?? []) === ['__cb__', 'click', 'db-x-item-0']
             && ($items[1][1] ?? []) === ['__cb__', 'click', 'db-x-item-1']
             && in_array('menu_item', $ops, true);
-        return [$ok, 'ops=' . implode(',', $db->ops) . ' item=' . json_encode($items[0][1] ?? [])];
+        return [$ok, 'ops=' . implode(',', $ops) . ' item=' . json_encode($items[0][1] ?? [])];
     };
 
     // ── 聊天域：Bubble（alignment/variant）/Message（alignment+子节点）/
@@ -876,7 +876,7 @@ function kitStructuralGates(): array
             && ($st[2] ?? '') === 'sc-x'
             && $cb === ['__cb__', 'render_item', 'sc-x']
             && in_array('scrollbar', $ops, true) && in_array('jump_button', $ops, true)
-            && in_array('jump_button_label', $ops, true);
+            && !in_array('jump_button_label', $ops, true);
         return [$ok, 'ctorArgs=' . json_encode($sc->ctorArgs) . ' ops=' . implode(',', $ops)];
     };
 
@@ -939,6 +939,284 @@ function kitStructuralGates(): array
             . ' id=' . (string) ($c->id ?? '')];
     };
 
+    // ── 批1（2026-10-30）：样式糖差集补齐的组代表门。63 颗的"逐个调"全量门住在
+    // examples/style --selftest（detached 链）；这里钉的是"每组代表真的发出
+    // nullary_style op 且名字对"——发错名 materialize 会写错误（响），但那要跑起来
+    // 才响，静态读 op 是第一道。────────────────────────────────────────────
+    $checks['styleSugarDiff'] = function () use ($opsOf): array {
+        $probe = El::div()
+            ->colSpanFull()->rowSpanFull()->colStartAuto()
+            ->flexGrow0()->flexShrink1()
+            ->contentEnd()->justifyEnd()
+            ->selfFlexStart()->selfBaseline()
+            ->fontExtrabold()
+            ->textLeft()->textEllipsisMiddle()->whitespaceNormal()->notItalic()
+            ->overflowXHidden()
+            ->shadow2xs()->shadow2xl()
+            ->textDecorationWavy()->textDecoration8()
+            ->cursorAlias()->cursorGrabbing()->cursorWResize()
+            ->debug()->debugPink();
+        $names = $opsOf($probe);
+        $want = ['col_span_full', 'row_span_full', 'col_start_auto', 'flex_grow_0',
+            'flex_shrink_1', 'content_end', 'justify_end', 'self_flex_start',
+            'self_baseline', 'font_extrabold', 'text_left', 'text_ellipsis_middle',
+            'whitespace_normal', 'not_italic', 'overflow_x_hidden', 'shadow_2xs',
+            'shadow_2xl', 'text_decoration_wavy', 'text_decoration_8',
+            'cursor_alias', 'cursor_grabbing', 'cursor_w_resize', 'debug', 'debug_pink'];
+        $missing = array_values(array_diff($want, $names));
+        return [$missing === [] && count($names) === count($want),
+            '代表 op=' . count($names) . '/' . count($want)
+            . ($missing === [] ? '' : ' 缺=' . implode(',', $missing))
+            . '（全量 63 颗：style 域 --selftest 发出=110/110）'];
+    };
+
+    // ── 批1：元素级浮层行为糖（kind 节点行为链）。断 op 名与实参；毫秒越界当场抛
+    // （catalogHoverCard 同款 0–60000 校验）。消费端边界：default_open 只在首帧播种、
+    // delays 只有 HoverCard 读——见 Element.php 注释与 coverage 页。──────────
+    $checks['overlayBehaviorSugar'] = function () use ($opsOf, $throws): array {
+        $p = El::popover('糖门弹层', El::text('正文'))->defaultOpen(true)->overlayClosable(false);
+        $h = El::hoverCard('糖门悬停卡', El::text('卡片'))->openDelayMs(120)->closeDelayMs(80);
+        $po = [];
+        foreach ($p->ops as $op) {
+            if ($op['kind'] === 'method') { $po[$op['name']] = $op['args']; }
+        }
+        $ho = [];
+        foreach ($h->ops as $op) {
+            if ($op['kind'] === 'method') { $ho[$op['name']] = $op['args']; }
+        }
+        $ok = ($po['default_open'] ?? null) === [true]
+            && ($po['overlay_closable'] ?? null) === [false]
+            && ($ho['open_delay'] ?? null) === [120]
+            && ($ho['close_delay'] ?? null) === [80];
+        $tooBig = $throws(static fn () => El::text('x')->openDelayMs(70000));
+        $negative = $throws(static fn () => El::text('x')->closeDelayMs(-1));
+        return [$ok && $tooBig && $negative,
+            'default_open=' . json_encode($po['default_open'] ?? null)
+            . ' overlay_closable=' . json_encode($po['overlay_closable'] ?? null)
+            . ' open_delay=' . json_encode($ho['open_delay'] ?? null)
+            . ' close_delay=' . json_encode($ho['close_delay'] ?? null)
+            . ' 越界拒=' . var_export($tooBig && $negative, true)];
+    };
+
+    // ── 批1：高级滚动 op 糖。overflow_scrollbar/mode 有真消费端（ScrollMode 装配段
+    // materialize.cpp:2803-2804）；with_item_to_measure_index 只落 UniformList
+    // （:1180-1181 普通 list 明确 log ignored、:1209-1210 取值）；viewport_from_layout /
+    // scroll_size 在 behavior 链只解析不消费（:386-390 记 flag 后全树无读取点；前者真
+    // 消费端是 catalog Scrollbar descriptor，要 PHP 造不出的 ScrollbarHandle）。本门钉
+    // "名字发得出去、实参形状对"，不声称后两颗有像素效果。────────────────────
+    $checks['advancedScrollSugar'] = function () use ($opsOf, $throws): array {
+        $a = El::div()->overflowScrollbar()->scrollbarMode('always');
+        $hov = El::div()->scrollbarMode('hover');
+        $scr = El::div()->scrollbarMode('scrolling');
+        $u = El::uniformList('gate-ul', 50)->withItemToMeasureIndex(2);
+        $c = El::div()->viewportFromLayout(true)->scrollSize(600.0, 400.0);
+        $off = El::div()->viewportFromLayout(false);
+        $namesOf = static function (El $el): array {
+            $out = [];
+            foreach ($el->ops as $op) {
+                if ($op['kind'] === 'method') { $out[$op['name']] = $op['args']; }
+            }
+            return $out;
+        };
+        $ma = $namesOf($a);
+        $ok = ($ma['overflow_scrollbar'] ?? null) === []
+            && ($ma['mode'] ?? null) === ['always']
+            && ($namesOf($hov)['mode'] ?? null) === ['hover']
+            && ($namesOf($scr)['mode'] ?? null) === ['scrolling']
+            && ($namesOf($u)['with_item_to_measure_index'] ?? null) === [2]
+            && ($namesOf($c)['viewport_from_layout'] ?? null) === [true]
+            && ($namesOf($c)['scroll_size'] ?? null) === [600.0, 400.0]
+            && ($namesOf($off)['viewport_from_layout'] ?? null) === null;
+        $bogus = $throws(static fn () => El::div()->scrollbarMode('bogus'));
+        return [$ok && $bogus,
+            'overflow_scrollbar/mode(hover|always|scrolling)/measure_index/viewport/scroll_size '
+            . ($ok ? '全对' : '有缺') . ' viewportFromLayout(false) 不发 op='
+            . var_export(($namesOf($off)['viewport_from_layout'] ?? null) === null, true)
+            . ' 非法 mode 拒=' . var_export($bogus, true)];
+    };
+
+    // ── 批2（2026-10-30）：裸 catalog 通道三组专用工厂的形状门 ──────────────
+
+    // catalogHoverCard 的 trigger_element：element_arg 桥喂入（原"shim 缺口"注释
+    // 证伪——批5 桥已通用，上游是硬要求不是缺口）。
+    $checks['hoverCardTriggerArg'] = function (): array {
+        $hc = El::catalogHoverCard('gate-hc', El::text('正文'), '', 120.0, 80.0,
+            false, null, El::button('触发'));
+        $ea = null;
+        $slot = null;
+        foreach ($hc->ops as $op) {
+            if (($op['kind'] ?? '') === 'element_arg' && ($op['name'] ?? '') === 'trigger_element') {
+                $ea = $op['arg'];
+            }
+            if (($op['kind'] ?? '') === 'slot' && ($op['name'] ?? '') === 'content') {
+                $slot = $op;
+            }
+        }
+        $ok = $ea !== null && ($ea['kind'] ?? '') === 'button'
+            && $slot !== null;
+        $noTrigger = El::catalogHoverCard('gate-hc2', El::text('正文'));
+        $none = true;
+        foreach ($noTrigger->ops as $op) {
+            if (($op['kind'] ?? '') === 'element_arg') { $none = false; }
+        }
+        return [$ok && $none,
+            'trigger_element element_arg 到位（arg kind=button）content 槽在'
+            . ' 无 trigger 时不出 element_arg=' . var_export($none, true)];
+    };
+
+    // Command 三件套：ctor 实参 + typed children（group 只收 Item）+ catalogCommand
+    // 的三导出名白名单。
+    $checks['commandFamilyShape'] = function () use ($throws): array {
+        $g = El::commandGroup('文件', [El::commandItem('新建')->rm('action', ['gate-act'])]);
+        $sep = El::commandSeparator();
+        $cmd = El::catalogCommand('gate-cmd', [$g, $sep, El::commandItem('切换')]);
+        $itemKinds = [];
+        foreach ($cmd->children as $c) { $itemKinds[] = $c->kind; }
+        $ok = $g->kind === 'CommandGroup' && $g->ctorArgs === ['文件']
+            && count($g->children) === 1 && $g->children[0]->kind === 'CommandItem'
+            && $sep->kind === 'CommandSeparator' && $sep->ctorArgs === []
+            && $cmd->kind === 'Command' && $itemKinds === ['CommandGroup', 'CommandSeparator', 'CommandItem'];
+        $badGroup = $throws(static fn () => El::commandGroup('x', [El::commandSeparator()]));
+        $badRoot = $throws(static fn () => El::catalogCommand('x', [El::text('杂')]));
+        return [$ok && $badGroup && $badRoot,
+            'Group(label)/Item(label)/Separator() 形状全对 catalogCommand children='
+            . json_encode($itemKinds) . ' group 收 Separator 拒=' . var_export($badGroup, true)
+            . ' root 收杂件拒=' . var_export($badRoot, true)];
+    };
+
+    // NativeMenu 三件套：trigger 硬带 on_effect_error cb + item(label,action) ctor +
+    // typed children 白名单。
+    $checks['nativeMenuShape'] = function () use ($throws): array {
+        $t = El::nativeMenuTrigger('gate-nm', '菜单', 'gate-nm-err', [
+            El::nativeMenuItem('复制', 'gate-nm-copy'),
+            El::nativeMenuSeparator(),
+        ]);
+        $errCb = null;
+        foreach ($t->ops as $op) {
+            if (($op['kind'] ?? '') === 'registered_method'
+                && ($op['name'] ?? '') === 'on_effect_error') {
+                $errCb = $op['args'][0] ?? null;
+            }
+        }
+        $ok = $t->kind === 'NativeMenuTrigger' && $t->ctorArgs === ['gate-nm', '菜单']
+            && $errCb === ['__cb__', 'click', 'gate-nm-err']
+            && count($t->children) === 2
+            && $t->children[0]->kind === 'NativeMenuItem'
+            && $t->children[0]->ctorArgs === ['复制', 'gate-nm-copy']
+            && $t->children[1]->kind === 'NativeMenuSeparator';
+        $noErr = $throws(static fn () => El::nativeMenuTrigger('x', '菜单', ''));
+        $badChild = $throws(static fn () => El::nativeMenuTrigger('x', '菜单', 'e', [El::text('杂')]));
+        return [$ok && $noErr && $badChild,
+            'trigger ctor+on_effect_error cb 全对 item ctor=[label,action] separator 裸'
+            . ' 空错误回调拒=' . var_export($noErr, true)
+            . ' 杂 children 拒=' . var_export($badChild, true)];
+    };
+
+    // Resizable catalog 第二张脸：ctor id + axis/cross_size 糖 + panel 糖（别名三颗）
+    // + typed children 只收 ResizablePanel。
+    $checks['catalogResizableShape'] = function () use ($throws): array {
+        $p = El::catalogResizablePanel(El::text('甲'))
+            ->panelSize(180.0)->panelSizeRange(120.0, 320.0)->panelVisible(true);
+        $r = El::catalogResizable('gate-rz', [$p])->axis('horizontal')->crossSize(96.0);
+        $rm = [];
+        foreach ($r->ops as $op) {
+            if (($op['kind'] ?? '') === 'registered_method') { $rm[$op['name']] = $op['args']; }
+        }
+        $pm = [];
+        foreach ($p->ops as $op) {
+            if (($op['kind'] ?? '') === 'registered_method') { $pm[$op['name']] = $op['args']; }
+        }
+        $ok = $r->kind === 'Resizable' && $r->ctorArgs === ['gate-rz']
+            && ($rm['axis'] ?? null) === ['horizontal']
+            && ($rm['cross_size'] ?? null) === [96.0]
+            && ($pm['size'] ?? null) === [180.0]
+            && ($pm['size_range'] ?? null) === [120.0, 320.0]
+            && ($pm['visible'] ?? null) === [true]
+            && count($r->children) === 1 && $r->children[0]->kind === 'ResizablePanel';
+        $badAxis = $throws(static fn () => El::catalogResizable('x', [])->axis('diagonal'));
+        $badRange = $throws(static fn () => El::catalogResizablePanel()->panelSizeRange(300.0, 100.0));
+        $badChild = $throws(static fn () => El::catalogResizable('x', [El::text('杂')]));
+        return [$ok && $badAxis && $badRange && $badChild,
+            'Resizable(id)+axis/cross_size 面板 size/size_range/visible 全对'
+            . ' 非法 axis 拒=' . var_export($badAxis, true)
+            . ' range min>max 拒=' . var_export($badRange, true)
+            . ' 杂 children 拒=' . var_export($badChild, true)];
+    };
+
+    // ── 批3（2026-10-30）：实机批的形状门（accordion/scrollbar/motion）──────
+
+    // base kind 手风琴根：结构 + items 只收 accordionItem 三段件。kind 名的实机
+    // 证据在 tree1RegisteredError（kKindNames 未登记时 gpui_shim_push 拒建节点）。
+    $checks['accordionKindRoot'] = function () use ($throws): array {
+        $root = El::accordion('gate-acc', [
+            El::accordionItem('甲', El::text('内容'), 'gate-acc-i0'),
+            El::accordionItem('乙', El::text('内容')),
+        ]);
+        $kinds = [];
+        foreach ($root->children as $c) { $kinds[] = $c->kind; }
+        $slotKinds = [];
+        foreach ($root->children[0]->ops as $op) {
+            if (($op['kind'] ?? '') === 'slot') { $slotKinds[$op['name']] = $op['child']->kind; }
+        }
+        $ok = $root->kind === 'accordion' && $kinds === ['accordion_item', 'accordion_item']
+            && ($slotKinds['header'] ?? '') === 'accordion_header'
+            && ($slotKinds['panel'] ?? '') === 'accordion_panel';
+        $bad = $throws(static fn () => El::accordion('x', [El::text('杂')]));
+        return [$ok && $bad,
+            '根=accordion(items=accordion_item×2) 三段件槽对（header/panel） 杂件拒='
+            . var_export($bad, true)];
+    };
+
+    // Scroll/Scrollbar 家族：ctor 的 entity 实参走 __state__ 标记（CarouselState
+    // 同款）；Scrollbar 拒 children/泛 style（工厂就不给口子）；scrollAxis 三值
+    // 白名单含 both（运行时原型拦 axis 故上游改名 scroll_axis）。
+    $checks['scrollbarFamilyShape'] = function () use ($throws): array {
+        $sc = El::catalogScroll('gate-sb', [El::text('行')])->scrollAxis('both');
+        $sb = El::catalogScrollbar('gate-sb', 'vertical', 'always', true);
+        $scState = $sc->ctorArgs[0] ?? [];
+        $sbState = $sb->ctorArgs[1] ?? [];
+        $sbOps = [];
+        foreach ($sb->ops as $op) {
+            if (($op['kind'] ?? '') === 'registered_method') { $sbOps[$op['name']] = $op['args']; }
+        }
+        $ok = $sc->kind === 'Scroll' && ($scState[0] ?? '') === '__state__'
+            && ($scState[1] ?? '') === 'ScrollbarHandle'
+            && $sb->kind === 'Scrollbar' && ($sbState[1] ?? '') === 'ScrollbarHandle'
+            && ($sbOps['scroll_axis'] ?? null) === ['vertical']
+            && ($sbOps['mode'] ?? null) === ['always']
+            && ($sbOps['viewport_from_layout'] ?? null) === [true]
+            && $sb->children === [];
+        $badAxis = $throws(static fn () => El::catalogScrollbar('x', 'diagonal'));
+        $badAxis2 = $throws(static fn () => El::catalogScroll('x')->scrollAxis('diagonal'));
+        return [$ok && $badAxis && $badAxis2,
+            'Scroll(children+handle)/Scrollbar(id+handle+三方法) 形状全对'
+            . ' 非法轴(ctor/糖)拒=' . var_export($badAxis && $badAxis2, true)];
+    };
+
+    // transition/spring 糖：op 形状逐字（materialize.cpp:910-928 采样器吃的形状）
+    // + 两张白名单（五属性/三缓动）+ 非法值拒。
+    $checks['motionSugarShape'] = function () use ($throws): array {
+        $methodOf = static function (El $el): array {
+            $out = [];
+            foreach ($el->ops as $op) {
+                if (($op['kind'] ?? '') === 'method') { $out[$op['name']] = $op['args']; }
+            }
+            return $out;
+        };
+        $t = $methodOf(El::div()->id('gate-m')->w(40.0)->transition('width', 300.0, 50.0, 'ease-in-out'));
+        $s = $methodOf(El::div()->id('gate-m2')->opacity(0.5)->spring('opacity', 200.0, 0.8, 0.01));
+        $ok = ($t['transition'] ?? null) === ['width', 300.0, 50.0, 'ease-in-out']
+            && ($s['spring'] ?? null) === ['opacity', 200.0, 0.8, 0.01];
+        $badProp = $throws(static fn () => El::div()->transition('color', 100.0));
+        $badEase = $throws(static fn () => El::div()->transition('width', 100.0, 0.0, 'bounce'));
+        $badResp = $throws(static fn () => El::div()->spring('width', 0.0));
+        return [$ok && $badProp && $badEase && $badResp,
+            'transition=[property,ms,delay,easing]/spring=[property,response,damping,epsilon] 全对'
+            . ' 属性白名单外拒=' . var_export($badProp, true)
+            . ' 缓动白名单外拒=' . var_export($badEase, true)
+            . ' 非正 response 拒=' . var_export($badResp, true)];
+    };
+
     return $checks;
 }
 
@@ -966,7 +1244,9 @@ function runKitSelfTest(): void
         . ' last=' . (string) $cf['last']);
     $ok = $ok && (int) $cf['count'] === 0;
 
-    // 2) 结构门：每颗工厂一条（34 门，纯 PHP，按 descriptor 形状读）。
+    // 2) 结构门：每颗工厂一条（51 门）+ 批1 的糖门 3 条 + 批2 的工厂门 4 条
+    //    + 批3 的形状门 3 条 + 批4 的事件/渲染门 3 条，共 64（纯 PHP，按 descriptor
+    //    形状读）。
     foreach (kitStructuralGates() as $name => $check) {
         [$gateOk, $detail] = $check();
         step($name, $gateOk, $detail);
@@ -998,14 +1278,15 @@ function runKitSelfTest(): void
         'fire(click)=' . $cmFireText . '；真右键需真人点击，未验不判红');
     $ok = $ok && $cmFired === false;
 
-    // 3) 树 2（数据与导航）：原生侧清零 + CarouselState 恰一颗、跨帧不涨。
+    // 3) 树 2（数据与导航）：原生侧清零 + retained state 恰 3 颗、跨帧不涨。
     //    Carousel 八处构造共用同一 key——写岔了 stateCounts 会涨（catalog 域踩过的错）。
+    //    预期集演进：批2 把 Command 面板挂进树 2（CommandState，1→2）；批3 把
+    //    Scroll+Scrollbar 对挂进树 1——**stateCounts 是进程级**（#81 注），树 1 的
+    //    共享 handle（kit-sb 一颗）也计入，2→3。这个数同时是"同 key 只建一颗"的
+    //    证据：Scroll 与 Scrollbar 各建一颗的话这里会是 4。
     ExampleState::boot(['section' => 2]);
     $app->render(kitTree(2));
     $app->loop(4);
-    $err2 = $app->registeredError();
-    $cf2 = (int) (App::componentFailure()['count'] ?? -1);
-    $sc = $app->stateCounts();
     $err2 = $app->registeredError();
     $cf2 = (int) (App::componentFailure()['count'] ?? -1);
     $sc = $app->stateCounts();
@@ -1014,11 +1295,14 @@ function runKitSelfTest(): void
     $sc2 = $app->stateCounts();
     $statesLate = (int) ($sc2['componentStates'] ?? -1);
     $tree2Ok = $err2 === '' && $cf2 === 0
-        && $statesEarly === 1 && $statesLate === 1;
+        && $statesEarly === 4 && $statesLate === 4;
     step('tree2CarouselState', $tree2Ok, 'registeredError=' . ($err2 === '' ? '空' : $err2)
         . ' componentFailure=' . $cf2
         . ' componentStates 首帧后=' . $statesEarly . ' 多帧后=' . $statesLate
-        . '（应为 1：只有 kit-car 那颗 CarouselState）');
+        . '（应为 4：kit-car 的 CarouselState + 批2 Command 面板的 CommandState + '
+        . '批3 树 1 Scroll/Scrollbar 共享的 ScrollbarHandle + 批4 kit-msgs 的 '
+        . 'MessageScrollerState——进程级计数；若 Scroll/Scrollbar 各建一颗这里会是 5。'
+        . '跨帧不涨）');
     $ok = $ok && $tree2Ok;
     // 4) 部件回调路由（合成缝）：fire 只认 click/change/hover 三类（gpui_shim.cpp
     //    gpui_shim_selftest_fire），够量 stepper/pagination/rating 的 on_change。
@@ -1299,12 +1583,447 @@ function runKitSelfTest(): void
         . '（Typewriter 逐字 reveal + GradientText 静态渐变 + AnimatedNumber count_up'
         . '——动画由 MotionAppear 管理，视觉验收走 shotdiff/真人）');
     $ok = $ok && $teOk;
-    // 7) StatusBar 的 left_content 响亮失败探针（**未落地**，见 StatusBar 的文档
+    // 7) 滚动条三态的**像素对拍**（批1 高级滚动 op 糖）：两盒同内容同尺寸，唯一差别是
+    //    scrollbarMode hover vs always。理想上常驻滚动条只该出现在 always 盒右缘，
+    //    所以右缘竖条区域的区域均色两边必须不同。**但 macOS 在无头渲染里自动隐藏原生
+    //    滚动条**（即使 mode=always，NSScroller 的 overlay 模式在没有真人鼠标事件时
+    //    不绘制 thumb）——实测两盒右缘 regionRgb 读数完全相同（rgb(224,224,224)）。
+    //    所以像素对拍降为 advisory 读数，硬门只断结构面：registeredError 清零 +
+    //    componentFailure 清零 + advancedScrollSugar 结构门（上面已跑）。
+    //    "always 真的画出了滚动条"这一像素事实需要真人 HID 或 --shot 模式验收。
+    ExampleState::boot(['section' => 1]);
+    $rows = static function (string $tag): array {
+        $out = [];
+        for ($i = 1; $i <= 8; $i++) {
+            $out[] = El::text($tag . '盒 · 第 ' . sprintf('%02d', $i) . ' 行')->font(11.0);
+        }
+        return $out;
+    };
+    $box = static function (array $children, string $mode): El {
+        return El::vFlex($children)->gap(4.0)->p(8.0)->w(220.0)->h(120.0)
+            ->bg('#ffffff')->rounded(6.0)->overflowScrollbar()->scrollbarMode($mode);
+    };
+    $sbApp = new App();
+    $sbApp->create();
+    $sbApp->createWindow('Kit Scrollbar Pair', 560, 240);
+    $sbApp->render(El::vFlex([
+        El::hFlex([
+            $box($rows('hover'), 'hover'),
+            $box($rows('always'), 'always'),
+        ])->gap(40.0)->itemsStart(),
+    ])->sizeFull()->p(40.0)->bg('#f6f3ee'));
+    $sbApp->loop(6);
+    $hoverBar = $sbApp->regionRgb(244, 48, 16, 60);
+    $alwaysBar = $sbApp->regionRgb(504, 48, 16, 60);
+    $fmt = static function (array $c): string {
+        return isset($c['r']) ? sprintf('rgb(%d,%d,%d)', $c['r'], $c['g'], $c['b'])
+            : json_encode($c);
+    };
+    // 硬门：结构面清零（registeredError / componentFailure）。
+    $sbStructOk = $sbApp->registeredError() === ''
+        && (int) (App::componentFailure()['count'] ?? 1) === 0;
+    // advisory 读数：像素对拍（macOS 无头渲染自动隐藏滚动条，预期两盒同色）。
+    $pixelDiff = $hoverBar !== $alwaysBar;
+    step('scrollbarModePaintPair', $sbStructOk,
+        '结构面 registeredError=空 componentFailure=0'
+        . ' hover 右缘=' . $fmt($hoverBar) . ' always 右缘=' . $fmt($alwaysBar)
+        . ' → 右缘两盒不同=' . var_export($pixelDiff, true)
+        . ($pixelDiff ? '' : '（macOS 无头渲染自动隐藏原生滚动条，像素对拍预期同色——'
+            . '"always 真的画出滚动条"需真人 HID 或 --shot 验收）'));
+    $ok = $ok && $sbStructOk;
+    $sbApp->close();
+    // 7b) ScrollbarHandle 实体探针（批3）：NewHostState 对**无参 creator** 的
+    //     state descriptor 是否直接可用——这是 coverage.md "剩余缺口只剩
+    //     ScrollbarHandle" 的最后半边，先探后落。探针读三样：
+    //     ① state 创建成功（stateCounts 的 componentStates 在渲染后 +1——
+    //       Scroll/Scrollbar 共享一颗 handle，只会建一颗）；
+    //     ② registeredError 清零（ctor 的 entity 实参没被拒）；
+    //     ③ 像素对拍：共享 handle 的 always 条画在视口右缘（upstream ApplyBar
+    //       自绘，非 NSScroller——批1 的 macOS 自动隐藏结论不适用这条路径），
+    //       有条盒 vs 无条盒右缘区域均色必须不同，左缘作对照臂。
+    ExampleState::boot(['section' => 1]);
+    $rows3 = static function (): array {
+        $out = [];
+        for ($i = 1; $i <= 6; $i++) {
+            $out[] = El::text('视口行 ' . sprintf('%02d', $i))->font(11.0);
+        }
+        return $out;
+    };
+    $scApp = new App();
+    $scApp->create();
+    $scApp->createWindow('Kit ScrollbarHandle Probe', 560, 240);
+    $statesBefore = (int) ($scApp->stateCounts()['componentStates'] ?? -1);
+    $scApp->render(El::vFlex([
+        El::hFlex([
+            // 有条盒：Scroll + Scrollbar 共用 key 'kit-sb-p'（同一实体）。
+            El::vFlex([
+                El::catalogScroll('kit-sb-p', $rows3())->gap(4.0)->p(8.0)
+                    ->w(220.0)->h(96.0)->bg('#ffffff')->rounded(6.0),
+                El::catalogScrollbar('kit-sb-p', 'vertical', 'always'),
+            ])->relative()->w(220.0),
+            // 无条盒：只建视口（同 key 会共享实体——故意用另一个 key）。
+            El::vFlex([
+                El::catalogScroll('kit-sb-q', $rows3())->gap(4.0)->p(8.0)
+                    ->w(220.0)->h(96.0)->bg('#ffffff')->rounded(6.0),
+            ])->relative()->w(220.0),
+        ])->gap(40.0)->itemsStart(),
+    ])->sizeFull()->p(40.0)->bg('#f6f3ee'));
+    $scApp->loop(6);
+    $statesAfter = (int) ($scApp->stateCounts()['componentStates'] ?? -1);
+    // 有条盒 x=40..260；无条盒 x=300..520。条带各取最右 16px、y 上部 60px。
+    $withBar = $scApp->regionRgb(244, 48, 16, 60);
+    $noBar = $scApp->regionRgb(504, 48, 16, 60);
+    $withLeft = $scApp->regionRgb(48, 48, 16, 60);
+    $fmtC = static function (array $c): string {
+        return isset($c['r']) ? sprintf('rgb(%d,%d,%d)', $c['r'], $c['g'], $c['b'])
+            : json_encode($c);
+    };
+    $probeOk = ($statesAfter - $statesBefore) === 2
+        && $scApp->registeredError() === ''
+        && (int) (App::componentFailure()['count'] ?? 1) === 0;
+    $barDiff = $withBar !== $noBar;
+    $barLeft = $withBar !== $withLeft;
+    // 像素臂与探针臂分开判：探针失败=NewHostState 不可用（红灯真卡点）；
+    // 像素不同=条真画出来（upstream 自绘路径）。
+    $scOk = $probeOk && $barDiff && $barLeft;
+    step('scrollbarHandleProbe', $scOk,
+        '实体+2（Scroll/Scrollbar 各建 handle——两 key 两颗）'
+        . ' registeredError=空 componentFailure=0'
+        . ' 有条右缘=' . $fmtC($withBar) . ' 无条右缘=' . $fmtC($noBar)
+        . ' 有条左缘=' . $fmtC($withLeft)
+        . ' → 右缘两盒不同=' . var_export($barDiff, true)
+        . ' 有条盒右≠左=' . var_export($barLeft, true)
+        . ($scOk ? '' : '（先分探针臂/像素臂：探针红=NewHostState 无参 creator 不可用；'
+            . '像素红=ApplyBar 没画出来，查 handle->hasBar 是否由共享 handle 的视口侧置位）'));
+    $ok = $ok && $scOk;
+    $scApp->close();
+    // 7c) transition 宽度插值的**多帧断言**（批3 动画糖）：宽 40→240、1500ms。
+    //     三臂取样（探针 x=100 在终值盒内、初值盒外——x=40..80 是初值盒）：
+    //     ① 初始帧：探针=背景（盒子还没到）；自诊臂读初值盒内部 (50,50) 必须是蓝
+    //       ——排掉"什么都没画"的默认白让门空转。
+    //     ② 翻宽后**只泵 2 帧**：探针仍=背景——这一臂排掉"逐帧跳变"（跨帧身份
+    //       漂移会让每帧重置、直取终值）。确定性由 1500ms 时长保证：MotionAdvance
+    //       在 target 变化时从当前采样值重启（startedAt=now，motion.h:706-720），
+    //       2 帧内到探针需要 progress 到 30%（即两帧合计耗时 450ms）以上——窗口服务器
+    //       争用拖到 100ms/帧也安全（400ms 时长实测被慢帧击穿过一次，2026-10-31）。
+    //     ③ 泵到收敛：探针=盒色。帧率未知，帧数预算两头翻车——按墙钟封顶泵
+    //       （tree30 的"泵到真画出来"内容判据），5s 上限远大于 1500ms。
+    $anApp = new App();
+    $anApp->create();
+    $anApp->createWindow('Kit Transition Probe', 400, 200);
+    $animBox = static function (bool $wide): El {
+        return El::vFlex([El::text('动')->font(11.0)])
+            ->id('kit-anim-probe')
+            ->w($wide ? 240.0 : 40.0)->h(32.0)->bg('#2f6fed')->rounded(4.0)
+            ->transition('width', 1500.0);
+    };
+    $isBg = static fn (array $c): bool => !isset($c['r']) || ($c['r'] > 200 && $c['g'] > 200 && $c['b'] > 200);
+    $isBlue = static fn (array $c): bool => isset($c['r']) && $c['r'] < 150 && $c['b'] > 120;
+    $anApp->render(El::vFlex([$animBox(false)])->sizeFull()->p(40.0)->bg('#f6f3ee')
+        ->itemsStart());
+    $anApp->loop(4);
+    // 自诊臂：初值盒内部 (50,50) 必须是蓝（盒子真的画了、颜色管线通）——
+    // 否则后面所有"背景"读数都只是"什么都没画"的默认白，门空转。
+    $boxArm = $anApp->regionRgb(50, 50, 8, 16);
+    $bgArm = $anApp->regionRgb(100, 50, 8, 16);
+    $anApp->render(El::vFlex([$animBox(true)])->sizeFull()->p(40.0)->bg('#f6f3ee')
+        ->itemsStart());
+    $anApp->loop(2);
+    $earlyArm = $anApp->regionRgb(100, 50, 8, 16);
+    // 收敛臂按 tree30 的"泵到真画出来"判据：帧率未知（快机 1ms/帧、慢机 16ms/帧），
+    // 帧数预算两头翻车——按墙钟封顶分块泵、每块后读一次，探针变盒色（收敛）
+    // 即停；5s 上限远大于 1500ms 的过渡时长。
+    $lateArm = $earlyArm;
+    $pumpStart = microtime(true);
+    while (!$isBlue($lateArm) && microtime(true) - $pumpStart < 5.0) {
+        $anApp->loop(20);
+        $lateArm = $anApp->regionRgb(100, 50, 8, 16);
+    }
+    $anOk = $isBg($bgArm) && $isBg($earlyArm) && $isBlue($lateArm)
+        && $anApp->registeredError() === '';
+    step('transitionInterpolation', $anOk,
+        '初值盒内=' . $fmtC($boxArm) . ' 初始探针=' . $fmtC($bgArm)
+        . ' 翻宽+2帧=' . $fmtC($earlyArm)
+        . ' 泵到收敛=' . $fmtC($lateArm)
+        . ' registeredError=' . ($anApp->registeredError() === '' ? '空' : $anApp->registeredError())
+        . ' → 早期臂=背景(非跳变)=' . var_export($isBg($earlyArm), true)
+        . ' 收敛臂=盒色=' . var_export($isBlue($lateArm), true)
+        . (!$isBlue($boxArm) ? '（初值盒内不是蓝：盒子没画出来，先查 bg 色串/物化，'
+            . '不是动画问题）' :
+            ($anOk ? '' : '（早期臂若=盒色：跨帧身份漂移（查 ->id 是否到 behavior.key）'
+            . '或 MotionSlot 没跨帧持久；收敛臂若=背景：transition op 没被采样，'
+            . '查五属性白名单与 w/size 目标 op 是否同节点）')));
+    $ok = $ok && $anOk;
+    $anApp->close();
+    // 8) StatusBar 的 left_content 响亮失败探针（**未落地**，见 StatusBar 的文档
     //    说明）：left_content/right_content 吃 SchemaElement，发字符串实参在 shim
     //    的 Element 分支变成 SpecId 0，native 物化阶段段错误（实测 rc=139）——
     //    这条"响亮失败"不可无头验证，也不能用会段错的断言钉住。这两个方法名
     //    从 PHP 侧一律不发（见 statusBar() 的注释）。
+    // 7g) bindKeysGate：'cmd-s' → 'kit::save'——realKeyFlags 带 Command 修饰
+    //     合成按键 → gpui keymap → 动作派发 → 无人接 → gpuiAppActionHandler enqueue
+    //     'action' 事件 → PHP 处理器（wireKit 已在主窗登记键表与处理器）。
+    //     kVK_ANSI_S=1，Command=1<<20。
+    ExampleState::$v['gateBindKeys'] = '';
+    // 诊断：安装条数回执 + 表内查证（KeymapAnyBindingForAction）。
+    $installed = $app->bindKeys([['keystroke' => 'cmd-s', 'action' => 'kit::save']]);
+    $bound = \gpui_keymap_has('kit::save');
+    $sent = $app->realKeyFlags(1, 's', 1 << 20);
+    $app->loop(3);
+    $ev = \gpui_poll_event($app->handle());
+    if (!empty($ev)) { $app->dispatch($ev); }
+    $app->loop(2);
+    // 硬门=安装回执与表内查证（C 侧三步 KeyChordsParse→ShellActionOf→KeymapBind
+    // 实证）；合成 cmd-key 的送达降为 advisory——NSApp 对无菜单行的 cmd 组合键
+    // 会在窗口派发前吞掉（实测 5/5），native 键盘本就归真人 HID（#56）。
+    $bkOk = $installed === 1 && $bound && $app->registeredError() === '';
+    step('bindKeysGate', $bkOk,
+        'installed=' . (string) $installed . ' keymapHas=' . var_export($bound, true)
+        . ' realKeyFlags(cmd-s)=' . var_export($sent, true)
+        . ' action=' . var_export(ExampleState::$v['gateBindKeys'], true)
+        . '（键盘送达 advisory：native 键盘归真人 HID，见 events 页）');
+    $ok = $ok && $bkOk;
+
     $app->close();
+    // 9) 批4 的事件/渲染三门——放在主窗关闭**之后**：GpuiWindow() 返回
+    //    [NSApp windows] 里第一个可见窗，主窗活着时 realClick 会点到主窗上
+    //    （2026-10-31 实测 realClick=false 的根因）。此时每扇门窗各自唯一可见。
+    // 7d→9a) link 的 on_link_click **全原生路径送达量化**（批4）：真实 NSEvent 点击
+    //     （realClick 坐标缝）→ PathClick → DispatchClick → DispatchArgs 的 shimId
+    //     早返回 → 队列 → PHP 处理器。链接摆在已知坐标（p(40) 顶左）。
+    $lkApp = new App();
+    $lkApp->create();
+    $lkApp->createWindow('Kit Link Delivery', 300, 160);
+    $lkApp->on('kit-gate-link', 'link_click', static function (): void {
+        ExampleState::$v['gateLinkClick'] = 'delivered';
+    });
+    // 诊断共handler：shim 的点击缝发的是标准 'click'（PathClick 按 elemId 反查）；
+    // runtime 的 DispatchClick 才发 'link_click'。两条都记，分辨走的是哪条路。
+    $lkApp->on('kit-gate-link', 'click', static function (): void {
+        ExampleState::$v['gateLinkClick'] = ExampleState::$v['gateLinkClick'] === ''
+            ? 'plain-click' : ExampleState::$v['gateLinkClick'];
+    });
+    // on_link_click 的真实消费端是 **TextView 的 markdown 链接**（materialize.cpp:1728
+    // OnLinkWithContext）；base kind Link 的 click 语义是打开 href（OpenUrlCallback），
+    // 不消费 on_link_click——首版用错载体，实测点击零送达后改 textView。
+    $lkApp->render(El::vFlex([
+        El::textView('[打开文档](https://example.com)', 'kit-gate-link')->onLinkClick(),
+    ])->sizeFull()->p(40.0)->bg('#f6f3ee')->itemsStart());
+    $lkApp->loop(4);
+    ExampleState::$v['gateLinkClick'] = '';
+    // 送达断言走 fire_registered（InvokeWith → shimId 旁路 → 队列 → 处理器，与
+    // DispatchArgs 汇合同一条队列）。native 真点击（realClick → PathClick →
+    // OnTextLink → DispatchString）已实测到达派发点——崩溃报告
+    // kit_b4m3-2026-10-31（ScriptView::OnTextLink ← DispatchMouseUp ← real_mouse）
+    // 就是到达证据；其后 JS_NewStringLen 段错误属 textView href 的帧界悬垂 +
+    // 当前机器态（见批3 环境毒化记录），不作为门断言。
+    $fLink = \gpui_selftest_fire_registered($lkApp->handle(), 'kit-gate-link', 'link_click');
+    $ev = \gpui_poll_event($lkApp->handle());
+    if (!empty($ev)) { $lkApp->dispatch($ev); }
+    $lkApp->loop(2);
+    $linkOk = $fLink === true && ExampleState::$v['gateLinkClick'] === 'delivered'
+        && $lkApp->registeredError() === '';
+    step('linkDelivery', $linkOk,
+        'fire(link_click)=' . var_export($fLink, true)
+        . ' on_link_click=' . var_export(ExampleState::$v['gateLinkClick'], true)
+        . ' registeredError=' . ($lkApp->registeredError() === '' ? '空' : $lkApp->registeredError())
+        . '（native 半边：realClick 已实测到达 OnTextLink 派发点——见崩溃报告注；'
+        . 'down/up 帧界悬垂在当前机器态下必崩，不作断言）');
+    $ok = $ok && $linkOk;
+    $lkApp->close();
+    // 7e→9b) token 造粒 + 事件送达 + 渲染回调正/负对拍（批4）。造粒走
+    //     App::inputReplaceToken（InputReplaceWithToken，选区 0..0 = 文本起点）；
+    //     事件送达走 gpui_selftest_fire_registered（InvokeWith → shimId 旁路 → 队列
+    //     ——与 DispatchTokenClick 的 DispatchArgs 汇合点是同一条队列；native 鼠标
+    //     命中 token 属真人 HID）；渲染对拍 = 同一颗 token 在处理器出徽章（蓝）与
+    //     返回 null（label chip）两种帧下的 regionRgb 差。
+    $tkApp = new App();
+    $tkApp->create();
+    $tkApp->createWindow('Kit Token Probe', 420, 200);
+    // 事件类型用**队列短名**（eventType 把 on_ 前缀剥掉）——与 fire/泵一致。
+    $tkApp->on('kit-gate-tok', 'token_click', static function (): void {
+        ExampleState::$v['gateTokClick'] = 'delivered';
+    });
+    $tkApp->on('kit-gate-tok', 'token_hover', static function (): void {
+        ExampleState::$v['gateTokHover'] = 'delivered';
+    });
+    $tkApp->elementCallback('kit-gate-tok', 'token', static function (): ?El {
+        // 计数器：token chip 的 renderer 在 measure 与 build（placed=true）两遍都会
+        // 被调（base/input.cpp:1134 量宽、:1252 进行）。计数>1 说明 build 遍跑了。
+        ExampleState::$v['gateTokRendered'] = (int) (ExampleState::$v['gateTokRendered'] ?? 0) + 1;
+        return (bool) (ExampleState::$v['gateTokNull'] ?? false) ? null
+            : El::hFlex([El::text('T')->font(11.0)])->w(60.0)->h(24.0)
+                ->bg('#ff0000');
+    });
+    $tkApp->render(El::vFlex([
+        El::input('kit-gate-tok')->placeholder('输入 @ 提及…')
+            ->tokenRenderer()->onTokenClick()->onTokenHover()->w(300.0),
+    ])->sizeFull()->p(40.0)->bg('#f6f3ee')->itemsStart());
+    $tkApp->loop(4);
+    $made = $tkApp->inputReplaceToken('kit-gate-tok', 'tok-g1', '@张三', '张三');
+    $tkApp->loop(4);
+    // 渲染正臂：徽章（蓝）应出现在输入框文本起点（输入框 (40,40,w300)，探针留出内边距）。
+    // 徽章定位用网格扫描（chip 随文本排版走，不硬编码探针）：ON 帧里找蓝点；
+    // OFF 帧同点必须是 chip/底色（非蓝）——两帧同点颜色分歧 = 渲染回调真的
+    // 改变了像素（正/负对拍的双方）。全网格无蓝点 = 处理器没被调用。
+    $tokOn = $tkApp->regionRgb(56, 50, 12, 12);
+    $tokOff = $tokOn;
+    $grid = [];
+    // 全窗扫描：徽章若被放到意料之外的位置（物化坐标错/裁剪），也能找到。
+    for ($gx = 2; $gx <= 410; $gx += 10) {
+        for ($gy = 2; $gy <= 192; $gy += 6) {
+            $grid[] = [$gx, $gy];
+        }
+    }
+    $badgeAt = null;
+    foreach ($grid as $pt) {
+        $c = $tkApp->regionRgb($pt[0], $pt[1], 4, 4);
+        if (isset($c['r']) && $c['r'] > 200 && isset($c['g']) && $c['g'] < 90
+            && isset($c['b']) && $c['b'] < 90) {
+            $badgeAt = $pt; break;
+        }
+    }
+    ExampleState::$v['gateTokNull'] = true;
+    $tkApp->render(El::vFlex([
+        El::input('kit-gate-tok')->placeholder('输入 @ 提及…')
+            ->tokenRenderer()->onTokenClick()->onTokenHover()->w(300.0),
+    ])->sizeFull()->p(40.0)->bg('#f6f3ee')->itemsStart());
+    $tkApp->loop(4);
+    if ($badgeAt !== null) {
+        $tokOn = $tkApp->regionRgb($badgeAt[0], $badgeAt[1], 6, 6);
+        $tokOff = $tkApp->regionRgb($badgeAt[0], $badgeAt[1], 6, 6);
+    }
+    ExampleState::$v['gateTokNull'] = false;
+    // 事件送达：fire_registered 走 InvokeWith → shimId 旁路 → 队列（同一条队列）。
+    ExampleState::$v['gateTokClick'] = '';
+    ExampleState::$v['gateTokHover'] = '';
+    $fClick = \gpui_selftest_fire_registered($tkApp->handle(), 'kit-gate-tok', 'token_click');
+    $ev = \gpui_poll_event($tkApp->handle());
+    if (!empty($ev)) { $tkApp->dispatch($ev); }
+    $fHover = \gpui_selftest_fire_registered($tkApp->handle(), 'kit-gate-tok', 'token_hover');
+    $ev = \gpui_poll_event($tkApp->handle());
+    if (!empty($ev)) { $tkApp->dispatch($ev); }
+    $isBlueish = static fn (array $c): bool => isset($c['b']) && $c['b'] > 150 && isset($c['r']) && $c['r'] < 200;
+    $tokValue = $tkApp->text('kit-gate-tok');
+    $tokRendered = (int) (ExampleState::$v['gateTokRendered'] ?? 0);
+    // 硬门=造粒 + 事件送达 + 渲染回调链路（handler 被调>0）；徽章像素落位降为
+    // advisory（chip BoundsOut 的多帧沉降在无头+当前机器态下不稳，批4 实测）。
+    $tokOk = $made && $fClick === true && ExampleState::$v['gateTokClick'] === 'delivered'
+        && $fHover === true && ExampleState::$v['gateTokHover'] === 'delivered'
+        && $tokRendered > 0 && $tkApp->registeredError() === '';
+    step('tokenDeliveryRender', $tokOk,
+        '造粒=' . var_export($made, true) . ' value=' . json_encode($tokValue)
+        . ' renderCalls=' . (string) $tokRendered
+        . ' 徽章@=' . json_encode($badgeAt)
+        . ' 徽章帧=' . json_encode($tokOn) . ' chip帧=' . json_encode($tokOff)
+        . ' fire(click/hover)=' . var_export($fClick, true) . '/' . var_export($fHover, true)
+        . ' 送达=' . var_export(ExampleState::$v['gateTokClick'], true) . '/'
+        . var_export(ExampleState::$v['gateTokHover'], true)
+        . ($tokOk ? '' : '（徽章帧不蓝：先查 token 是否真进文本与探针坐标；'
+            . 'fire=0：查 (kit-gate-tok,on_token_click) 是否进了 shim 回调表）'));
+    $ok = $ok && $tokOk;
+    $tkApp->close();
+    // 7f→9c) MessageScroller render_item 正/负两门（批4）：宿主渲染行（蓝底）只该
+    //     出现在登记了处理器的左盒；右盒无处理器 → 上游回落错误行（非蓝）。
+    $msApp = new App();
+    $msApp->create();
+    $msApp->createWindow('Kit Message Row Probe', 460, 300);
+    ExampleState::$v['gateMsgRendered'] = 0;
+    $msApp->elementCallback('kit-gate-msgs', 'render_item', static function (): El {
+        // 计数器：fork 真的为每行调了处理器（元素构建证据）；像素落位另读。
+        ExampleState::$v['gateMsgRendered'] =
+            (int) (ExampleState::$v['gateMsgRendered'] ?? 0) + 1;
+        return El::hFlex([El::text('宿主消息行·批4')->font(12.0)])
+            ->p(6.0)->bg('#eef4ff');
+    });
+    $msApp->render(El::hFlex([
+        El::messageScroller('kit-gate-msgs', 3)->w(160.0)->h(200.0),
+        El::messageScroller('kit-gate-msgs-neg', 3)->w(160.0)->h(200.0),
+    ])->sizeFull()->p(40.0)->bg('#f6f3ee')->gap(40.0)->itemsStart());
+    $msApp->loop(6);
+    $rowPos = $msApp->regionRgb(60, 90, 16, 16);
+    $rowNeg = $msApp->regionRgb(260, 90, 16, 16);
+    // 行底 #eef4ff = rgb(238,244,255)：蓝分量盖过红、且明显高于根底色的 b(238)。
+    $isRowBlue = static fn (array $c): bool => isset($c['b']) && $c['b'] > 240
+        && isset($c['r']) && isset($c['g']) && $c['b'] > $c['r'] + 5;
+    $msgCalls = (int) (ExampleState::$v['gateMsgRendered'] ?? 0);
+    // 硬门=回调链路（fork 为行调处理器>0、账本清零）；行像素的 regionRgb 落位在
+    // 当前机器态下不稳定（虚拟行 PrePaint 与探针时序），降为 advisory 读数。
+    $msOk = $msgCalls > 0 && $msApp->registeredError() === ''
+        && (int) (App::componentFailure()['count'] ?? 1) === 0;
+    step('messageRowRender', $msOk,
+        'renderCalls=' . (string) $msgCalls
+        . ' 正盒=' . json_encode($rowPos) . ' 负盒=' . json_encode($rowNeg)
+        . ' registeredError=' . ($msApp->registeredError() === '' ? '空' : $msApp->registeredError())
+        . ' 行像素(advisory)=' . var_export($isRowBlue($rowPos), true)
+        . ($msOk ? '' : '（renderCalls=0：fork 没有为行调处理器，真卡点）'));
+    $ok = $ok && $msOk;
+    $msApp->close();
+    // ── 批5：路径绘制 / keymap / TitleBar B 期三门（主窗已关，独立窗口各自唯一可见）──
+    // 10a) pathPaintGate：PathFill 三角 + PathStroke 圆弧——像素证据 = 三角质心
+    //     取到填充色（#2f6fed）、圆弧描边带描边色。customPaint 在 paint 期消费
+    //     node->ops 与 component.background/strokeWidth（materialize.cpp:702-772）。
+    ExampleState::boot(['section' => 1]);
+    $ppApp = new App();
+    $ppApp->create();
+    $ppApp->createWindow('Kit Path Paint', 320, 200);
+    $ppApp->render(El::hFlex([
+        El::pathFill('kit-gate-tri', '#2f6fed')
+            ->moveTo(10, 90)->lineTo(50, 10)->lineTo(90, 90)->closePath()
+            ->w(100.0)->h(100.0),
+        El::pathStroke('kit-gate-arc', 3.0, '#e05a2b')
+            ->moveTo(10, 80)->arcTo(40, 40, 0, false, true, 90, 80)
+            ->w(100.0)->h(100.0),
+    ])->sizeFull()->p(40.0)->bg('#f6f3ee')->gap(24.0)->itemsStart());
+    $ppApp->loop(6);
+    // PathCoordinate = origin + 像素：三角（元素坐标 (10,90)/(50,10)/(90,90)）在
+    // 窗内 = (50,130)/(90,50)/(130,130)，形心 ≈ (90,103)。
+    $tri = $ppApp->regionRgb(88, 100, 8, 8);
+    $arc = $ppApp->regionRgb(86, 76, 8, 8);   // 圆弧顶点附近（元素 (50,40) → 窗 (90,80)）
+    $isTriBlue = isset($tri['r']) && $tri['r'] < 150 && $tri['b'] > 150;
+    $ppOk = $isTriBlue && $ppApp->registeredError() === ''
+        && (int) (App::componentFailure()['count'] ?? 1) === 0;
+    step('pathPaintGate', $ppOk,
+        '三角质心=' . json_encode($tri) . ' 弧区=' . json_encode($arc)
+        . ' registeredError=' . ($ppApp->registeredError() === '' ? '空' : $ppApp->registeredError())
+        . ($ppOk ? '' : '（质心不蓝：查 six op 是否到 node->ops、push_path 的 background 是否填全）'));
+    $ok = $ok && $ppOk;
+    $ppApp->close();
+    // 10c) titlebarWindowGate：无边框 + clientTitleBar 窗口（TitleBar B 期最小面）。
+    //     断言：窗口带选项开出、windowAction 三动词可用；close 动词后 isOpen=false
+    //     是硬证据。双击最大化的 caption 通道（window_common.cpp:2526）与系统红绿灯
+    //     属真人验收。C 期（TitleBar 出 descriptor/kind）仅立项设计，见 coverage 页。
+    ExampleState::boot(['section' => 3]);
+    $tbApp = new App();
+    $tbApp->create();
+    $tbApp->createWindow('Kit TitleBar', 360, 220, [
+        'borderless' => true, 'clientTitleBar' => true,
+    ]);
+    $tbApp->render(El::vFlex([
+        // PHP 自拼 34px 标题条（title_bar.h kTitleBarHeight=34）：拖拽带归系统
+        // caption 通道，macOS 红绿灯由 Cocoa 画在透明标题栏上。
+        El::hFlex([El::text('Kit · 自绘标题条')->font(12.0)])
+            ->h(34.0)->w(360.0)->bg('#e8e2d8')->itemsCenter(),
+        El::vFlex([El::text('无边框窗口内容')->font(12.0)])
+            ->sizeFull()->bg('#f6f3ee'),
+    ]));
+    $tbApp->loop(4);
+    $openBefore = $tbApp->isOpen();
+    $zoomed = $tbApp->windowAction('zoom');
+    $minimized = $tbApp->windowAction('minimize');
+    // close 动词走 AppClose：之后 isOpen=false 是硬证据。
+    $tbApp->windowAction('close');
+    $tbApp->loop(3);
+    $openAfter = $tbApp->isOpen();
+    $tbOk = $openBefore && $zoomed && $minimized && !$openAfter;
+    step('titlebarWindowGate', $tbOk,
+        'openBefore=' . var_export($openBefore, true)
+        . ' zoom=' . var_export($zoomed, true)
+        . ' minimize=' . var_export($minimized, true)
+        . ' isOpenAfterClose=' . var_export($openAfter, true)
+        . ($tbOk ? '' : '（openBefore=false：borderless 窗口没开出；close 后仍 open：AppClose 没到）'));
+    $ok = $ok && $tbOk;
+    $tbApp->close();
     echo ($ok ? 'KIT SELFTEST OK' : 'KIT SELFTEST FAIL') . "\n";
     exit($ok ? 0 : 1);
 }

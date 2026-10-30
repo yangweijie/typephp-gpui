@@ -497,6 +497,15 @@ static const KindName kKindNames[] = {
     {"popup", K::Popup},
     {"avatar", K::Avatar},
     {"accordion_item", K::AccordionItem},
+    // 手风琴根（materialize.cpp:1831 的 kind 分支；base/accordion.cpp:5-8 的本体是
+    // Div+Id+Role(Group)——价值在把 accordionItem 三段件合法挂树）。没有这条登记名，
+    // El::accordion() 的 kind 在 kindFromString 不认、gpui_shim_push 直接拒建节点。
+    {"accordion", K::Accordion},
+    // 批5：路径绘制（PaintMaterialPath 消费 move_to/line_to/… 六 op 与
+    // component.background/strokeWidth——kind 分支 materialize.cpp:2431 挂
+    // customPaint）。不登记则 gpui_shim_push 拒建节点。
+    {"path_fill", K::PathFill},
+    {"path_stroke", K::PathStroke},
     // 手风琴三件（materialize.cpp:2548/2571/2588 的 kind 分支在上游）：没有这三条
     // 登记名，El::accordionItem 的 header/trigger/panel 部件造不出来（kindFromString
     // 不认就静默降级），折叠头永远是一颗空按钮。
@@ -1097,7 +1106,8 @@ void HostOnResize(void* self, Ctx*, const ResizablePanelEvent* ev, int64_t cb) {
 }
 }  // namespace gpui
 
-void* gpui_shim_open_window(const char* title, int width, int height) {
+void* gpui_shim_open_window(const char* title, int width, int height,
+                               int borderless, int client_title_bar) {
     ensureApp();
     auto* box = new Box2();
 
@@ -1117,6 +1127,11 @@ void* gpui_shim_open_window(const char* title, int width, int height) {
     registerHostApplication(box->shellRoot);
 
     gpui::WinOpts opts = {};
+    // 批5（TitleBar B 期）：borderless + clientTitleBar 从 PHP 侧带进来——
+    // clientTitleBar 时顶部 34px 是 caption 带（双击最大化，window_common.cpp:2526），
+    // macOS 的系统红绿灯仍由 Cocoa 画在透明标题栏上。
+    opts.borderless = borderless != 0;
+    opts.clientTitleBar = client_title_bar != 0;
     // 建窗口之前再激活一次：OrderFrontOnce 只在首次 Redraw 里跑，而那时激活可能仍被
     // LaunchServices 拒（非前台进程），拒了就没有钥匙窗口，鼠标键盘全丢。
     gpui_mac_become_foreground();
@@ -1313,6 +1328,27 @@ int gpui_shim_state_counts(void* win, long long* out, int cap) {
     return n;
 }
 
+/* 批4：给 retained 输入造一颗 token。链路：inputHandles[id] → Retained →
+ * e->input（RetainedKind::Input 的 InputState*，与 setInput/text 同一条取路）
+ * → InputReplaceWithToken（base/input.cpp:5780，在当前选区上替换成 token）。
+ * label 可空。InlineToken 的 id/text 必填（shell/input_tokens.cpp DecodeToken
+ * 同款形状），label 是 chip 上显示的可选短文本。 */
+int gpui_shim_input_replace_token(void* win, const char* id, const char* token_id,
+                                  const char* text, const char* label) {
+    auto* box = static_cast<Box2*>(win);
+    if (!box || !id || !*id || !token_id || !*token_id || !text) return 0;
+    auto it = box->inputHandles.find(id);
+    if (it == box->inputHandles.end()) return 0;
+    auto* e = g_runtime->Retained((gpui::shell::EntityHandle)it->second);
+    if (!e || e->kind != gpui::shell::RetainedKind::Input || !e->input) return 0;
+    gpui::InlineToken token = gpui::InlineToken::New(gpui::Str(token_id),
+                                                     gpui::Str(text));
+    if (label && *label) token = token.WithLabel(gpui::Str(label));
+    gpui::InlineTokenError err =
+        gpui::InputReplaceWithToken(e->input, g_app, box->window, token);
+    return err == gpui::InlineTokenError::Ok ? 1 : 0;
+}
+
 int gpui_shim_element_value(void* win, const char* id, double* out_num,
                             int* out_bool, char* out_str, int outlen) {
     auto* box = static_cast<Box2*>(win);
@@ -1386,6 +1422,63 @@ uint32_t gpui_shim_push(void* win, const char* kind, const char* text,
         if (it != box->inputHandles.end()) c.handle = it->second;
     }
     return box->arena().Push(c);
+}
+
+/* 批5：路径绘制节点。与 gpui_shim_push 的差别在 background/strokeWidth 两个
+ * Component 字段（PaintMaterialPath 消费，materialize.cpp:705/769）——push 的
+ * 五槽 ABI 带不出来，这里在 Push **前**把 Component 填全（arena 的 Push 会
+ * CopyComponent 拷字符串，借用安全）。bgKind：0=Solid（color），1=LinearGradient
+ * （fromColor→toColor，angle）。命令（move_to/…）由桥按普通 method op 追加到
+ * 返回的 spec 上——PaintMaterialPath 逐个读 node->ops。 */
+uint32_t gpui_shim_push_path(void* win, const char* kind, const char* id,
+                             double stroke_width, int bg_kind, const char* color,
+                             const char* from_color, const char* to_color,
+                             double angle) {
+    auto* box = static_cast<Box2*>(win);
+    bool knownKind = true;
+    gpui::shell::Component c;
+    c.kind = kindFromString(kind, &knownKind);
+    if (!knownKind || (c.kind != gpui::shell::ComponentKind::PathFill &&
+                       c.kind != gpui::shell::ComponentKind::PathStroke)) {
+        box->lastError = std::string("gpui_shim_push_path: kind '") +
+                         (kind ? kind : "") + "' 不是路径绘制 kind";
+        return 0;
+    }
+    // Component 没有独立 id 字段——元素身份在 text（behavior.key，与
+    // gpui_shim_push 的五槽同规）。
+    if (id && *id) c.text = cppStr(id);
+    if (bg_kind == 1) {
+        c.background.kind = gpui::shell::BackgroundKind::LinearGradient;
+        if (from_color && *from_color) c.background.fromColor = cppStr(from_color);
+        if (to_color && *to_color) c.background.toColor = cppStr(to_color);
+        c.background.angle = (float)angle;
+    } else {
+        c.background.kind = gpui::shell::BackgroundKind::Solid;
+        if (color && *color) c.background.color = cppStr(color);
+    }
+    c.strokeWidth = (float)stroke_width;
+    return box->arena().Push(c);
+}
+
+/* 批5：窗口动作动词（TitleBar B 期的最小面）。zoom = AppToggleMaximize
+ * （window_common.cpp:2526 的双击通道同函数）。未知动作写 lastError。 */
+int gpui_shim_window_action(void* win, const char* action) {
+    auto* box = static_cast<Box2*>(win);
+    if (!box || !box->window || !action || !*action) return 0;
+    if (std::strcmp(action, "minimize") == 0) {
+        gpui::AppMinimize(box->window);
+        return 1;
+    }
+    if (std::strcmp(action, "zoom") == 0) {
+        gpui::AppToggleMaximize(box->window);
+        return 1;
+    }
+    if (std::strcmp(action, "close") == 0) {
+        gpui::AppClose(box->window);
+        return 1;
+    }
+    box->lastError = std::string("unknown window action '") + action + "'";
+    return 0;
 }
 
 int gpui_shim_spec_index_by_id(void* win, const char* id, unsigned* out_index) {

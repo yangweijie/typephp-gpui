@@ -56,6 +56,11 @@ El::popup() / El::radioGroup(array $children) / El::toggleGroup(array $children)
   （AccordionItem > AccordionHeader > AccordionTrigger，面板走 AccordionPanel），
   `$changeId` 给了就接 on_change（事件路由 `$changeId, change`）；`->open(true)` 强展
   一直是受控展开的回归锚。门：`php bin/gpui selftest catalog` 的 accordionChangeRoute。
+- `El::accordion($id, $items)`（2026-10-30 批3）：base kind **根**——本体是
+  Div+Id+Role(Group)（base/accordion.cpp:5-8），价值在把三段件合法挂树；shim
+  `kKindNames` 补 `{"accordion", K::Accordion}` 登记（不登记节点直接拒建）。
+  items 只收 accordionItem()（typed 校验）。详见 [Accordion catalog 版](#accordion-catalog-版)的
+  三张表达对照。
 - `El::otpInput($id, $length = 4)`：格数经桥内 otp_length op 传进 retained（上游
   CreateRetainedOtp 按任意 length 建）；读数 `App::otpLength($id)`。带样式那颗仍是
   `El::catalogOtpInput($id, $length)`。
@@ -159,7 +164,9 @@ El::catalog('Accordion', ['acc-1'])->child(El::catalog('AccordionItem', ['i1']))
 选中态改用 `->bold()` 表达。另外构造器里的 id 与 `->id()` 要一致：事件按元素 id 路由，
 只给构造器不给 `->id()` 的话点击会落到空 id 上（`El::catalogButton()` 把这两件事一起做了）。
 
-样式糖覆盖上游 137 个 nullary 关键字里的 72 个，且 `style()` / `paramStyle()` / `method()` /
+样式糖覆盖上游 137 个 nullary 关键字里的 **135** 个（2026-10-30 批1 把差集 63 颗补齐，
+剩 `h_flex`/`v_flex` 两颗走 `El::hFlex()`/`El::vFlex()` 的 kind 名——见下节），且
+`style()` / `paramStyle()` / `method()` /
 `callback()` 都是 private —— 没有“发一个没写糖的名字”的公开口子。
 `grid`、`self_*`、`whitespace_nowrap` 等已补齐的名字见下；其余缺口见[上游覆盖](./upstream-coverage)。
 
@@ -192,10 +199,146 @@ El::text('…')->textXs()->textSm()->textBase()->textLg()->textXl()->text2xl()->
 2. `text_*` 那七档与 `paramStyle('text_size', [px])`（即 `El::font(16.0)`）**互斥**，
    后调用者覆盖前一个；它们也是零参样式里唯一动到被追踪字段的（`transition()`/`spring()`
    只对这一族有字号可动画），细节见[上游覆盖](./upstream-coverage)。
-3. 这 47 个糖在**编出来的产物**里逐个调一遍的门住在 `php bin/gpui selftest style`
-   （`nullaryStyles — 发出=47/47 去重后=47`）。放这里是有意为之：nano 里调用一个没编进去的
+3. 这 47 个糖（连同批1 补的 63 颗，共 110 颗）在**编出来的产物**里逐个调一遍的门住在
+   `php bin/gpui selftest style`
+   （`nullaryStyles — 发出=110/110 去重后=110`）。放这里是有意为之：nano 里调用一个没编进去的
    方法是 SIGABRT 而不是异常，只有跑产物排得掉，而它一崩需要看见的是"崩在哪一个糖上"，
    不是那种只在末尾打印一次的总报告。
+
+### 补齐的样式关键字·第二批（批1，2026-10-30，63 颗）
+
+2026-10-13 那批之后差集实测还剩 65 颗：`h_flex`/`v_flex` 走 `El::hFlex()/vFlex()` 的
+kind 名不算洞，其余 63 颗一批补齐（72→135）。零参糖各一行、只发关键字本身，
+分组同 `src/Element.php`：
+
+```php
+// 网格线放置（grid 无模板列可发，形状交上游自动流）
+El::text('…')->colSpanFull()->rowSpanFull()->colStartAuto()->colEndAuto()
+    ->rowStartAuto()->rowEndAuto();
+// 弹性定值与分布（与带参 flexGrow($v)/flexShrink($v) 互斥，后调覆盖）
+El::text('…')->flexGrow0()->flexGrow1()->flexShrink0()->flexShrink1();
+El::div()->contentStart()->contentEnd()->contentNormal()->justifyEnd();
+// 交叉轴与字重补档
+El::text('…')->selfBaseline()->selfFlexStart()->selfFlexEnd();
+El::text('…')->fontExtrabold()->fontExtralight();
+// 文本面
+El::text('…')->textLeft()->textEllipsisMiddle()->textEllipsisStart()
+    ->whitespaceNormal()->notItalic();
+El::text('…')->overflowXHidden()->overflowYHidden();
+// 阴影四档补档
+El::div()->shadow2xs()->shadowXs()->shadowXl()->shadow2xl();
+// 文字装饰：粗细五档要有装饰线才见（配 underline()/lineThrough()）
+El::text('…')->underline()->textDecorationSolid()->textDecoration8();
+// 光标 18 颗（悬停才换形，静态快照不显形）
+El::text('…')->cursorAlias()->cursorGrabbing()->cursorWResize(); // …全表 18 颗
+// 调试族 7 颗：release 产物里是上游 no-op（DEBUG/NDEBUG 条件编译），op 照发
+El::text('…')->debugRed()->debugPink()->debug();
+```
+
+ kit 域树 1 折叠线下有每组一段的真调用样（`examples/_shared/features/kit.php`，
+"样式糖差集"各行），滚动条三态小样与像素对拍见下节。
+
+### 元素级浮层行为糖（批1，2026-10-30）
+
+四颗糖走 kind 节点的行为链 method op，给 `El::popover()` / `El::hoverCard()` /
+`El::dialog()` 等任意 kind 节点直接写行为：
+
+```php
+El::popover('t', $body)->defaultOpen(true)->overlayClosable(false);
+El::hoverCard('t', $body)->openDelayMs(120)->closeDelayMs(80);
+```
+
+- `default_open`：只在保留态**首帧播种**时读（materialize.cpp:2503-2508）；
+  不翻已开的保留态。
+- `overlay_closable`：点弹层外面是否收起（base/popover.cpp:174/237）。
+- `open_delay` / `close_delay`：毫秒，消费端只有 HoverCard
+  （base/hover_card.cpp:58、materialize.cpp:2633-2634）；0–60000 范围校验，
+  越界当场抛（上游 AsNumber 对负数/超大值静默收下，静默改值不如拒绝）。
+
+**通道分界**：registered catalog 节点（`catalogPopover` / `catalogHoverCard`）的
+同名配置走 descriptor 的 `registered_method` 表（工厂 ctor 实参已覆盖），
+这四颗是给 kind 节点用的，两条通道别混。
+
+### 高级滚动 op 糖（批1，2026-10-30）
+
+与已有的 `overflowYScroll()` / `overflowScroll()` 同族，每颗消费端不同：
+
+```php
+El::div()->overflowScrollbar()->scrollbarMode('always');
+El::div()->viewportFromLayout(true)->scrollSize(600.0, 400.0);
+El::uniformList('u', 10)->withItemToMeasureIndex(2);
+```
+
+- `overflow_scrollbar`：横竖都滚且**挂原生滚动条**（behavior.scrollbar=true 时
+  不再 HideScrollbar，materialize.cpp:2782-2786），是 `overflowScroll()` 的兄弟名。
+- `mode`：三档白名单 `hover` / `always` / `scrolling`；未知值上游静默落 Scrolling
+  （:385-388 无 else 拒绝），所以白名单当场拒。
+- `viewport_from_layout`：behavior 链只解析（:386-387 记 flag）**今天无人读取**；
+  真消费端是 catalog Scrollbar descriptor（构造要 PHP 造不出的 ScrollbarHandle）。
+  发 `false` 不发 op——上游见名就置 true、无视实参。
+- `scroll_size`：behavior 链解析（:388-390）后**全树无读取点**；descriptor 侧也
+  没有这个方法名。发得出去、上游不消费——留糖不删名，边界由注释钉住。
+- `with_item_to_measure_index`：只落 UniformList（:1180-1181 普通 list 明确 log
+  "ignored"、:1209-1210 取值）。
+
+kit 域 selftest 的 `scrollbarModePaintPair` 门断结构面（registeredError/componentFailure
+清零），regionRgb 像素对拍降为 advisory 读数——macOS 无头渲染自动隐藏原生滚动条，
+两盒右缘读数预期同色，"always 真的画出滚动条"需真人 HID 或 --shot 验收
+（见[测试与门禁](./testing)）。
+
+### 路径绘制：PathFill / PathStroke + 六命令（批5，2026-10-31）
+
+```php
+El::pathFill('tri', '#2f6fed')
+    ->moveTo(10, 90)->lineTo(50, 10)->lineTo(90, 90)->closePath()
+    ->w(100.0)->h(100.0);
+El::pathStroke('arc', 3.0, '#e05a2b')
+    ->moveTo(10, 80)->arcTo(40, 40, 0, false, true, 90, 80)
+    ->w(100.0)->h(100.0);
+El::pathFillGradient('g', '#ff0000', '#0000ff')->moveTo(…)->…;
+```
+
+- 命令六颗：`moveTo`（2 参）/`lineTo`（2）/`curveTo`（4，二次——上游折算成三次）/
+  `cubicBezierTo`（6）/`arcTo`（7：rx,ry,rot,large,sweep,x,y）/`closePath`（0），
+  与 runtime.cpp:8154-8177 的 JS 构件器 arity 逐字对齐。坐标 = bounds 原点 +
+  像素（字符串百分比按 extent 折算），**元素要有 w/h**（bounds 来源）。
+- background/strokeWidth 走专用 ABI `gpui_shim_push_path`（Push 前填全
+  Component.background/strokeWidth——push 的五槽带不出来）；桥在 emitTree 的
+  path 分支消费 `path_bg`/`path_bg_gradient`/`path_stroke_width` 三个元 op。
+- 像素证据：kit selftest 的 pathPaintGate（三角质心 regionRgb 取到 #2f6fed 精确值）。
+
+### 应用内键位 bindKeys（批5，2026-10-31）
+
+```php
+$app->bindKeys([
+    ['keystroke' => 'cmd-s', 'action' => 'kit::save'],
+]);
+$app->on('kit::save', 'action', fn () => …);   // 动作无人接时 enqueue 成 action 事件
+```
+
+三步照上游 NativeBindKeys（runtime.cpp:9568-9641）：KeyChordsParse 逐条解析 →
+ShellActionOf 塌成 ShellAction → KeymapBind 终局安装；**整表先验**（任何一条
+keystroke 不可解析，整表拒装并抛——上游注释"a keymap half applied … is a worse
+state"）。安装回执与表内查证（KeymapAnyBindingForAction）= bindKeysGate 硬断言；
+合成 cmd-key 的送达降为 advisory（NSApp 对无菜单行的 cmd 组合键在窗口派发前吞掉，
+native 键盘归真人 HID）。
+
+### 窗口选项与动作动词（批5，TitleBar B 期切片）
+
+```php
+$app->createWindow('无边框', 360, 220,
+    ['borderless' => true, 'clientTitleBar' => true]);
+$app->windowAction('zoom');      // minimize | zoom | close
+```
+
+- clientTitleBar 时顶部 34px（title_bar.h kTitleBarHeight）是 caption 带：双击
+  最大化走 window_common.cpp:2526 通道，macOS 系统红绿灯仍由 Cocoa 画在透明标题
+  栏上（gpui.h WinOpts 注释）——PHP 自拼标题条做视觉、控制键归系统/窗口动作。
+- `windowAction('close')` 后 isOpen=false 是 titlebarWindowGate 的硬证据。
+- **C 期立项（未落码）**：上游 component::TitleBar 不是 descriptor 导出也不是
+  ComponentKind（PHP spec 通道造不出）——需要 cmd/patch-title-bar.sh 给
+  title_bar.h 出 descriptor/kind + `kDialogMethods` 具名方法表复刻
+  （coverage.md:65-67 先例）+ `El::titleBar()` 工厂。卡点与路径见 coverage 页。
 
 ### 读屏与键盘：`role()` / `aria_*` / `tab_*`
 这一族全是 behavior op，**不改变像素**，只改变读屏软件和键盘轮询看到的树。
@@ -997,6 +1140,55 @@ on_toggle 方法表——同一组件的第二张脸，用法按需求选。**ti
 实测）——本工厂按**项数**建 item、不发 title，标题留到 shim Element 通道（tier B）；
 `accordionCatalogShape` 门钉住构造形状与 childOps 为空（无 title 的预期形状）。
 
+**kind 版根自批3 起也有了**（2026-10-30）：`El::accordion($id, $items)`——上游本体是
+Div+Id+Role(Group)（base/accordion.cpp:5-8，极薄），价值在把 accordionItem 三段件
+合法挂树；shim 的 `kKindNames` 本批补了 `{"accordion", K::Accordion}` 登记（不登记
+kindFromString 不认、节点直接拒建写 lastError——三段件三条先例在旁）。items 只收
+`accordionItem()`（typed 校验当场抛）。至此手风琴**三张表达**齐了：kind 三段件 +
+kind 根（aria 语义分组）、catalog 成品（multiple/bordered/size）。
+
+### Scroll 视口 + Scrollbar 条（批3，2026-10-30，共享 ScrollbarHandle）
+
+15 个上游 state kind 的最后一颗 `ScrollbarHandle` 在本批闭合（creator 无参，
+`NewHostState` 直通实测可用）：
+
+```php
+// Scroll 视口：children + 泛 style 合法，默认竖滚；Scrollbar 条：拒 children/泛
+// style（物化成绝对定位空 Div 覆在视口上），条本体由共享 handle 的视口侧画。
+El::vFlex([
+    El::catalogScroll('kit-sb', [$rows])->gap(4.0)->p(8.0)->w(220.0)->h(96.0),
+    El::catalogScrollbar('kit-sb', 'vertical', 'always'),   // 同 key = 共享 handle
+])->relative();
+```
+
+- **同一个 key 字符串就是"把手控制视口"的接缝**：`El::state('ScrollbarHandle', $key)`
+  按 (kind,key) 缓存，Scroll 与 Scrollbar 传同一个 `$key` 才共享一颗实体。
+- `scrollAxis()` 糖三值白名单 `vertical|horizontal|both`——方法名是 `scroll_axis`
+  不是 `axis`（运行时元素原型先拦 axis、`both` 到不了 registered 组件，上游特意改名）。
+- Scrollbar 的 `mode` 三档与 kind 面的 `scrollbarMode()` 同值不同通道
+  （registered_method vs behavior 链）。
+- 像素证据：kit selftest 的 `scrollbarHandleProbe` 门（实体 +探针 + 有条/无条盒
+  右缘 regionRgb 对拍——upstream ApplyBar 自绘路径，不受 macOS NSScroller 自动隐藏影响）。
+
+### transition / spring 动画糖（批3，2026-10-30）
+
+```php
+El::vFlex([El::text('')])
+    ->id('kit-anim-box')                      // 必须落 id：跨帧动画身份 = id op
+    ->w(240.0)
+    ->transition('width', 300.0);             // 或 spring('width', 250, 1, 0.001)
+```
+
+- 上游是 materialize 途中的**采样器**（MotionValue/SpringValue 每帧回写
+  element->style，存储在 WindowMotionState 跨帧持久），不是 CSS 动画。
+- **实际被采样的只有五项**：opacity/width/height/left/top（width 吃 `w`/`size`
+  样式 op、height 吃 `h`/`size`）——白名单 `MOTION_PROPERTIES` 当场拒集外名。
+- easing 三值白名单 `linear|ease-in|ease-in-out`（空串走上游默认）；
+  spring 的 response/damping/epsilon 默认 250/1/0.001。
+- kit selftest 的 `transitionInterpolation` 门做三臂断言：初始帧探针=背景、
+  翻宽后 2 帧仍=背景（排掉 specId 身份漂移导致的逐帧跳变）、泵到收敛=盒色——
+  早期臂与收敛臂合起来才是"插值可见"。
+
 ### catalog 四颗升级糖（Select/Combobox/Popover/TabBar）
 
 ```php
@@ -1019,14 +1211,59 @@ catalogButton/button() 双轨先例。四颗各自的实参形状：
   placeholder/search_placeholder/searchable/menu_width/disabled。
 - **Popover**：ctor 两实参（id/label），content 走具名槽（硬约束 require content(element)）；
   方法表 card_anchor（8 角 POPOVER_ANCHORS 白名单）/default_open/open/appearance/
-  overlay_closable 布尔 + on_open_change 回调。**catalogHoverCard 不进树**：其 materialize
-  硬要求 trigger_element（SchemaElement shim 缺口——发字符串实参 native 段错误，实测），
-  结构与 `catalogHoverCardShape` 门仍钉住（开延迟/锚点/on_open_change 形状）。
+  overlay_closable 布尔 + on_open_change 回调。**catalogHoverCard 自批2 起可进树**
+  （2026-10-30 订正：原句"不进树，trigger_element 是 shim 缺口"失真——批5 的
+  element_arg 桥已通用，工厂加 `?self $trigger` 第十一参，经
+  `->elementArg('trigger_element', …)` 喂入；上游对缺 trigger 是每帧 loud Fail
+  "HoverCard requires trigger_element(element)"（hover_card.cpp:79-82/145），是硬要求
+  不是静默缺口；kit 树 3 已有真 trigger 样例）。
 - **TabBar**：ctor 两实参（id + tabs）；children 只收注册侧 Tab（kind 版 `El::tab()` 不是
   注册节点，挂进去每帧报错）；方法表 menu/selected_index/variant（tab|outline|pill|
   segmented|underline 白名单）/size/on_change——菜单开关/选中下标/变体/尺寸/回调各走
   实例糖（构造签名里带 bool/int 默认值的参数一律收糖——TypePhp 翻译器在"混合默认值 +
   实参个数不完整"的签名形状上会生成默认值 re-assign 缺陷，示例直接翻译失败，实测）。
+
+### 裸通道三组专用工厂（批2，2026-10-30）
+
+coverage 页原"裸通道四组"里除 Accordion 根外的三组，本批从 descriptor 现读补齐形状
+（纯 PHP 层零桥零补丁）：
+
+```php
+// Command 命令面板三件套（command.cpp）：Group(label) 只收 Item；Item(label)
+// 方法 disabled/keyword/checked/action 走 ->rm()；Separator() 无参。
+// 根 catalogCommand 的 children 白名单同步收紧到三导出名。
+El::catalogCommand('kit-cmd', [
+    El::commandGroup('文件', [
+        El::commandItem('新建文件')->rm('action', ['kit-cmd-new'])->rm('keyword', ['new create']),
+    ]),
+    El::commandSeparator(),
+    El::commandItem('切换主题')->rm('checked', [true]),
+]);
+
+// NativeMenu 三件套（native_menu.cpp）：trigger 的 on_effect_error 是 materialize
+// **硬要求**（缺了每帧 Fail），错误回调 id 是必填第三参；children 只收
+// Item(label,action)/Separator。行选中派发 ShellAction → 'action' 事件
+// （事件 id = action 名），$app->on('kit-nm-copy', 'action', …) 收——真点选要真人。
+El::nativeMenuTrigger('kit-nm', '原生菜单', 'kit-nm-err', [
+    El::nativeMenuItem('复制路径', 'kit-nm-copy'),
+    El::nativeMenuSeparator(),
+]);
+
+// Resizable catalog 第二张脸（layout/resizable.cpp）：与 kind 面 hResizable()/
+// vResizable() 同组件两套孩子形态——catalog 版 ctor id、children 只收
+// catalogResizablePanel、布局状态上游 keyed state 内部持有（PHP 不喂 ResizableState）。
+El::catalogResizable('kit-rz', [
+    El::catalogResizablePanel(El::text('甲'))->panelSize(180.0)->panelSizeRange(120.0, 320.0),
+    El::catalogResizablePanel(El::text('乙'))->panelVisible(true),
+])->axis('horizontal')->crossSize(96.0);
+```
+
+- `axis()` 两值白名单 `horizontal|vertical`（上游对未知值 loud Fail）；`crossSize`/
+  `panelSize`/`panelSizeRange` 前置上游 FinitePositive 与 min≤max 校验，越界当场抛。
+- panel 的 `size`/`visible` 与 kind 面同名糖撞名（:size 枚举糖、:visible nullary
+  样式），按 catalogButton 别名惯例出 `panelSize`/`panelSizeRange`/`panelVisible`。
+- Resizable 拖拽把手要真人 HID（patch-resize-handle.sh 既有探针口径）——静态基线
+  只钉面板树建出与糖发名。
 
 - **MenuBar**：已由宿主应用身份与 app-effect trampoline 接通；子节点必须遵守 Menu/Item 契约，不能用缺 Root 作为不可用理由。
 - **Dock**：默认原生 chrome、面板与布局读写已接通；PHP 自定义 chrome 和真人拖拽验收尚未提供。

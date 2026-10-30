@@ -659,4 +659,28 @@ int gpui_mac_send_key(unsigned short keycode, const char* chars) {
 
 }  // extern "C"
 
+/* 批5：带修饰键的合成按键（keymap 和弦匹配读 modifierFlags——基础版硬编码 0）。 */
+int gpui_mac_send_key_flags(unsigned short keycode, const char* chars,
+                            unsigned long flags) {
+    NSWindow* w = GpuiWindow();
+    if (!w) return 0;
+    MakeKey(w);
+    NSString* s = @(chars ? chars : "");
+    for (int i = 0; i < 2; i++) {
+        NSEventType t = i == 0 ? NSEventTypeKeyDown : NSEventTypeKeyUp;
+        NSEvent* e = [NSEvent keyEventWithType:t location:NSMakePoint(0, 0)
+                                 modifierFlags:flags
+                                     timestamp:[NSProcessInfo processInfo].systemUptime
+                                  windowNumber:w.windowNumber
+                                       context:nil
+                                    characters:s
+                  charactersIgnoringModifiers:s
+                                     isARepeat:NO
+                                       keyCode:keycode];
+        if (!e) return 0;
+        Deliver(w, e);
+    }
+    return 1;
+}
+
 #endif  // __APPLE__

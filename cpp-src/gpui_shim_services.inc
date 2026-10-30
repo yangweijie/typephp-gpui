@@ -427,10 +427,99 @@ int gpui_shim_real_key(void* win, int keycode, const char* chars) {
     return box->queue.size() > before ? 1 : 0;
 }
 
+/* 批5：带修饰键的合成按键（keymap 和弦匹配读 NSEvent 的 modifierFlags——
+ * gpui_mac_send_key 的 modifierFlags 硬编码 0，cmd-s 之类永远对不上）。
+ * flags = NSEventModifierFlag 位或（Command=1<<20、Option=1<<19、
+ * Control=1<<18、Shift=1<<17）。 */
+int gpui_shim_real_key_flags(void* win, int keycode, const char* chars,
+                             unsigned long flags) {
+    auto* box = static_cast<Box2*>(win);
+    if (!box) return 0;
+    const size_t before = box->queue.size();
+    if (!gpui_mac_send_key_flags((unsigned short) keycode, chars ? chars : "",
+                                 flags))
+        return 0;
+    return box->queue.size() > before ? 1 : 0;
+}
+
+/* 批5：应用内键位表（cx.bind_keys 的宿主路）。三步照 NativeBindKeys
+ * （runtime.cpp:9568-9641）抄：KeyChordsParse 逐条解析（0 命中 = 规格不可读，
+ * 整表先验、响亮失败写 lastError——上游注释原话"a keymap half applied … is a
+ * worse state"）→ ShellActionOf 塌成 ShellAction → KeymapBind 终局安装。
+ * 派发到窗口无人接的动作由 gpuiAppActionHandler enqueue 成 'action' 事件
+ * （cpp-src/gpui_shim.cpp:293-302，菜单先例），PHP $app->on(action,'action') 即收。 */
+/* 批5诊断：动作是否有键位绑定（KeymapAnyBindingForAction）。 */
+int gpui_shim_keymap_has(const char* action) {
+    if (!action || !*action) return 0;
+    uint32_t a = gpui::shell::ShellActionOf(gpui::Str(action));
+    gpui::KeyChord out = {};
+    return gpui::KeymapAnyBindingForAction(a, &out) ? 1 : 0;
+}
+
+int gpui_shim_bind_keys(void* win, const char** strokes, const char** actions,
+                        const char** contexts, int n) {
+    auto* box = static_cast<Box2*>(win);
+    if (!box || n < 0) return 0;
+    if (n > 4096) {
+        box->lastError = "bind_keys: too many bindings (max 4096)";
+        return 0;
+    }
+    if (n == 0) return 0;
+    gpui::Arena* arena = gpui::ArenaNew();
+    std::vector<gpui::KeyBinding> parsed;
+    parsed.reserve((size_t)n);
+    for (int i = 0; i < n; i++) {
+        const char* stroke = strokes[i] ? strokes[i] : "";
+        const char* action = actions[i] ? actions[i] : "";
+        const char* context = contexts[i] ? contexts[i] : nullptr;
+        if (!*stroke || !*action) {
+            box->lastError = "bind_keys: binding " + std::to_string(i) +
+                             " needs a keystroke and a non-empty action";
+            gpui::ArenaDelete(arena);
+            return 0;
+        }
+        gpui::KeyChord chords[gpui::kMaxStrokes] = {};
+        if (gpui::KeyChordsParse(gpui::Str(stroke), chords, gpui::kMaxStrokes) == 0) {
+            box->lastError = "bind_keys: binding " + std::to_string(i) +
+                             " has an unparsable keystroke `" + stroke + "`";
+            gpui::ArenaDelete(arena);
+            return 0;
+        }
+        gpui::KeyBinding binding = {};
+        binding.stroke = gpui::shell::ShellActionInternText(gpui::Str(stroke));
+        binding.action = gpui::shell::ShellActionOf(gpui::Str(action));
+        if (context && *context)
+            binding.context = gpui::shell::ShellActionInternText(gpui::Str(context));
+        parsed.push_back(binding);
+    }
+    if (!parsed.empty()) gpui::KeymapBind(&parsed[0], (int)parsed.size());
+    int installed = (int)parsed.size();
+    gpui::ArenaDelete(arena);
+    return installed;
+}
+
 uint64_t gpui_shim_callback(void* win, uint32_t spec, const char* elem_id,
                             const char* type) {
     auto* box = static_cast<Box2*>(win);
     uint64_t cb = box->newCallback(elem_id, type);
+    // 批4：token/link 族的**元素 op 回调**也要 runtime 侧表项——它们的派发点在
+    // base 组件经 runtime 的 InlineTokenCallbacks / DispatchClick（DispatchArgs 的
+    // shimId 早返回），runtime 回调表里没有条目就静默丢（Get 返回空）。其余通道
+    // （click/hover/key）走 shim 自己的事件缝，维持 boxCb 不变，零回归。
+    uint64_t cbId = cb;
+    if (g_runtime && box->viewEntity.IsValid() && type) {
+        // 注意：这里的 type 是 **队列短名**（bridge 的 eventType 已剥 on_ 前缀——
+        // 长名比较永不命中，2026-10-31 首轮实测 fire 全 false 的根因）。
+        const bool runtimeDispatched =
+            std::strcmp(type, "token_click") == 0
+            || std::strcmp(type, "token_hover") == 0
+            || std::strcmp(type, "token") == 0
+            || std::strcmp(type, "link_click") == 0;
+        if (runtimeDispatched) {
+            uint64_t rt = g_runtime->PushShimCallback(box->viewEntity, cb);
+            if (rt) cbId = rt;
+        }
+    }
     gpui::shell::SpecOp so;
     so.kind = gpui::shell::SpecOpKind::Callback;
     // 两个名字必须分开：队列里的 type 用**短名**（"click"）对齐 PHP 的 on(id,'click')，
@@ -442,11 +531,21 @@ uint64_t gpui_shim_callback(void* win, uint32_t spec, const char* elem_id,
     // 同样用复用缓冲：原来 `std::string opName(type)` + `"on_" + opName` 每次再多两次分配。
     std::string& opName = box->scratchOpName;
     opName.assign(type ? type : "");
-    if (opName.rfind("on_", 0) != 0) opName.insert(0, "on_");
+    // 'token' 是唯一的无 on_ 前缀上游 op（materialize.cpp:261 逐字比 "token"）——
+    // 重前缀会把它变成 "on_token"，behavior.onToken 永不设置（批4 首轮实测：
+    // 渲染回调静默不触发）。其余短名照旧补 on_。
+    if (opName != "token" && opName.rfind("on_", 0) != 0) opName.insert(0, "on_");
     so.name = cppStr(opName.c_str());
-    so.callback = cb;
+    so.callback = cbId;
+    // fire_registered 的查表键与 newCallback 同构（elemId\x1ftype）；token/link 族
+    // 在这里补登记（数据回路的 gpui_shim_new_callback 自带）。
+    if (cbId != cb) {
+        std::string key = std::string(elem_id ? elem_id : "") + "\x1f" +
+                          (type ? type : "");
+        box->shimCallbacks[key] = cbId;
+    }
     box->arena().PushOp(spec, so);
-    return cb;
+    return cbId;
 }
 
 void gpui_shim_attach(void* win, uint32_t parent, uint32_t child) {

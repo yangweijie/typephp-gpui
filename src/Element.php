@@ -400,6 +400,89 @@ class Element
 
     // ── 低复杂度 / Slot 消费组件 ──
 
+    // ── 批5：路径绘制（PathFill/PathStroke + 六命令；materialize.cpp:702-772
+    // PaintMaterialPath 逐个消费 node->ops，kind 分支 :2431 挂 customPaint）──
+    // background/strokeWidth 走专用 push ABI（gpui_shim_push_path，桥在 emitTree
+    // 的 path 分支消费 path_bg/path_bg_gradient/path_stroke_width 三个元 op），
+    // 命令（moveTo/…）是普通 method op——上游在 paint 期逐个读。坐标按 bounds
+    // 解析（PathPoint 相对 bounds 归一或像素，见 runtime.cpp:8154 的 JS 构件器），
+    // 元素要有 w/h（bounds 的来源）。
+
+    /** 实心填充路径。$color 走 BridgedAsColor（#rgb/#rrggbb/主题 token）。 */
+    public static function pathFill(string $id, string $color): self
+    {
+        $e = new self();
+        $e->kind = 'path_fill';
+        $e->id = $id;
+        $e->ops[] = ['kind' => 'method', 'name' => 'path_bg', 'args' => [$color]];
+        return $e;
+    }
+
+    /** 线性渐变填充路径（fromPosition/toPosition 固定 0/1，angle 度）。 */
+    public static function pathFillGradient(string $id, string $fromColor,
+        string $toColor, float $angle = 0.0): self
+    {
+        $e = new self();
+        $e->kind = 'path_fill';
+        $e->id = $id;
+        $e->ops[] = ['kind' => 'method', 'name' => 'path_bg_gradient',
+            'args' => [$fromColor, $toColor, $angle]];
+        return $e;
+    }
+
+    /** 描边路径（$width = strokeWidth 像素；颜色走 background.color）。 */
+    public static function pathStroke(string $id, float $width, string $color): self
+    {
+        $e = new self();
+        $e->kind = 'path_stroke';
+        $e->id = $id;
+        $e->ops[] = ['kind' => 'method', 'name' => 'path_stroke_width',
+            'args' => [$width]];
+        $e->ops[] = ['kind' => 'method', 'name' => 'path_bg', 'args' => [$color]];
+        return $e;
+    }
+
+    /** 移动画笔（2 参）。 */
+    public function moveTo(float $x, float $y): self
+    {
+        return $this->method('move_to', [$x, $y]);
+    }
+
+    /** 直线到（2 参）。 */
+    public function lineTo(float $x, float $y): self
+    {
+        return $this->method('line_to', [$x, $y]);
+    }
+
+    /** 二次曲线（4 参：control.x/y, to.x/y——上游折算成三次贝塞尔）。 */
+    public function curveTo(float $controlX, float $controlY, float $x,
+        float $y): self
+    {
+        return $this->method('curve_to', [$controlX, $controlY, $x, $y]);
+    }
+
+    /** 三次贝塞尔（6 参：a.x/a.y/b.x/b.y/to.x/to.y）。 */
+    public function cubicBezierTo(float $aX, float $aY, float $bX, float $bY,
+        float $x, float $y): self
+    {
+        return $this->method('cubic_bezier_to',
+            [$aX, $aY, $bX, $bY, $x, $y]);
+    }
+
+    /** 椭圆弧（7 参：rx, ry, rotation, largeArc, sweep, to.x, to.y）。 */
+    public function arcTo(float $rx, float $ry, float $rotation,
+        bool $largeArc, bool $sweep, float $x, float $y): self
+    {
+        return $this->method('arc_to',
+            [$rx, $ry, $rotation, $largeArc, $sweep, $x, $y]);
+    }
+
+    /** 闭合子路径（0 参）。 */
+    public function closePath(): self
+    {
+        return $this->method('close', []);
+    }
+
     public static function svg(string $path): self
     {
         if ($path === '' || \substr($path, -4) !== '.svg') {
@@ -512,6 +595,36 @@ class Element
         $pane->children[] = $panel;
         $e->slot('header', $hdr);
         $e->slot('panel', $pane);
+        return $e;
+    }
+
+    /**
+     * 手风琴**根**（base kind 版，2026-10-30 批3）：上游本体就是一颗
+     * Div+Id+Role(Group)（base/accordion.cpp:5-8，极薄）——价值不在自身画什么，
+     * 而在把 accordionItem() 三段件合法挂树（materialize.cpp:1831 的 kind 分支）。
+     * 与 catalog 版 `catalogAccordion()`（typed_compound/mod.cpp，带 multiple/
+     * bordered/size 方法表）是同组件两张脸：kind 版是 aria 语义分组 + 三段件组合，
+     * catalog 版是注册侧带样式的成品。
+     *
+     * shim 侧配套：kKindNames 的 {"accordion", K::Accordion} 登记名（2026-10-30 批3
+     * 加——三段件 header/trigger/panel 三条先例在旁；不登记 kindFromString 不认、
+     * gpui_shim_push 拒建节点写 lastError）。
+     */
+    public static function accordion(string $id, array $items = []): self
+    {
+        $e = new self();
+        $e->kind = 'accordion';
+        $e->id($id);
+        foreach ($items as $item) {
+            // items 必须是本文件的 accordionItem()（kind 'accordion_item'）——
+            // 三段件的 header/panel 槽契约只对它成立。
+            if (!$item instanceof self || $item->kind !== 'accordion_item') {
+                throw new \InvalidArgumentException(
+                    'Element::accordion(): items 只收 accordionItem()（三段件契约），收到 '
+                    . ($item instanceof self ? $item->kind : get_debug_type($item)));
+            }
+            $e->child($item);
+        }
         return $e;
     }
 
@@ -701,12 +814,13 @@ class Element
     }
 
     /**
-     * 通用 catalog 工厂：上游 component_shell 的 137 个导出名里，77 颗有专用工厂
+     * 通用 catalog 工厂：上游 component_shell 的 137 个导出名里，85 颗有专用工厂
      * （tier-A 批 27 + 「纯工厂热身」批 5 + 批2 六颗 Label/Toolbar/StatusBar/
      * Clipboard/HorizontalRadioGroup + 批3 七颗 Notification/DropdownButton/Bubble/
-     * Marker/Message/MessageScroller/Attachment + 图表五连，加上更早的
+     * Marker/Message/MessageScroller/Attachment + 图表五连 + 批2（2026-10-30）三组
+     * 八颗 Command 三件/NativeMenu 三件/Resizable 两件，加上更早的
      * sidebar/menu/form/输入族），
-     * 这条是其余那些的门（Accordion、TabBar、InputGroup 组合件…；SplitButton 是
+     * 这条是其余那些的门（Accordion 根、InputGroup 组合件…；SplitButton 是
      * 组合糖，非导出名）。
      *
      * 导出名写错 PHP 侧**不会**报（nano 里没有上游 descriptor 表）：它走
@@ -958,6 +1072,95 @@ class Element
     public function overflowYScroll(): self { return $this->method('overflow_y_scroll', []); }
     public function overflowXScroll(): self { return $this->method('overflow_x_scroll', []); }
     public function overflowScroll(): self { return $this->method('overflow_scroll', []); }
+
+    /** overflow_scrollbar 的三档可见策略（materialize.cpp:379-389：hover/always，
+     *  其余一律静默落 Scrolling——所以这里白名单当场拒，不留静默改值）。 */
+    public const SCROLLBAR_MODES = ['hover', 'always', 'scrolling'];
+
+    // ── 高级滚动 op 糖（2026-10-30 批1）──
+    //
+    // 与上面三颗 overflow_*_scroll 同族，但每颗的消费端不同，边界如实记：
+    //
+    // - overflowScrollbar()：overflow_scrollbar（materialize.cpp:373-375）= 横竖都滚
+    //   且**挂原生滚动条**（behavior.scrollbar=true 时不再 HideScrollbar，:2782-2786），
+    //   是已发 overflowScroll() 的兄弟名。任何可滚元素都消费。
+    // - scrollbarMode()：mode（:377-389）→ element->ScrollMode(...)（:2803-2804），
+    //   消费端在溢出滚动装配段——配 overflow*Scroll/overflowScrollbar 用。
+    // - viewportFromLayout()：behavior 链只解析（:386-387 记 flag）**今天无人读取**；
+    //   真消费端是 catalog Scroll/Scrollbar descriptor 的同名方法（scroll.cpp:285，
+    //   走 registered_method 通道），而 Scrollbar 的构造实参要 ScrollbarHandle 实体
+    //   ——PHP 造不出（state 缺口同 track_focus）。糖照发，别指望它在普通 div 上有效果。
+    // - scrollSize()：behavior 链解析（:388-390）后**全树无读取点**；descriptor 侧
+    //   也没有这个方法名。发得出去、上游不消费——留糖不删名，边界由本注释钉住。
+    // - withItemToMeasureIndex()：只落 UniformList（:1180-1181 明确 log "ignored on a
+    //   list"、:1209-1210 取值）——普通 list 测每行，吃不下这个提示。
+    public function overflowScrollbar(): self { return $this->method('overflow_scrollbar', []); }
+    public function scrollbarMode(string $m): self
+    {
+        self::enumCheck('scrollbarMode', $m, self::SCROLLBAR_MODES);
+        return $this->method('mode', [$m]);
+    }
+    public function viewportFromLayout(bool $v): self
+    {
+        // 上游无视实参值、见名就置 true（:386-387）——发 false 等于没发，这里不发，
+        // 免得 ->viewportFromLayout(false) 反而把它打开。
+        return $v ? $this->method('viewport_from_layout', [true]) : $this;
+    }
+    public function scrollSize(float $w, float $h): self
+    {
+        return $this->method('scroll_size', [$w, $h]);
+    }
+    public function withItemToMeasureIndex(int $i): self
+    {
+        return $this->method('with_item_to_measure_index', [$i]);
+    }
+
+    // ── 动画糖（2026-10-30 批3）：transition / spring ──
+    //
+    // 上游是 materialize 途中的采样器（materialize.cpp:897-940 ApplyMotions：
+    // MotionValue/SpringValue 每帧回写 element->style），不是 CSS 动画。op 形状
+    // transition=[property,duration,delay,easing]、spring=[property,response,
+    // damping,epsilon]（:910-928）。**实际被采样的只有五个属性**（:900 properties
+    // 数组 opacity/width/height/left/top；width 吃 w/size 样式 op、height 吃 h/size
+    // ——:903-914 MotionTarget），StyleFieldsOf 的字段掩码只是"可动画性"信息、
+    // 不进采样。动画的跨帧身份 = 元素 id op（:327-329 behavior.key → :828
+    // MotionIdentity 首选），所以**要动画的元素必须 ->id(...)**，否则身份落到
+    // specId（重渲染可能变、动画退化为逐帧跳变）。
+
+    /** 可动画属性白名单 = ApplyMotions 实际采样的五项（materialize.cpp:900）。 */
+    public const MOTION_PROPERTIES = ['opacity', 'width', 'height', 'left', 'top'];
+
+    /** 缓动白名单（:920-926 逐字；空串 = 上游默认 easing）。 */
+    public const MOTION_EASINGS = ['linear', 'ease-in', 'ease-in-out'];
+
+    /** 时长过渡：property 动到目标值（同节点的 w/h/opacity/left/top 样式 op）时，
+     *  经 $ms 毫秒插值（$delayMs 毫秒后才开始）。easing 三值白名单，空串走默认。 */
+    public function transition(string $property, float $ms, float $delayMs = 0,
+        string $easing = ''): self
+    {
+        self::enumCheck('transition', $property, self::MOTION_PROPERTIES);
+        if ($easing !== '') {
+            self::enumCheck('transitionEasing', $easing, self::MOTION_EASINGS);
+        }
+        if (!(\is_finite($ms) && $ms >= 0.0)) {
+            throw new \InvalidArgumentException(
+                'Element::transition(): duration 要非负毫秒，收到 ' . $ms);
+        }
+        return $this->method('transition', [$property, $ms, $delayMs, $easing]);
+    }
+
+    /** 弹簧过渡：response 毫秒（上游默认 250）、damping（默认 1）、epsilon 收敛
+     *  阈值（默认 0.001）。property 白名单同 transition。 */
+    public function spring(string $property, float $response = 250.0,
+        float $damping = 1.0, float $epsilon = 0.001): self
+    {
+        self::enumCheck('spring', $property, self::MOTION_PROPERTIES);
+        if (!(\is_finite($response) && $response > 0.0)) {
+            throw new \InvalidArgumentException(
+                'Element::spring(): response 要正毫秒，收到 ' . $response);
+        }
+        return $this->method('spring', [$property, $response, $damping, $epsilon]);
+    }
     public function roundedMd(): self { return $this->paramStyle('rounded', [6.0]); }
     public function roundedLg(): self { return $this->paramStyle('rounded', [8.0]); }
     public function roundedFull(): self { return $this->paramStyle('rounded', [9999.0]); }
@@ -1041,6 +1244,105 @@ class Element
     public function text2xl(): self { return $this->style('text_2xl'); }
     public function text3xl(): self { return $this->style('text_3xl'); }
 
+    // ── 补齐的样式关键字·第二批（2026-10-30，批1 差集全量 63 颗）──
+    //
+    // 2026-10-13 那批之后 kKeywords 差集还剩 65 颗：其中 h_flex/v_flex 两颗的
+    // 正路是 El::hFlex()/El::vFlex() 的 kind 名（不是 nullary style），不算洞；
+    // 其余 63 颗在本批一颗不落全量补齐（72→135，上游 137——由
+    // `php cmd/check-upstream-parity.php` 的 2c 段现算钉住）。命名沿旧例：
+    // 数字直缀（shadow2xs/textDecoration0），写法只发关键字本身、不做组合糖。
+
+    // 网格线放置：*_auto 把该边线的显式放置清掉（回到自动流）；
+    // *_span_full 让项目横/纵跨满全部网格线（style.cpp:1076-1090）。
+    public function colStartAuto(): self { return $this->style('col_start_auto'); }
+    public function colEndAuto(): self { return $this->style('col_end_auto'); }
+    public function colSpanFull(): self { return $this->style('col_span_full'); }
+    public function rowStartAuto(): self { return $this->style('row_start_auto'); }
+    public function rowEndAuto(): self { return $this->style('row_end_auto'); }
+    public function rowSpanFull(): self { return $this->style('row_span_full'); }
+
+    // 弹性定值：flex_grow/shrink 的 0/1 关键字形（与带参的 flexGrow($v)/flexShrink($v) 互斥，
+    // 后调用者按上游 fold 顺序覆盖）。
+    public function flexGrow0(): self { return $this->style('flex_grow_0'); }
+    public function flexGrow1(): self { return $this->style('flex_grow_1'); }
+    public function flexShrink0(): self { return $this->style('flex_shrink_0'); }
+    public function flexShrink1(): self { return $this->style('flex_shrink_1'); }
+
+    // 多行分布的补档（content_* 是"多行之间"，别和 justify_* 混——旧批注释同款纪律）。
+    public function contentStart(): self { return $this->style('content_start'); }
+    public function contentEnd(): self { return $this->style('content_end'); }
+    public function contentNormal(): self { return $this->style('content_normal'); }
+    public function justifyEnd(): self { return $this->style('justify_end'); }
+
+    // 交叉轴：self_* 管子元素自己；self_flex_* 是 flex 语境的起止两档。
+    public function selfBaseline(): self { return $this->style('self_baseline'); }
+    public function selfFlexStart(): self { return $this->style('self_flex_start'); }
+    public function selfFlexEnd(): self { return $this->style('self_flex_end'); }
+
+    // 字重补档（font_bold/semibold 在旧糖区，th..black 在 2026-10-13 批）。
+    public function fontExtrabold(): self { return $this->style('font_extrabold'); }
+    public function fontExtralight(): self { return $this->style('font_extralight'); }
+
+    // 文本：左对齐补档（textCenter/textRight 早就有）+ 省略号的另两个落点。
+    public function textLeft(): self { return $this->style('text_left'); }
+    public function textEllipsisMiddle(): self { return $this->style('text_ellipsis_middle'); }
+    public function textEllipsisStart(): self { return $this->style('text_ellipsis_start'); }
+    public function whitespaceNormal(): self { return $this->style('whitespace_normal'); }
+    public function notItalic(): self { return $this->style('not_italic'); }
+
+    // 轴向隐藏（overflow_hidden 的 x/y 分轴形）。
+    public function overflowXHidden(): self { return $this->style('overflow_x_hidden'); }
+    public function overflowYHidden(): self { return $this->style('overflow_y_hidden'); }
+
+    // 阴影四档补档（none/sm/md/lg 在旧糖区）。
+    public function shadow2xs(): self { return $this->style('shadow_2xs'); }
+    public function shadowXs(): self { return $this->style('shadow_xs'); }
+    public function shadowXl(): self { return $this->style('shadow_xl'); }
+    public function shadow2xl(): self { return $this->style('shadow_2xl'); }
+
+    // 文字装饰：样式三档（none/solid/wavy）+ 粗细五档（0/1/2/4/8，
+    // style.cpp:1231-1255——粗细要有装饰线才看得见，配 underline()/lineThrough() 用）。
+    public function textDecorationNone(): self { return $this->style('text_decoration_none'); }
+    public function textDecorationSolid(): self { return $this->style('text_decoration_solid'); }
+    public function textDecorationWavy(): self { return $this->style('text_decoration_wavy'); }
+    public function textDecoration0(): self { return $this->style('text_decoration_0'); }
+    public function textDecoration1(): self { return $this->style('text_decoration_1'); }
+    public function textDecoration2(): self { return $this->style('text_decoration_2'); }
+    public function textDecoration4(): self { return $this->style('text_decoration_4'); }
+    public function textDecoration8(): self { return $this->style('text_decoration_8'); }
+
+    // 光标 18 颗补档（pointer/text/move/not_allowed/grab 在旧糖区）。静态快照里
+    // 全都不显形——它们改的是悬停时光标长什么样；示例里的"光标图例"就是为
+    // 这族摆的真用法（门 12 每颗都要有真调用）。
+    public function cursorAlias(): self { return $this->style('cursor_alias'); }
+    public function cursorColResize(): self { return $this->style('cursor_col_resize'); }
+    public function cursorContextMenu(): self { return $this->style('cursor_context_menu'); }
+    public function cursorCopy(): self { return $this->style('cursor_copy'); }
+    public function cursorCrosshair(): self { return $this->style('cursor_crosshair'); }
+    public function cursorDefault(): self { return $this->style('cursor_default'); }
+    public function cursorEResize(): self { return $this->style('cursor_e_resize'); }
+    public function cursorEwResize(): self { return $this->style('cursor_ew_resize'); }
+    public function cursorGrabbing(): self { return $this->style('cursor_grabbing'); }
+    public function cursorNResize(): self { return $this->style('cursor_n_resize'); }
+    public function cursorNeswResize(): self { return $this->style('cursor_nesw_resize'); }
+    public function cursorNoDrop(): self { return $this->style('cursor_no_drop'); }
+    public function cursorNsResize(): self { return $this->style('cursor_ns_resize'); }
+    public function cursorNwseResize(): self { return $this->style('cursor_nwse_resize'); }
+    public function cursorRowResize(): self { return $this->style('cursor_row_resize'); }
+    public function cursorSResize(): self { return $this->style('cursor_s_resize'); }
+    public function cursorVerticalText(): self { return $this->style('cursor_vertical_text'); }
+    public function cursorWResize(): self { return $this->style('cursor_w_resize'); }
+
+    // 调试族 7 颗（style.cpp:1269-1275）：debug/debug_below 是 ShellDebug 开关
+    // （实参写死 false/true——"只开本层"与"连下面一起"），其余五颗是各色彩描边。
+    public function debug(): self { return $this->style('debug'); }
+    public function debugBelow(): self { return $this->style('debug_below'); }
+    public function debugRed(): self { return $this->style('debug_red'); }
+    public function debugBlue(): self { return $this->style('debug_blue'); }
+    public function debugYellow(): self { return $this->style('debug_yellow'); }
+    public function debugGreen(): self { return $this->style('debug_green'); }
+    public function debugPink(): self { return $this->style('debug_pink'); }
+
     // ── 参数化样式（带值）──
 
     public function w(float|string $v): self { return $this->paramStyle('w', [$v]); }
@@ -1094,6 +1396,53 @@ class Element
     public function open(bool $v = true): self
     {
         return $this->method('open', [$v]);
+    }
+
+    // ── 元素级浮层行为糖（2026-10-30 批1）──
+    //
+    // 四颗都走行为链 method op，消费端在 kind 节点的物化分支：
+    //   - default_open：只在一颗弹层的保留态**首次播种**时读（materialize.cpp:2503-2508
+    //     `held->open = behavior.defaultOpen`）；ui/popover.cpp:308 同值。
+    //   - overlay_closable：点弹层外是否收起（base/popover.cpp:174/237）。
+    //   - open_delay/close_delay：毫秒，消费端只有 HoverCard（base/hover_card.cpp:58、
+    //     materialize.cpp:2633-2634 HoverCardSetDelays；上游默认 600/300）。
+    // 通道分界：**registered catalog 节点**（catalogPopover/catalogHoverCard）的同名
+    // 配置走 descriptor 的 registered_method 表（EachMethod 只认 RegisteredMethod op，
+    // support.h:152-159），工厂 ctor 实参已覆盖——这四颗是给 kind 节点
+    // （El::popover()/El::hoverCard() 等）在任意树上直接写行为用的，两条通道别混。
+    // 毫秒范围校验抄 catalogHoverCard（0–60000，超出当场抛——上游 AsNumber 对
+    // 负数/超大值静默收下，静默改值不如拒绝）。
+
+    /** 弹层初始是否开着（kind Popover/Dialog 等；只影响首帧播种，不翻已开的保留态）。 */
+    public function defaultOpen(bool $v): self
+    {
+        return $this->method('default_open', [$v]);
+    }
+
+    /** 点弹层外面是否把它关掉（上游默认 true；关掉 = 必须走触发器/确认钮收起）。 */
+    public function overlayClosable(bool $v): self
+    {
+        return $this->method('overlay_closable', [$v]);
+    }
+
+    /** 悬停到出现的延迟毫秒（0–60000；消费端 HoverCard）。 */
+    public function openDelayMs(int $ms): self
+    {
+        if (!(\is_finite((float) $ms) && $ms >= 0 && $ms <= 60000)) {
+            throw new \InvalidArgumentException(
+                'Element::openDelayMs(): open_delay 要 0 到 60000 毫秒，收到 ' . $ms);
+        }
+        return $this->method('open_delay', [$ms]);
+    }
+
+    /** 悬停离开到收起的延迟毫秒（0–60000；消费端 HoverCard）。 */
+    public function closeDelayMs(int $ms): self
+    {
+        if (!(\is_finite((float) $ms) && $ms >= 0 && $ms <= 60000)) {
+            throw new \InvalidArgumentException(
+                'Element::closeDelayMs(): close_delay 要 0 到 60000 毫秒，收到 ' . $ms);
+        }
+        return $this->method('close_delay', [$ms]);
     }
 
     public function selected(bool $v = true): self
@@ -1343,6 +1692,14 @@ class Element
     public function onTokenClick(): self { return $this->callback('on_token_click'); }
     /** TokenInput 的某个 token 被悬停。 */
     public function onTokenHover(): self { return $this->callback('on_token_hover'); }
+    /**
+     * 'token' 渲染回调：token chip 由宿主渲染（patch-token-render.sh，2026-10-31
+     * 批4——此前 shim 回调 entry->function 为空，JS_Call 必败、回落 token label
+     * chip）。处理器 fn(): El|null（App::on($id,'token',…)），null/缺席回落 label
+     * chip。事件两颗（onTokenClick/onTokenHover）经 Dispatch→DispatchArgs 的
+     * shimId 早返回自动入队，PHP 侧零改动。
+     */
+    public function tokenRenderer(): self { return $this->callback('token'); }
 
     /** 命名槽：把 child 作为本元素的具名 slot（Popover trigger/content、Avatar image/fallback…）。 */
     public function slot(string $name, self $child): self
@@ -1493,7 +1850,275 @@ class Element
      */
     public static function catalogCommand(string $id, array $children = []): self
     {
+        // children 契约 PHP 侧也拦一道（上游 command.cpp MaterializeCommand 消费
+        // "CommandItem, CommandGroup and CommandSeparator in exact order"，挂错
+        // 每帧错误节点——这里当场抛，反馈更快）。
+        foreach ($children as $c) {
+            if (!$c instanceof self || !in_array($c->kind,
+                ['CommandItem', 'CommandGroup', 'CommandSeparator'], true)) {
+                throw new \InvalidArgumentException(
+                    'Element::catalogCommand(): children 只收 commandItem()/commandGroup()'
+                    . '/commandSeparator()（上游逐字校验这三个导出名），收到 '
+                    . ($c instanceof self ? $c->kind : get_debug_type($c)));
+            }
+        }
         return self::reg('Command', [self::state('CommandState', $id)], $children)->id($id);
+    }
+
+    // ── 批2（2026-10-30）：裸 catalog 通道的三组专用工厂 ──
+    //
+    // coverage.md 原裸通道清单（CommandGroup/Item/Separator、NativeMenu 三件套、
+    // Resizable）本批缩员：形状全部按上游 descriptor 现读补齐（command.cpp /
+    // native_menu.cpp / layout/resizable.cpp），纯 PHP 层零桥零补丁。同型先例是
+    // menu/menuItem/menuSeparator（本文件上方）。
+
+    /** CommandGroup（command.cpp:481-489）：ctor 单实参 label；无方法表；typed
+     *  children **只收 CommandItem**（descriptor 原文 "accepting only CommandItem
+     *  children"，上游 MaterializeGroup 逐字校验）——items 传 commandItem()。 */
+    public static function commandGroup(string $label, array $items = []): self
+    {
+        $e = self::reg('CommandGroup', [$label]);
+        foreach ($items as $item) {
+            if (!$item instanceof self || $item->kind !== 'CommandItem') {
+                throw new \InvalidArgumentException(
+                    'Element::commandGroup(): children 只收 commandItem()（上游只认 '
+                    . 'CommandItem），收到 ' . ($item instanceof self ? $item->kind : get_debug_type($item)));
+            }
+            $e->child($item);
+        }
+        return $e;
+    }
+
+    /** CommandItem（command.cpp:464-479）：ctor 单实参 label；方法
+     *  disabled/keyword/checked/action 走 ->rm() 直发（action 实参是 ShellAction 名，
+     *  选中时派发）。是数据节点，无自身盒子。 */
+    public static function commandItem(string $label): self
+    {
+        return self::reg('CommandItem', [$label]);
+    }
+
+    /** CommandSeparator（command.cpp:491-497）：无 ctor 实参、无方法、无 children。 */
+    public static function commandSeparator(): self
+    {
+        return self::reg('CommandSeparator');
+    }
+
+    /**
+     * NativeMenuTrigger（native_menu.cpp:319-333）：ctor id+label 均非空；
+     * **materialize 硬要求 on_effect_error(callback)**（MaterializeTrigger：
+     * "NativeMenuTrigger requires on_effect_error(callback)"）——所以错误回调 id
+     * 是必填第三参（cb 标记走 'click' 型，与 on_open_change 同款）。
+     * typed children 只收 nativeMenuItem()/nativeMenuSeparator()（kAllowed 逐字）；
+     * 点击触发器弹 OS 原生菜单（keyed event effect），行选中派发 ShellAction →
+     * gpuiAppActionHandler 反查回 'action' 事件（cpp-src/gpui_shim.cpp:293-302），
+     * $app->on($action名, 'action', …) 可收——真点选要真人 HID（NSMenu 行选择是
+     * 模态会话，合成点击够不到）。
+     */
+    public static function nativeMenuTrigger(string $id, string $label,
+        string $onErrorId, array $items = []): self
+    {
+        if ($id === '' || $label === '') {
+            throw new \InvalidArgumentException(
+                'Element::nativeMenuTrigger(): id/label 不能为空（上游拒空串）');
+        }
+        if ($onErrorId === '') {
+            throw new \InvalidArgumentException(
+                'Element::nativeMenuTrigger(): on_effect_error 是 materialize 硬要求'
+                . '（native_menu.cpp），错误回调 id 不能为空');
+        }
+        $e = self::reg('NativeMenuTrigger', [$id, $label]);
+        foreach ($items as $item) {
+            if (!$item instanceof self || !in_array($item->kind,
+                ['NativeMenuItem', 'NativeMenuSeparator'], true)) {
+                throw new \InvalidArgumentException(
+                    'Element::nativeMenuTrigger(): children 只收 nativeMenuItem()/'
+                    . 'nativeMenuSeparator()（上游 kAllowed 逐字），收到 '
+                    . ($item instanceof self ? $item->kind : get_debug_type($item)));
+            }
+            $e->child($item);
+        }
+        $e->rm('on_effect_error', [self::cb('click', $onErrorId)]);
+        return $e;
+    }
+
+    /** NativeMenuItem（native_menu.cpp:279-308）：ctor label+action 均非空；方法
+     *  disabled/checked/action 走 ->rm()（last-call-wins；disabled+checked 同发上游
+     *  拒——原生 API 表达不了）。action 是 ShellAction 名：选中派发 → 'action' 事件
+     *  （事件 id 就是这个 action 名，见 nativeMenuTrigger 注）。 */
+    public static function nativeMenuItem(string $label, string $action): self
+    {
+        if ($label === '' || $action === '') {
+            throw new \InvalidArgumentException(
+                'Element::nativeMenuItem(): label/action 不能为空（上游拒空串）');
+        }
+        return self::reg('NativeMenuItem', [$label, $action]);
+    }
+
+    /** NativeMenuSeparator（native_menu.cpp:310-316）：无 ctor 实参、无方法。 */
+    public static function nativeMenuSeparator(): self
+    {
+        return self::reg('NativeMenuSeparator');
+    }
+
+    /** Resizable catalog 版的轴枚举白名单（resizable.cpp:235 kAxisLiterals 逐字）。 */
+    public const RESIZABLE_AXES = ['horizontal', 'vertical'];
+
+    /**
+     * Resizable catalog 版（layout/resizable.cpp:224-258）——与 kind 面
+     * hResizable()/vResizable() 同组件的第二张脸：catalog 版 ctor 单实参 id（非空）、
+     * 方法 axis（枚举 horizontal|vertical，未知值上游 loud Fail，白名单仍当场拒）/
+     * cross_size（有限正数），typed children **只收 catalogResizablePanel()**
+     * （descriptor 原文 "accepting only ResizablePanel children"，上游逐字校验）。
+     * 布局状态由上游 keyed state 内部持有（"owns keyed state internally"），PHP 不用
+     * 喂 ResizableState——kind 版的 name 键（本文件 hResizable 注）是另一条路。
+     */
+    public static function catalogResizable(string $id, array $panels): self
+    {
+        if ($id === '') {
+            throw new \InvalidArgumentException(
+                'Element::catalogResizable(): id 不能为空（上游拒空串）');
+        }
+        $e = self::reg('Resizable', [$id]);
+        foreach ($panels as $p) {
+            if (!$p instanceof self || $p->kind !== 'ResizablePanel') {
+                throw new \InvalidArgumentException(
+                    'Element::catalogResizable(): children 只收 catalogResizablePanel()'
+                    . '（上游只认 ResizablePanel），收到 '
+                    . ($p instanceof self ? $p->kind : get_debug_type($p)));
+            }
+            $e->child($p);
+        }
+        return $e;
+    }
+
+    /** ResizablePanel（resizable.cpp:221-243）：无 ctor 实参；方法 visible/size/
+     *  size_range 走 panelVisible/panelSize/panelSizeRange（size/visible 与 kind 面
+     *  同名糖撞名——:1434 size 枚举糖、:1023 visible nullary 样式——按 catalogButton
+     *  别名惯例加 panel 前缀）；children 是普通元素 + 样式。 */
+    public static function catalogResizablePanel(?self $child = null): self
+    {
+        $e = self::reg('ResizablePanel');
+        if ($child !== null) { $e->child($child); }
+        return $e;
+    }
+
+    /** Resizable 的轴（枚举两值白名单；上游对未知值 loud Fail "unsupported axis"）。 */
+    public function axis(string $a): self
+    {
+        self::enumCheck('axis', $a, self::RESIZABLE_AXES);
+        return $this->rm('axis', [$a]);
+    }
+
+    /** cross_size：有限正数（上游 FinitePositive，0/负/NaN loud Fail）。 */
+    public function crossSize(float $px): self
+    {
+        if (!(\is_finite($px) && $px > 0.0)) {
+            throw new \InvalidArgumentException(
+                'Element::crossSize(): 要有限正数（像素），收到 ' . $px);
+        }
+        return $this->rm('cross_size', [$px]);
+    }
+
+    /** ResizablePanel 的可见开关（上游 visible(bool)）。 */
+    public function panelVisible(bool $v): self
+    {
+        return $this->rm('visible', [$v]);
+    }
+
+    /** ResizablePanel 初始尺寸像素（上游 FinitePositive）。 */
+    public function panelSize(float $px): self
+    {
+        if (!(\is_finite($px) && $px > 0.0)) {
+            throw new \InvalidArgumentException(
+                'Element::panelSize(): 要有限正数（像素），收到 ' . $px);
+        }
+        return $this->rm('size', [$px]);
+    }
+
+    /** ResizablePanel 的闭区间拖拽范围 [min,max] 像素（上游两条 FinitePositive +
+     *  "minimum must not exceed maximum"，全部前置到 PHP 当场抛）。 */
+    public function panelSizeRange(float $min, float $max): self
+    {
+        if (!(\is_finite($min) && $min > 0.0) || !(\is_finite($max) && $max > 0.0)) {
+            throw new \InvalidArgumentException(
+                'Element::panelSizeRange(): min/max 都要有限正数（像素），收到 '
+                . $min . '/' . $max);
+        }
+        if ($min > $max) {
+            throw new \InvalidArgumentException(
+                'Element::panelSizeRange(): min 不得超过 max（上游 loud Fail），收到 '
+                . $min . '>' . $max);
+        }
+        return $this->rm('size_range', [$min, $max]);
+    }
+
+    // ── 批3（2026-10-30）：ScrollbarHandle / Scroll / Scrollbar 实机批 ──
+    //
+    // 15 个上游 state kind 里 PHP 侧最后一个缺口（coverage.md 的"剩余缺口只剩
+    // ScrollbarHandle"在本批闭合）。ScrollbarHandle 的 creator 是无参的
+    // （scroll.cpp:153-158 NewHandle 忽略实参），走 #81 的 NewHostState 通道
+    // （gpui_shim_state argc=0 直通 factory——批3 实测可用）。
+
+    /** Scroll/Scrollbar 共用的轴枚举（scroll.cpp:245-246 kAxisLiterals 逐字）。
+     *  注意方法名是 scroll_axis 不是 axis：运行时的元素原型会先拦 `axis` 对
+     *  horizontal|vertical 之外的名字（`both` 就到不了 registered 组件——
+     *  descriptor 原注释），所以上游特意改名。 */
+    public const SCROLL_AXES = ['vertical', 'horizontal', 'both'];
+
+    /**
+     * Scroll 视口包装（scroll.cpp:262-274）：ctor 单实参 ScrollbarHandle entity；
+     * **children + 泛 style 都合法**（descriptor 原文 "accepts ordinary children
+     * and shell style"），默认竖滚。滚动条本体不在这画——共享同一 handle 的
+     * catalogScrollbar() 才把 hasBar 打开（scroll.cpp:133-136 ApplyBar 由视口侧画）。
+     * $key 是 ScrollbarHandle 实体的 (kind,key) 缓存键——同一 key 的 Scroll 与
+     * Scrollbar 共用一颗实体，这是"把手控制视口"的接缝。
+     */
+    public static function catalogScroll(string $key, array $children = []): self
+    {
+        if ($key === '') {
+            throw new \InvalidArgumentException(
+                'Element::catalogScroll(): key 不能为空（ScrollbarHandle 实体缓存键）');
+        }
+        return self::reg('Scroll', [self::state('ScrollbarHandle', $key)], $children);
+    }
+
+    /**
+     * 原生低层 Scrollbar（scroll.cpp:276-294）：ctor 双实参（窗口唯一 id +
+     * ScrollbarHandle entity）；**children 与泛 style 都拒**（RequireLeaf，
+     * scroll.cpp:127-131——物化后只是一颗绝对定位的空 Div，条由共享 handle 的
+     * 视口画）。方法 scroll_axis/mode/viewport_from_layout 走 $axis/$mode/
+     * $viewportFromLayout 实参；mode 三档白名单同 kind 面 SCROLLBAR_MODES。
+     */
+    public static function catalogScrollbar(string $id, string $axis = '',
+        string $mode = '', bool $viewportFromLayout = false): self
+    {
+        if ($id === '') {
+            throw new \InvalidArgumentException(
+                'Element::catalogScrollbar(): id 不能为空（上游要求窗口唯一稳定 id）');
+        }
+        $e = self::reg('Scrollbar', [$id, self::state('ScrollbarHandle', $id)]);
+        if ($axis !== '') {
+            self::enumCheck('catalogScrollbarAxis', $axis, self::SCROLL_AXES);
+            $e->rm('scroll_axis', [$axis]);
+        }
+        if ($mode !== '') {
+            self::enumCheck('catalogScrollbarMode', $mode, self::SCROLLBAR_MODES);
+            $e->rm('mode', [$mode]);
+        }
+        if ($viewportFromLayout) {
+            // 上游见名就置 true、无视实参值（materialize.cpp:386-387 同款）——
+            // 只在 true 时发。
+            $e->rm('viewport_from_layout', [true]);
+        }
+        return $e;
+    }
+
+    /** Scroll/Scrollbar 共用的轴糖（registered_method 'scroll_axis'，三值白名单
+     *  含 both——kind 面的 overflow* 糖表达不了的双轴档）。 */
+    public function scrollAxis(string $axis): self
+    {
+        self::enumCheck('scrollAxis', $axis, self::SCROLL_AXES);
+        return $this->rm('scroll_axis', [$axis]);
     }
 
     // ── tier-A 差距清单的 catalog 工厂（2026-10-28 批1）──
@@ -2393,25 +3018,32 @@ class Element
     }
 
     /**
-     * 消息滚动区（chat.cpp MessageScroller 段）：ctor 三实参 id/state/render_item，
-     * 其中 render_item 是**返回元素的行渲染回调**——shim 回调通道只发事件不带返回值
-     * （DataTable 实证，Element.php:1797-1806），真数据等批6宿主回路；本批只建结构：
-     * state 经 El::state 标记（按 (kind,key) 缓存，同 CarouselState 先例），render_item
-     * 发 cb 标记；scrollbar/jump_button/jump_button_label 三个零参方法照发（descriptor
-     * 方法表，上游 materialize 会读）。**不进任何树**（会让 componentStates 计数涨，
-     * 破坏 tree2CarouselState 的 ==1 门）。
+     * 消息滚动区（chat.cpp MessageScroller 段）：ctor 三实参 id/state/render_item。
+     * render_item 是**返回元素的行渲染回调**——批4（2026-10-31）起由宿主渲染：
+     * patch-host-element-cb.sh 在 BuildComponentElement 加 shimId 分叉，处理器经
+     * App::elementCallback($id,'render_item',fn): Element 登记（元素描述经 emitTree
+     * 进帧 arena 物化；旧注"只发事件不带返回值/不进树"随分叉落地作废——kit 树 2 的
+     * kit-msgs 样与 messageRowRender 门是真渲染证据）。jump_button_label 上游要求
+     * 非空串，只在 $jumpLabel 给了时才发。
      */
     public static function messageScroller(string $id, int $itemCount = 0,
-        ?string $onChangeId = null): self
+        ?string $onChangeId = null, ?string $jumpLabel = null): self
     {
         $e = self::reg('MessageScroller', [
             $id,
             self::state('MessageScrollerState', $id, [$itemCount]),
             self::cb('render_item', $id),
         ])->id($id);
-        $e->rm('scrollbar', []);
-        $e->rm('jump_button', []);
-        $e->rm('jump_button_label', ['']);
+        // 两颗都是 SchemaBoolean 单参：空实参会在 shim 的 buildComponentArgs 上
+        // "missing argument"（lastError 最后写者赢——批4 首轮实测），必须给显式布尔。
+        $e->rm('scrollbar', [true]);
+        $e->rm('jump_button', [false]);
+        // jump_button_label 上游要求非空串（chat.cpp:465 "expects non-empty text"）——
+        // 空串会让整个 recorder 失败、组件当帧成错误节点（批4 树内实测），所以只在
+        // 给了标签时才发。
+        if ($jumpLabel !== null && $jumpLabel !== '') {
+            $e->rm('jump_button_label', [$jumpLabel]);
+        }
         if ($onChangeId !== null && $onChangeId !== '') {
             $e->rm('on_change', [self::cb('change', $onChangeId)]);
         }
@@ -2741,20 +3373,32 @@ class Element
      * HoverCard catalog 版（与 kind 版 `hoverCard()` 同组件——catalog 第二张脸，
      * 带样式/开延迟/构造实参与 on_open_change 回调；kind 版是 trigger+content
      * 的组合）。ctor 单实参 id（非空）；方法
-     * trigger_element（SchemaElement 实参——shim 缺口，与 StatusBar left_content 同，
-     * 不给空参、文档注明）、card_anchor（8 角白名单 POPOVER_ANCHORS）、
+     * trigger_element（SchemaElement 实参——**materialize 硬要求**，缺了每帧
+     * Fail "HoverCard requires trigger_element(element)"（hover_card.cpp:79-82/145）；
+     * 2026-10-30 批2 起由 $trigger 实参经 elementArg 桥喂入——桥先 emitTree 子元素
+     * 拿 SpecId 再发方法（patch-element-arg.sh，EmptyHeader 同款），
+     * "shim 缺口"旧注已证伪）、card_anchor（8 角白名单 POPOVER_ANCHORS）、
      * open_delay/close_delay（毫秒，0–60000 范围校验）+ appearance +
      * on_open_change 回调；content 走具名槽（require content(element)）。
      */
     public static function catalogHoverCard(string $id, self $content,
         string $anchor = '', float $openDelay = 0.0, float $closeDelay = 0.0,
-        bool $appearance = false, ?string $onOpenChangeId = null): self
+        bool $appearance = false, ?string $onOpenChangeId = null,
+        ?self $trigger = null): self
     {
         if ($id === '') {
             throw new \InvalidArgumentException('Element::hoverCard(): id 不能为空（上游拒空串）');
         }
         $e = self::reg('HoverCard', [$id]);
         $e->slot('content', $content);
+        if ($trigger !== null) {
+            // trigger_element：SchemaElement 方法实参，走 element_arg 桥（先建子
+            // 元素拿 SpecId 再发 registered_method）。任何可物化元素都行——上游
+            // ResolveElement 只要求 ComponentArgumentKind::Element 并 ShellMaterializeSpec
+            // 它（component_registry.cpp:1220-1225），不像 EmptyHeader 的 RecordSlot
+            // 还要按 tag 收注册侧部件。
+            $e->elementArg('trigger_element', $trigger);
+        }
         if ($anchor !== '') {
             self::enumCheck('hoverCardAnchor', $anchor, self::POPOVER_ANCHORS);
             $e->rm('card_anchor', [$anchor]);

@@ -70,8 +70,36 @@ NavigateBack=3 / NavigateForward=4）；`mods` 是位掩码
 （`ShellSelectBinding` 等），触发方在 base 组件里，我们这边能确证的只有"名字发得出去、
 对得上上游词表"——那条门现在住在 `php bin/gpui selftest catalog`
 （`componentCallbackOps — 发出=5 去重后=5`）。
-`on_token_click` / `on_token_hover` 在上游 schema 中是普通 `void` 事件监听器，PHP 送达仍未验。
-另一个名为 `token` 的方法才是**要返回 Element 或 null** 的渲染回调，不能把三者混为一谈。
+`on_token_click` / `on_token_hover` 在上游 schema 中是普通 `void` 事件监听器——
+**批4（2026-10-31）已量化送达**：`App::inputReplaceToken($id, $tokenId, $text, $label)`
+（InputReplaceWithToken，base/input.cpp:5780）给 retained 输入造 token 后，
+两事件经 DispatchTokenClick/Hover → Dispatch → DispatchArgs 的 shimId 早返回入队
+（与 click 同一条队列），`gpui_selftest_fire_registered` 送达断言在 kit selftest 的
+tokenDeliveryRender 门（fire=true、delivered ✓）；native 鼠标命中 token 的
+hit-testing 属真人 HID。**注意队列类型是短名** `token_click`/`token_hover`
+（eventType 剥 on_ 前缀），`App::on` 与 fire 都用短名。
+另一个名为 `token` 的方法才是**要返回 Element 或 null** 的渲染回调，不能把三者混为一谈
+——它的宿主接线见下节。`on_link_click` 的消费端是 **TextView 的 markdown 链接**
+（materialize.cpp:1728 OnLinkWithContext；base kind Link 的 click 语义是打开 href，
+不消费 on_link_click）——送达同样已量化（linkDelivery 门，fire=true ✓；native
+realClick 已实测到达 OnTextLink 派发点，down/up 帧界悬垂在当前机器态下崩，
+见批3 环境记录）。
+
+### token 渲染回调的宿主接线（批4）
+
+`token` 渲染回调的 shim 接线走了两支补丁：`cmd/patch-token-render.sh` 在
+RenderInlineToken 顶部加 shimId 分叉（weak gpuiRenderShimToken），shim 侧
+"php::call 处理器 → 元素描述 → emitTree 进 batch → ShellMaterializeSpec"（与
+gpuiRenderShimItems 同形）。两个坑都已钉死：① shim 的重前缀会把 `token` 变成
+`on_token`（上游 op 名就是无前缀的 `token`，逐字比较落空）——特判豁免；
+② 元素回调的批4 分叉在 `cmd/patch-host-element-cb.sh`（BuildComponentElement 的
+shimId 分叉，覆盖 MessageScroller render_item / DataTable render_cell / Select
+render_row 同缝），batch 分配在 cx->a 帧 arena——**不能**走 JS 路的
+RenderSnapshot/frameSnapshots（shim 表项的 entry->view 是 PhpView 实体，
+Get<ScriptView> 无类型检查，Vec 拿到垃圾分配器，实测 malloc abort）。
+验收边界：回调链路全通（tokenDeliveryRender 的 renderCalls=2630、
+messageRowRender 的 renderCalls=15 为证）；chip/行的像素落位依赖上游
+BoundsOut 的多帧沉降，无头+当前机器态下不稳定，降为 advisory 读数。
 
 ## 1b. 部件自己发出的事件（`on_confirm` / `on_dismiss` / `on_open_change` / `on_step` / `on_resize` …）
 
@@ -359,7 +387,7 @@ $app->on('focus', 'hotkey', function (): void { /* … */ });
 
 ## 7b. 菜单动作（`action`）
 
-菜单有两条来源，动作回到 PHP 是同一件事件、同一个写法：
+菜单有三条来源，动作回到 PHP 是同一件事件、同一个写法：
 
 ```php
 // ① 元素树里：El::menuBar / El::menu / El::menuItem($label, $actionId)
@@ -389,6 +417,13 @@ $app->onAny('action', function (array $e): void {
   它返回菜单条各行携带的 action id（无动作的行不计入），装完立刻读一次就能把键名钉住。
 - 动作表是进程级的、定长的（上游 `kMaxAppActions`）。超出预算时 shim 不再静默丢，
   会把原因写进 `App::lastError()`。
+- **③ 批2（2026-10-30）新增：catalog 的 NativeMenu 行**——`El::nativeMenuTrigger(...)`
+  里挂 `El::nativeMenuItem('复制路径', 'kit-nm-copy')`，点触发器弹 OS 原生菜单
+  （keyed event effect），行选中派发 ShellAction，反查缝与上面两条是同一个
+  （`gpuiAppActionHandler`，cpp-src/gpui_shim.cpp:293-302），事件 id 就是 action 名。
+  与 ①② 的差别：触发器在**窗口内容里**，真点一下触发器再选行是两次真人交互
+  （NSMenu 行选择是模态会话，合成点击够不到）——kit 域 selftest 只断工厂形状与
+  `$app->on($action, 'action', …)` 的接线，送达证据留真人验收。
 
 `--selftest` 里对应两条门：`rows=st-new/rowsOk=true`（表里装的确实是 PHP 声明的 id）与
 `action=true/dispatched=true`（该 id 的动作回到了 PHP）。原生菜单行的"真点一下"进不了门禁

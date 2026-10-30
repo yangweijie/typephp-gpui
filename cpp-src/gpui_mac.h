@@ -77,6 +77,10 @@ int gpui_mac_send_scroll(double x, double y, int delta_y, int delta_x);
 /* keycode 是 kVK_*；chars 是 UTF-8 字符（可空串）。 */
 int gpui_mac_send_key(unsigned short keycode, const char* chars);
 
+/* 批5：带修饰键的合成按键（flags = NSEventModifierFlag 位或）。 */
+int gpui_mac_send_key_flags(unsigned short keycode, const char* chars,
+                            unsigned long flags);
+
 /* 投递模式：1 = 交给 -[NSApp postEvent:atStart:]，于是事件要经过程序自己的
  * nextEventMatchingMask → -[NSApp sendEvent:] 才被处理，与真实鼠标/键盘同一条路；
  * 0 = 直接 -[NSWindow sendEvent:]（快，但跳过 NSApplication 的路由与钥匙窗口判定）。

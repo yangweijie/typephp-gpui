@@ -361,9 +361,11 @@ test('every factory that takes an $id puts it where its kind routes events', fun
                 'int' => 1,
                 'bool' => false,
                 'array' => [],
-                default => ($tn === El::class || $tn === \TypePHP\Gpui\Element::class)
-                    ? El::div()
-                    : 'x',
+                // self/static 在 ReflectionNamedType::getName() 里就叫 'self'/'static'
+                //（不归一成类名）——dialog($id,$label,self $content) 这类签名要在这里
+                // 喂真元素，落 default 会发字符串、invoke 当场 TypeError。
+                'self', 'static', El::class, \TypePHP\Gpui\Element::class => El::div(),
+                default => 'x',
             };
         }
         $el = $m->invokeArgs(null, $args);
@@ -506,3 +508,280 @@ test('pointer and key-up sugars emit callback markers under the exact upstream o
     ['onKeyUp', 'on_key_up'],
 ]);
 
+
+// ── 批1（2026-10-30）：样式糖差集补齐 + 浮层/滚动 op 糖 ──────────────────────
+
+test('批1 样式糖差集：组代表逐颗发出正确名字的 nullary_style op', function (): void {
+    $el = El::div()
+        ->colSpanFull()->rowSpanFull()->colStartAuto()->colEndAuto()
+        ->rowStartAuto()->rowEndAuto()
+        ->flexGrow0()->flexGrow1()->flexShrink0()->flexShrink1()
+        ->contentStart()->contentEnd()->contentNormal()->justifyEnd()
+        ->selfBaseline()->selfFlexStart()->selfFlexEnd()
+        ->fontExtrabold()->fontExtralight()
+        ->textLeft()->textEllipsisMiddle()->textEllipsisStart()
+        ->whitespaceNormal()->notItalic()
+        ->overflowXHidden()->overflowYHidden()
+        ->shadow2xs()->shadowXs()->shadowXl()->shadow2xl()
+        ->textDecorationNone()->textDecorationSolid()->textDecorationWavy()
+        ->textDecoration0()->textDecoration1()->textDecoration2()
+        ->textDecoration4()->textDecoration8()
+        ->cursorAlias()->cursorColResize()->cursorContextMenu()->cursorCopy()
+        ->cursorCrosshair()->cursorDefault()->cursorEResize()->cursorEwResize()
+        ->cursorGrabbing()->cursorNResize()->cursorNeswResize()->cursorNoDrop()
+        ->cursorNsResize()->cursorNwseResize()->cursorRowResize()->cursorSResize()
+        ->cursorVerticalText()->cursorWResize()
+        ->debug()->debugBelow()->debugRed()->debugBlue()
+        ->debugYellow()->debugGreen()->debugPink();
+
+    $names = [];
+    foreach ($el->ops as $op) {
+        expect($op['kind'])->toBe('nullary_style');
+        expect($op['args'])->toBe([]);
+        $names[] = $op['name'];
+    }
+    // 63 颗，每颗一次、顺序即链序。
+    expect(count($names))->toBe(63);
+    expect(count(array_unique($names)))->toBe(63);
+    expect($names)->toContain('col_span_full')
+        ->and($names)->toContain('row_span_full')
+        ->and($names)->toContain('self_flex_start')
+        ->and($names)->toContain('content_normal')
+        ->and($names)->toContain('overflow_y_hidden')
+        ->and($names)->toContain('shadow_2xs')
+        ->and($names)->toContain('not_italic')
+        ->and($names)->toContain('text_decoration_wavy')
+        ->and($names)->toContain('text_left')
+        ->and($names)->toContain('flex_grow_1')
+        ->and($names)->toContain('cursor_grabbing')
+        ->and($names)->toContain('debug_pink');
+});
+
+test('元素级浮层行为糖：kind 节点上发 method op，实参逐字', function (): void {
+    $p = El::popover('t', El::text('c'))->defaultOpen(true)->overlayClosable(false);
+    $byName = [];
+    foreach ($p->ops as $op) {
+        if ($op['kind'] === 'method') { $byName[$op['name']] = $op['args']; }
+    }
+    expect($byName['default_open'])->toBe([true])
+        ->and($byName['overlay_closable'])->toBe([false]);
+
+    $h = El::hoverCard('t', El::text('c'))->openDelayMs(120)->closeDelayMs(80);
+    $ho = [];
+    foreach ($h->ops as $op) {
+        if ($op['kind'] === 'method') { $ho[$op['name']] = $op['args']; }
+    }
+    expect($ho['open_delay'])->toBe([120])
+        ->and($ho['close_delay'])->toBe([80]);
+});
+
+test('浮层毫秒糖拒绝上游会静默收下的越界值（0–60000）', function (): void {
+    expect(fn () => El::text('x')->openDelayMs(60001))->toThrow(InvalidArgumentException::class)
+        ->and(fn () => El::text('x')->openDelayMs(-1))->toThrow(InvalidArgumentException::class)
+        ->and(fn () => El::text('x')->closeDelayMs(70000))->toThrow(InvalidArgumentException::class);
+    // 边界值可用：上游 AsNumber(op, 0, 600) 的默认只管缺实参，显式 0 合法。
+    expect(El::text('x')->openDelayMs(0)->toArray()['ops'][0]['args'])->toBe([0]);
+});
+
+test('高级滚动 op 糖：overflow_scrollbar/mode/viewport/scroll_size/measure_index', function (): void {
+    $namesOf = static function (El $el): array {
+        $out = [];
+        foreach ($el->ops as $op) {
+            if ($op['kind'] === 'method') { $out[$op['name']] = $op['args']; }
+        }
+        return $out;
+    };
+    $a = $namesOf(El::div()->overflowScrollbar()->scrollbarMode('always'));
+    expect($a['overflow_scrollbar'])->toBe([])
+        ->and($a['mode'])->toBe(['always']);
+
+    // 三档白名单都放行（枚举覆盖门要求字面量逐个出现在示例里，这里补测试面）。
+    expect($namesOf(El::div()->scrollbarMode('hover'))['mode'])->toBe(['hover'])
+        ->and($namesOf(El::div()->scrollbarMode('scrolling'))['mode'])->toBe(['scrolling']);
+
+    // mode 未知值上游会静默落 Scrolling（materialize.cpp:385-388 无 else 拒绝），
+    // 所以白名单当场抛，不留静默改值。
+    expect(fn () => El::div()->scrollbarMode('bogus'))->toThrow(InvalidArgumentException::class);
+
+    // viewportFromLayout(false) 不发 op：上游见名就置 true、无视实参（:386-387），
+    // 发 false 等于把它打开——这里宁可不发。
+    $on = $namesOf(El::div()->viewportFromLayout(true)->scrollSize(600.0, 400.0));
+    expect($on['viewport_from_layout'])->toBe([true])
+        ->and($on['scroll_size'])->toBe([600.0, 400.0]);
+    expect($namesOf(El::div()->viewportFromLayout(false)))->toBe([]);
+
+    // measure_index 只落 UniformList（上游对普通 list 明确 log ignored）。
+    expect($namesOf(El::uniformList('u', 10)->withItemToMeasureIndex(2))['with_item_to_measure_index'])
+        ->toBe([2]);
+});
+
+
+// ── 批2（2026-10-30）：裸 catalog 通道三组专用工厂的形状门 ──────────────────
+
+test('catalogHoverCard trigger_element 走 element_arg 桥（原 shim 缺口注释证伪）', function (): void {
+    $hc = El::catalogHoverCard('hc-x', El::text('正文'), '', 120.0, 80.0,
+        false, null, El::button('触发'));
+    $ea = null;
+    $slot = false;
+    foreach ($hc->ops as $op) {
+        if (($op['kind'] ?? '') === 'element_arg' && ($op['name'] ?? '') === 'trigger_element') {
+            $ea = $op['arg'];
+        }
+        if (($op['kind'] ?? '') === 'slot' && ($op['name'] ?? '') === 'content') {
+            $slot = true;
+        }
+    }
+    expect($ea)->not->toBeNull()
+        ->and($ea['kind'])->toBe('button')
+        ->and($slot)->toBeTrue();
+
+    // 无 trigger 不发 element_arg（上游对缺 trigger 是 loud Fail——留给调用方决定）。
+    $bare = El::catalogHoverCard('hc-y', El::text('正文'));
+    foreach ($bare->ops as $op) {
+        expect($op['kind'])->not->toBe('element_arg');
+    }
+});
+
+test('Command 三件套：ctor 形状 + group 只收 Item + root 三导出名白名单', function (): void {
+    $g = El::commandGroup('文件', [El::commandItem('新建')->rm('action', ['gate-act'])]);
+    expect($g->kind)->toBe('CommandGroup')
+        ->and($g->ctorArgs)->toBe(['文件'])
+        ->and($g->children[0]->kind)->toBe('CommandItem');
+
+    expect(El::commandSeparator()->kind)->toBe('CommandSeparator')
+        ->and(El::commandSeparator()->ctorArgs)->toBe([]);
+
+    $cmd = El::catalogCommand('cmd-x', [$g, El::commandSeparator(), El::commandItem('切换')]);
+    $kinds = array_map(static fn ($c) => $c->kind, $cmd->children);
+    expect($cmd->kind)->toBe('Command')
+        ->and($kinds)->toBe(['CommandGroup', 'CommandSeparator', 'CommandItem']);
+
+    // typed children 拒收：group 收 Separator、root 收杂件，都当场抛。
+    expect(fn () => El::commandGroup('x', [El::commandSeparator()]))->toThrow(InvalidArgumentException::class)
+        ->and(fn () => El::catalogCommand('x', [El::text('杂')]))->toThrow(InvalidArgumentException::class);
+});
+
+test('NativeMenu 三件套：trigger 硬带 on_effect_error + item(label,action) + children 白名单', function (): void {
+    $t = El::nativeMenuTrigger('nm-x', '菜单', 'nm-err', [
+        El::nativeMenuItem('复制', 'nm-copy'),
+        El::nativeMenuSeparator(),
+    ]);
+    $errCb = null;
+    foreach ($t->ops as $op) {
+        if (($op['kind'] ?? '') === 'registered_method' && ($op['name'] ?? '') === 'on_effect_error') {
+            $errCb = $op['args'][0] ?? null;
+        }
+    }
+    expect($t->kind)->toBe('NativeMenuTrigger')
+        ->and($t->ctorArgs)->toBe(['nm-x', '菜单'])
+        ->and($errCb)->toBe(['__cb__', 'click', 'nm-err'])
+        ->and($t->children[0]->kind)->toBe('NativeMenuItem')
+        ->and($t->children[0]->ctorArgs)->toBe(['复制', 'nm-copy'])
+        ->and($t->children[1]->kind)->toBe('NativeMenuSeparator');
+
+    // on_effect_error 是 materialize 硬要求（native_menu.cpp MaterializeTrigger），
+    // 空回调 id 当场抛；children 杂件也拒（kAllowed 逐字）。
+    expect(fn () => El::nativeMenuTrigger('x', '菜单', ''))->toThrow(InvalidArgumentException::class)
+        ->and(fn () => El::nativeMenuTrigger('x', '菜单', 'e', [El::text('杂')]))->toThrow(InvalidArgumentException::class);
+});
+
+test('catalogResizable 第二张脸：ctor id + axis/cross_size + panel 糖（别名三颗）+ children 白名单', function (): void {
+    $p = El::catalogResizablePanel(El::text('甲'))
+        ->panelSize(180.0)->panelSizeRange(120.0, 320.0)->panelVisible(true);
+    $r = El::catalogResizable('rz-x', [$p])->axis('horizontal')->crossSize(96.0);
+
+    $rmOf = static function (El $el): array {
+        $out = [];
+        foreach ($el->ops as $op) {
+            if (($op['kind'] ?? '') === 'registered_method') { $out[$op['name']] = $op['args']; }
+        }
+        return $out;
+    };
+    expect($r->kind)->toBe('Resizable')
+        ->and($r->ctorArgs)->toBe(['rz-x'])
+        ->and($rmOf($r)['axis'])->toBe(['horizontal'])
+        ->and($rmOf($r)['cross_size'])->toBe([96.0])
+        ->and($rmOf($p)['size'])->toBe([180.0])
+        ->and($rmOf($p)['size_range'])->toBe([120.0, 320.0])
+        ->and($rmOf($p)['visible'])->toBe([true])
+        ->and($r->children[0]->kind)->toBe('ResizablePanel')
+        ->and(El::catalogResizablePanel()->kind)->toBe('ResizablePanel');
+
+    // axis 未知值（上游 loud Fail "unsupported axis"）、size_range min>max、
+    // children 杂件——全部 PHP 侧当场抛。
+    expect(fn () => El::catalogResizable('x', [])->axis('diagonal'))->toThrow(InvalidArgumentException::class)
+        ->and(fn () => El::catalogResizablePanel()->panelSizeRange(300.0, 100.0))->toThrow(InvalidArgumentException::class)
+        ->and(fn () => El::catalogResizablePanel()->panelSize(0.0))->toThrow(InvalidArgumentException::class)
+        ->and(fn () => El::catalogResizable('x', [El::text('杂')]))->toThrow(InvalidArgumentException::class);
+});
+
+
+// ── 批3（2026-10-30）：accordion 根 / ScrollbarHandle 家族 / motion 糖形状门 ──
+
+test('accordion 根（base kind）：items 只收三段件，shim 登记名由 parity/实机门钉', function (): void {
+    $root = El::accordion('acc-x', [
+        El::accordionItem('甲', El::text('内容'), 'acc-x-i0'),
+        El::accordionItem('乙', El::text('内容')),
+    ]);
+    $kinds = array_map(static fn ($c) => $c->kind, $root->children);
+    expect($root->kind)->toBe('accordion')
+        ->and($kinds)->toBe(['accordion_item', 'accordion_item']);
+
+    $slotKinds = [];
+    foreach ($root->children[0]->ops as $op) {
+        if (($op['kind'] ?? '') === 'slot') { $slotKinds[$op['name']] = $op['child']->kind; }
+    }
+    expect($slotKinds['header'])->toBe('accordion_header')
+        ->and($slotKinds['panel'])->toBe('accordion_panel');
+
+    expect(fn () => El::accordion('x', [El::text('杂')]))->toThrow(InvalidArgumentException::class);
+});
+
+test('Scroll/Scrollbar 家族：ctor 带 ScrollbarHandle 实体标记，Scrollbar 拒 children', function (): void {
+    $sc = El::catalogScroll('sb-k', [El::text('行')])->scrollAxis('both');
+    $scState = $sc->ctorArgs[0];
+    expect($sc->kind)->toBe('Scroll')
+        ->and($scState[0])->toBe('__state__')
+        ->and($scState[1])->toBe('ScrollbarHandle')
+        ->and($scState[3])->toBe([]);
+
+    $sb = El::catalogScrollbar('sb-k', 'vertical', 'always', true);
+    $sbState = $sb->ctorArgs[1];
+    $ops = [];
+    foreach ($sb->ops as $op) {
+        if (($op['kind'] ?? '') === 'registered_method') { $ops[$op['name']] = $op['args']; }
+    }
+    expect($sb->kind)->toBe('Scrollbar')
+        ->and($sb->ctorArgs[0])->toBe('sb-k')
+        ->and($sbState[1])->toBe('ScrollbarHandle')
+        ->and($ops['scroll_axis'])->toBe(['vertical'])
+        ->and($ops['mode'])->toBe(['always'])
+        ->and($ops['viewport_from_layout'])->toBe([true])
+        ->and($sb->children)->toBe([]);
+
+    // 三值白名单含 both（kind 面 overflow* 糖表达不了的双轴档）；非法轴 ctor 与糖都拒。
+    expect(El::catalogScrollbar('x')->scrollAxis('both')->toArray())->toBeArray()
+        ->and(fn () => El::catalogScrollbar('x', 'diagonal'))->toThrow(InvalidArgumentException::class)
+        ->and(fn () => El::catalogScroll('x')->scrollAxis('diagonal'))->toThrow(InvalidArgumentException::class);
+});
+
+test('transition/spring：op 形状逐字 + 五属性/三缓动白名单', function (): void {
+    $methodOf = static function (El $el): array {
+        $out = [];
+        foreach ($el->ops as $op) {
+            if (($op['kind'] ?? '') === 'method') { $out[$op['name']] = $op['args']; }
+        }
+        return $out;
+    };
+    $t = $methodOf(El::div()->transition('width', 300.0, 50.0, 'ease-in-out'));
+    $s = $methodOf(El::div()->spring('opacity', 200.0, 0.8, 0.01));
+    $d = $methodOf(El::div()->transition('opacity', 100.0));
+    expect($t['transition'])->toBe(['width', 300.0, 50.0, 'ease-in-out'])
+        ->and($s['spring'])->toBe(['opacity', 200.0, 0.8, 0.01])
+        ->and($d['transition'])->toBe(['opacity', 100.0, 0.0, '']);
+
+    // 采样器只吃五属性（materialize.cpp:900）；缓动三值；response 要正。
+    expect(fn () => El::div()->transition('color', 100.0))->toThrow(InvalidArgumentException::class)
+        ->and(fn () => El::div()->spring('width', 0.0))->toThrow(InvalidArgumentException::class)
+        ->and(fn () => El::div()->transition('width', 100.0, 0.0, 'bounce'))->toThrow(InvalidArgumentException::class);
+});

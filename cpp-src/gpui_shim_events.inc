@@ -364,4 +364,102 @@ bool gpuiInvokeShimDataCallback(App* app, EntityId view, uint64_t shimId,
     return true;
 }
 
+// ── 批4：token 渲染回调（patch-token-render.sh）────────────────────────────
+// runtime 的 RenderInlineToken shimId 分叉（weak → 这里的强定义）调进来：
+// php::call 处理器（App::on($id,'token',…)，与数据回调同一本 g_dataFns 登记表）
+// → 返回元素描述数组 → emitTree 进独立 batch（box->building 路由，同
+// gpuiRenderShimItems）→ 根 SpecId 回来 → ShellMaterializeSpec。PHP 返回 null /
+// 处理器缺席 ⇒ *out=null，上游按"渲染失败"回落 token label chip。
+static GpuiTokenRenderFn g_tokenRender = nullptr;
+
+bool gpuiRenderShimToken(App* app, EntityId view, uint64_t shimId, Ctx* cx,
+                         uint32_t* outRoot, El** out) {
+    *out = nullptr;
+    *outRoot = 0;
+    auto* pv = (PhpView*)EntityGet(app, view);
+    if (!pv) return true;
+    Box2* box = boxForView((void*)pv);
+    if (!box || !g_tokenRender) return true;
+    auto it = box->callbacks.find(shimId);
+    if (it == box->callbacks.end()) return true;
+    if (box->building) return true;
+    auto* batch = new shell::SpecArena(cx->a);
+    box->building = batch;
+    uint32_t root = g_tokenRender(box, it->second.first.c_str(),
+                                  it->second.second.c_str());
+    box->building = nullptr;
+    if (root) {
+        ShellError err = {};
+        *out = ShellMaterializeSpec(cx, g_runtime, batch, root, &err);
+        if (err.IsSet()) {
+            noteError(box, std::string("token render: ") +
+                               std::string(err.message.s ? err.message.s : "",
+                                           (size_t)(err.message.len > 0 ? err.message.len : 0)));
+            ShellErrorClear(&err);
+            *out = nullptr;
+        }
+        *outRoot = root;
+    }
+    delete batch;
+    return true;
+}
+
+// ── 批4：返回 Element 的 catalog 回调（patch-host-element-cb.sh）───────────
+// runtime 的 BuildComponentElement shimId 分叉（weak → 这里的强定义）调进来：
+// MessageScroller 的 render_item / DataTable 的 render_cell / Select 的
+// render_row 同缝。PHP 处理器返回元素描述数组 → emitTree 进独立 batch → 根
+// SpecId → ShellMaterializeSpec；null ⇒ 上游回落错误行/chip。args 不透传
+// （与宿主数据回路同口径：处理器闭包自带上下文）。
+static GpuiElementCbFn g_elementCb = nullptr;
+
+bool gpuiBuildShimElement(App* app, EntityId view, uint64_t shimId,
+                          const shell::ComponentDataValue* arguments, int count,
+                          Ctx* cx, shell::SpecArena* batch, Str* error, El** out,
+                          uint32_t* outRoot) {
+    (void)arguments;
+    (void)count;
+    *out = nullptr;
+    *outRoot = 0;
+    auto* pv = (PhpView*)EntityGet(app, view);
+    if (!pv) {
+        if (error) *error = StrDup(cx->a, StrL("host element callback: dead view"));
+        return true;
+    }
+    Box2* box = boxForView((void*)pv);
+    if (!box || !g_elementCb) {
+        if (error) *error = StrDup(cx->a, StrL("host element callback is not installed"));
+        return true;
+    }
+    auto it = box->callbacks.find(shimId);
+    if (it == box->callbacks.end()) {
+        if (error) *error = StrDup(cx->a, StrL("host element callback: unknown callback id"));
+        return true;
+    }
+    if (box->building) {
+        if (error) *error = StrDup(cx->a, StrL("host element callback: nested build"));
+        return true;
+    }
+    box->building = batch;
+    uint32_t root = g_elementCb(box, it->second.first.c_str(),
+                                it->second.second.c_str());
+    box->building = nullptr;
+    if (root) {
+        Ctx rowCx = *cx;
+        ShellError err = {};
+        *out = ShellMaterializeSpec(&rowCx, g_runtime, batch, root, &err);
+        if (err.IsSet()) {
+            noteError(box, std::string("host element callback: ") +
+                               std::string(err.message.s ? err.message.s : "",
+                                           (size_t)(err.message.len > 0 ? err.message.len : 0)));
+            ShellErrorClear(&err);
+            *out = nullptr;
+        }
+        *outRoot = root;
+    }
+    return true;
+}
+
 } // namespace gpui
+
+void gpui_shim_set_token_renderer(GpuiTokenRenderFn fn) { gpui::g_tokenRender = fn; }
+void gpui_shim_set_element_cb(GpuiElementCbFn fn) { gpui::g_elementCb = fn; }

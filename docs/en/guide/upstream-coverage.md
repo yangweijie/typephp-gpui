@@ -21,7 +21,7 @@ The scripts read the vendored source, not a remote documentation snapshot.
 
 | Surface | Upstream vocabulary | PHP access | Boundary |
 |---|---|---|---|
-| `ComponentKind` | 66 enum values | 50 names in `kKindNames` (2026-10-28 batch 3 added accordion_header/trigger/panel), plus dedicated ABI paths | Subtracting 50 from 66 does not measure missing features |
+| `ComponentKind` | 66 enum values | 51 names in `kKindNames` (2026-10-28 batch 3 added accordion_header/trigger/panel; 2026-10-30 batch 3 added the accordion root — one shim entry plus `El::accordion()`), plus dedicated ABI paths | Subtracting 51 from 66 does not measure missing features |
 | Catalog | 146 export names; 161 distinct method names (pristine tree: 137/158; nine export names — batch 5's ProgressCircle/PopupMenu/ContextMenu + batch 6's CandlestickChart/SankeyChart/SearchableList + batch 7's Typewriter/GradientText/AnimatedNumber — come from the sandbox patches `cmd/patch-*.sh`) | Dedicated factories and `El::catalog($name, $args)` | Stateful constructors and synchronous callbacks still need host integration. Factories without a dedicated constructor still lack PHP-side argument hints and enum validation; failures come back through `App::registeredError()` |
 
 Distinct method names are not the sum of methods across descriptors. A shared
@@ -83,8 +83,11 @@ The "m" batch added seven factories on the same `reg()` channel with structural 
 Notification (catalog component, two-way alongside `App::notify()`), DropdownButton
 (`->menuItem()` sugar, private variant/anchor whitelists), Bubble/Marker (component-private
 enum whitelists), Message/MessageScroller/Attachment (MessageScroller's
-render_item is a row-returning callback — data channel pending batch 6; it is never put
-in a tree because it would raise `componentStates`), and the five chart families
+render_item is an **element-returning** callback — corrected 2026-10-30: the earlier text
+called it row-returning and said "data channel pending batch 6"; the batch-6 host data loop
+only carries data-returning callbacks, and element-returning callbacks are the proven
+SIGBUS fork (`BuildComponentElement` shimId split), so this half stays unconnected — it is
+never put in a tree because it would raise `componentStates`), and the five chart families
 (structure only — their data-channel failure gate is not landed: rendering the negative
 path segfaults the native process and the `ChartErrorProbe` seam has no shim install or
 read access; the keypoint is recorded in the kit selftest's skipped list).
@@ -96,8 +99,12 @@ state, no new patch needed), the catalog Accordion (multiple/bordered/size/on_to
 title argument is a SchemaElement shim gap — items are built by count with no title), and
 the four catalog upgrade sugars (Select/Combobox's rows is a row-returning callback —
 structure only, real data pending batch 6; Popover's content goes through the named slot;
-TabBar accepts only registered-side Tab; catalogHoverCard's trigger_element is a hard gap
-so it never enters a tree; optional parameters with bool/int defaults always go through
+TabBar accepts only registered-side Tab; catalogHoverCard's trigger_element (corrected
+2026-10-30 batch 2: the earlier "hard gap, never enters a tree" note is stale — the
+batch-5 element_arg bridge already carries SchemaElement method arguments, and the
+factory now takes a `?self $trigger` fed through `->elementArg('trigger_element', …)`;
+upstream treats a missing trigger as a loud per-frame Fail, not a silent gap);
+optional parameters with bool/int defaults always go through
 instance sugars — the TypePhp translator generates a default-value re-assign defect on
 mixed-default + partial-arity signatures, which fails the example translation outright,
 measured).
@@ -130,8 +137,14 @@ pure style; AnimatedNumber uses MotionAppear for count-up. Visual verification o
 effect family requires frame-by-frame snapshots or human inspection — not fully
 automatable, which is why this batch is last.
 
-`El::catalog()` remains the channel for the rest: the Accordion root (`El::accordionItem()` uses the base-kind three parts, batch 3),
-CommandGroup/Item/Separator, NativeMenu, and Resizable.
+`El::catalog()` remains the channel for the rest: the Accordion root (`El::accordionItem()` uses the base-kind three parts, batch 3).
+Batch 2 (2026-10-30) shrank the bare-channel list by three groups — dedicated factories
+now exist for CommandGroup/Item/Separator (plus typed-children validation on
+`catalogCommand`), the NativeMenu trio (NativeMenuTrigger hard-requires an
+`on_effect_error` callback, so the factory takes the error-callback id as a required
+third argument), and the catalog Resizable/ResizablePanel second face
+(`axis()`/`crossSize()` + alias sugars `panelSize`/`panelSizeRange`/`panelVisible` for
+the names that collide with kind-face helpers).
 
 Consult the constructor schema from `upstream-vocab.php` before using a generic
 factory. These names do not all have PHP-side argument hints or enum validation.
@@ -155,16 +168,38 @@ They cover seven state kinds; the reuse check expects eight entities on both the
 early and late frame. `examples/catalog` tree 2 adds TextareaState, EditorState,
 DiffState, CommandState, and CarouselState; the 2026-10-28 kit batch put
 CarouselState (via `El::carousel()`) and DataTableState (via `El::dataTable()`) into
-`src/` as well. Together these cover 13 of the 15 state kinds for creation and
+`src/` as well. Together these cover 14 of the 15 state kinds for creation and
 materialization — not every value or event payload.
 
-MessageScrollerState and ScrollbarHandle still need complete host compositions;
-they never appear in `src/` or the examples. DataTableState's **data half** is also
-open: `El::dataTable()` builds the entity plus the `rows`/`render_cell` callback
-markers, but the shim callback channel returns no values, so the row snapshot fails
-per frame — the failure is pinned by the probe counters
-(`stateCounts()['dataTableFails']`) and the data channel is a tier-B item. A state
-constructor alone does not finish those integrations.
+`ScrollbarHandle` — the last of the 15 — landed with batch 3 (corrected 2026-10-30:
+this paragraph used to say it "still needs a complete host composition"; the
+`catalogScrollbar()` / `catalogScroll()` factories construct it through the #81
+`NewHostState` channel — the creator takes no arguments (scroll.cpp:153-158 NewHandle
+ignores them), `gpui_shim_state` passes argc=0 straight through, and the kit selftest's
+`scrollbarHandleProbe` gate proves entity creation (+2), a clean registeredError, and
+the always-mode bar painted at the viewport's right edge via the shared handle).
+Earlier correction kept for the record: this paragraph also used to say
+MessageScrollerState "never appears in `src/`" — false; the
+batch-3 `El::messageScroller()` factory constructs it via
+`self::state('MessageScrollerState', …)`, and `php cmd/check-upstream-parity.php --info`
+reports it among the used state kinds. What is open is its render_item half, above).
+DataTableState's **data half** landed with batch 6 (corrected 2026-10-30: the earlier
+text said the shim callback channel returns no values and kept the data channel at
+tier B — `cmd/patch-host-data.sh` routes shim callbacks through `php::call`, rows
+snapshots return real arrays via `App::on($id, 'render_rows', …)`; the positive/negative
+gates are `dataTableRowsCallbackSuccess` / `dataTableRowsCallbackLoud` in the kit
+selftest, and the `stateCounts()['dataTableFails']` probe remains as the negative-path
+evidence). **The render_cell / render_item element half landed with batch 4** (2026-10-31
+correction: the "element callbacks are the proven SIGBUS fork" note below was
+accurate for the pre-batch-4 world — the fork in question was the **JS path's
+ElementId branch**; batch 4's patch-host-element-cb.sh adds a shimId fork in
+BuildComponentElement, so host element descriptions flow through emitTree into a
+frame arena and bypass it. The SankeyChart-era segfault's faulting frame was the
+snapshot bookkeeping misusing a PhpView entity — Get<ScriptView> has no type
+check — and is gone now that the fork uses the frame arena). MessageScroller's
+render_item has real-render evidence = the kit selftest's messageRowRender gate
+(renderCalls>0, ledgers clean; row pixels advisory). render_cell's mechanism is
+the same seam and works; the examples keep the cellText default rendering.
 
 ### Alternate host APIs
 
@@ -176,7 +211,7 @@ trigger-based window effects (see
 |---|---|
 | Dialog / AlertDialog | `App::openDialog()`, or the trigger factory `El::dialog()` / `El::alertDialog()` |
 | Sheet | `App::openSheet()`, or the trigger factory `El::sheet()` |
-| Application notification | `App::notify()` plus `El::notifications()` (the catalog `Notification` export has no factory yet) |
+| Application notification | `El::notifications()` (the kind notification layer) + `App::notify()` + `El::catalogNotification()` (corrected 2026-10-30: the note "the catalog `Notification` export has no factory yet" was stale — the batch-3 factory exists in `src/Element.php`, with `message`/`type`/`on_click`/`on_close`/`autohide` as method sugar) |
 | Tooltip | Element `tooltip()` method, or the trigger factory `El::catalogTooltip()` |
 | Clipboard | `App::clipboardText()` / `setClipboardText()` / `clipboardItem()` |
 | FpsMonitor | `App::showFpsHud()` |
@@ -185,20 +220,22 @@ trigger-based window effects (see
 
 ## 2. What the kind table does not express
 
-The 16 enum values outside the ordinary string table are:
+The 15 enum values outside the ordinary string table are:
 
-ChildView, Accordion, Pagination, AvatarImage, AvatarFallback, PathFill, PathStroke,
+ChildView, Pagination, AvatarImage, AvatarFallback, PathFill, PathStroke,
 FpsMonitor, SliderTrack, SliderIndicator, SliderThumb, DockArea, DockContent,
 VVirtualList, HVirtualList, and Registered. (AccordionHeader/Panel/Trigger joined the
-kind table on 2026-10-28 — `El::accordionItem()` assembles its three parts from them.)
+kind table on 2026-10-28 — `El::accordionItem()` assembles its three parts from them;
+the **Accordion root joined on 2026-10-30 batch 3** — one shim `kKindNames` entry plus
+`El::accordion($id, $items)`, shrinking this list from 16 to 15.)
 
-This is a **table difference**, not a list of 16 unavailable PHP features:
+This is a **table difference**, not a list of 15 unavailable PHP features:
 
 - Registered is constructed by descriptor index.
 - ChildView is used by dedicated native-view APIs.
 - DockArea has a retained Dock ABI, including panels and layout persistence.
 - FpsMonitor has a window service API.
-- Accordion and Pagination can also be represented through catalog descriptors.
+- Pagination can also be represented through catalog descriptors.
 - `list` and `uniform_list` have a synchronous host renderer; `uniform_list` is
   already in the string table. VVirtualList/HVirtualList remain distinct enum names.
 
@@ -207,8 +244,11 @@ Use their supported catalog compositions rather than inventing unknown child nam
 PathFill/PathStroke and the related drawing operations are not exposed.
 
 `table_row` and `table_cell` have factories, examples, and index tests.
-`scrollbar` is in the kind vocabulary but has no dedicated PHP factory; it must
-not be confused with the `scroll_bar` accessibility role.
+The **catalog** Scrollbar pair (Scroll + Scrollbar sharing a ScrollbarHandle) got
+dedicated factories in batch 3 (`catalogScroll()` / `catalogScrollbar()`); the bare
+`scrollbar` **kind** in the vocabulary table still has no kind factory, and the catalog
+Scrollbar rejects children and generic style (the bar is painted by the viewport that
+shares the handle). It must not be confused with the `scroll_bar` accessibility role.
 
 ## 3. Operations and styles
 
@@ -216,27 +256,33 @@ not be confused with the `scroll_bar` accessibility role.
 methods. PHP cannot send arbitrary behavior names through a public escape hatch.
 Catalog `registered_method` calls use a separate descriptor method table.
 
-The parity report currently finds 25 distinct method names, including bridge
-literals, and 24 callback names. Supported behavior includes identity, value and
-selection, `open`, tooltip/link properties, table dimensions, scrolling overflow,
-accessibility, and keyboard focus metadata. These vocabulary counts are not
+The parity report currently finds 34 distinct method names, including bridge
+literals (25 before batch 1 on 2026-10-30; the four overlay-behavior and five
+advanced-scroll op sugars raised the method-op vocabulary to 34), and 24 callback
+names. Supported behavior includes identity, value and
+selection, `open`, tooltip/link properties, table dimensions, scrolling overflow
+and the advanced-scroll modes, overlay behavior, accessibility, and keyboard focus
+metadata. These vocabulary counts are not
 interaction counts.
 
 ### Remaining operation gaps
 
 | Family | Missing or incomplete access |
 |---|---|
-| Overlay configuration | No PHP helpers for `default_open`, `overlay_closable`, `open_delay`, or `close_delay`; `open` and `on_open_change` are already connected |
+| Overlay configuration | Element-level helpers added in batch 1 (2026-10-30): `defaultOpen`, `overlayClosable`, `openDelayMs`, `closeDelayMs` — these run on the kind-node behavior chain, and the delay helpers are consumed by HoverCard only (0–60000 range rejected in PHP). Factory-level sugar also exists (catalogPopover sends default_open/overlay_closable, catalogHoverCard sends open_delay/close_delay through the descriptor's registered_method table — a different channel); `open` and `on_open_change` are already connected |
 | Events | Resize routing is connected, but physical drag delivery remains unverified; link/token delivery remains unmeasured |
-| Token rendering | The content-returning `token` callback is not integrated; `on_token_click` and `on_token_hover` are separate ordinary events |
-| Animation | No PHP `transition(prop, ms, delay, easing)` or `spring(prop, response, damping, epsilon)` API |
-| Custom drawing | No `move_to`, `line_to`, `curve_to`, `cubic_bezier_to`, `arc_to`, `close`, PathFill, or PathStroke composition |
-| Advanced scrolling | No general helper layer for `mode`, `scroll_size`, `viewport_from_layout`, `overflow_scrollbar`, `track_scroll`, or `with_item_to_measure_index` |
+| Token rendering | Integrated in batch 4 (2026-10-31): the `token` render callback is host-rendered via patch-token-render.sh (the RenderInlineToken shimId fork), and `on_token_click`/`on_token_hover` delivery is quantified (the tokenDeliveryRender gate); the chip's pixel placement is advisory (BoundsOut multi-frame settlement — see Events). The token-minting entry point is `App::inputReplaceToken` (InputReplaceWithToken) |
+| Animation | Sugars added in batch 3 (2026-10-30): `transition($property, $ms, $delayMs, $easing)` and `spring($property, $response, $damping, $epsilon)` as method ops — the C++ sampler, the JS sugar, and the ops vocabulary were all already there; PHP only lacked the names. **Only five properties are actually sampled** (materialize.cpp:900 properties array opacity/width/height/left/top; width reads the w/size style op, height reads h/size) — "upstream animatable fields are not limited to five" refers to the StyleFieldsOf mask table (the animatability surface for transition()/spring()), while the sampling surface is exactly these five; both readings live on this page. Easing whitelist linear/ease-in/ease-in-out; the cross-frame motion identity is the element `id` op (behavior.key → MotionIdentity's first choice) — an element you animate must carry `->id()`, otherwise the identity falls to specId and degrades into a per-frame jump-cut; the kit selftest's transitionInterpolation gate asserts "early frame ≠ final, later frames = final" interpolation |
+| Custom drawing | Batch 5 (2026-10-31): PathFill/PathStroke kind entries + `gpui_shim_push_path` (fills background/strokeWidth before Push) + the six command sugars (moveTo/lineTo/curveTo/cubicBezierTo/arcTo/closePath, arities aligned with runtime.cpp:8154-8177); pixel evidence = the pathPaintGate (the triangle centroid reads the exact fill color) |
+| Advanced scrolling | General helpers added in batch 1 (2026-10-30): `overflowScrollbar`, `scrollbarMode` (three-value whitelist), `viewportFromLayout`, `scrollSize`, `withItemToMeasureIndex`. Consumption boundaries, stated as they are: `overflow_scrollbar`/`mode` have real consumers (the ScrollMode assembly at materialize.cpp:2803-2804; the kit selftest adds a `scrollbarModePaintPair` gate — structural hard gate, regionRgb pixel A/B downgraded to advisory: macOS headless rendering auto-hides native scrollbars, both boxes' right-edge readings are expected to be identical, "always actually draws a scrollbar" needs real HID or --shot verification); `with_item_to_measure_index` lands on UniformList only (plain `list` logs "ignored"); `viewport_from_layout`/`scroll_size` are parsed on the behavior chain but **consumed nowhere** (recorded at :386-390, no read site below — the former's real consumer is the catalog Scrollbar descriptor; since batch 3 PHP can create the ScrollbarHandle, through `catalogScrollbar($id, …, viewportFromLayout: true)` on the registered_method channel); `track_scroll` — see the note below |
 | Other behavior | No general-purpose access to every upstream `pressed`, `indeterminate`, positioning, panel, mounting, or frame-budget operation; inspect the specific factory and ABI rather than assuming a generic method exists |
 
 `track_focus` and `content_focus_handle` are emitted by the bridge for Select.
 Their arguments are native `Bridged` handles, so a PHP string helper would be
 misleading. Use `App::focusElement($id)` to focus the handles owned by the bridge.
+`track_scroll` has the same limitation (materialize.cpp:434-440 wants a
+`BridgedKind::Number` EntityHandle that only the bridge can produce); the batch-1
+scroll helpers deliberately do not swallow it.
 
 ### Event evidence
 
@@ -254,14 +300,23 @@ accepted interactions. See [Events](./events) for the individual boundaries.
 
 ### Style vocabulary
 
-PHP emits **72 of 137 nullary keywords** and 27 parameterized style names. The
+PHP emits **135 of 137 nullary keywords** (72 before batch 1 on 2026-10-30; the 63-keyword
+diff was closed the same day) and 27 parameterized style names. The
 upstream parameter tables contain 47 families and 12 other parameter names. The
 parity gate checks that emitted names are recognized.
 
-Examples without helpers include `col_span_full`, `row_span_full`,
+The keywords that lacked helpers before batch 1 were `col_span_full`, `row_span_full`,
 `self_flex_start/_end`, `content_normal`, axis-specific hidden overflow,
-`shadow_2xs/xs/xl/2xl`, `not_italic`, several text-decoration variants, `text_left`,
-fixed flex-grow/shrink keywords, most cursors, and debug styles.
+`shadow_2xs/xs/xl/2xl`, `not_italic`, the text-decoration variants, `text_left`,
+fixed flex-grow/shrink keywords, most cursors, and the debug styles — 50 in the named
+group plus 13 more the old list never named (`col/row_start/end_auto`, `content_start/end`,
+`justify_end`, `self_baseline`, `font_extrabold/extralight`, `text_ellipsis_middle/start`,
+`whitespace_normal`), 65 in the measured diff. All but two are one-line sugars now,
+each called for real in the examples (the style domain's selftest calls all 110 in the
+compiled artifact on a detached element). The remaining two, `h_flex`/`v_flex`, are not
+gaps: their upstream keyword is a display+direction+align triple, and the PHP route is
+`El::hFlex()` / `El::vFlex()` building the kind name directly — they never belonged on
+the nullary style call surface.
 
 The `fields` member of an upstream `Keyword` is a tracked-field mask, **not arity
 and not an effectiveness flag**. `ApplyNullaryStyle()` still calls its function.
@@ -335,13 +390,12 @@ cannot prove that a listener was attached to the correct node or ever triggered.
 | Upstream topic | PHP counterpart or boundary |
 |---|---|
 | Installation / packaging | Native build and `.app` bundle through [CLI](./cli); no auto-update |
-| Windows | `createWindow()` and `windowState()`; validate each required multi-window workflow |
+| Windows | `createWindow()` accepts `['borderless','clientTitleBar']` options and `windowAction()` exposes the three verbs (batch 5, the TitleBar period-B slice); the period-C design (TitleBar as a descriptor/kind) is design-only, see Components |
 | Entity / context / render / task / global / view-cache | Not a one-to-one Rust API mapping: PHP declarations, retained native entities, and a dirty-driven loop; see [Architecture](./architecture) |
-| Styles | 72/137 nullary keywords plus parameterized helpers |
+| Styles | 135/137 nullary keywords (batch-1 diff closed; h_flex/v_flex go through kind names) plus parameterized helpers |
 | Focus | Focus metadata, `focusElement()`, native focus-trap/Escape evidence; human HID still separate |
 | Actions | `dispatchAction()` and menu-action routing |
-| Keybindings | System hotkeys exist; no general application keymap/chord API |
-| Events | 24 declared callback names, 20 with native delivery evidence |
+| Keybindings | Batch 5 (2026-10-31): `bindKeys` landed — KeyChordsParse → ShellActionOf → KeymapBind, the three steps of NativeBindKeys (whole-list pre-validation); unclaimed actions enqueue as the action event. Install receipt/table probe = the bindKeysGate hard assertion; synthesized cmd-key delivery is advisory (NSApp swallows cmd chords with no menu row; native keyboard is HID) | Events | 24 declared callback names, 20 with native delivery evidence |
 | Animation | `transition` and `spring` not exposed |
 | Paint / geometry / text | Layout and text available; no general path drawing |
 | Accessibility | Validated roles and ARIA operations; VoiceOver acceptance remains manual |

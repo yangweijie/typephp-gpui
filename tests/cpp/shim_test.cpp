@@ -74,7 +74,10 @@ void testKindFromString() {
     // （按描述符索引），ChildView 是 shim 内部挂原生子视图用的。
     const K unnameable[] = {K::Registered, K::ChildView};
 
-    const int kExpectedUnnamed = 14;
+    // 批3（2026-10-31）：kKindNames 补 {"accordion", K::Accordion}，14→13；
+    // 批5（2026-10-31）再补 {"path_fill"}/{path_stroke"}（路径绘制 kind），13→11。
+    // 下一次上游加 kind 时这里同样要跟着动。
+    const int kExpectedUnnamed = 11;
     int unnamed = 0;
     for (unsigned v = 0; v <= (unsigned)K::Registered; v++) {
         if (covered[v]) continue;

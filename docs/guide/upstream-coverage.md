@@ -17,7 +17,7 @@
 
 | 面 | 上游 | PHP 可达 | 说明 |
 |---|---|---|---|
-| `ComponentKind` 枚举值 | 66 | 50 个普通 kind 名（2026-10-28 批3 补 accordion_header/trigger/panel），另有专用 ABI | `Registered`/`ChildView`/`DockArea` 不靠普通 kind 表构造；不能用 50−66 判实际缺口 |
+| `ComponentKind` 枚举值 | 66 | 51 个普通 kind 名（2026-10-28 批3 补 accordion_header/trigger/panel；2026-10-30 批3 补 accordion 根——shim 词表一行 + `El::accordion()`），另有专用 ABI | `Registered`/`ChildView`/`DockArea` 不靠普通 kind 表构造；不能用 51−66 判实际缺口 |
 | catalog 组件 | 146 个导出名 / 161 个去重方法名（原树 137/158；9 个导出名——批5 的 ProgressCircle/PopupMenu/ContextMenu + 批6 的 CandlestickChart/SankeyChart/SearchableList + 批7 的 Typewriter/GradientText/AnimatedNumber——由沙箱补丁 cmd/patch-*.sh 补） | 专用工厂或 `El::catalog(导出名, 构造实参)` | 通用工厂不替代实体与同步回调。没有专用工厂的那批仍缺 PHP 侧的实参提示与枚举预校验，错误由 `App::registeredError()` 回读；去重方法数不能与各 descriptor 的方法出现次数混用 |
 
 **同一组件的两张脸**：base 的 `ComponentKind::Button` 只有点击与文本；画廊里带圆角、底色、
@@ -50,10 +50,14 @@ HorizontalRadioGroup 只收注册侧 Radio。
 catalog 版 Accordion（multiple/bordered/size/on_toggle；title 是 SchemaElement shim 缺口，
 按项数建、不发 title）、catalog 四颗升级糖（Select/Combobox 的 rows 是"返回数据"回调
 ——只建结构、真数据等批6；Popover 的 content 走具名槽；TabBar 只收注册侧 Tab；
-catalogHoverCard 的 trigger_element 是硬缺口不进树；签名里带 bool/int 默认值的可选参数
+catalogHoverCard 的 trigger_element（2026-10-30 批2 订正：原句"硬缺口不进树"失真——
+批5 的 element_arg 桥已把 SchemaElement 方法实参打通用，工厂加 `?self $trigger`
+经 `->elementArg('trigger_element', …)` 喂入、组件可进树；上游对缺 trigger 的处置是
+每帧 loud Fail "HoverCard requires trigger_element(element)"（hover_card.cpp:79-82），
+是硬要求不是静默缺口）；签名里带 bool/int 默认值的可选参数
 一律收实例糖——TypePhp 翻译器在混合默认值+实参不完整的签名上会生成默认值 re-assign
 缺陷，示例直接翻译失败，实测）。
-仍走 `El::catalog()` 通用通道的是：Accordion 根（`El::accordionItem()` 走的是 base kind 三段件，2026-10-28 批3）、CommandGroup/Item/Separator、NativeMenu 三件套、Resizable —— 但**没有专用工厂就意味着没有文档化的实参形状**，
+仍走 `El::catalog()` 通用通道的是：Accordion 根（`El::accordionItem()` 走的是 base kind 三段件，2026-10-28 批3）——批2（2026-10-30）把 CommandGroup/Item/Separator、NativeMenu 三件套、Resizable/ResizablePanel 三组从这份清单上摘掉（专用工厂 + typed children 校验已补；NativeMenuTrigger 的 on_effect_error 是 materialize 硬要求，工厂把错误回调 id 收成必填第三参；catalog 版 Resizable 的 `size`/`visible` 与 kind 面同名糖撞名，按别名惯例出 panelSize/panelSizeRange/panelVisible）——但**没有专用工厂就意味着没有文档化的实参形状**，
 用之前先对着上游 descriptor（`php cmd/upstream-vocab.php` 能打印）。SplitButton 是组合糖（内部发 DropdownMenu，身份见[组件 · kit 工厂批](./components#kit-工厂批-tier-a-组件的专用工厂)）不属于 catalog 导出名。批3 补上的 Notification/DropdownButton/Bubble/Marker/Message/MessageScroller/Attachment 与图表五连、批4 的 Questionnaire/Accordion/Select/Combobox/Popover/TabBar 都已出专用工厂；
 批5（第一次越出 PHP 层的批——上游改动全部经 cmd/patch-*.sh 幂等补丁落进**沙箱**
 build/gpui-kit-cpp，upstream/ 原树只读）又补四颗：ProgressCircle（widget 早随 vendored
@@ -61,7 +65,7 @@ build/gpui-kit-cpp，upstream/ 原树只读）又补四颗：ProgressCircle（wi
 （widget 层在树、descriptor 全缺——新建 overlays/popup_menu.cpp，rows 走普通子节点）、
 EmptyHeader 的 media/title/description（shim 的 SchemaElement 实参缺口——
 cmd/patch-element-arg.sh 给 bridge 加 element_arg op，`->elementArg()` 由此可喂，
-emptyState 加 `$headerSlot=true` 开关走上游原生 header 槽路）。裸通道只剩上述四组。
+emptyState 加 `$headerSlot=true` 开关走上游原生 header 槽路）。裸通道批2 后只剩 Accordion 根一组。
 顺带的词表可见面修正：提取器此前认不出"具名 constexpr 方法描述符按名收进数组"的写法
 （window_effects 的 `kDialogMethods={kTitle,kOnOk,…}`、图表与 Scrollbar 家族同款），
 kit 工厂批的 `on_ok`/`on_close` 让它假红，修复解一层引用后去重方法名 148→**157**，
@@ -82,9 +86,14 @@ TextareaState、EditorState、DiffState、CommandState、CarouselState（kit 工
 故意留了一颗 `NoSuchState` 当反向对照（`catalogStateFailureVisible` 门），把它一并判定
 就红成设计而非红成 bug。
 示例侧（含 `examples/_shared/**`）另外出现那颗对照用的 `NoSuchState`，报告里单列一行不参与判定。
-**所以真正的剩余缺口是 2 个**：`MessageScrollerState`、`ScrollbarHandle`
-——对应 MessageScroller 与滚动条把手，这两颗在我们的 `src/` 与示例里一次都没出现过
-（`grep` 零命中），不是"接了没验"而是"根本没接"。
+**所以真正的剩余缺口是 0 个**（2026-10-30 批3 订正：上一句原写"只剩 1 个——ScrollbarHandle"，
+批 3 的 `catalogScrollbar()`/`catalogScroll()` 工厂把它接上了——ScrollbarHandle 的
+creator 是无参的（scroll.cpp:153-158 NewHandle 忽略实参），`gpui_shim_state` argc=0
+直通 NewHostState 实测可用（kit selftest 的 scrollbarHandleProbe 门：实体 +2、
+registeredError 清零、共享 handle 的 always 条像素对拍通过）。
+再往前一轮的订正注："原来写 2 个——MessageScrollerState 根本没接"也是失真旧句，
+`MessageScrollerState` 早随批 3 的 `El::messageScroller()` 接进了 `src/`；词表门是抽表
+对比不是文本搜索。）MessageScrollerState 没通的 render_item 行渲染半边见下。
 **造句柄的 API 已于 2026-10-14 打通**（#81：`cmd/patch-host-state.sh` 给上游补了宿主入口
 `ShellRuntime::NewHostState`，PHP 侧是 `El::state($kind, $key, $args)`，见
 [组件 · 带样式的表单族](./components#带样式的表单族要先造一颗-state-实体-catalog-input-一族)）。
@@ -93,49 +102,66 @@ TextareaState、EditorState、DiffState、CommandState、CarouselState（kit 工
 `catalogTimeField`，覆盖 15 种 state kind 里的 7 种；`examples/input` 三条门 + 像素基线）。
 第二族的 `TextareaState`/`EditorState`/`DiffState`/`CommandState`/`CarouselState` 也已有
 实体创建、materialize 与像素验收（`examples/catalog` tree 2 与 `examples/kit` tree 2）；
-这不等于所有交互/取值均已验证。
-尚未接完整宿主组合的是 `MessageScrollerState`/`ScrollbarHandle`（都需各自的宿主组合），
-以及 **DataTableState 的数据半边**：`El::dataTable()` 已建出实体与 rows/render_cell 两个
-回调标记，但 shim 回调通道不带返回值，行快照当帧失败——失败可见性由探针读数
-（`stateCounts()['dataTableFails']`）钉住，数据通道升 tier B，不能仅凭 state 入口存在判可用。
+第 15 颗 `ScrollbarHandle` 批 3 已接（Scroll 视口 + Scrollbar 条共享一颗实体，
+`examples/kit` tree 1 小样 + scrollbarHandleProbe 门）；这不等于所有交互/取值均已验证。
+**DataTableState 的数据半边已于批 6 接通**（2026-10-30 订正：下面这段原来写"shim 回调
+通道不带返回值、数据通道升 tier B"，批 6 的 `cmd/patch-host-data.sh` 宿主数据回路落地后
+已失真——rows 快照经 shimId 分叉同步回填，`App::on($id, 'render_rows', …)` 注册处理器
+返回真数组；正/负路门在 `examples/kit` selftest 的 `dataTableRowsCallbackSuccess` /
+`dataTableRowsCallbackLoud`，探针 `stateCounts()['dataTableFails']` 保留当负路证据）。
+**render_cell / render_item 的元素半边已于批 4 接通**（2026-10-31 订正：下面这句
+"元素回调是 SIGBUS 的实证禁区"是批4 前的准确描述——禁区指的是 **JS 路的
+ElementId 分叉**；批4 的 patch-host-element-cb.sh 在 BuildComponentElement 加了
+shimId 分叉，宿主元素描述经 emitTree 进帧 arena 物化，绕开该分叉。批3 时代
+"SankeyChart 实测段错误"的崩点是快照记账误用 PhpView 实体（Get<ScriptView> 无类型
+检查），批4 改走帧 arena 后消除）。MessageScroller 的 render_item 真渲染证据 =
+kit selftest 的 messageRowRender 门（renderCalls>0、账本清零；行像素 advisory）。
+render_cell 的机制同缝已通，示例未单独接（cellText 默认渲染仍是缺省）。
 
 **看起来缺、其实走了别的路**：Dialog / AlertDialog / Sheet —— 2026-10-28 起**两条路都在**：
 `App::openDialog()`/`openSheet()` 的保留态弹窗，与真按钮触发的 catalog 工厂
 `El::dialog()`/`alertDialog()`/`sheet()`（窗口效果族，见
-[组件 · kit 工厂批](./components#kit-工厂批-tier-a-组件的专用工厂)）；Notification →
-`App::notify()`（catalog 的 Notification 导出名尚未出工厂）；Tooltip 同样两条路——
+[组件 · kit 工厂批](./components#kit-工厂批-tier-a-组件的专用工厂)）；Notification 也是
+两条路——`App::notify()` 与批 3 的 catalog 工厂 `El::catalogNotification()`
+（2026-10-30 订正：括号里那句"导出名尚未出工厂"是失真旧句，工厂在
+src/Element.php，message/type/on_click/on_close/autohide 走方法糖）；Tooltip 同样两条路——
 元素上的 `tooltip` op 与触发器组件工厂 `El::catalogTooltip()`；
 剪贴板 → `App::clipboardText()` / `setClipboardText()`；FpsMonitor → `App::showFpsHud()`。
 
-## 2. 普通 kind 表之外的 16 个枚举值
+## 2. 普通 kind 表之外的 15 个枚举值
 
-ChildView、Accordion、Pagination、AvatarImage、AvatarFallback、PathFill、PathStroke、
+ChildView、Pagination、AvatarImage、AvatarFallback、PathFill、PathStroke、
 FpsMonitor、SliderTrack、SliderIndicator、SliderThumb、DockArea、DockContent、
 VVirtualList、HVirtualList、Registered。（AccordionHeader/Panel/Trigger 三件 2026-10-28
-起在 kind 表里——`El::accordionItem()` 的三段部件靠它们拼装。）
+起在 kind 表里——`El::accordionItem()` 的三段部件靠它们拼装；**Accordion 根 2026-10-30
+批3 也进了 kind 表**——shim `kKindNames` 登记 + `El::accordion($id, $items)`，清单从
+16 减到 15。）
 
-这是**词表差集，不是 16 个不可用功能**：Registered 按 descriptor 构造，ChildView 由原生子视图
-工厂使用，DockArea 有 retained Dock 专用 ABI，FpsMonitor 有窗口服务；Accordion 根/Pagination
+这是**词表差集，不是 15 个不可用功能**：Registered 按 descriptor 构造，ChildView 由原生子视图
+工厂使用，DockArea 有 retained Dock 专用 ABI，FpsMonitor 有窗口服务；Pagination
 另有 catalog 表达。UniformList 已在普通表里，且 `list` / `uniformList` 均有宿主同步行 renderer。
 
 base Slider/Accordion 未暴露全部低层子 kind，不要凭空写 track/header 等未知节点来拼树。
-`table_row` / `table_cell` 已有工厂、示例和 index 门；`scrollbar` 虽在表中，仍没有专用 PHP 工厂。
+`table_row` / `table_cell` 已有工厂、示例和 index 门；`scrollbar` 的 **catalog 版**
+（Scroll/Scrollbar 二件，共享 ScrollbarHandle）2026-10-30 批3 已出专用工厂
+（`catalogScroll()`/`catalogScrollbar()`），kind 表里那颗裸 `scrollbar` 仍无 kind 工厂
+——catalog Scrollbar 自己拒 children/泛 style（条由共享 handle 的视口画）。
 
 ## 3. op 面：声明、投递与完整交互分开计
 
 `method()` / `callback()` / `style()` / `paramStyle()` 都是 private，没有任意行为名的公开逃生口。
-`php cmd/check-upstream-parity.php --info` 当前核得 25 个 method 名（含 bridge 硬编码）、24 个 callback 名。
-已接身份/值/选中、`open`、tooltip/href、表格维度、overflow 滚动、无障碍与焦点元数据。
+`php cmd/check-upstream-parity.php --info` 当前核得 34 个 method 名（含 bridge 硬编码；2026-10-30 批1 前是 25，浮层行为四颗 + 高级滚动五颗 op 糖把 method op 词表带到 34）、24 个 callback 名。
+已接身份/值/选中、`open`、tooltip/href、表格维度、overflow 滚动与高级滚动三态、浮层行为、无障碍与焦点元数据。
 这些是词表数量，不是交互验收数量；catalog 的 registered_method 又是另一张 descriptor 表。
 
 | 族 | 剩余缺口 / 验收边界 |
 |---|---|
-| 浮层行为 | 无 `default_open` / `overlay_closable` / `open_delay` / `close_delay` 糖；`open` 与 `on_open_change` 已接 |
+| 浮层行为 | 元素级糖已补（2026-10-30 批1：`defaultOpen`/`overlayClosable`/`openDelayMs`/`closeDelayMs`，走 kind 节点行为链；`open_delay`/`close_delay` 的消费端只有 HoverCard，`open_delay` 越界 0–60000 在 PHP 侧拒）；工厂级糖也已在（catalogPopover 发 default_open/overlay_closable、catalogHoverCard 发 open_delay/close_delay——registered 节点走 descriptor 的 registered_method 表，与元素级是两条通道）；`open` 与 `on_open_change` 已接 |
 | 事件 | 24 个名字中 20 个有原生送达证据；resize 路由已接但物理拖拽未验，link/token 送达未量，详见[事件与回调](./events) |
-| Token 渲染 | `token` 是返回内容的回调，尚未接；`on_token_click` / `on_token_hover` 是另外两种普通事件 |
-| 动画 | 无 PHP `transition(prop, ms, delay, easing)` / `spring(prop, response, damping, epsilon)`；上游可动画字段不能缩写成仅五项 |
+| Token 渲染 | 批4（2026-10-31）已接：`token` 渲染回调经 patch-token-render.sh（RenderInlineToken shimId 分叉）由宿主出元素，事件 `on_token_click`/`on_token_hover` 送达已量化（tokenDeliveryRender 门）；chip 像素落位为 advisory（BoundsOut 多帧沉降，见 events 页）。造 token 的口 = `App::inputReplaceToken`（InputReplaceWithToken） |
+| 动画 | 糖已补（2026-10-30 批3：`transition($property, $ms, $delayMs, $easing)` / `spring($property, $response, $damping, $epsilon)`，method op——上游采样器、JS 糖、ops 词表本来就在，PHP 只差发名）。**实际被采样的只有五项**（materialize.cpp:900 properties 数组 opacity/width/height/left/top；width 吃 w/size 样式 op、height 吃 h/size）——"上游可动画字段不能缩写成仅五项"说的是 StyleFieldsOf 掩码表（transition()/spring() 的可动画性判断面），采样面就是五项，两个口径都在本页。easing 三值白名单 linear/ease-in/ease-in-out；跨帧动画身份 = 元素 `id` op（behavior.key → MotionIdentity 首选），要动画的元素必须 `->id()`，否则身份落 specId、退化为逐帧跳变；kit selftest 的 transitionInterpolation 门做"早期帧≠终值、多帧后=终值"的插值断言 |
 | 自定义绘制 | 未接 `move_to` / `line_to` / `curve_to` / `cubic_bezier_to` / `arc_to` / `close` + PathFill/PathStroke |
-| 高级滚动 | 无通用 `mode` / `scroll_size` / `viewport_from_layout` / `overflow_scrollbar` / `track_scroll` / `with_item_to_measure_index` 糖 |
+| 高级滚动 | 通用糖已补（2026-10-30 批1：`overflowScrollbar`/`scrollbarMode`/`viewportFromLayout`/`scrollSize`/`withItemToMeasureIndex`，三档 mode 白名单拒未知值）。消费端分界如实记：`overflow_scrollbar`/`mode` 有真消费（ScrollMode 装配段 materialize.cpp:2803-2804，kit selftest 另有 scrollbarModePaintPair 门——结构面硬门，regionRgb 像素对拍降为 advisory：macOS 无头渲染自动隐藏原生滚动条，两盒右缘读数预期同色，"always 真的画出滚动条"需真人 HID 或 --shot 验收）；`with_item_to_measure_index` 只落 UniformList（普通 list 上游明确 log "ignored"）；`viewport_from_layout`/`scroll_size` 在 behavior 链**只解析不消费**（:386-390 记下后全树无读取点——前者的真消费端是 catalog Scrollbar descriptor，批 3 起 PHP 能造 ScrollbarHandle 了，走 `catalogScrollbar($id, …, viewportFromLayout: true)` 的 registered_method 通道）；`track_scroll` 见下句 |
 | 其他行为 | `pressed` / `indeterminate` / 定位 / panel / mounting / frame-budget 等需逐 API 核对，不能因为上游有名字就假设 PHP 可任意发出 |
 
 `choices` 已量到 open_change/confirm/dismiss，`input` 已量到 step，`table` 已量到 item 两种事件。
@@ -143,10 +169,13 @@ shell 层 Select 本来就是 combobox-role 容器，trigger 与弹层需要组�
 
 （`track_focus` / `content_focus_handle` 自 2026-10-13 起由 bridge 为 Select 发出，
 但**没有**元素级的 PHP 糖：这两个 op 的实参是一个 `Bridged` 焦点句柄，
-只有 bridge 那侧能造出来，从 PHP 传不进去。给它造个假糖只会再产一条哑路。）
+只有 bridge 那侧能造出来，从 PHP 传不进去。给它造个假糖只会再产一条哑路。
+`track_scroll` 同款限制（materialize.cpp:434-440：实参要 `BridgedKind::Number` 形的
+EntityHandle 句柄，只有 bridge 侧造得出），批 1 的滚动糖不吞它。）
 
 样式词表：上游 `style.cpp` 的零参关键字有 **137** 个（表是 `static const Keyword kKeywords[]`），
-我们发 **72** 个且**全部在册**（0 个拼错，由 `cmd/check-upstream-parity.php` 的 2c 段静态核）。
+我们发 **135** 个且**全部在册**（0 个拼错，由 `cmd/check-upstream-parity.php` 的 2c 段静态核；
+2026-10-30 批1 前是 72，差集 63 颗当日补齐）。
 带参那侧：族表 `kFamilies[]` 47 个 + `kOtherParamNames` 12 个，我们发 27 个，同样全在册。
 
 一个读表时容易上的当：`struct Keyword` 的第三个字段是 `uint32_t fields`，**它不是 arity，
@@ -162,11 +191,17 @@ opacity/w/h/left/top"当这张 C++ 表的事实：那是上游对脚本端动画
 表上方那句 "changes nothing" 说的是**空 apply**，
 而实测全表空 lambda 条目 0 个。
 
-还没糖的关键字：`col_span_full`、`row_span_full`、`self_flex_start/_end`、`content_normal`、
-`overflow_x_hidden` / `overflow_y_hidden`、`shadow_2xs/xs/xl/2xl`、`not_italic`、
-`text_decoration_*`、`text_left`（有 `textCenter/textRight` 缺它）、`flex_grow_0/1`、
-`flex_shrink_0/1`、大部分 `cursor_*`、`debug*`。补齐它们现在只差一行糖 +
-一次 `isCalled` 覆盖率门的认可。
+还没糖的关键字：2026-10-30 批1 之前列的是 `col_span_full`、`row_span_full`、
+`self_flex_start/_end`、`content_normal`、`overflow_x_hidden` / `overflow_y_hidden`、
+`shadow_2xs/xs/xl/2xl`、`not_italic`、`text_decoration_*`、`text_left`、`flex_grow_0/1`、
+`flex_shrink_0/1`、大部分 `cursor_*`、`debug*` 共 50 颗（实测点名组），加上当时没点名的
+13 颗（`col/row_start/end_auto`、`content_start/end`、`justify_end`、`self_baseline`、
+`font_extrabold/extralight`、`text_ellipsis_middle/start`、`whitespace_normal`），
+差集实算 65 颗——批1 一天补齐 63 颗（一行糖 + 一次 `isCalled` 覆盖率门的认可，
+`examples/style --selftest` 的 detached 链把 110 颗逐个真调）。现在真正剩的只有
+`h_flex` / `v_flex` 两颗：它们的上游关键字是 display+方向+对齐的三合一，我们的正路是
+`El::hFlex()` / `El::vFlex()` 直接造 kind 名（Element.php:143-157），本来就不走
+nullary style 调用面，不算洞。
 
 ## 4. 已修正的 API 与验收边界
 
@@ -216,13 +251,13 @@ Select 的焦点句柄此前从未真的交出去过）。
 | 上游页 | 状态 | 我们的对应物 / 缺口 |
 |---|---|---|
 | installation / getting-started / packaging | 🟡 | `php bin/gpui build` + bundle；打包见 [CLI](./cli)，无 auto-update |
-| window / multi-window | 🟡 | 有 `App::createWindow()`、`windowState()`，文档此前没写 |
+| window / multi-window | 🟡 | `App::createWindow()` 支持 `['borderless','clientTitleBar']` 选项与 `windowAction()` 三动词（批5，TitleBar B 期切片）；C 期（TitleBar 出 descriptor/kind）仅立项设计，见 components 页 |
 | entity / context / render / render-once / task / global / element-id / view-cache | ⛔ 概念不对应 | Rust 侧写视图的抽象；我们换成"PHP 数组 + 每帧重算 + 脏驱动"，见 [架构](./architecture) |
-| style | 部分 | nullary 关键字 72/137，参数化名字 27 个，见第 3 节 |
+| style | 部分 | nullary 关键字 135/137（2026-10-30 批1 补齐差集；剩 h_flex/v_flex 走 kind 名），参数化名字 27 个，见第 3 节 |
 | focus | 🟡 | `tab_index` `tab_stop` `key_context` 已接（2026-10-13）；`track_focus` / `content_focus_handle` 的实参是 `Bridged` 句柄，只有 bridge 造得出，故无 PHP 糖——但 2026-10-14 起 PHP 侧能用 `App::focusElement(id)` **按元素 id 把焦点放进**这些句柄（shim 按 `:t`/`:c` 命名规矩去找），dialog 的焦点陷阱**实测是通的**（`focusTrap()` 读到 `trap == focus == popup`），#62 已有原生 Escape 关框证据；真人 HID 仍归 #56，不能与进程内原生事件混同 |
 | action | 🟡 | `App::dispatchAction()` + 菜单动作路由已通；无 `bind_keys` 式键位表 |
-| keybinding | ❌ | 只有系统级全局快捷键（`onHotkey`），没有应用内键位/和弦 |
-| event | 🟡 | PHP 发出 24 个在册 `on_*` 名，实测送达 20 个：原有 14 个、部件级 open_change/confirm/dismiss/step，以及宿主虚拟列表的 item_click/item_secondary_click。列表级事件由 `examples/table` 的 `virtualItemEvents` 验证（真实点击/右键、稳定行 key、坐标、左键排除），行自身回调另由 `virtualRowListeners` 验证。resize 路由和组上监听器已修，物理按住拖拽仍需人工 HID 验收；链接/token 相关送达仍未量。见 [事件与回调](./events)。 |
+| keybinding | 批5（2026-10-31）已接 `bindKeys`：KeyChordsParse → ShellActionOf → KeymapBind 三步照 NativeBindKeys（整表先验）；动作无人接时 enqueue 成 action 事件。安装回执/表内查证 = bindKeysGate 硬断言；合成 cmd-key 送达 advisory（NSApp 吞无菜单行的 cmd 键，native 键盘归 HID） |
+| event | 🟡 | PHP 发出 24 个在册 `on_*` 名，实测送达 20 个：原有 14 个、部件级 open_change/confirm/dismiss/step，以及宿主虚拟列表的 item_click/item_secondary_click。列表级事件由 `examples/table` 的 `virtualItemEvents` 验证（真实点击/右键、稳定行 key、坐标、左键排除），行自身回调另由 `virtualRowListeners` 验证。resize 路由和组上监听器已修，物理按住拖拽仍需人工 HID 验收；链接/token 送达批4 已量化（tokenDeliveryRender/linkDelivery 门）。见 [事件与回调](./events)。 |
 | animation | ❌ | `transition`/`spring` 整族未接 |
 | paint / geometry / text-system | 🟡 | 布局与文本可用；无路径绘制（PathFill/PathStroke 未接） |
 | accessibility | 🟡 | `role`（上游 181 个名字全表白名单，写错当场抛）+ `aria_label` `aria_selected` `aria_level` `aria_active_descendant` `selectable` 已接。缺口：没有读屏侧回读口，验收只能是"op 发对了 + 像素一位没变"，VoiceOver 里到底读出什么得人工确认 |

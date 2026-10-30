@@ -54,6 +54,27 @@ function gpui_input_value(mixed $window, string $id): string {}
 /** 程序化设置 Input/Textarea 元素文本（InputSetValue）；成功返回 true。供自检/预填。 */
 function gpui_set_input_value(mixed $window, string $id, string $text): bool {}
 
+/** 批4：给 retained 输入当前选区造一颗 token（InputReplaceWithToken）。label 可空。 */
+function gpui_input_replace_token(mixed $window, string $id, string $token_id,
+                                  string $text, string $label): bool {}
+
+/** 批5：带修饰键的合成按键（flags = NSEventModifierFlag 位或；keymap 和弦匹配用）。 */
+function gpui_real_key_flags(mixed $window, int $keycode, string $chars,
+                             int $flags): int {}
+
+/** 批5：开带选项的窗口。opts: ['borderless'=>bool,'clientTitleBar'=>bool]。 */
+function gpui_window_open_opts(string $title, int $width, int $height,
+                               array $opts): mixed {}
+
+/** 批5：窗口动作动词（"minimize"|"zoom"|"close"）。 */
+function gpui_window_action(mixed $window, string $action): bool {}
+
+/** 批5：应用内键位表（[{keystroke,action,context?}]，整表先验）。返回安装条数。 */
+function gpui_bind_keys(mixed $window, array $bindings): int {}
+
+/** 批5诊断：动作是否有键位绑定。 */
+function gpui_keymap_has(string $action): bool {}
+
 /** 自检：为已注册回调合成一次事件（走真实入队路径）；成功返回 true。 */
 function gpui_selftest_fire(mixed $window, string $id, string $type): bool {}
 

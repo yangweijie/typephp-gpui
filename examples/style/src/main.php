@@ -19,8 +19,8 @@ use TypePHP\Gpui\Element as El;
 const STYLE_W = 900;
 const STYLE_H = 640;
 
-/** 2026-10-13 补的那批零参样式糖，逐个调一遍。 */
-const STYLE_SUGAR_COUNT = 47;
+/** 零参样式糖逐个调一遍：2026-10-13 批 47 颗 + 2026-10-30 批1 差集补齐 63 颗。 */
+const STYLE_SUGAR_COUNT = 110;
 
 function main(int $argc, array $argv): void
 {
@@ -108,12 +108,13 @@ function runStyleSelfTest(): void
         . ' last=' . (string) $cf['last']);
     $ok = $ok && (int) $cf['count'] === 0;
 
-    // 2) 47 个零参样式糖在**编出来的产物**里逐个调用一遍。
+    // 2) 110 个零参样式糖在**编出来的产物**里逐个调用一遍。
     //    这一格量两件事：nano 那边每个方法都真编进去了（未编进去的动态调用是 SIGABRT 而不是
     //    异常，只有跑产物能排掉），以及每个方法确实发出一条 style:<上游名字>。
     //    元素是 detached 的——不喂给 render，所以像素一位不动；shotdiff 仍全绿就是这条的证据。
-    //    47 = 这批糖的数量；名字逐个等于上游 kKeywords（拼错由 parity 门 2c 静态拦），
-    //    而"47 个不重复"防的是链上少写一个 / 同一个调两遍这种手滑。
+    //    110 = 2026-10-13 批 47 颗 + 批1（2026-10-30）差集补齐 63 颗；名字逐个等于上游
+    //    kKeywords（拼错由 parity 门 2c 静态拦，h_flex/v_flex 两颗走 El::hFlex()/vFlex()
+    //    的 kind 名、不在本链），而"110 个不重复"防的是链上少写一个 / 同一个调两遍这种手滑。
     $styleEl = El::div()
         ->block()->grid()->visible()->invisible()
         ->flexRowReverse()->flexColReverse()->flexWrapReverse()->flexNowrap()->flexAuto()->flexInitial()
@@ -125,6 +126,34 @@ function runStyleSelfTest(): void
         ->cursorText()->cursorMove()->cursorNotAllowed()->cursorGrab()
         ->fontThin()->fontLight()->fontNormal()->fontMedium()->fontBlack()
         ->textXs()->textSm()->textBase()->textLg()->textXl()->text2xl()->text3xl();
+    // 批1（2026-10-30）差集补齐的 63 颗，按 Element.php 里的分组同序接上。
+    $styleEl = $styleEl
+        // 网格线放置（6）
+        ->colStartAuto()->colEndAuto()->colSpanFull()->rowStartAuto()->rowEndAuto()->rowSpanFull()
+        // 弹性定值（4）
+        ->flexGrow0()->flexGrow1()->flexShrink0()->flexShrink1()
+        // 多行分布补档 + 主轴补档（4）
+        ->contentStart()->contentEnd()->contentNormal()->justifyEnd()
+        // 交叉轴 self_* 补档（3）
+        ->selfBaseline()->selfFlexStart()->selfFlexEnd()
+        // 字重补档（2）
+        ->fontExtrabold()->fontExtralight()
+        // 文本面（5）
+        ->textLeft()->textEllipsisMiddle()->textEllipsisStart()->whitespaceNormal()->notItalic()
+        // 轴向隐藏（2）
+        ->overflowXHidden()->overflowYHidden()
+        // 阴影四档（4）
+        ->shadow2xs()->shadowXs()->shadowXl()->shadow2xl()
+        // 文字装饰（8）
+        ->textDecorationNone()->textDecorationSolid()->textDecorationWavy()
+        ->textDecoration0()->textDecoration1()->textDecoration2()->textDecoration4()->textDecoration8()
+        // 光标 18 颗
+        ->cursorAlias()->cursorColResize()->cursorContextMenu()->cursorCopy()->cursorCrosshair()
+        ->cursorDefault()->cursorEResize()->cursorEwResize()->cursorGrabbing()->cursorNResize()
+        ->cursorNeswResize()->cursorNoDrop()->cursorNsResize()->cursorNwseResize()->cursorRowResize()
+        ->cursorSResize()->cursorVerticalText()->cursorWResize()
+        // 调试族 7 颗
+        ->debug()->debugBelow()->debugRed()->debugBlue()->debugYellow()->debugGreen()->debugPink();
     $styleNames = [];
     foreach ($styleEl->ops as $op) {
         if ($op['kind'] === 'nullary_style') {

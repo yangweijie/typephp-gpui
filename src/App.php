@@ -90,12 +90,18 @@ final class App
         \gpui_app_create();
     }
 
-    public function createWindow(string $title, int $width = 800, int $height = 600): mixed
+    public function createWindow(string $title, int $width = 800, int $height = 600,
+        ?array $opts = null): mixed
     {
         if ($this->buildingList) {
             throw new \LogicException('List renderers must not create windows.');
         }
-        $this->window = \gpui_window_open($title, $width, $height);
+        // 批5（TitleBar B 期）：$opts ['borderless'=>bool,'clientTitleBar'=>bool]。
+        if ($opts !== null) {
+            $this->window = \gpui_window_open_opts($title, $width, $height, $opts);
+        } else {
+            $this->window = \gpui_window_open($title, $width, $height);
+        }
         $this->winW = $width;
         $this->winH = $height;
         foreach ($this->listRenderers as $id => $render) {
@@ -475,6 +481,78 @@ final class App
     public function setInput(string $id, string $value): bool
     {
         return (bool) \gpui_set_input_value($this->handle(), $id, $value);
+    }
+
+    /** 批4：给 retained 输入当前选区造一颗 token（InputReplaceWithToken）——
+     *  on_token_click / on_token_hover 事件与 'token' 渲染回调的验收对象。
+     *  $label 可空（chip 上的短文本，缺省用 $text）。 */
+    public function inputReplaceToken(string $id, string $tokenId, string $text,
+                                      string $label = ''): bool
+    {
+        return (bool) \gpui_input_replace_token($this->handle(), $id, $tokenId,
+                                                $text, $label);
+    }
+
+    /** 批5：应用内键位表（cx.bind_keys 的宿主路）。$bindings 每条
+     *  ['keystroke'=>'cmd-s', 'action'=>'kit::save', 'context'=>?]；整表先验
+     *  （上游注释：半装上的 keymap 比没装更糟），任何一条不合法整表拒装并抛。
+     *  派发到窗口无人接的动作由 gpuiAppActionHandler enqueue 成 'action' 事件，
+     *  $app->on($action, 'action', …) 即收。 */
+    public function bindKeys(array $bindings): int
+    {
+        $clean = [];
+        foreach ($bindings as $i => $b) {
+            $stroke = (string) ($b['keystroke'] ?? '');
+            $action = (string) ($b['action'] ?? '');
+            $context = (string) ($b['context'] ?? '');
+            if ($stroke === '' || $action === '') {
+                throw new \InvalidArgumentException(
+                    'App::bindKeys(): binding ' . $i . ' 需要 keystroke 与非空 action');
+            }
+            $clean[] = ['keystroke' => $stroke, 'action' => $action,
+                        'context' => $context];
+        }
+        $n = \gpui_bind_keys($this->handle(), $clean);
+        if ($n !== count($clean)) {
+            throw new \RuntimeException(
+                'App::bindKeys(): 键位表被整表拒装（unparsable keystroke 或超上限），'
+                . 'lastError=' . $this->lastError());
+        }
+        return $n;
+    }
+
+    /** 批5：带修饰键的合成按键（selftest 验收 keymap 用）。
+     *  $flags = NSEventModifierFlag 位或：Command=1<<20、Option=1<<19、
+     *  Control=1<<18、Shift=1<<17。 */
+    public function realKeyFlags(int $keycode, string $chars, int $flags): bool
+    {
+        return \gpui_real_key_flags($this->handle(), $keycode, $chars, $flags) === 1;
+    }
+
+    /** 批5：窗口动作动词（TitleBar B 期最小面）。 */
+    public function windowAction(string $action): bool
+    {
+        self::oneOf('windowAction', $action, ['minimize', 'zoom', 'close']);
+        return (bool) \gpui_window_action($this->handle(), $action);
+    }
+
+    /** 批4：返回 Element 的 catalog 回调（render_item / render_cell / render_row /
+     *  token）。处理器 fn(): ?Element——null 回落上游错误行/chip；这里包一层把
+     *  Element 转成 emitTree 要的描述数组（listRenderer 同款形状），并照常进
+     *  events 泵的 handlers 表（两条路互不替代）。 */
+    public function elementCallback(string $id, string $type, callable $render): void
+    {
+        $this->on($id, $type, static function () use ($render): ?array {
+            $el = $render();
+            if ($el === null) {
+                return null;
+            }
+            if (!$el instanceof Element) {
+                throw new \UnexpectedValueException(
+                    'Element callback must return an Element or null.');
+            }
+            return $el->toArray();
+        });
     }
 
     // ── Overlay：toast / dialog ──

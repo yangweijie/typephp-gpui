@@ -102,6 +102,8 @@ function patchManifest(): array {
         ['patch-popup-menu.sh',     "$gpui/src/component_shell/overlays/mod.cpp", 'RegisterOverlaysPopupMenu'],
         ['patch-element-arg.sh',    "$root/cpp-src/gpui_bridge.cc", 'typephp-gpui: element arg bridge'],
         ['patch-host-data.sh',      "$gpui/src/shell/runtime.cpp", 'typephp-gpui: host data loop'],
+        ['patch-token-render.sh',   "$gpui/src/shell/runtime.cpp", 'typephp-gpui: host-rendered inline token'],
+        ['patch-host-element-cb.sh', "$gpui/src/shell/runtime.cpp", 'typephp-gpui: host element callback'],
         ['patch-candlestick.sh',    "$gpui/src/component_shell/chart/mod.cpp", 'typephp-gpui: candlestick chart'],
         ['patch-sankey.sh',         "$gpui/src/component_shell/chart/mod.cpp", 'typephp-gpui: sankey chart'],
         ['patch-searchable-list.sh', "$gpui/src/component_shell/delegate_collections/mod.cpp", 'RegisterSearchableList'],
@@ -286,7 +288,15 @@ switch ($cmd) {
             // 1b) 校验全部补丁落位，缺则中止（防半补丁 amalgam）。
             if (!verifyPatches()) { err('补丁未全部落位，中止'); exit(1); }
             // 2) 生成 amalgam + 编译对象（gpui-kit-cpp 自带构建）
-            $rc = run("cd " . escapeshellarg($gpui) . " && bun cmd/build.ts -rel hello_world");
+            // hello_world 的链接会因入口 main 被改名而失败（预期，GPUI.lock 构建链节
+            // 有明文）——这五行报错是每轮构建的固定噪音，不是故障：原样透传会让
+            // 上层按输出扫 "error" 的门禁误报（2026-10-31 实测）。这里抓输出、按
+            // cmd/expected-hello-world-link-noise.txt 滤掉恰好这五行再透传（模式放
+            // 文件里，run() 的命令回显不会把报错串又带进输出）；失败判定仍然只看
+            // gpui.o 在不在（下面那行），bun 的真实失败（编译错等）不受过滤影响。
+            $rc = run("cd " . escapeshellarg($gpui)
+                . " && bun cmd/build.ts -rel hello_world 2>&1 | grep -v -F -f "
+                . escapeshellarg("$root/cmd/expected-hello-world-link-noise.txt"));
             // hello_world 的链接会因入口 main 被改名而失败（预期），只要 gpui.o 新即可。
             if (!is_file($gpuiO)) { err('amalgam 对象未生成：' . $gpuiO); exit(1); }
             // 3) 建 shim 静态库

@@ -56,7 +56,8 @@ typedef struct {
 
 /* 生命周期 / 窗口。句柄对 bridge 不透明（shim 内部是 GpuiBox*）。 */
 void* gpui_shim_app_init(void);
-void* gpui_shim_open_window(const char* title, int width, int height);
+void* gpui_shim_open_window(const char* title, int width, int height,
+                          int borderless, int client_title_bar);
 int   gpui_shim_is_open(void* win);
 void  gpui_shim_pump(void* win, double max_wait_secs);
 /* 取一条待处理事件；无则返回 0，有则填充 *out 返回 1。 */
@@ -507,6 +508,48 @@ typedef struct GpuiDataNode {
 typedef GpuiDataNode* (*GpuiDataCallbackFn)(void* win, const char* id,
                                            const char* type);
 void gpui_shim_set_data_callback(GpuiDataCallbackFn fn);
+
+/* 批4：token 渲染回调（patch-token-render.sh）——App::on($id,'token',…)
+ * 登记的处理器经 bridge 的 invokeTokenRender（php::call → emitTree → 根 SpecId）。
+ * 返回 0 = PHP 返回 null / 处理器缺席（上游回落 token label chip）。 */
+typedef uint32_t (*GpuiTokenRenderFn)(void* win, const char* id, const char* type);
+void gpui_shim_set_token_renderer(GpuiTokenRenderFn fn);
+
+/* 批4：返回 Element 的 catalog 回调（patch-host-element-cb.sh）——render_item /
+ * render_cell / render_row 同缝，登记表与数据回调共用（App::on）。
+ * 返回 0 = PHP 返回 null（上游回落错误行/chip）。 */
+typedef uint32_t (*GpuiElementCbFn)(void* win, const char* id, const char* type);
+void gpui_shim_set_element_cb(GpuiElementCbFn fn);
+
+/* 批4：给 retained 输入造一颗 token（InputReplaceWithToken，base/input.cpp:5780）。
+ * label 可空。返回 1 = 成功；0 = 元素不在/不是 retained 输入/范围错误。 */
+int gpui_shim_input_replace_token(void* win, const char* id, const char* token_id,
+                                  const char* text, const char* label);
+
+/* 批5：路径绘制节点（PathFill/PathStroke）。在 Push **前**填全 Component 的
+ * background/strokeWidth（PaintMaterialPath 消费）。bgKind：0=Solid(color)、
+ * 1=LinearGradient(fromColor→toColor, angle)。命令（move_to/…）由桥按普通
+ * method op 追加到返回的 spec。返回 spec id；0 = kind 非法。 */
+uint32_t gpui_shim_push_path(void* win, const char* kind, const char* id,
+                             double stroke_width, int bg_kind, const char* color,
+                             const char* from_color, const char* to_color,
+                             double angle);
+
+/* 批5：窗口动作动词（TitleBar B 期最小面）。"minimize"|"zoom"|"close"；
+ * 未知动作写 lastError 返回 0。 */
+int gpui_shim_window_action(void* win, const char* action);
+
+/* 批5：应用内键位表（NativeBindKeys 的宿主路：KeyChordsParse → ShellActionOf →
+ * KeymapBind，整表先验、响亮失败）。返回安装条数；0 = 全表被拒。 */
+int gpui_shim_bind_keys(void* win, const char** strokes, const char** actions,
+                        const char** contexts, int n);
+
+/* 批5诊断：动作是否有键位绑定。 */
+int gpui_shim_keymap_has(const char* action);
+
+/* 批5：带修饰键的合成按键（keymap 和弦匹配读 modifierFlags）。 */
+int gpui_shim_real_key_flags(void* win, int keycode, const char* chars,
+                             unsigned long flags);
 
 /* shim 走完树后调用释放（递归；keys 数组由 bridge 分配）。 */
 void gpui_data_node_free(GpuiDataNode* node);

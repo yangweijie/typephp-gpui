@@ -188,6 +188,74 @@ uint32_t emitTree(void* win, Array node) {
     std::string value = strOf(node.get("value"));
     std::string id = strOf(node.get("id"));
 
+    // 批5：路径绘制节点——background/strokeWidth 走专用 push（在 Push **前**填全
+    // Component 字段），path_bg/path_bg_gradient/path_stroke_width 三个元 op 在
+    // 这里消费掉，其余 op（move_to/line_to/…）照常追加到返回的 spec。
+    if (kind == "path_fill" || kind == "path_stroke") {
+        double strokeWidth = 1.0;
+        int bgKind = 0;
+        std::string color, fromColor, toColor;
+        double angle = 0;
+        Array rest;
+        Variant opsV = node.get("ops");
+        if (opsV.isArray()) {
+            Array ops = opsV.toArray();
+            for (size_t oi = 0; oi < ops.count(); ++oi) {
+                Variant opV = ops.get(oi);
+                if (!opV.isArray()) continue;
+                Array op = opV.toArray();
+                std::string opKind = strOf(op.get("kind"));
+                std::string opName = strOf(op.get("name"));
+                if (opKind != "method") { rest.append(opV); continue; }
+                Variant argsV = op.get("args");
+                Array args = argsV.isArray() ? argsV.toArray() : Array();
+                if (opName == "path_bg" && args.count() >= 1) {
+                    bgKind = 0;
+                    color = strOf(args.get(0));
+                    continue;
+                }
+                if (opName == "path_bg_gradient" && args.count() >= 2) {
+                    bgKind = 1;
+                    fromColor = strOf(args.get(0));
+                    toColor = strOf(args.get(1));
+                    Variant an = args.count() >= 3 ? args.get(2) : Variant(0.0);
+                    angle = an.toFloat();
+                    continue;
+                }
+                if (opName == "path_stroke_width" && args.count() >= 1) {
+                    strokeWidth = args.get(0).toFloat();
+                    continue;
+                }
+                rest.append(opV);
+            }
+        }
+        uint32_t spec = gpui_shim_push_path(
+            win, kind.c_str(), id.c_str(), strokeWidth, bgKind, color.c_str(),
+            fromColor.c_str(), toColor.c_str(), angle);
+        if (spec == 0) return 0;
+        for (size_t oi = 0; oi < rest.count(); ++oi) {
+            Variant opV = rest.get(oi);
+            if (!opV.isArray()) continue;
+            Array op = opV.toArray();
+            std::string opKind = strOf(op.get("kind"));
+            std::string opName = strOf(op.get("name"));
+            Variant argsV = op.get("args");
+            if (opKind == "method") {
+                std::vector<GpuiArg> margs;
+                std::deque<std::string> strPool;
+                std::deque<std::vector<GpuiArg>> subPool;
+                Array args = argsV.isArray() ? argsV.toArray() : Array();
+                for (size_t ai = 0; ai < args.count(); ++ai) {
+                    margs.push_back(toArgOne(args.get(ai), win, id, strPool, subPool));
+                }
+                gpui_shim_method(win, spec, opName.c_str(), margs.data(),
+                                 (int)margs.size());
+            }
+            // 路径节点不支持 children/slot/callback——upstream childrenConsumed。
+        }
+        return spec;
+    }
+
     // Input/Textarea/Slider：先建（或复用）retained 实体，push 时按 id 附带 handle。
     // placeholder/初值从 method ops 提取（Element.placeholder()/value() 记的 op）。
     // number_input 也复用 Input 的 retained（materialize 的 NumberInput 分支要的就是
@@ -447,9 +515,80 @@ Variant php_gpui_app_create() {
 
 Variant php_gpui_window_open(String title, Int width, Int height) {
     std::string t(title.data(), title.length());
-    void* h = gpui_shim_open_window(t.c_str(), (int)width, (int)height);
+    void* h = gpui_shim_open_window(t.c_str(), (int)width, (int)height, false, false);
     if (!h) return Variant();
     return Variant{new WindowBox(h)};
+}
+
+/* 批5（TitleBar B 期）：带窗口选项的开窗。opts: ['borderless'=>bool,
+ * 'clientTitleBar'=>bool]。clientTitleBar 时顶部 34px 是 caption 带（双击最大化）。 */
+Variant php_gpui_window_open_opts(String title, Int width, Int height,
+                                  Array opts) {
+    std::string t(title.data(), title.length());
+    bool borderless = false, clientTitleBar = false;
+    {
+        Array o = opts;
+        Variant b = o.get("borderless");
+        if (b.isBool() && b.toBool()) borderless = true;
+        Variant c = o.get("clientTitleBar");
+        if (c.isBool() && c.toBool()) clientTitleBar = true;
+    }
+    void* h = gpui_shim_open_window(t.c_str(), (int)width, (int)height,
+                                    borderless, clientTitleBar);
+    if (!h) return Variant();
+    return Variant{new WindowBox(h)};
+}
+
+/* 批5：窗口动作动词（"minimize"|"zoom"|"close"）。 */
+Bool php_gpui_window_action(Variant boxVar, String action) {
+    void* win = winOf(boxVar);
+    if (!win) return false;
+    std::string a(action.data(), action.length());
+    return gpui_shim_window_action(win, a.c_str()) != 0;
+}
+
+/* 批5：应用内键位表。bindings = [{keystroke, action, context?}]，整表先验。 */
+Int php_gpui_bind_keys(Variant boxVar, Array bindings) {
+    void* win = winOf(boxVar);
+    if (!win) return 0;
+    int n = (int)bindings.count();
+    if (n <= 0) return 0;
+    std::vector<std::string> strokes((size_t)n), actions((size_t)n),
+        contexts((size_t)n);
+    std::vector<const char*> sp((size_t)n), ap((size_t)n), cp((size_t)n);
+    int i = 0;
+    for (size_t bi = 0; bi < bindings.count() && i < n; ++bi) {
+        Variant e = bindings.get(bi);
+        if (!e.isArray()) return 0;
+        Array entry = e.toArray();
+        strokes[(size_t)i] = std::string(entry.get("keystroke").toCString());
+        actions[(size_t)i] = std::string(entry.get("action").toCString());
+        Variant ctxV = entry.get("context");
+        contexts[(size_t)i] = ctxV.isString() ? std::string(ctxV.toCString())
+                                              : std::string();
+        i++;
+    }
+    for (int j = 0; j < n; j++) {
+        sp[(size_t)j] = strokes[(size_t)j].c_str();
+        ap[(size_t)j] = actions[(size_t)j].c_str();
+        cp[(size_t)j] = contexts[(size_t)j].c_str();
+    }
+    return gpui_shim_bind_keys(win, sp.data(), ap.data(), cp.data(), n);
+}
+
+/* 批5：带修饰键的合成按键（flags = NSEventModifierFlag 位或）。 */
+/* 批5诊断：动作是否有键位绑定。 */
+Bool php_gpui_keymap_has(String action) {
+    std::string a(action.data(), action.length());
+    return gpui_shim_keymap_has(a.c_str()) != 0;
+}
+
+Int php_gpui_real_key_flags(Variant boxVar, Int keycode, String chars,
+                            Int flags) {
+    void* win = winOf(boxVar);
+    if (!win) return 0;
+    return gpui_shim_real_key_flags(win, (int)keycode, chars.data(),
+                                    (unsigned long)(int64_t)flags);
 }
 
 void php_gpui_render(Variant boxVar, Array tree) {
@@ -726,6 +865,31 @@ static GpuiDataNode* invokeDataCallback(void* win, const char* id,
     return root;
 }
 
+// ── 批4：token 渲染 / 元素回调（patch-token-render.sh / patch-host-element-cb.sh）
+// 与数据回调同一本 g_dataFns 登记表（App::on 对任意 type 都登记 dataHandlers），
+// 差别只在出口：数据回调编 GpuiDataNode，这两路 php::call 后要的是**元素描述数组**
+// → emitTree → 根 SpecId（shim 侧再 ShellMaterializeSpec）。0 = PHP 返回 null /
+// 处理器缺席。
+static uint32_t invokeTokenRender(void* win, const char* id, const char* type) {
+    auto it = g_dataFns.find(dataKey(win, id, type));
+    if (it == g_dataFns.end()) return 0;
+    Array args;  // token/range 载荷经 DispatchTokenClick 构造后在这里不透——与宿主
+                 // 数据回路同口径，处理器闭包自带上下文
+    Variant r = php::call(it->second, args);
+    if (!r.isArray()) return 0;
+    return emitTree(win, r.toArray());
+}
+
+static uint32_t invokeElementCb(void* win, const char* id, const char* type) {
+    auto it = g_dataFns.find(dataKey(win, id, type));
+    if (it == g_dataFns.end()) return 0;
+    Array args;  // render_item 的 (index) / render_cell 的 (row,col) 批4 不透传，
+                 // 处理器闭包自带上下文（与数据回路同口径）
+    Variant r = php::call(it->second, args);
+    if (!r.isArray()) return 0;
+    return emitTree(win, r.toArray());
+}
+
 void php_gpui_set_data_handler(Variant boxVar, String id, String type,
                                Variant fn) {
     void* win = winOf(boxVar);
@@ -733,6 +897,8 @@ void php_gpui_set_data_handler(Variant boxVar, String id, String type,
     static bool hooked = false;
     if (!hooked) {
         gpui_shim_set_data_callback(&invokeDataCallback);
+        gpui_shim_set_token_renderer(&invokeTokenRender);
+        gpui_shim_set_element_cb(&invokeElementCb);
         hooked = true;
     }
     std::string i(id.data(), id.length());
@@ -782,6 +948,20 @@ Bool php_gpui_set_input_value(Variant boxVar, String id, String text) {
     std::string t(text.data(), text.length());
     if (!win) return false;
     return gpui_shim_set_input_value(win, i.c_str(), t.c_str()) != 0;
+}
+
+/* 批4：给 retained 输入造一颗 token（InputReplaceWithToken）。label 可空。
+ * 返回 false = 元素不在/不是 retained 输入/上游报范围错误。 */
+Bool php_gpui_input_replace_token(Variant boxVar, String id, String token_id,
+                                  String text, String label) {
+    void* win = winOf(boxVar);
+    if (!win) return false;
+    std::string i(id.data(), id.length());
+    std::string ti(token_id.data(), token_id.length());
+    std::string t(text.data(), text.length());
+    std::string l(label.data(), label.length());
+    return gpui_shim_input_replace_token(win, i.c_str(), ti.c_str(), t.c_str(),
+                                         l.c_str()) != 0;
 }
 
 Bool php_gpui_selftest_fire(Variant boxVar, String id, String type) {
