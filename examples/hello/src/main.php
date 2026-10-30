@@ -303,9 +303,12 @@ function runSelfTest(bool $expectBundle = false): void
     $ok = $ok && $sheetOpened === 1 && $sheetDuring && $sheetClosed && $app->hasSheet() === false;
 
     // 12) WebView：ChildView + host 注册的 nested view 真建出了 OS 控件。
-    //     探针读的是 wry 报的当前地址与应用盒子（不是 shim 自己记的数）。--shot 里
-    //     webview 那块是空白——离屏 cacheDisplayInRect 合成不了跨进程表面——所以这条
-    //     才是它的机器验收口；"在屏真看得见"仍属人看项。
+    //     探针读的是 wry 报的当前地址与应用盒子（不是 shim 自己记的数）。
+    //     2026-10-29 订正旧说法（"离屏 cacheDisplayInRect 合成不了跨进程表面"）：
+    //     那是**窗口没被 WindowServer 合成时**的表现；窗口在屏合成时同一张
+    //     cacheDisplay 能拿到跨进程表面（tree30 基线里的蓝块就是证据）。所以
+    //     "蓝没蓝"不能当 CI 硬门（它取决于会话能不能合成，进程内无协变量可预测，
+    //     见 #56），只作读数；这里硬断的是 regionRgb 这条 ABI 的**接线与越界守卫**。
     $app->render(El::vFlex([
         El::webviewHtml('<html><body style="margin:0;background:#1e6fd9">wv</body></html>', 'wv'),
     ])->sizeFull());
@@ -314,6 +317,11 @@ function runSelfTest(bool $expectBundle = false): void
     $navBack = $app->webviewBack('wv');
     $navFwd = $app->webviewForward('wv');
     $ok = $ok && $probe['ok'] && $probe['w'] > 0 && $probe['h'] > 0 && $navBack && $navFwd;
+    $rgbWv = $app->regionRgb(60, 60, 40, 40);
+    $rgbOob = $app->regionRgb(100000, 100000, 40, 40);
+    $rgbOk = $rgbWv !== [] && $rgbWv['r'] >= 0 && $rgbWv['r'] <= 255
+        && $rgbWv['g'] >= 0 && $rgbWv['g'] <= 255 && $rgbWv['b'] >= 0 && $rgbWv['b'] <= 255;
+    $ok = $ok && $rgbOk && $rgbOob === [];
 
     // 13) 解压：喂**外部真数据**——这两串是开发机上 PHP 的 zlib 生成的 "hello gpui"
     //     的 zlib / gzip 容器（不是 gpui 自己写的 stored 壳），所以它量的是
@@ -642,7 +650,8 @@ function runSelfTest(bool $expectBundle = false): void
             $fsOk ? 1 : 0,
             $svcOk ? 1 : 0
         )
-        : "SELFTEST FAIL (input='{$got}' fired=" . ($fired ? '1' : '0') . " clicks={$clicks} timer={$timerHits} dlg=$before/$opened/$during/$after ddcb=" . ($ddFired ? '1' : '0') . "/{$ddFires} err='$err' menu=$menuN/$menuCount clip='$clip' want='$payload' fps=$fps1/$fpsVis/$fps2/$fpsOff/$fpsAgain sheet=$sheetOpened/" . ($sheetDuring ? '1' : '0') . "/" . ($sheetClosed ? '1' : '0') . " wv=" . json_encode($probe) . " inf=" . var_export([$infZ, $infG, $infBad], true) . " watch=$watchId/$watchHits http=" . ($schemeRejected ? '1' : '0') . "/$queued/$httpHits/" . json_encode($resp) . " item=" . strlen($itemText) . "/" . strlen($itemImage) . "/" . count($item['paths']) . " sys=" . json_encode([$firstCpuZero, $noProcList, $sys1['ncpu'] ?? null, $sys1['memPct'] ?? null, $sys1['diskPct'] ?? null, $sys2['cpu'] ?? null, count($procs)]) . " notify=" . $nid . "/" . $countPush . "/" . $countAfter . "/" . implode(',', $notifEvents)
+        : "SELFTEST FAIL (input='{$got}' fired=" . ($fired ? '1' : '0') . " clicks={$clicks} timer={$timerHits} dlg=$before/$opened/$during/$after ddcb=" . ($ddFired ? '1' : '0') . "/{$ddFires} err='$err' menu=$menuN/$menuCount clip='$clip' want='$payload' fps=$fps1/$fpsVis/$fps2/$fpsOff/$fpsAgain sheet=$sheetOpened/" . ($sheetDuring ? '1' : '0') . "/" . ($sheetClosed ? '1' : '0') . " wv=" . json_encode($probe) . " rgb=" . json_encode($rgbWv)
+            . " oob=" . json_encode($rgbOob) . " inf=" . var_export([$infZ, $infG, $infBad], true) . " watch=$watchId/$watchHits http=" . ($schemeRejected ? '1' : '0') . "/$queued/$httpHits/" . json_encode($resp) . " item=" . strlen($itemText) . "/" . strlen($itemImage) . "/" . count($item['paths']) . " sys=" . json_encode([$firstCpuZero, $noProcList, $sys1['ncpu'] ?? null, $sys1['memPct'] ?? null, $sys1['diskPct'] ?? null, $sys2['cpu'] ?? null, count($procs)]) . " notify=" . $nid . "/" . $countPush . "/" . $countAfter . "/" . implode(',', $notifEvents)
             . " mac=" . var_export($macOk, true)
             . " fs=" . var_export($fsOk, true)
             . " svc=" . var_export($svcOk, true) . "/" . $deniedWhy
@@ -940,10 +949,10 @@ function runShot(string $path, int $tree = 0): void
     }
     if ($tree === 30) {
         // WebView 的 HTML 异步渲染进图层：首帧没进 cacheDisplay 背板时整块是页面底色
-        // （gdfrac=0.56586 的离散空白态）。帧数预算猜不准——120 与 600 帧都曾 5/5 全空白
-        // （2026-10-29 读数），而同一分钟 embedded 能画 ⇒ 不是会话整体问题，是这颗
-        // WebContent 的首画时机。改用**内容判据**：泵到 webview 区域平均色变成 HTML 的
-        // 蓝（#1e6fd9）为止再拍；泵不出来就照拍并打印 painted=0，让门红得可诊断。
+        // （gdfrac=0.56586 的离散空白态）。这取决于**窗口当下有没有被 WindowServer 合成**
+        // （在屏合成时同一张 cacheDisplay 拿得到跨进程表面，合成的会话里 5/5 空白），
+        // 而进程内无协变量可预测（#56 量过）⇒ 帧数预算更猜不准：120 与 600 帧都曾 5/5 空白。
+        // 所以改用**内容判据**：泵到 webview 区域平均色变成 HTML 的蓝（#1e6fd9）为止再拍。
         // 采样矩形必须落在平整蓝区（260,220）：webview 圆角边缘是白的，第一版取
         // (24,70) 恒白 ⇒ painted 恒 0（负向对照实测 tries=30）。竖向扫描确认蓝区
         // y≈120..600、x 中段，坐标系与 hits 同（y 向下）。

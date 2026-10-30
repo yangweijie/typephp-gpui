@@ -2603,4 +2603,11 @@ rc=1 且 `routeGreen=false`；kit 裸 rc=0 `KIT SELFTEST OK`（含两条 DataTab
   批5/批6 交付，授权后按名字分批提交，绝不 git add -A）；②dwfrun-341a90ac 报告
   （排队工作流 tier B/C/D 的启动前提，本地仍无）。tree30 若要在无前台会话也绿，
   需用户定夺是否改前提式门（本轮未改）。
+- **2026-10-30 核实**：①已做（五批 + tree30 一批提交，HEAD=67fc9f5）；②前提早已满足——
+  `延后清单续集.dwf.ts` 与它的 run（dwfrun-258a919a）都在 10-30 06:47，**延后清单组件正被
+  并发会话实施**（工作区那四支未跟踪 patch-*.sh 就是它），故我不再起第二条同类工作流；
+  tree30 已由 `regionRgb` 内容判据结案（#104），不再需要"改前提式门"的定夺。
+- **2026-10-31**：延后清单续集轮（批1-5，workflow e60faa0d）完成落地——样式糖/op 糖/尾洞
+  工厂/动画 transition-spring/路径绘制/键位/TitleBar 全族交付；机器毒化窗口的红门经亲验
+  `selftest kit` rc=0 + 终检 test:all 全绿结案。详见 progress.md Phase 30。
 

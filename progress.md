@@ -2607,3 +2607,50 @@ bin/gpui、GPUI.lock、tests/baseline/input/tree1.png（两度重录）、compos
 - 本轮改动未提交（等授权按一批提交）：shim 三件 + bridge + stub + FakeBridge + App +
   hello main.php + 中英 testing.md 第 5 行。
 
+### Phase 29 续：regionRgb 进 CI 的口径 + 排队工作流状态核实
+
+- hello `--selftest` 第 12 步补 regionRgb 的**确定性**断言（合法矩形非空且分量 0..255、
+  越界矩形必须 `[]`），颜色只作读数——实测同支里 shot 路径读蓝、selftest 路径读白，
+  差别是"那一刻有没有被合成"（进程内不可预测，见 findings）。红臂实测：翻转越界期望
+  ⇒ rc=1；还原 ⇒ rc=0。旧注释"离屏合成不了跨进程表面"订正为条件式说法。
+- 门：shotdiff hello OK、`composer test:all` rc=0（130/886）、check-exit-clean OK。
+- **排队工作流核实**：`.zcode/workflow-runs/` 里 dwfrun-341a90ac 是 10-28 01:52 的旧件，
+  而"延后清单"相关 run 最新一份是 **10-30 06:47**（dwfrun-258a919a，草稿 延后清单续集.dwf.ts
+  同时刻）——即用户要求等的那个前提早已满足，且**延后清单组件正被并发会话实施中**
+  （工作区未跟踪的 patch-candlestick/sankey/searchable-list/text-effects.sh 就是它的产物）。
+  ⇒ 我不再起第二条同类工作流（避免双写者），改为等他们落地后做一致性复核。
+- 待提交（本轮）：examples/hello/src/main.php（regionRgb 断言 + 两处注释订正）。
+
+### Phase 30（2026-10-31）：延后清单续集轮批1-5 经 workflow 落地；机器毒化事件记录与结案
+
+- 运行链：`.zcode/workflow-drafts/延后清单续集.dwf.ts`，258a919a 起，用户 GUI 六次换档
+  （spark→agnes-2.5→spark→会话→agnes-3.0→GLM-5.3-Flash$max）各成后继运行、缓存全吸收；
+  中途 a579ae26 被批4 门禁挂死杀死（`php` 门 world.run 超时 30min）→ v2 修订（全部门禁
+  world.run 包 tryGate 拒绝捕获，超时转 GATE-COMMAND-REJECTED 标记红，纯环境红不回炉）
+  → e60faa0d 跑完，终检三绿。
+- 战果（5 批落实 54 条、30 文件）：批1 账本订正（coverage 三处失真句核伪）+ 样式糖 65 颗
+  + 浮层行为糖 + 高级滚动糖；批2 catalogHoverCard trigger_element + Command 三件 +
+  NativeMenu 三件 + Resizable 工厂；批3 base-kind Accordion 根 + ScrollbarHandle/Scrollbar
+  + **动画 transition/spring 整族**（transitionInterpolation 三臂插值门）；批4 token 渲染
+  （patch-token-render.sh）+ **宿主元素回调正路**（patch-host-element-cb.sh：
+  BuildComponentElement 补 shimId 分叉 → gpuiBuildShimElement 调 PHP → emitTree 进宿主
+  batch → SpecId 回挂 RenderSnapshot，生存期记账齐；MessageScroller render_item /
+  DataTable render_cell / Select render_row 三族解禁，旧 SIGBUS 铁律前提被拆）；批5 新
+  C ABI 大项：**路径绘制**（pathPaintGate 三角质心+弧区像素）、**应用内键位**
+  （bindKeysGate installed=1，键盘送达 advisory 归真人 HID）、**TitleBar/窗口动作**
+  （titlebarWindowGate zoom/minimize/close 全真，未降级立项）。
+- **机器毒化事件**（升级 dwfq-a579ae26-1，已答）：sha256 相同二进制树内必红（nano 把自己
+  代码段当 PHP 源解析，Parse error 0x08@line271）+ 约 85% 游走 SIGSEGV
+  （BuildComponentElement←RenderTd 帧），树外副本三处全绿、干净 HEAD 复现、工具链 mtime
+  未变 ⇒ 定性机器态（疑 /Volumes/data 卷/页缓存或常驻索引进程），非 diff。批1/3/4 的
+  kit 门红与批3/4 phpstan/shim 红为毒化窗口快照。**毒化窗口在批5 复验前后消失**：终检三绿
+  （shotdiff check kit / 文档锚点 / composer test:all 全链）；本轮亲验
+  `php bin/gpui selftest kit` rc=0（KIT SELFTEST OK，transitionInterpolation /
+  scrollbarHandleProbe / bindKeysGate / tokenDeliveryRender / messageRowRender /
+  pathPaintGate / titlebarWindowGate 全新门过）+ doctor 六支补丁全落。
+  系统级收口（sudo purge/重启/fs_usage）未执行，机制未证——复发时按工程师证据①-⑥
+  （升级问题原文）重启排查。
+- outOfScope 5 项（i18n、wasm/mobile、语义 token 表暴露等，全文见报告）；skipped 23 条
+  （多为毒化窗口环境红记录）。报告 artifact：延后清单续集轮报告；批次看板 19 条。
+- 提交：feat 一笔（交付面 33 文件）+ docs 一笔（前会话 Phase 29 续读数 + 本节归档）。
+
