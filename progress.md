@@ -2654,3 +2654,21 @@ bin/gpui、GPUI.lock、tests/baseline/input/tree1.png（两度重录）、compos
   （多为毒化窗口环境红记录）。报告 artifact：延后清单续集轮报告；批次看板 19 条。
 - 提交：feat 一笔（交付面 33 文件）+ docs 一笔（前会话 Phase 29 续读数 + 本节归档）。
 
+### Phase 31（2026-10-31）：延后清单收尾轮完成；终检 shotdiff 红为过期拒比非像素差
+
+- 运行链：e6dc4f82（GLM 配额 1005 耗尽）→ 用户 GUI 切 spark-x2.6-4b → 3137c8a2 完成。
+  4 批落实 15 条、改动 75 个文件；报告 artifact「延后清单收尾轮报告」（52KB，卡片在列）。
+- 战果：批1 根底色 12 处字符串化（BridgedAsColor 陷阱收口）+ 13 域基线重录 + token chip/
+  scrollbarModePaintPair 像素判别臂（cmd/check-token-paint-png.sh / check-scrollbar-paint.sh）；
+  批2 TitleBar C 期（patch-title-bar.sh + El::titleBar）+ 元素级 on_action（patch-host-action-cb.sh）；
+  批3 http 图片策略落门、语义 token 表暴露读口、字体装载降设计段；批4 i18n/wasm-mobile 设计段 +
+  真人 HID 五项汇账（testing.md 前提式门）。
+- **新发现（findings 同步）**：A2 判别臂实证——宿主回调（patch-host-element-cb）subtree 有
+  像素缺口嫌疑（RenderSnapshot→paint 链，token chip/消息行像素落位仍不稳），修复另立专轮；
+  A7 字体装载参考仓无接缝（全树 grep 零命中亲验）降设计段成文；A8 img 白名单留设计决定。
+- **终检红诊断（本轮亲验）**：13 域 shotdiff check 红 = shotdiff.php staleness 守卫 rc=2 拒比
+  （批4 改 src/App.php 后仅重建 kit/system；其余 13 域二进制停在批1 时刻），非像素差；
+  system 域 check 实跑 gdfrac=0.00000 绿为对照。处置：cmd/all-examples.sh first-native
+  全量重建（首支完整链重建 shim）后复跑全域 shotdiff，红转绿即归档结案。
+- outOfScope 7 项 / skipped 11 条：报告卡片全文；真人复验清单 v2 在 testing.md。
+

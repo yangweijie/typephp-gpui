@@ -4,12 +4,14 @@
 用 TypePHP (AOT) 参考 gpui-kit-cpp（本地源码 `/Volumes/data/git/c/gpui-kit-cpp`）重新实现一套 PHP 原生桌面 GUI 框架，让 PHP 开发者能用声明式 API 构建跨平台 GPU 加速桌面应用。
 
 ## Current Phase
-**当前 = Phase 17：完成本计划所有待处理交付后，从 examples、文档、测试清除 showcase**（当前用户目标）。
-Phase 15 的功能域拆分及 Phase 16 的 catalog state 组件已交付；不重复重写。
-虚拟列表正在由真正的同步 C ABI 行渲染接通：惰性、滚动、行自身监听、列表点击/右键均有原生读数，
-但还要完成全量原生与像素复验。旧的“C ABI 禁止同步回调”结论已被实测推翻。
-Dock、英文剩余正文、runner/当前 CI 与真人 HID 验收仍需逐项完成，不能仅改勾选状态。
-showcase 仍含独有原生验收；必须迁入独立域并验收后再移除。当前检查表见 Phase 17。
+**当前 = Phase 31 收尾轮已收官（待提交）**：延后清单两轮（续集批1-5 + 收尾批1-4）全部落实，终端 shotdiff 红经全量重建证伪为过期拒比；代码级待办清空，剩真人 HID 五项与 A2 专轮立项。
+真遗留四类：A 代码可落地（三例根底色整型陷阱、TitleBar C 期 El::titleBar、元素级 on_action、语义 token 表暴露、字体装载、http 图片策略）；
+B 像素量化重试（token chip 落位、scrollbarModePaintPair always——机器已恢复）；C 真人 HID 五项汇账为前提式门 + 统一复验清单；D 设计段（i18n、wasm/mobile 结论）。
+**批1 施工轮（2026-10-31）已消化：A 类「三例根底色」实为 41 处 int 色全清 + bg/textColor/borderColor 签名收窄（13 域基线重录，catalog 根像素白→#f6f3ee 亲验）；B 类两项判别已定案——token chip：regionRgb 与 PNG 两通道一致缺席 = 宿主回调 subtree 未进 paint/合成帧（缺口实证，修复另立轮）；scrollbar always：--shot 离屏也不画（applicable=false 未判定），真人 HID 前提式验收（cmd/check-scrollbar-paint.sh）。**
+**批2 施工轮（2026-10-31）已消化：A 类「TitleBar C 期」落地 = cmd/patch-title-bar.sh 八打点 + El::titleBar() + descriptor 双通道 + kit 双门（titleBarShape/titlebarWindowGate 串联臂 debug_tree 含 TitleBar 节点）；A 类「元素级 on_action」落地 = cmd/patch-host-action-cb.sh 三打点（materialize/runtime 零改动——上游 ActionCallback 链全通）+ El::onAction() + actionDeliveryGate（fire 硬臂三段绿，dispatchAction 臂无焦点 advisory 记 C1）。shim_test 无名钉值实测纠正：新 kind 带名入表恒 11 不变（侦察"11→10"错误）。新 finding：catalog tree1 hoverCard content 关闭态泄露（0.11% 确定性，基线已重录吸收，根因另立轮）。**
+**批3 施工轮（2026-10-31）已消化：A 类「http 图片」= 远程面核心 image.cpp:223 亲读已通零 shim 改动，system 域 imageAssetRenders（资产/dataURI 像素精确命中）+ imageUrlPolicy（远程颗 hidden 前提式）双门 + 资产根 examples/system/assets/ 走 exe 父级实测；A 类「语义 token 表」= gpui_shim_theme_tokens 四层（C ABI 纯 char*，JSON 照 runtime.cpp 快照形状，ShellThemeByte round 规则复刻）+ App::themeTokens() + tokenTableExpose 门（17 键集/7+6 档/sans-mono 亲验绿）——bg('primary') 语义名获得 PHP 可查值，与批1 A1 闭环；D 类「字体装载」维持设计段（参考仓全树零接缝双重确认，coverage.md 四步将来路径 + TypographyTokens 关联已写）。**
+已随上轮终检收口不重做：RECORD-SHOTDIFF 六条（kit tree1/2/3 基线已重录且 gdfrac=0.00000、随 76dc7e3 入库）、环境毒化三条（亲验 selftest kit rc=0 结案）。
+Phase 1-30 旧叙事以尾部各 Phase 实况为准；门禁沿用 v2（tryGate 防挂）。
 
 ## Phases
 
@@ -2610,4 +2612,16 @@ rc=1 且 `routeGreen=false`；kit 裸 rc=0 `KIT SELFTEST OK`（含两条 DataTab
 - **2026-10-31**：延后清单续集轮（批1-5，workflow e60faa0d）完成落地——样式糖/op 糖/尾洞
   工厂/动画 transition-spring/路径绘制/键位/TitleBar 全族交付；机器毒化窗口的红门经亲验
   `selftest kit` rc=0 + 终检 test:all 全绿结案。详见 progress.md Phase 30。
+
+### Phase 31: 延后清单收尾轮——遗留 + skipped 全量消化（2026-10-31，完成）
+来源：dwfrun-e60faa0d 报告（用户指定路径 tmp/workflow-artifacts/.../report.md）。
+- [x] 遗留归类（findings.md 同步）：skipped 23 条去重 = 已结 10 条（RECORD-SHOTDIFF×6、毒化×3、读数有效性×1）+ 真遗留 13 条；outOfScope 5 项 = 可落地 3 + 设计段 2
+- [x] 批1｜纯 PHP/示例收尾：三例/12 处根底色字符串化 + 13 域基线重录；token chip / scrollbarModePaintPair 像素判别臂（cmd/check-token-paint-png.sh / check-scrollbar-paint.sh）——14 域 selftest 全绿
+- [x] 批2｜descriptor/糖层：TitleBar C 期（cmd/patch-title-bar.sh + El::titleBar）+ 元素级 on_action（cmd/patch-host-action-cb.sh）——C++ shim_test 绿
+- [x] 批3｜能力接缝：http 图片策略（照参考仓 img 路落门+文档）、语义 token 表暴露（读口落地）、字体装载降设计段成文（参考仓无接缝，全树 grep 零命中亲验）
+- [x] 批4｜账面与设计段：i18n 设计段、wasm/mobile 结论段、真人 HID 五项汇账（testing.md 前提式门）
+- [x] 门禁：批门全绿；**终检 13 域 shotdiff 红=二进制过期拒比（非像素差）**——all-examples first-native 全量重建后全域转绿（本轮亲验）；锚点门 + test:all 绿
+- [x] 报告 artifact + 读数归档 + 按名字分批提交（run 3137c8a2）
+- outOfScope 7 项（报告卡片全文）：A2 宿主回调像素缺口修复另立专轮（判别臂已落）、A7 字体装载落码（设计段已交）、A8 img 白名单（设计决定）
+- **收尾后的待办**：真人 HID 五项（testing.md 清单 v2）；A2 专轮立项；无代码级待办残留
 

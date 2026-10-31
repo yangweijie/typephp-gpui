@@ -2318,3 +2318,148 @@ hits 同（y 向下）。**未量到的臂**：空白态如今复现不出（会
 同源）。input main.php 四处陈旧注释已订正。教训两条：①"点 A 选 B"的期望日期必须按
 **点击那一刻的视图月**算，选外月日会导航；②旧缺陷修好后，描述它的注释与"因它而放宽的
 判据理由"要一起扫掉，否则下一轮还会照着假前提做设计。
+
+## 延后清单收尾轮的遗留归类（2026-10-31，来自 e60faa0d 报告）
+
+- **skipped 23 条去重**：已结 10 条不重做——RECORD-SHOTDIFF×6（kit tree1/2/3 基线已重录，
+  终检 gdfrac=0.00000，文件随 76dc7e3 入库）、环境毒化×3（亲验 `selftest kit` rc=0 结案，
+  毒化窗口消失但机制未证）、批1/2 读数有效性×1（终检 test:all 全链覆盖）。真遗留 13 条
+  归四类（A 代码落地 6 / B 像素重试 2 / C 真人 HID 汇账 5 / D 设计段 2），清单在 task_plan Phase 31。
+- **关键新事实（批5 抓死未修的陷阱）**：BridgedAsColor（value.cpp:119-145）只收字符串色
+  （#rrggbb/主题 token），`bg(0x2F6FED)` 整型**静默落空**读默认白——kit 域已全改字符串，
+  但 catalog/choices/chrome 三例根底色 `bg(0xF6F3EE)` 同款陷阱未动（修复会改像素需重录
+  三域基线，三例门不依赖根底色故上轮未阻塞）→ 本轮批1。
+- **TitleBar C 期设计已交**（components/coverage 两页）：卡点=TitleBar 非 descriptor 导出
+  非 ComponentKind；复刻路径=cmd/patch-title-bar.sh + kDialogMethods 具名方法表；
+  批5 B 期已给 borderless/clientTitleBar 窗口选项与 windowAction 三动词。
+- **真人 HID 类五项**（不可自动验收）：NativeMenu 行选中送达、Resizable 拖拽把手、
+  Accordion trigger on_change 送达、scrollbar always 真画、token/link 鼠标命中——
+  落账为前提式门（前提不成立记 applicable=false 未验，不假装已验），汇总进统一复验清单。
+- **上轮硬教训更新**：旧"禁元素回调"铁律已被批4 拆前提——正路=patch-host-element-cb.sh
+  宿主分叉（BuildComponentElement shimId 分叉→gpuiBuildShimElement→emitTree 进帧 arena
+  batch→SpecId 回挂 RenderSnapshot）；禁区收窄为"JS 路 ElementId 分叉/PhpView 快照误用"
+  （Get<ScriptView> 无类型检查→Vec 垃圾分配器→malloc abort 实证）。
+
+## 批1 纯 PHP/示例收尾：int 色陷阱 41 处全清 + 宿主回调 subtree 像素面缺口实证（2026-10-31，批1 施工轮）
+
+- **A1 修面范围扩大定案**：侦察口径「12 例根底色 + textColor/borderColor 零现役 int 用例」不完整——实施轮全仓
+  grep 实测 **41 处**（bg 33 / borderColor 7 / textColor 1）：12 根底色之外还有 chrome:221、hello:767 内层
+  bg，及 _shared 5 文件 21 处（embedded/data/primitives/layout/styling 的 bg+borderColor、styling 的
+  textColor）。strict_types=1 下收窄签名必须先清全部现役用例（否则 5 个域当场 TypeError），故全清后
+  `bg/textColor/borderColor` 三签名一并收窄为 `string`（src/Element.php:1358-1372，docblock 记
+  BridgedAsColor value.cpp:119-145 静默落空机制与 catalog/tree1.png 根像素白→#f6f3ee 实证）。
+  像素面生效亲验：重录后 `tests/baseline/catalog/tree1.png (400,8)` = rgb(246,243,238)（修前白
+  rgb(255,255,255)）。基线重录 13 域（12 A1 域 + hello），kit tree1-3 字节级不变（kit 无色值改动）。
+- **A2 缺口实证（finding，修复另立轮）**：tokenDeliveryRender 的宿主渲染回调（elementCallback token）
+  链路硬门全绿（造粒/事件送达/renderCalls>0），但徽章像素在两条色通道上**确定性缺席**——
+  regionRgb 全网格扫描（自证臂：同帧读 input 框内里 rgb(175,173,169)≠根底，通道活）与
+  App::snapshot 离屏 PNG（cmd/check-token-paint-png.sh，GD 同网格判读）都无红。结论：**宿主回调
+  subtree 没进 paint/合成帧**——patch-host-element-cb 正路（emitTree 进帧 arena batch→SpecId 回挂
+  RenderSnapshot）之后、paint/合成链仍有缺口；messageRowRender 同款（正盒 regionRgb=根底色）。
+  修复涉及 build/gpui-kit-cpp/src/shell 的 paint 消费段，另立轮，不并入纯 PHP 批。判别臂读数已
+  并入 step 行（PNG出图/通道对照两点）。
+- **A3 applicable=false（未判定，不硬断）**：scrollbarMode always 的 thumb 像素——regionRgb 与
+  --shot 离屏两通道都验过：tree4（sectionKitScrollbarPair，两盒同构 w220/h120/gap40/p40）经
+  cmd/check-scrollbar-paint.sh 读 (244,48)/(504,48) 右缘竖条，两盒同色 rgb(223,223,223)。
+  「无真人鼠标事件 NSScroller overlay 自动隐藏」对离屏合成同样成立。**"always 真画滚动条"只能真人
+  HID 前提式验收**——与 NativeMenu 选中/Resizable 拖拽等五项并列进统一复验清单。
+- **A3 施工读数**：首版 tree4 builder 漏 p(40)，盒从 (0,0) 起探针读根底色——行扫定位后补
+  `->p(40.0)` 与 selftest 门 244/504 同构。cmd/check-token-paint-png.sh 首版写死 /tmp 与 AOT 进程
+  `sys_get_temp_dir()`（读 TMPDIR=/var/folders/…/T/）分歧报"没出图"——脚本改 `${TMPDIR:-/tmp}` 同源。
+  两条都是「判别工具自身探针失准会伪装成被测面缺席」的活例。
+
+## 批2 壳层补丁：TitleBar C 期 + 元素级 on_action（2026-10-31，批2 施工轮）
+
+- **A4 TitleBar 落地面**：cmd/patch-title-bar.sh 八打点（spec.h 枚举插 UniformList 后
+  / spec.cpp ComponentName / runtime.cpp ComponentKindOf 词表 / materialize 分派
+  else-if（children 逐个 TitleBar::Child 进 content 槽）/ materialize Construct
+  穷尽 case / component_shell/title_bar.cpp（descriptor 无参构造+可选 title 方法
+  +MaterializeTitleBarNode 共用核心）/ families.h / lib.cpp）+ shim 词表
+  {"title_bar", K::TitleBar} + upstream 六文件整拷同步、runtime.cpp 单独插行。
+  **sync 陷阱实录**：新补丁脚本改变 stamp → sync-upstream rsync --delete 清掉沙箱
+  补丁 → patchManifest 未登记时 verifyPatches 查不到 → 半补丁 amalgam → shim 编译
+  "no member named 'TitleBar'"。登记 manifest 后链路自愈（sync 删→重打）。
+  **-Werror -Wswitch**：Construct 的穷尽 switch 缺新 case 直接编不过（批5 PathFill
+  的 return Div 占位先例同因），补丁为此加第 8 打点（独立 marker）。
+  **钉值实测纠正**：侦察"shim_test 无名钉值 11→10"是错误推断——TitleBar 是新 kind
+  带名入表，枚举总数+1、登记数+1，无名数恒 11（11 个无名值实测与批5 同一批：
+  Pagination/AvatarImage/AvatarFallback/FpsMonitor/SliderTrack/SliderIndicator/
+  SliderThumb/DockArea/DockContent/VVirtualList/HVirtualList）。区分"给既有 kind
+  补名"（减数）与"新 kind 带名入表"（不动）。
+  验收：kit selftest titleBarShape（kind/children 契约）+ titlebarWindowGate
+  串联臂（clientTitleBar 窗 debug_tree 含 TitleBar 节点）双绿；tree1 样例落在滚动
+  折叠线下，基线字节级不变（与批1 样式糖差集同款先例）。
+- **A5 on_action 落地面**：上游 op 面全通（ActionCallback 收集/OnAction 绑定/
+  OnScriptAction→DispatchAction→DispatchArgs 的 shim 分叉批4 已落）——materialize/
+  runtime **零改动**。断缝全在 shim 侧：cmd/patch-host-action-cb.sh 三打点
+  （bridge ops 循环 on_action 分支 / gpui_shim_services.inc 的 gpui_shim_on_action
+  （newCallback(id,"action")+PushShimCallback+SpecOp{kind=ActionCallback,name=动作名}
+  +shimCallbacks 登记）/ gpui_shim.h）。kit actionDeliveryGate 双臂实测：
+  fire_registered('action') 硬臂三段全绿（op 挂表+队列+PHP handler）；dispatchAction
+  真 ShellAction 派发臂在合成态无真人焦点时到不了 OnAction 监听器（=false，与
+  bindKeysGate 同款处境）→ advisory 记 C1。限制：一元素多 onAction 共用
+  (elem_id,'action') 幂等键——多动作分元素。
+
+- **catalog tree1 的 hoverCard content「关闭态泄露」（批2 发现，未修，另立轮）**：批2 重编后
+  catalog tree1 出图在 (95..177, 463..474) 多出 hoverCard content 的文字「悬停出现的卡片」
+  （catalog.php:49 的 El::hoverCard 第二参）——基线该区为底色，gdfrac=0.00110（worst=0.925），
+  3 次重跑逐像素恒定（确定性，非窗口态竞争）。批1 终检同基线 SHOTDIFF OK（亲跑），批1→批2 间
+  出现；批2 的 C++ 面未碰 HoverCard/Slot/字体——嫌疑=registry 多一个 descriptor
+  （RegisterTitleBar 插在 RegisterWindowEffects 后，其后家族 index 移位）暴露上游
+  HoverCard/DeferredSlot 的边界行为（IsOpen=false 时 content 子树仍被物化绘制），未定位到行级
+  根因。**处理**：基线已重录吸收（48622 字节，record 后 gdfrac=0.00000），泄露本体
+  （关闭态浮层内容画出）另立轮查 materialize Slot 通道与 HoverCardState 初始化。
+  教训：①判定实验前先确认对照态可构造——批1/批2 改动混在工作树未提交，git stash 会把批1 一起
+  收走（stash 期间 build 出的是"批1 之前"的图，对照无效还触发 14 域重编）；②`php <Mach-O二进制>`
+  会报 Parse error——示例二进制直接执行，不加 php 前缀。
+
+## 批3 能力接缝：http 图片 + 语义 token 表 + 字体设计段（2026-10-31，批3 施工轮）
+
+- **A8 账面更正成立**：coverage.md:264 的「无 http 图片策略」改实测口径——**远程面核心已实现**
+  （image.cpp:223-234 的 HttpFetch 状态机亲读，Pending/None 每帧重试即全部重试策略；data: URI
+  走本地解码 :115-117、本地资产走 AssetsExists）——PHP 侧 src 直传 text 字段即达，无需动 shim。
+  缺的只是策略与验收：img 路无 capability 检查（TextView 路有 Capabilities——参考仓同款不对称），
+  白名单属设计决定（tier-B shim 分叉备选）。system 域双门亲验：imageAssetRenders（资产盒
+  rgb(224,123,57)=#e07b39 精确命中、dataURI 盒 rgb(47,111,237)=#2f6fed 精确命中、debug_tree
+  image 节点 3+、错误节点清零）+ imageUrlPolicy（远程颗 hidden——像素随网络态走保基线确定，
+  「无头会话不硬断」即门本身）。**资产根实测**：repo 无 assets 目录，examples/system/assets/
+  走 exe 父级 AssetsAddDefaultRoots 的 walk parents 命中（window_common.cpp:3927 传空 name）。
+- **A6 四层一次落通**：gpui_shim_theme_tokens(void* win, char* out, int outlen)（C ABI 纯 char*
+  出参，门8 约束）→ bridge php_gpui_theme_tokens 返回 String → stub → FakeBridge 静态假表 →
+  App::themeTokens() json_decode。JSON 形状照 runtime.cpp:5893-5916 的 JS 路快照（"#rrggbb"/%g）；
+  Hsla→byte 用 runtime.cpp ShellThemeByte 的 **round 规则复刻**（公开的 HslaToRgba 是 truncate，
+  差一字节级色值）；上游 ThemeTokensSync 每 palette 构建一次。**shim 域三个编译坑**：fmt 是
+  base:: 的模板且 FmtArg 对 char*/const char* = delete（必须传 Str，runtime.cpp 同款）；StrBuilder
+  取值是 TakeStr() 不是 .str；StrL 是含全路径的宏（::base::Str{...}），加 gpui:: 前缀会展开成
+  gpui::::base 非法。tokenTableExpose 门亲验：colors 17 键集全对、primary=#171717/border=#e5e5e5
+  （语义名真解析到 palette）、spacing 7 档/radius 6 档全在册、sans=.SystemUIFont/mono=Menlo。
+  与批1 A1 闭环：bg('primary') 语义名有 PHP 侧可查值。
+- **A7 维持降设计段（双重确认）**：参考仓全树 grep 字体装载族零命中（CTFontManagerRegisterFonts/
+  AddFontMemResource/loadFont/registerFont）——paint_mac.cpp:1097 FontFor 只查系统族名（miss 回退
+  Menlo），gpui.cpp:2599 FontFamilyIntern 只是 intern（gFontFamilies[128] 上限）。落码要动 gpui
+  核心 paint 层（注册+缓存失效+id 面扩展），tier-B/L 级，不在 patch-*.sh 落壳层惯例内。设计段
+  （coverage.md「字体装载通道（设计段）」小节）写清四步将来路径与 A6 的 TypographyTokens 关联
+  （typography.sans/mono 就是装载通道要填的两个族名槽）。
+- **phpstan 亲验抓冗余**：App.php themeTokens 的 `$json === false` 恒 false（strict_types 下
+  gpui_theme_tokens 声明返回 string）——删。侦察笔误订正：composer 无 docs:build 脚本（docs 构建
+  在 docs/package.json 的 vitepress 链，本轮未跑——非 composer scripts 面）。
+- **.gitignore 例外补丁（批3 A8 附带）**：根级 `*.png` 截图规则会吞示例资产——
+  imageAssetRenders 门的判据依赖 `examples/system/assets/tile.png` 这颗真文件，
+  不入库则干净 checkout 下门必红。`.gitignore` 加 `!examples/system/assets/*.png`
+  例外（与 docs/tests 例外同款）。
+
+## 收尾轮结案读数（主会话 2026-10-31 亲验）
+
+- **终检 13 域 shotdiff 红 = 二进制过期拒比，非像素差**：shotdiff.php staleness 守卫
+  （二进制 mtime 旧于 src/App.php）rc=2 拒出数——批4 改过 src/App.php 后只重建了 kit/system，
+  其余 13 域二进制停在批1 时刻。对照：system 域（最后重建）check 实跑 gdfrac=0.00000 绿。
+  处置与结果：`bash cmd/all-examples.sh first-native`（首支完整链重建 shim，其余共用新
+  libgpui_shim.a）→ 14 域 selftest rc=0 全过 → `bash cmd/all-examples.sh shotdiff` →
+  **ALL EXAMPLES: OK（全域 gdfrac=0.00000）**。教训：**跨批改共享源码后，终检前必须全量重建，
+  否则 staleness 守卫把"没量"误报成"量了红"**——工作流终检没有全量重建步骤是脚本缺口
+  （gate 按批跑各域，终检 check 不建）。
+- **A2 宿主回调像素缺口升格立项**：cmd/check-token-paint-png.sh 判别臂实证（token chip/
+  消息行像素落位不稳）——patch-host-element-cb 的 RenderSnapshot→paint 链有缺口嫌疑，
+  修复 tier-B/L 另立专轮，不并入本轮。
+- **提交口径**：75 文件按名字分两笔（feat 交付面 + docs 计划文件归档），绝不 -A；
+  .zcode/ 不入库。
