@@ -71,7 +71,13 @@ El::popup() / El::radioGroup(array $children) / El::toggleGroup(array $children)
   兜底（首字用 preg /u 取——nano 扩展表没有 mbstring，`mb_substr` 会让模块启动直接失败）。
   在线态色点需要 absolute 叠加，未做。
 - `El::image($src, $alt)`：$alt 接进 aria_label op（以前收下即丢）。Ely 的 framed 带框
-  不做组合糖（borderWidth+rounded 自己叠，见样式糖纪律）。
+  不做组合糖（borderWidth+rounded 自己叠，见样式糖纪律）。**三路 src 都通**（批3 A8
+  实测，system 域 imageAssetRenders 门）：本地资产路径（`AssetsExists` 走查 exe 父级
+  的 `assets/`，如 `examples/system/assets/tile.png` → `El::image('tile.png')`）、
+  `data:image/png;base64,…`（本地解码）、`http(s)://…`（上游 image.cpp:223-234 的
+  HttpFetch 状态机，Pending/None 每帧重试即全部重试策略）。img 路无 capability 检查
+  （TextView 路有——参考仓同款差异）；远程像素随网络态走，示例里远程颗一律 hidden
+  保基线确定。
 - `El::svg($path)`：空串/非 .svg 后缀当场拒（svg 走 SvgDraw 直读任意资源路径，没有
   icon() 那套 icons/ 前缀校验；路径对但文件不在仍是静默空白）。
 - Tab/Shift-Tab 焦点漫游：上游窗口层本就挂着（gpui/window_common.cpp：没人吃的 Tab 走
@@ -169,6 +175,14 @@ El::catalog('Accordion', ['acc-1'])->child(El::catalog('AccordionItem', ['i1']))
 `style()` / `paramStyle()` / `method()` /
 `callback()` 都是 private —— 没有“发一个没写糖的名字”的公开口子。
 `grid`、`self_*`、`whitespace_nowrap` 等已补齐的名字见下；其余缺口见[上游覆盖](./upstream-coverage)。
+
+**颜色 op 只收 `'#rrggbb'` 字符串或主题 token 名**（background/primary/muted/…），
+不收整型——上游 `BridgedAsColor`（value.cpp:119-145）先走 `BridgedAsString`，
+`BridgedKind::Number` 直接 fail，随后 ApplyParam 失败被**静默丢弃**（materialize.cpp
+的 continue，不中断渲染不报错），int 色**悄悄落空读默认色**。2026-10-31 实证：12 个
+示例域根底色 `bg(0xF6F3EE)` 全部渲染成默认白，kit 用 `'#f6f3ee'` 则正确——41 处
+int 色已全清，`bg()`/`textColor()`/`borderColor()` 签名收窄为 `string`（strict_types
+下传 int 当场 TypeError，不再静默）。
 
 
 ### 补齐的样式关键字（47 个）
@@ -323,6 +337,24 @@ state"）。安装回执与表内查证（KeymapAnyBindingForAction）= bindKeys
 合成 cmd-key 的送达降为 advisory（NSApp 对无菜单行的 cmd 组合键在窗口派发前吞掉，
 native 键盘归真人 HID）。
 
+### 元素级动作回调：`onAction()`（批2 A5，2026-10-31）
+
+```php
+El::text('copy 源')->id('src')->onAction('kit::copy');
+$app->on('src', 'action', fn () => …);
+```
+
+op kind=`on_action`、op 的 name 就是动作名——materialize 经 `ShellActionOf`
+intern（与 `bindKeys` 的 binding.action、菜单动作**同表**，任意脚本 id 可
+intern 无白名单）挂 `element->OnAction`；`dispatchAction()`/键位命中焦点链
+上的监听器后，DispatchArgs 的 shim 分叉（批4 通道）把事件还回 PHP 队列，
+队列短名固定 `'action'`（`cmd/patch-host-action-cb.sh` 的
+`gpui_shim_on_action` 落）。kit `actionDeliveryGate`：fire_registered 硬臂
+（op 挂表+队列+PHP handler 三段）全绿；`dispatchAction` 臂在合成态无真人
+焦点时到不了 OnAction 监听器（bindKeysGate 同款处境）→ advisory 记 C1。
+限制：同一元素多次 `onAction` 共用同一队列通道（`(elem_id,'action')`
+幂等键）——多动作分到不同元素。
+
 ### 窗口选项与动作动词（批5，TitleBar B 期切片）
 
 ```php
@@ -335,10 +367,19 @@ $app->windowAction('zoom');      // minimize | zoom | close
   最大化走 window_common.cpp:2526 通道，macOS 系统红绿灯仍由 Cocoa 画在透明标题
   栏上（gpui.h WinOpts 注释）——PHP 自拼标题条做视觉、控制键归系统/窗口动作。
 - `windowAction('close')` 后 isOpen=false 是 titlebarWindowGate 的硬证据。
-- **C 期立项（未落码）**：上游 component::TitleBar 不是 descriptor 导出也不是
-  ComponentKind（PHP spec 通道造不出）——需要 cmd/patch-title-bar.sh 给
-  title_bar.h 出 descriptor/kind + `kDialogMethods` 具名方法表复刻
-  （coverage.md:65-67 先例）+ `El::titleBar()` 工厂。卡点与路径见 coverage 页。
+- **C 期已落（批2 A4，2026-10-31）**：`El::titleBar([children…])`（kind=
+  `title_bar`）+ `cmd/patch-title-bar.sh` 八打点——spec.h 枚举（插在
+  UniformList 后、Registered 前，shim_test 的无名警报循环以 Registered 为上界）、
+  spec.cpp ComponentName、runtime.cpp ComponentKindOf 词表（JS 路）、materialize
+  分派（children 逐个走 `TitleBar::Child` 的 content 槽——挂 bar 根会跟
+  PadL/ItemsCenter 打架）+ Construct 穷尽 case（-Werror -Wswitch 抓的）、
+  `component_shell/title_bar.cpp`（descriptor：无参构造 + 可选 `title` 方法；
+  MaterializeTitleBarNode 给 kind 分派复用）、families.h/lib.cpp 注册链。
+  shim 词表 `{"title_bar", K::TitleBar}` 同步，shim_test 的无名钉值**不变**
+  （新 kind 带名入表，无名数恒 11——侦察"11→10"是错误推断，实测纠正）。
+  kit selftest：`titleBarShape`（kind/children 契约）+ `titlebarWindowGate`
+  串联臂（clientTitleBar 窗内 debug_tree 含 `TitleBar` 节点）。双击最大化与
+  系统红绿灯仍归真人 HID。
 
 ### 读屏与键盘：`role()` / `aria_*` / `tab_*`
 这一族全是 behavior op，**不改变像素**，只改变读屏软件和键盘轮询看到的树。

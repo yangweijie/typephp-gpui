@@ -113,8 +113,8 @@ registeredError 清零、共享 handle 的 always 条像素对拍通过）。
 "元素回调是 SIGBUS 的实证禁区"是批4 前的准确描述——禁区指的是 **JS 路的
 ElementId 分叉**；批4 的 patch-host-element-cb.sh 在 BuildComponentElement 加了
 shimId 分叉，宿主元素描述经 emitTree 进帧 arena 物化，绕开该分叉。批3 时代
-"SankeyChart 实测段错误"的崩点是快照记账误用 PhpView 实体（Get<ScriptView> 无类型
-检查），批4 改走帧 arena 后消除）。MessageScroller 的 render_item 真渲染证据 =
+"SankeyChart 实测段错误"的崩点是快照记账误用 PhpView 实体（`Get()` 模板标签对
+ScriptView 无类型检查，Vec 拿到垃圾分配器），批4 改走帧 arena 后消除）。MessageScroller 的 render_item 真渲染证据 =
 kit selftest 的 messageRowRender 门（renderCalls>0、账本清零；行像素 advisory）。
 render_cell 的机制同缝已通，示例未单独接（cellText 默认渲染仍是缺省）。
 
@@ -251,21 +251,101 @@ Select 的焦点句柄此前从未真的交出去过）。
 | 上游页 | 状态 | 我们的对应物 / 缺口 |
 |---|---|---|
 | installation / getting-started / packaging | 🟡 | `php bin/gpui build` + bundle；打包见 [CLI](./cli)，无 auto-update |
-| window / multi-window | 🟡 | `App::createWindow()` 支持 `['borderless','clientTitleBar']` 选项与 `windowAction()` 三动词（批5，TitleBar B 期切片）；C 期（TitleBar 出 descriptor/kind）仅立项设计，见 components 页 |
+| window / multi-window | 🟡 | `App::createWindow()` 支持 `['borderless','clientTitleBar']` 选项与 `windowAction()` 三动词（批5，TitleBar B 期切片）；**C 期已落**（批2 A4，2026-10-31）：`El::titleBar()`（kind=`title_bar`）+ descriptor 双通道（`component_shell/title_bar.cpp`），`cmd/patch-title-bar.sh` 八打点（spec.h 枚举/spec.cpp 名字/runtime.cpp 词表/materialize 分派/Construct 穷尽 case/descriptor 文件/families.h/lib.cpp），kit selftest `titleBarShape` + `titlebarWindowGate` 串联臂（debug_tree 含 TitleBar 节点）实记，见 components 页 |
 | entity / context / render / render-once / task / global / element-id / view-cache | ⛔ 概念不对应 | Rust 侧写视图的抽象；我们换成"PHP 数组 + 每帧重算 + 脏驱动"，见 [架构](./architecture) |
 | style | 部分 | nullary 关键字 135/137（2026-10-30 批1 补齐差集；剩 h_flex/v_flex 走 kind 名），参数化名字 27 个，见第 3 节 |
 | focus | 🟡 | `tab_index` `tab_stop` `key_context` 已接（2026-10-13）；`track_focus` / `content_focus_handle` 的实参是 `Bridged` 句柄，只有 bridge 造得出，故无 PHP 糖——但 2026-10-14 起 PHP 侧能用 `App::focusElement(id)` **按元素 id 把焦点放进**这些句柄（shim 按 `:t`/`:c` 命名规矩去找），dialog 的焦点陷阱**实测是通的**（`focusTrap()` 读到 `trap == focus == popup`），#62 已有原生 Escape 关框证据；真人 HID 仍归 #56，不能与进程内原生事件混同 |
-| action | 🟡 | `App::dispatchAction()` + 菜单动作路由已通；无 `bind_keys` 式键位表 |
+| action | 🟡 | `App::dispatchAction()` + 菜单动作路由已通；键位表见下行；**元素级 `on_action` 已接**（批2 A5，2026-10-31）：`El::onAction('动作名')` op 经 `gpui_shim_on_action`（`cmd/patch-host-action-cb.sh`）intern 成 ShellAction 挂 `element->OnAction`，派发链 DispatchArgs 的 shim 分叉把事件还回 PHP 队列（短名 `action`，处理器 `App::on(id,'action',fn)`）。kit `actionDeliveryGate`：fire_registered 硬臂三段全绿（op 挂表+队列+送达）；dispatchAction 臂在合成态无真人焦点时到不了 OnAction 监听器 → advisory 记 C1 |
 | keybinding | 批5（2026-10-31）已接 `bindKeys`：KeyChordsParse → ShellActionOf → KeymapBind 三步照 NativeBindKeys（整表先验）；动作无人接时 enqueue 成 action 事件。安装回执/表内查证 = bindKeysGate 硬断言；合成 cmd-key 送达 advisory（NSApp 吞无菜单行的 cmd 键，native 键盘归 HID） |
 | event | 🟡 | PHP 发出 24 个在册 `on_*` 名，实测送达 20 个：原有 14 个、部件级 open_change/confirm/dismiss/step，以及宿主虚拟列表的 item_click/item_secondary_click。列表级事件由 `examples/table` 的 `virtualItemEvents` 验证（真实点击/右键、稳定行 key、坐标、左键排除），行自身回调另由 `virtualRowListeners` 验证。resize 路由和组上监听器已修，物理按住拖拽仍需人工 HID 验收；链接/token 送达批4 已量化（tokenDeliveryRender/linkDelivery 门）。见 [事件与回调](./events)。 |
 | animation | ❌ | `transition`/`spring` 整族未接 |
 | paint / geometry / text-system | 🟡 | 布局与文本可用；无路径绘制（PathFill/PathStroke 未接） |
 | accessibility | 🟡 | `role`（上游 181 个名字全表白名单，写错当场抛）+ `aria_label` `aria_selected` `aria_level` `aria_active_descendant` `selectable` 已接。缺口：没有读屏侧回读口，验收只能是"op 发对了 + 像素一位没变"，VoiceOver 里到底读出什么得人工确认 |
-| image / assets / fonts | 部分 | `El::icon` 校验 `icons/… .svg` 的路径形状，形状错抛异常；base 名不在表仍可能静默不画。无字体装载、无 http 图片策略 |
+| image / assets / fonts | 部分 | `El::icon` 校验 `icons/… .svg` 的路径形状，形状错抛异常；base 名不在表仍可能静默不画。**http 图片**：远程面核心已实现（image.cpp:223-234 的 HttpFetch 状态机，Pending/None 每帧重试即全部重试策略；data: URI 走本地解码、本地资产走 AssetsExists 走查）——PHP 侧 `El::image($src)` 的 src 直传 text 字段即达，**无 capability 策略**（TextView 路有 Capabilities 检查、img 路照参考仓惯例无；是否加白名单属设计决定）；system 域 `imageAssetRenders`/`imageUrlPolicy` 两门（批3 A8）。**字体装载：无**——设计段见[字体装载通道（设计段）](#字体装载通道设计段) |
 | i18n | ❌ | 无 locale 机制 |
 | system-notification | 已接、可见性待验 | `App::notify()` 是应用内通知，OS 通知是 `App::osNotify()`；返回 true 不等于系统横幅可见（见 [系统能力](./system-capabilities)） |
 | webview | ✅ | WKWebView 经 ChildView 挂载，含可见性回收 |
 | native-extension | ⛔ 不适用 | 我们就是宿主，不需要脚本侧 host module |
 | webassembly / mobile | ❌ | 只出 macOS/原生桌面产物 |
 | test / fps | ✅ | `--selftest` / `--shot` / shotdiff / `showFpsHud()`，见 [测试与门禁](./testing) |
-| design-guides / coding-guides / comparison | 🟡 | 设计令牌走 `App::setTheme()`；语义 token 表未暴露给 PHP |
+| design-guides / coding-guides / comparison | 🟡 | 设计令牌走 `App::setTheme()`；**语义 token 表已暴露给 PHP**（批3 A6，2026-10-31）：`App::themeTokens()` 经 `gpui_shim_theme_tokens`（C ABI 纯 `char*` 出参，testing.md 门8 约束）一次拿整表 JSON——colors 17 键 #rrggbb + spacing 7 档 + radius 6 档 + typography sans/mono，上游每 palette 构建一次（ThemeTokensSync 缓存），JSON 形状照 runtime.cpp 的 JS 路快照；system 域 `tokenTableExpose` 门断 17 键集/档位/非空值。`bg('primary')` 等语义名由此获得 PHP 侧可查值 |
+
+## 字体装载通道（设计段，批3 A7）
+
+**现状实测**：参考仓（与上游同构的 C++ pin）对字体文件装载面**零接缝**——全树
+grep `CTFontManagerRegisterFonts`/`AddFontMemResource`/`loadFont`/`registerFont`
+族零命中；字体解析只有系统族名查找：`src/gpui/paint_mac.cpp:1097` 的
+`static CTFontRef FontFor(PaintApp*, float fontSize, uint16_t weight)` 走
+`NSFontManager fontWithFamily:name`，miss 回退 Menlo/系统字（:1127-1139）；
+`src/gpui/gpui.cpp:2599` 的 `FontFamilyIntern` 只是字符串→uint8 的 intern
+（`gFontFamilies[128]` 上限）。`El::FontFamily(Str)`（gpui.h:3172）吃的是
+**intern 过的族名**，不是文件。
+
+**将来路径**（属 gpui 核心 paint 层改动，tier-B/L 级，不在本仓 patch-*.sh
+落壳层惯例内）：
+1. `CTFontManagerRegisterFontsForURL`（或内存版 `CTFontManagerRegisterFontRefs`）
+   注册字体文件进 CoreText 全局注册表；
+2. `FontFor`（paint_mac.cpp:1097）的 `pa->fonts` 缓存失效——注册后同族名必须
+   重新解析，否则旧 CTFontRef 持续命中回退字；
+3. `FontFamilyIntern` 的 id 面扩展：`gFontFamilies[128]` 上限与注册名的生命周期
+   （注册表条目先于 intern id 存活）要对齐；
+4. shim 层新 ABI（如 `int gpui_shim_font_load(const char* path, char* outName, int cap)`），
+   纯 C 门（testing.md 门8 约束禁 std::）。
+
+**与 A6 的关联**：语义表里的 `typography.sans/mono`（theme_tokens.h:27 的
+`ThemeTypographyTokens`，批3 A6 已暴露给 PHP——`App::themeTokens()['typography']`）
+就是将来装载通道要填充的两个族名槽：装载自定义字体后把 sans/mono 指到注册名，
+`El::fontFamily(...)` 与 typography 缩放即整体生效。
+
+## i18n 设计段（批4 D1）
+
+**现状**：本仓无 locale 机制（上表 ❌ 行）——PHP 面没有读口，示例没有消费，桥没有通道。
+
+**参考仓形状**（先例在，都是可复刻的运行时读口）：
+- `build/gpui-kit-cpp/port-map.md:26` 记 `locale` → `LocaleNow` 的映射；实现落
+  `src/ui/i18n.cpp:47`（`Str LocaleNow()` 返回 `kLocaleNames[gLocale]`，同文件
+  的 setter 查名置下标）——locale 是 **ui/base 侧的运行时状态**，不是构建期常量；
+- 刷新先例 = `src/shell/theme_tokens.h:21` 的 `ThemeTokensSync(app)`（批3 A6
+  的四层读口就是接在它上面的）：appearance/主题变更驱动 revision 递增、
+  thread_local 缓存整表重建——locale 变更属同族刷新，语义 token 表（含
+  typography.sans/mono）应随 locale/appearance 一起失效重建。
+
+**将来形状**（tier-B，壳层加法，无 gpui 核心改动）：
+1. `App::locale(): string` 读口——照 A6 的 `themeTokens()` 四层先例
+   （shim C ABI 纯 `char*` → bridge → stub → FakeBridge → App.php）包一层
+   `LocaleNow`；
+2. 语义 token 表随 locale/appearance 刷新：`ThemeTokensSync` 的 revision 模式
+   已经在位，locale 进 `ThemeTokensSync` 的失效键即可，`App::themeTokens()`
+   无需改形状；
+3. `App::setLocale(string)` 写口若要落，先对齐 `i18n.cpp` 的 setter 白名单
+   （`kLocaleNames` 表内名字才收）。
+
+**本轮不落码的理由**：上游 pin 的 locale 面停在 ui 层读口，shell 未暴露给宿主
+桥；且现有示例零消费（没有任何 UI 文案走 locale 表）——读口落了也没有判据可
+断，成本/收益当前不成立。真实多语言需求出现时按上面三步走，量级与 A6 相当。
+
+## webassembly/mobile 结论段（批4 D2）
+
+**结论：维持不做**，且证据经本轮订正后更硬——先订正一处账面：参考仓的窗口
+后端矩阵不是「mac/win/linux 三平台」，实况是 **mac/win/linux/wasm 四支 + 
+posix/mem_posix/window_common 共用件**（`src/gpui/` 目录 ls 实况：
+window_mac/window_win/window_linux/**window_wasm**/window_posix/
+window_mem_posix/window_common + paint_mac/paint_win/paint_linux/
+**paint_wasm**），无 iOS/Android。`window_wasm.cpp` 文件头亲读：「The browser
+window: the canvas, the DOM events, the animation-frame loop… mirror of
+Window_win.cpp and Window_linux.cpp」——参考仓的 wasm 窗后端与 Canvas2D 绘制
+后端（paint_wasm.cpp，EM_JS 直达 JavaScript）是**完整的**。
+
+所以「不做 wasm/mobile」的卡点**纯在宿主链**，三条：
+1. **宿主链绑定 Cocoa**：phpx AOT 宿主 + `-framework Cocoa` 框架链接是产物
+   形态的一部分——`cmd/onscreen-probe.sh:56`、`cmd/check-hotkey-pump.sh:51`、
+   `cmd/build-tap-probe.sh:16` 三处实见（`-framework Cocoa … -framework
+   Metal -framework QuartzCore -framework Carbon`），wasm 目标没有这条链；
+2. **wasm 面的归属差异**：参考仓的 wasm 面是 C++ shell 自画（canvas + DOM
+   事件 + animation-frame 循环），本仓宿主是 PHP → shim → gpui 整链——落
+   wasm 等于重写宿主运行时（PHP 解释/AOT 层在浏览器无对应物）；
+3. **窗口后端矩阵无移动端**：mac/win/linux/wasm 四支之外没有 iOS/Android
+   后端，「mobile」在参考仓侧同样无处可挂。
+
+决策记录：wasm/mobile 维持 ❌（上表行保持），除非产品面出现浏览器分发需求——
+届时先评估的也不是 gpui 层（后端已在），而是 PHP 宿主层的 wasm 化路径。

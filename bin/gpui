@@ -108,6 +108,17 @@ function patchManifest(): array {
         ['patch-sankey.sh',         "$gpui/src/component_shell/chart/mod.cpp", 'typephp-gpui: sankey chart'],
         ['patch-searchable-list.sh', "$gpui/src/component_shell/delegate_collections/mod.cpp", 'RegisterSearchableList'],
         ['patch-text-effects.sh',   "$gpui/src/component_shell/controls/text.cpp", 'ComponentDescriptor kTypewriter'],
+        ['patch-title-bar.sh',      "$gpui/src/shell/spec.h", 'typephp-gpui: TitleBar kind'],
+        ['patch-title-bar.sh',      "$gpui/src/shell/spec.cpp", 'typephp-gpui: TitleBar kind'],
+        ['patch-title-bar.sh',      "$gpui/src/shell/runtime.cpp", 'typephp-gpui: TitleBar kind'],
+        ['patch-title-bar.sh',      "$gpui/src/shell/materialize.cpp", 'typephp-gpui: TitleBar kind'],
+        ['patch-title-bar.sh',      "$gpui/src/shell/materialize.cpp", 'typephp-gpui: TitleBar construct case'],
+        ['patch-title-bar.sh',      "$gpui/src/component_shell/title_bar.cpp", 'RegisterTitleBar'],
+        ['patch-title-bar.sh',      "$gpui/src/component_shell/families.h", 'RegisterTitleBar'],
+        ['patch-title-bar.sh',      "$gpui/src/component_shell/lib.cpp", 'RegisterTitleBar'],
+        ['patch-host-action-cb.sh', "$root/cpp-src/gpui_bridge.cc", 'typephp-gpui: host action callback'],
+        ['patch-host-action-cb.sh', "$root/cpp-src/gpui_shim_services.inc", 'typephp-gpui: host action callback'],
+        ['patch-host-action-cb.sh', "$root/cpp-src/gpui_shim.h", 'typephp-gpui: host action callback'],
     ];
 }
 

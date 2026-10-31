@@ -32,6 +32,7 @@ static const RegisterFamily kFamilies[] = {
     &RegisterCollections,
     &RegisterCommand,
     &RegisterWindowEffects,
+    &RegisterTitleBar,  // typephp-gpui: TitleBar kind
     &RegisterOverlays,
     &RegisterRetainedForms,
     &RegisterLayout,

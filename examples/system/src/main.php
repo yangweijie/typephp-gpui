@@ -65,7 +65,7 @@ function systemTree(): El
     // 结果两棵"不同的树"拍出同一张图（基线字节数完全相同才暴露出来）。
     $builder = (int) (ExampleState::$v['section'] ?? 9) === 10
         ? 'sectionServices' : 'sectionSystem';
-    return El::vFlex([$builder(ExampleState::get())])->sizeFull()->bg(0xF6F3EE);
+    return El::vFlex([$builder(ExampleState::get())])->sizeFull()->bg('#f6f3ee');
 }
 
 function runSystemShot(string $path, int $tree): void
@@ -217,6 +217,92 @@ function runSystemSelfTest(): void
         . (string) ($info['memTotal'] ?? '?') . ' cpu=' . (string) ($info['cpu'] ?? '?')
         . ' procs=' . count((array) ($info['procs'] ?? [])));
     $ok = $ok && $infoOk;
+
+    // 10) image 三路 src（批3 A8）。独立探针窗：三颗 64x64 白底盒各挂一路 src。
+    //     ① imageAssetRenders（硬门）：本地资产 tile.png（examples/system/assets/，
+    //     exe 父级 assets 走查命中）与 data URI 4x4 蓝块两路——debug_tree 的 image
+    //     节点计数（3 颗全在，hidden 只是不画不改树）、registeredError/componentFailure
+    //     清零、两颗可见盒区域均色=图色（图没画出来就是白底 bg）。
+    //     ② imageUrlPolicy（策略门）：远程 URL 不破坏渲染管线——loop 跑完、
+    //     错误节点清零；fetch 状态没有 PHP 读口（HttpFetch 表在 image.cpp 内部），
+    //     区域色随网络态走，只读数不断言（advisory）——"无头会话不硬断"就是
+    //     这条门本身。
+    $imgApp = new App();
+    $imgApp->create();
+    $imgApp->createWindow('System Image Probe', 320, 160);
+    $imgApp->render(El::hFlex([
+        El::image('tile.png', '本地资产')->w(64.0)->h(64.0)->bg('#ffffff'),
+        El::image('data:image/png;base64,' . SY_DATA_PNG_B64, 'data URI')
+            ->w(64.0)->h(64.0)->bg('#ffffff'),
+        El::image('https://example.com/gpui-probe.png', '远程 URL')
+            ->w(64.0)->h(64.0)->bg('#ffffff')->hidden(),
+    ])->sizeFull()->p(20.0)->bg('#f6f3ee')->gap(20.0)->itemsStart());
+    $imgApp->loop(8);
+    $imgDebug = \gpui_debug_tree($imgApp->handle());
+    $imgNodes = substr_count($imgDebug, 'image');
+    $assetRgb = $imgApp->regionRgb(40, 40, 24, 24);
+    $dataRgb = $imgApp->regionRgb(124, 40, 24, 24);
+    $remoteRgb = $imgApp->regionRgb(208, 40, 24, 24);
+    $fmtRgb = static function (array $c): string {
+        return isset($c['r']) ? sprintf('rgb(%d,%d,%d)', $c['r'], $c['g'], $c['b'])
+            : json_encode($c);
+    };
+    $isOrange = isset($assetRgb['r']) && $assetRgb['r'] > 180 && $assetRgb['g'] > 80
+        && $assetRgb['g'] < 170 && $assetRgb['b'] < 110;
+    $isBlue = isset($dataRgb['b']) && $dataRgb['b'] > 180 && $dataRgb['r'] < 110;
+    $imgCf = (int) (App::componentFailure()['count'] ?? 1);
+    $assetOk = $imgNodes >= 3 && $isOrange && $isBlue
+        && $imgApp->registeredError() === '' && $imgCf === 0;
+    step('imageAssetRenders', $assetOk,
+        'image节点数=' . $imgNodes
+        . ' 资产盒=' . $fmtRgb($assetRgb) . ' dataURI盒=' . $fmtRgb($dataRgb)
+        . ' registeredError=' . ($imgApp->registeredError() === '' ? '空' : $imgApp->registeredError())
+        . ' componentFailure=' . $imgCf
+        . ($assetOk ? '' : '（资产盒不是橙/dataURI盒不是蓝：图没画出来——查 assets 根'
+            . '（examples/system/assets 走 exe 父级）与 data URI 解码）'));
+    $ok = $ok && $assetOk;
+    $policyOk = $imgApp->registeredError() === '' && $imgCf === 0;
+    step('imageUrlPolicy', $policyOk,
+        '远程盒(右侧,hidden)=' . $fmtRgb($remoteRgb)
+        . ' → fetch 只读数不断言（HttpFetch 状态无 PHP 读口，网络态决定画/不画）；'
+        . '渲染管线不因远程 URL 崩溃或挂起 = 本门硬断言部分'
+        . ($policyOk ? '' : '（错误节点没清零：远程 URL 把管线搞坏了，真卡点）'));
+    $ok = $ok && $policyOk;
+    $imgApp->close();
+
+    // 11) 语义 token 表暴露（批3 A6）：App::themeTokens() 的读口面。硬断言：
+    //     colors 键集=17 个语义名（value.cpp:137-142 名单，与 runtime.cpp 的
+    //     SetThemeColor 同表）、primary/border 非 #ffffff（语义名真的解析到
+    //     palette，不是空串兜底）、spacing 7 档/radius 6 档全在册、typography
+    //     的 sans/mono 非空（A7 设计段引用的族名读口）。appearance 切换联动
+    //     另测（outOfScope）。
+    $tokens = $app->themeTokens();
+    $expectColors = ['background', 'foreground', 'surface', 'surface_foreground',
+        'primary', 'primary_foreground', 'secondary', 'secondary_foreground',
+        'muted', 'muted_foreground', 'accent', 'accent_foreground',
+        'destructive', 'destructive_foreground', 'border', 'input', 'ring'];
+    $gotColors = array_keys((array) ($tokens['colors'] ?? []));
+    $colorsOk = $gotColors === $expectColors;
+    $primaryOk = ($tokens['colors']['primary'] ?? '') !== ''
+        && ($tokens['colors']['primary'] ?? '') !== '#ffffff';
+    $borderOk = ($tokens['colors']['border'] ?? '') !== ''
+        && ($tokens['colors']['border'] ?? '') !== '#ffffff';
+    $scaleKeys = array_keys((array) ($tokens['spacing'] ?? []));
+    $spacingOk = $scaleKeys === ['xxs', 'xs', 'sm', 'md', 'lg', 'xl', 'xxl'];
+    $radiusKeys = array_keys((array) ($tokens['radius'] ?? []));
+    $radiusOk = $radiusKeys === ['none', 'sm', 'md', 'lg', 'xl', 'full'];
+    $typoOk = ($tokens['typography']['sans'] ?? '') !== ''
+        && ($tokens['typography']['mono'] ?? '') !== '';
+    $tokOk = $colorsOk && $primaryOk && $borderOk && $spacingOk && $radiusOk && $typoOk;
+    step('tokenTableExpose', $tokOk,
+        'colors=' . count($gotColors) . ' 键集全对=' . var_export($colorsOk, true)
+        . ' primary=' . (string) ($tokens['colors']['primary'] ?? '?')
+        . ' border=' . (string) ($tokens['colors']['border'] ?? '?')
+        . ' spacing=' . count($scaleKeys) . ' 档 radius=' . count($radiusKeys) . ' 档'
+        . ' typography=' . json_encode($tokens['typography'] ?? [])
+        . ($tokOk ? '' : '（colors 键集/档位不全或值空：查 gpui_shim_theme_tokens'
+            . ' 的六读口与 ThemeTokensSync）'));
+    $ok = $ok && $tokOk;
 
     $app->close();
     echo ($ok ? 'SYSTEM SELFTEST OK' : 'SYSTEM SELFTEST FAIL') . "\n";

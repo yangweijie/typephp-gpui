@@ -28,25 +28,25 @@ function sectionLayout(array $s): El
         El::text('容器、布局与滚动')->font(22.0)->semibold(),
         El::text('flex / flexRow / flexCol / flexWrap / flexNone / flexGrow / flexShrink / gap·gapX·gapY / m·mt·mb·ml·mr / p·px·py·pt·pb·pl·pr')->font(11.0)->truncate(),
         El::hFlex([
-            El::text('m + mt')->font(12.0)->m(4.0)->mt(8.0)->bg(0xE4EAF0)->p(6.0)->roundedMd(),
-            El::text('mb + ml')->font(12.0)->mb(8.0)->ml(6.0)->bg(0xF0E8E4)->p(6.0)->roundedMd(),
-            El::text('mr + pb/pr')->font(12.0)->mr(10.0)->pb(6.0)->pr(6.0)->bg(0xE8F0E4)->pt(4.0)->pl(6.0)->roundedMd(),
-        ])->gap(0.0)->itemsStart()->bg(0xFAF8F5)->p(2.0)->roundedMd(),
+            El::text('m + mt')->font(12.0)->m(4.0)->mt(8.0)->bg('#e4eaf0')->p(6.0)->roundedMd(),
+            El::text('mb + ml')->font(12.0)->mb(8.0)->ml(6.0)->bg('#f0e8e4')->p(6.0)->roundedMd(),
+            El::text('mr + pb/pr')->font(12.0)->mr(10.0)->pb(6.0)->pr(6.0)->bg('#e8f0e4')->pt(4.0)->pl(6.0)->roundedMd(),
+        ])->gap(0.0)->itemsStart()->bg('#faf8f5')->p(2.0)->roundedMd(),
         El::hFlex([
-            El::text('flexGrow 1')->font(12.0)->flexGrow(1.0)->bg(0xE8F0E4)->p(8.0)->roundedMd(),
-            El::text('flexGrow 2')->font(12.0)->flexGrow(2.0)->bg(0xF0E8E4)->p(8.0)->roundedMd(),
-            El::text('flexShrink 0 + flexNone')->font(12.0)->flexShrink(0.0)->flexNone()->bg(0xE4EAF0)->p(8.0)->roundedMd(),
+            El::text('flexGrow 1')->font(12.0)->flexGrow(1.0)->bg('#e8f0e4')->p(8.0)->roundedMd(),
+            El::text('flexGrow 2')->font(12.0)->flexGrow(2.0)->bg('#f0e8e4')->p(8.0)->roundedMd(),
+            El::text('flexShrink 0 + flexNone')->font(12.0)->flexShrink(0.0)->flexNone()->bg('#e4eaf0')->p(8.0)->roundedMd(),
         ])->gapY(8.0)->gapX(6.0)->h(64.0),
         El::vFlex([
             El::text('itemsEnd + justifyBetween')->font(12.0),
             El::text('第二行')->font(12.0),
-        ])->gap(4.0)->p(8.0)->border()->borderColor(0xCCC6BD)->itemsStart()->itemsEnd()->justifyStart()->justifyCenter()->justifyBetween()->roundedMd()->flex()->flexCol()->flexRow()->flex1(),
+        ])->gap(4.0)->p(8.0)->border()->borderColor('#ccc6bd')->itemsStart()->itemsEnd()->justifyStart()->justifyCenter()->justifyBetween()->roundedMd()->flex()->flexCol()->flexRow()->flex1(),
         // 原生滚动：overflowYScroll 是 method/behavior op（materialize.cpp:364），不是 nullary
         // style——这是 bug #18 那轮量出来的。
         El::vFlex(array_map(
             static fn (int $i): El => El::text("可滚动第 {$i} 行")->font(12.0)->px(8.0)->py(2.0),
             range(1, 40)
-        ))->h(120.0)->overflowYScroll()->overflowXScroll()->overflowScroll()->bg(0xFAF8F5)->roundedMd(),
+        ))->h(120.0)->overflowYScroll()->overflowXScroll()->overflowScroll()->bg('#faf8f5')->roundedMd(),
         // on_resize 挂在**组**上，不挂在 panel 上：materialize 只从 h_resizable/v_resizable
         // 自己的 behavior 读它（materialize.cpp:2349-2352），panel 分支只取 size/range/visible
         // （:2361-2371）——挂在 resizablePanel 上是颗静默失效的糖（2026-10-14 查清，

@@ -50,6 +50,8 @@ that current CI or every platform is green.
 | `El::notifications($id)` | NotificationList through ChildView | Explicit visual layer required for cards |
 | `setAppMenus($menus)`, `appMenuCount()` | `BaseSetAppMenus` | Installation route; OS menu bar is outside window snapshots |
 | `menuRows()` | Menu row/action lookup | Reads declared action ids; separate from a physical menu click |
+| `setTheme(string $mode)` | Theme palette switch (upstream ThemeTokensSync builds the cache per palette) | Semantic acceptance via the next row |
+| `themeTokens(): array` | `gpui_shim_theme_tokens` (batch 3 A6) reads the six shell accessors (`theme_tokens.h:20-31`: ThemeTokenColor/Spacing/Radius + ThemeTypographyTokens + the three name tables) and folds one JSON document | `tokenTableExpose` gate (system selftest): the 17-key color set matches exactly, primary/border non-empty non-white, all 7 spacing / 6 radius steps present, sans/mono non-empty; appearance-switch coupling is tested separately |
 
 ### URL policy
 

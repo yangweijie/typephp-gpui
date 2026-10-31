@@ -96,7 +96,7 @@ gpuiRenderShimItems 同形）。两个坑都已钉死：① shim 的重前缀会
 shimId 分叉，覆盖 MessageScroller render_item / DataTable render_cell / Select
 render_row 同缝），batch 分配在 cx->a 帧 arena——**不能**走 JS 路的
 RenderSnapshot/frameSnapshots（shim 表项的 entry->view 是 PhpView 实体，
-Get<ScriptView> 无类型检查，Vec 拿到垃圾分配器，实测 malloc abort）。
+`Get()` 模板标签对 ScriptView 无类型检查，Vec 拿到垃圾分配器，实测 malloc abort）。
 验收边界：回调链路全通（tokenDeliveryRender 的 renderCalls=2630、
 messageRowRender 的 renderCalls=15 为证）；chip/行的像素落位依赖上游
 BoundsOut 的多帧沉降，无头+当前机器态下不稳定，降为 advisory 读数。
@@ -424,6 +424,16 @@ $app->onAny('action', function (array $e): void {
   与 ①② 的差别：触发器在**窗口内容里**，真点一下触发器再选行是两次真人交互
   （NSMenu 行选择是模态会话，合成点击够不到）——kit 域 selftest 只断工厂形状与
   `$app->on($action, 'action', …)` 的接线，送达证据留真人验收。
+
+**④ 批2 A5（2026-10-31）新增：元素级 `on_action`**——`El::text(...)->id('src')
+->onAction('kit::copy')`，op 的 name 就是动作名（materialize 经 `ShellActionOf`
+intern，与键位表/菜单动作同表），挂 `element->OnAction` 后 `dispatchAction()`
+或键位命中焦点链上的监听器，DispatchArgs 的 shim 分叉把事件还回队列
+（`cmd/patch-host-action-cb.sh`）。处理器写法同上（`$app->on('src','action',…)`），
+队列短名固定 `'action'`；kit `actionDeliveryGate` 的 fire_registered 硬臂
+（op 挂表+队列+PHP handler）实测全绿，`dispatchAction` 臂在合成态无真人焦点时
+到不了监听器 → advisory（bindKeysGate 同款）。限制：同一元素多次 `onAction`
+共用同一队列通道——多动作分到不同元素。
 
 `--selftest` 里对应两条门：`rows=st-new/rowsOk=true`（表里装的确实是 PHP 声明的 id）与
 `action=true/dispatched=true`（该 id 的动作回到了 PHP）。原生菜单行的"真点一下"进不了门禁

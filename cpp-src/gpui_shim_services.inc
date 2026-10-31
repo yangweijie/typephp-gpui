@@ -548,6 +548,34 @@ uint64_t gpui_shim_callback(void* win, uint32_t spec, const char* elem_id,
     return cbId;
 }
 
+// typephp-gpui: host action callback (patch-host-action-cb.sh) — the element
+// level on_action(action_name) op. Shape mirrors gpui_shim_callback: a shim
+// event entry under the fixed short type "action" plus a runtime-side table
+// entry (PushShimCallback — the dispatch point ScriptView::OnScriptAction →
+// DispatchAction → DispatchArgs only fires shim-registered ids; a bare shim
+// id would drop silently), then the SpecOp itself with kind=ActionCallback
+// and name=the action's name (materialize interns it via ShellActionOf).
+uint64_t gpui_shim_on_action(void* win, uint32_t spec,
+                             const char* action_name, const char* elem_id) {
+    auto* box = static_cast<Box2*>(win);
+    uint64_t cb = box->newCallback(elem_id, "action");
+    uint64_t cbId = cb;
+    if (g_runtime && box->viewEntity.IsValid()) {
+        uint64_t rt = g_runtime->PushShimCallback(box->viewEntity, cb);
+        if (rt) cbId = rt;
+    }
+    gpui::shell::SpecOp so;
+    so.kind = gpui::shell::SpecOpKind::ActionCallback;
+    so.name = cppStr(action_name ? action_name : "");
+    so.callback = cbId;
+    if (cbId != cb) {
+        std::string key = std::string(elem_id ? elem_id : "") + "\x1f" + "action";
+        box->shimCallbacks[key] = cbId;
+    }
+    box->arena().PushOp(spec, so);
+    return cbId;
+}
+
 void gpui_shim_attach(void* win, uint32_t parent, uint32_t child) {
     auto* box = static_cast<Box2*>(win);
     box->arena().Attach(parent, child);
@@ -732,6 +760,92 @@ int gpui_shim_state(void* win, const char* kind, const char* key,
     box->stateHandles[cacheKey] = created;
     *handle = created;
     return 1;
+}
+
+// typephp-gpui: theme tokens table (batch 3 A6). The whole semantic table as
+// one JSON document, same shape the JS route builds in runtime.cpp
+// (AppendThemeColor spells "#rrggbb", scales spell "%g"): upstream builds it
+// once per palette (ThemeTokensSync) and this reads the six shell accessors
+// (ThemeColorTokenNames/ThemeTokenColor + Spacing/Radius + ThemeTypographyTokens
+// for the sans/mono family names A7's design section points at). The Hsla→byte
+// rounding is runtime.cpp's ShellThemeByte rule (round, not truncate — exact
+// script hex colors survive), replicated here because that one is static.
+static uint8_t ThemeTokenByteForShim(float value) {
+    if (value <= 0.f) return 0;
+    if (value >= 1.f) return 255;
+    return (uint8_t)lroundf(value * 255.f);
+}
+
+static gpui::Rgba ThemeTokenRgbaForShim(gpui::Hsla color) {
+    float h = color.h, s = color.s, l = color.l;
+    float k = (1.f - fabsf(2.f * l - 1.f)) * s;
+    float x = k * (1.f - fabsf(fmodf(h * 6.f, 2.f) - 1.f));
+    float m = l - k * 0.5f;
+    float km = k + m, xm = x + m;
+    float r = 0, g = 0, b = 0;
+    switch ((int)floorf(h * 6.f)) {
+        case 0: case 6: r = km, g = xm, b = m; break;
+        case 1: r = xm, g = km, b = m; break;
+        case 2: r = m, g = km, b = xm; break;
+        case 3: r = m, g = xm, b = km; break;
+        case 4: r = xm, g = m, b = km; break;
+        default: r = km, g = m, b = xm; break;
+    }
+    return gpui::Rgba8(ThemeTokenByteForShim(r), ThemeTokenByteForShim(g),
+                       ThemeTokenByteForShim(b), ThemeTokenByteForShim(color.a));
+}
+
+int gpui_shim_theme_tokens(void* win, char* out, int outlen) {
+    auto* box = static_cast<Box2*>(win);
+    if (!box || !out || outlen <= 0 || !g_app) return 0;
+    gpui::shell::ThemeTokensSync(g_app);
+    base::StrBuilder sb;
+    sb.Append(StrL("{\"colors\":{"));
+    int index = 0;
+    auto names = gpui::shell::ThemeColorTokenNames();
+    for (base::Str name = base::SeqStrFirst(names); base::len(name) > 0;
+         name = base::SeqStrNext(name)) {
+        gpui::Hsla color = {};
+        if (!gpui::shell::ThemeTokenColor(name, &color)) continue;
+        gpui::Rgba rgba = ThemeTokenRgbaForShim(color);
+        if (index++) sb.AppendChar(',');
+        sb.Append(base::fmt("\"%s\":\"#%02x%02x%02x\"", name,
+                            rgba.r, rgba.g, rgba.b));
+    }
+    sb.Append(StrL("},\"spacing\":{"));
+    index = 0;
+    names = gpui::shell::ThemeSpacingTokenNames();
+    for (base::Str name = base::SeqStrFirst(names); base::len(name) > 0;
+         name = base::SeqStrNext(name)) {
+        float number = 0;
+        if (!gpui::shell::ThemeTokenSpacing(name, &number)) continue;
+        if (index++) sb.AppendChar(',');
+        sb.Append(base::fmt("\"%s\":%g", name, number));
+    }
+    sb.Append(StrL("},\"radius\":{"));
+    index = 0;
+    names = gpui::shell::ThemeRadiusTokenNames();
+    for (base::Str name = base::SeqStrFirst(names); base::len(name) > 0;
+         name = base::SeqStrNext(name)) {
+        float number = 0;
+        if (!gpui::shell::ThemeTokenRadius(name, &number)) continue;
+        if (index++) sb.AppendChar(',');
+        sb.Append(base::fmt("\"%s\":%g", name, number));
+    }
+    gpui::TypographyTokens type = {};
+    if (gpui::shell::ThemeTypographyTokens(&type)) {
+        sb.Append(base::fmt("},\"typography\":{\"sans\":\"%s\",\"mono\":\"%s\"}",
+                            type.sans, type.mono));
+    } else {
+        sb.Append(StrL("},\"typography\":{}"));
+    }
+    sb.AppendChar('}');
+    base::Str built = sb.TakeStr();
+    int total = (int)base::len(built);
+    if (total + 1 > outlen) return 0;  // 截断=失败，别给半份 JSON
+    memcpy(out, built.s, (size_t)total);
+    out[total] = 0;
+    return total;
 }
 
 int gpui_shim_selftest_fire_registered(void* win, const char* elem_id,

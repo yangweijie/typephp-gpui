@@ -639,6 +639,33 @@ namespace {
         return [];
     }
 
+    function gpui_theme_tokens(mixed $window): string
+    {
+        // 批3 A6：无头替身给一份与 shim 同形状的静态表（语义名真实、值取
+        // base/theme_tokens.h 的默认主题），headless 门与四层 parity 用。
+        $colors = [
+            'background' => '#f6f3ee', 'foreground' => '#2f2f2f',
+            'surface' => '#ffffff', 'surface_foreground' => '#2f2f2f',
+            'primary' => '#2f6fed', 'primary_foreground' => '#ffffff',
+            'secondary' => '#f3efe8', 'secondary_foreground' => '#2f2f2f',
+            'muted' => '#e8e2d8', 'muted_foreground' => '#6f6a63',
+            'accent' => '#e07b39', 'accent_foreground' => '#ffffff',
+            'destructive' => '#d64545', 'destructive_foreground' => '#ffffff',
+            'border' => '#ccc6bd', 'input' => '#ffffff', 'ring' => '#2f6fed',
+        ];
+        $spacing = ['xxs' => 2, 'xs' => 4, 'sm' => 8, 'md' => 12, 'lg' => 16, 'xl' => 24, 'xxl' => 32];
+        $radius = ['none' => 0, 'sm' => 3, 'md' => 6, 'lg' => 8, 'xl' => 12, 'full' => 9999];
+        $enc = static function (array $m): string {
+            $pairs = [];
+            foreach ($m as $k => $v) { $pairs[] = '"' . $k . '":' . (is_string($v) ? '"' . $v . '"' : $v); }
+            return '{' . implode(',', $pairs) . '}';
+        };
+        return '{"colors":' . $enc($colors)
+            . ',"spacing":' . $enc($spacing)
+            . ',"radius":' . $enc($radius)
+            . ',"typography":{"sans":".SystemUIFont","mono":"Menlo"}}';
+    }
+
     function gpui_snapshot(mixed $window, string $path, int $w, int $h): bool
     {
         // 无头替身：记录请求即可，不真正出图。

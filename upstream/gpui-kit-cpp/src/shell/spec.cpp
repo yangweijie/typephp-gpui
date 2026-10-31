@@ -136,6 +136,9 @@ const char* ComponentName(const Component& component) {
             return "path fill";
         case ComponentKind::PathStroke:
             return "path stroke";
+        // typephp-gpui: TitleBar kind (patch-title-bar.sh).
+        case ComponentKind::TitleBar:
+            return "TitleBar";
         case ComponentKind::Tabs:
             return "Tabs";
         case ComponentKind::Tab:

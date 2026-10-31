@@ -450,6 +450,12 @@ uint32_t emitTree(void* win, Array node) {
             } else if (opKind == "callback") {
                 std::string type = eventType(name);
                 gpui_shim_callback(win, spec, id.c_str(), type.c_str());
+            } else if (opKind == "on_action") {
+                // typephp-gpui: host action callback. The op's name IS the
+                // action's name (materialize interns it via ShellActionOf and
+                // binds element->OnAction); the queue keeps the fixed short
+                // type "action" so the PHP side reads App::on(id, 'action').
+                gpui_shim_on_action(win, spec, name.c_str(), id.c_str());
             } else if (opKind == "slot") {
                 Variant childV = op.get("child");
                 if (childV.isArray()) {
@@ -997,6 +1003,17 @@ Array php_gpui_region_rgb(Variant boxVar, Float x, Float y, Float w, Float h) {
         out["b"] = (Int)(rgb[2] + 0.5);
     }
     return out;
+}
+
+/* 批3 A6：语义 token 整表。shim 拼整份 JSON，这里原样作 String 回——
+ * 解码在 PHP 侧（App::themeTokens）做，C ABI 层只过纯 char*（testing.md 门8）。 */
+String php_gpui_theme_tokens(Variant boxVar) {
+    void* win = winOf(boxVar);
+    if (!win) return String("");
+    static char buf[8192];
+    int n = gpui_shim_theme_tokens(win, buf, (int) sizeof(buf));
+    if (n <= 0) return String("");
+    return String(buf, n);
 }
 
 Array php_gpui_input_probe(Variant boxVar, Int index) {

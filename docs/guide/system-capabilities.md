@@ -41,6 +41,8 @@
 | `El::notifications($id)` | `component::NotificationList::IntoEl()` 经 `ChildView` 挂载 | pixel（tree32）——**这一颗必须显式摆**，见下方硬约束 |
 | `$app->setAppMenus(array)` / `appMenuCount()` | `BaseSetAppMenus` | route（#7）；macOS 系统菜单栏在窗口外，无像素验收 |
 | `$app->menuRows()` | `AppMenuRowForId` + `ShellActionScriptId` | route：读回菜单条各行携带的 action id，键名写错（`label`/`id`）时它是空的 |
+| `$app->setTheme(string $mode)` | 主题 palette 切换（上游 ThemeTokensSync 每次构建缓存） | 语义面验收走下行 |
+| `$app->themeTokens(): array` | `gpui_shim_theme_tokens`（批3 A6）读 shell 六口（`theme_tokens.h:20-31`：ThemeTokenColor/Spacing/Radius + ThemeTypographyTokens + 三张名单表），一次拼整表 JSON | `tokenTableExpose` 门（system selftest）：colors 17 键集全对、primary/border 非空非白、spacing 7 档/radius 6 档全在册、sans/mono 非空；appearance 切换联动另测 |
 
 `openUrl` 用的是 gpui 自己那条白名单（`capability.cpp:5`）：只放行 `http`/`https`，authority
 里不许有控制字符、DEL、反斜杠，host 非空，端口必须是 ≤65535 的十进制。`Link.href` 和

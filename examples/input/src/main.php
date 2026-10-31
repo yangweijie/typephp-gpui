@@ -118,7 +118,7 @@ function step(string $name, bool $ok, string $detail): void
 /** 本域树：builder 直接当窗口的整棵树（画廊里它外面还套着导航壳）。 */
 function inputTree(): El
 {
-    return El::vFlex([sectionInputs(ExampleState::get())])->sizeFull()->bg(0xF6F3EE);
+    return El::vFlex([sectionInputs(ExampleState::get())])->sizeFull()->bg('#f6f3ee');
 }
 
 

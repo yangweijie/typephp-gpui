@@ -30,7 +30,7 @@ function sectionPrimitives(array $s): El
             // image / svg 走资源根相对路径；文件不存在时是空块，不报错。
             El::image('assets/missing.png', '占位图')->w(64.0)->h(40.0)->roundedMd(),
             El::svg('assets/missing.svg')->w(48.0)->h(48.0),
-            El::div()->w(64.0)->h(40.0)->bg(0xEEEAE3)->roundedMd(),
+            El::div()->w(64.0)->h(40.0)->bg('#eeeae3')->roundedMd(),
         ])->gap(10.0)->itemsCenter(),
         El::text("计数器（定时器驱动）：{$s['count']}")->font(14.0)->bold(),
         El::hFlex([
@@ -51,13 +51,13 @@ function sectionPrimitives(array $s): El
                 ->onMouseDownMiddle()->onMouseUpMiddle()
                 ->onMouseDownOut()->onScrollWheel()
                 ->font(12.0)
-                ->p(6.0)->bg(0xF4F1EC)->roundedMd()->cursorPointer(),
+                ->p(6.0)->bg('#f4f1ec')->roundedMd()->cursorPointer(),
             El::text("hover={$s['hover']}")->font(12.0),
         ])->gap(10.0)->itemsCenter(),
         // wFull/hFull = 100% 的 w/h（非 nullary style，是带参 method op）。
         El::hFlex([
-            El::div()->wFull()->hFull()->bg(0xE8F0E4)->roundedMd(),
-        ])->h(28.0)->p(4.0)->border()->borderColor(0xCCC6BD),
+            El::div()->wFull()->hFull()->bg('#e8f0e4')->roundedMd(),
+        ])->h(28.0)->p(4.0)->border()->borderColor('#ccc6bd'),
     ])->sizeFull()->gap(8.0)->p(16.0)->overflowYScroll();
 }
 

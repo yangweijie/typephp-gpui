@@ -163,6 +163,9 @@ enum class ComponentKind : uint8_t {
     // virtual list axes are.
     List,
     UniformList,
+    // typephp-gpui: TitleBar kind — the client-drawn title bar for a window
+    // opened with WinOpts::clientTitleBar (widget layer: ui/title_bar.h).
+    TitleBar,
     // A shared frame around one Input or Textarea and its addons. The
     // control is the `input` slot; addons accumulate as `addon` slots.
     // A component a catalog registered: the descriptor is `index` in the

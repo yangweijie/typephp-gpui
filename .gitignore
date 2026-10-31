@@ -20,6 +20,8 @@ examples/*/project.macos.gen.yml
 *.png
 !docs/**/*.png
 !tests/baseline/**/*.png
+# 批3 A8：示例资产（imageAssetRenders 门的判据依赖这颗真文件，必须随库走）
+!examples/system/assets/*.png
 /tmp/
 .probe/
 

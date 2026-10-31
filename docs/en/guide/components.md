@@ -68,7 +68,15 @@ Additional base factories include `numberInput($id)`, `otpInput($id)`, `progress
   The presence dot needs absolute overlay and is not done.
 - `El::image($src, $alt)`: `$alt` feeds the aria_label op (it used to be dropped).
   Ely's framed border is not a combined sugar (stack borderWidth+rounded; see the
-  style-sugar discipline).
+  style-sugar discipline). **All three src kinds work** (batch 3 A8, measured by
+  system's imageAssetRenders gate): local asset paths (`AssetsExists` walks the
+  exe's parent `assets/` dirs — `examples/system/assets/tile.png` →
+  `El::image('tile.png')`), `data:image/png;base64,…` (local decode), and
+  `http(s)://…` (the HttpFetch state machine at image.cpp:223-234, where
+  Pending/None retrying next frame IS the whole retry policy). The img path has
+  no capability check (the TextView path does — the reference repo has the same
+  asymmetry); remote pixels follow the network, so examples keep the remote
+  element `hidden` to keep baselines byte-deterministic.
 - `El::svg($path)`: empty strings and non-.svg suffixes throw on the spot (svg reads
   arbitrary asset paths via SvgDraw — icon()'s icons/ prefix check does not apply;
   a valid shape with a missing file still paints nothing silently).
@@ -160,6 +168,17 @@ go through `El::hFlex()`/`El::vFlex()` kind names and never belonged on the null
 style call surface). `style()`,
 `paramStyle()`, `method()` and `callback()` are private; there is no public arbitrary-name
 escape hatch for base operations. Remaining gaps are listed in [Upstream coverage](./upstream-coverage).
+
+**Color ops only accept `'#rrggbb'` strings or theme-token names**
+(background/primary/muted/…) — never integers: upstream `BridgedAsColor`
+(value.cpp:119-145) goes through `BridgedAsString` first, `BridgedKind::Number`
+fails outright, and the failed ApplyParam is then **silently dropped**
+(materialize.cpp's `continue` — rendering continues, no error surfaces), so an int
+color **quietly falls back to the default**. Measured 2026-10-31: twelve example
+domains had root `bg(0xF6F3EE)` rendering as plain default white while kit's
+`'#f6f3ee'` rendered correctly — all 41 int-color call sites are now converted and
+`bg()`/`textColor()`/`borderColor()` are narrowed to `string` (under strict_types
+passing an int throws a TypeError immediately instead of failing silently).
 
 ### Additional style keywords
 
@@ -275,8 +294,11 @@ El::uniformList('u', 10)->withItemToMeasureIndex(2);
 The kit selftest's `scrollbarModePaintPair` gate checks the structural side
 (registeredError/componentFailure cleared), with regionRgb pixel A/B downgraded to an
 advisory reading — macOS headless rendering auto-hides native scrollbars, so both
-boxes' right-edge readings are expected to be identical; "always actually draws a
-scrollbar" needs real HID or --shot verification (see [Testing and gates](./testing)).
+boxes' right-edge readings are expected to be identical. The `--shot` channel has
+been rechecked too and does not paint either (kit tree4 `sectionKitScrollbarPair` +
+`bash cmd/check-scrollbar-paint.sh`: rgb(223,223,223) on both right edges,
+applicable=false/undetermined — see [Testing and gates](./testing)); "always actually
+draws a scrollbar" currently requires real-HID, preconditioned acceptance.
 
 ### Path drawing: PathFill / PathStroke + six commands (batch 5, 2026-10-31)
 
@@ -318,6 +340,28 @@ the table probe (KeymapAnyBindingForAction) are the bindKeysGate hard assertion;
 synthesized cmd-key delivery is advisory (NSApp swallows cmd chords with no menu
 row; native keyboard is human HID).
 
+### Element-level action callback: `onAction()` (batch 2 A5, 2026-10-31)
+
+```php
+El::text('copy source')->id('src')->onAction('kit::copy');
+$app->on('src', 'action', fn () => …);
+```
+
+The op kind is `on_action` and the op's name IS the action's name —
+materialize interns it via `ShellActionOf` (the same table as the `bindKeys`
+binding actions and the menu actions; any script id interns, no allowlist) and
+binds `element->OnAction`; once `dispatchAction()` or a keystroke reaches the
+listener on the focus chain, the DispatchArgs shim fork routes the event back
+to the PHP queue with the fixed short type `'action'` (landed by
+`cmd/patch-host-action-cb.sh`'s `gpui_shim_on_action`). kit's
+`actionDeliveryGate`: the fire_registered hard arm (op registration + queue +
+PHP handler, three stages) is green; the `dispatchAction` arm cannot reach the
+OnAction listener without a real focus in the synthesized state (same
+situation as bindKeysGate) → advisory, tracked in C1. Limitation: repeated
+`onAction` calls on one element share one queue channel (the
+`(elem_id,'action')` idempotent key) — spread multiple actions across
+different elements.
+
 ### Window options and action verbs (batch 5, the TitleBar period-B slice)
 
 ```php
@@ -333,11 +377,23 @@ $app->windowAction('zoom');      // minimize | zoom | close
   controls stay with the system/window actions.
 - `windowAction('close')` leaving isOpen=false is the titlebarWindowGate hard
   evidence.
-- **Period-C design (not implemented)**: upstream component::TitleBar is neither
-  a descriptor export nor a ComponentKind (the PHP spec channel cannot build it)
-  — it needs cmd/patch-title-bar.sh to give title_bar.h a descriptor/kind plus a
-  `kDialogMethods`-style named-method table (the coverage.md:65-67 precedent) and
-  an `El::titleBar()` factory. The blocker and path live on the coverage page.
+- **Period C landed (batch 2 A4, 2026-10-31)**: `El::titleBar([children…])`
+  (kind=`title_bar`) plus `cmd/patch-title-bar.sh` with eight insertion points —
+  the spec.h enum (after UniformList, before Registered; the shim_test
+  unnamed-lexicon loop bounds at Registered), spec.cpp ComponentName, the
+  runtime.cpp ComponentKindOf lexicon (JS route), the materialize dispatch
+  (children go through `TitleBar::Child`'s content slot one by one — attaching
+  them to the bar root would fight PadL/ItemsCenter) plus the Construct
+  exhaustiveness case (caught by -Werror -Wswitch), `component_shell/title_bar.cpp`
+  (descriptor: no-arg constructor + optional `title` method; the node
+  materializer is shared with the kind dispatch), families.h/lib.cpp chain.
+  The shim lexicon gained `{"title_bar", K::TitleBar}` and the shim_test
+  unnamed pin is **unchanged** (a new kind entering the lexicon with a name
+  keeps the unnamed count at 11 — the recon's "11→10" was a wrong inference,
+  corrected by measurement). kit selftest: `titleBarShape` (the kind/children
+  contract) + the `titlebarWindowGate` wiring arm (the clientTitleBar window's
+  debug_tree contains the `TitleBar` node). Double-click maximize and the
+  system traffic lights remain human-HID territory.
 
 ### Accessibility and keyboard navigation
 

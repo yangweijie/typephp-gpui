@@ -60,7 +60,7 @@ function step(string $name, bool $ok, string $detail): void
 
 function tableTree(): El
 {
-    return El::vFlex([sectionData(ExampleState::get())])->sizeFull()->bg(0xF6F3EE);
+    return El::vFlex([sectionData(ExampleState::get())])->sizeFull()->bg('#f6f3ee');
 }
 
 function runTableShot(string $path, int $tree): void

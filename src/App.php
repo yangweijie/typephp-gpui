@@ -354,6 +354,25 @@ final class App
         return \gpui_region_rgb($this->handle(), (float) $x, (float) $y, (float) $w, (float) $h);
     }
 
+    /**
+     * 语义 token 整表（批3 A6）：colors 17 键 #rrggbb + spacing 7 档 + radius 6 档
+     * + typography sans/mono 族名。上游每 palette 构建一次（ThemeTokensSync 缓存），
+     * shim 拼整份 JSON、这里解码。空数组＝取不到（无窗口/无 app）。这就是
+     * `bg('primary')` 语义名的 PHP 侧可查值（批1 A1 的能力闭环）。
+     *
+     * @return array{colors?: array<string,string>, spacing?: array<string,float>,
+     *     radius?: array<string,float>, typography?: array<string,string>}
+     */
+    public function themeTokens(): array
+    {
+        $json = \gpui_theme_tokens($this->handle());
+        if ($json === '') {
+            return [];
+        }
+        $decoded = json_decode($json, true);
+        return is_array($decoded) ? $decoded : [];
+    }
+
     public function hitProbe(int $index = -1): array
     {
         return \gpui_hit_probe($this->handle(), $index);

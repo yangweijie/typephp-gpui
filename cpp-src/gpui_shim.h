@@ -170,6 +170,11 @@ int gpui_shim_snapshot(void* win, const char* path, int dip_w, int dip_h);
 /* 区域平均色（0-255，gpui 视图系坐标 y 向下）：cacheDisplay 背板上采样，只读不泵。
  * 给"泵到 WebView 真画出来"的内容判据用（帧数预算不可靠）。成功 1，失败 0。 */
 int gpui_shim_region_rgb(void* win, double x, double y, double w, double h, double* out3);
+/* 语义 token 整表（批3 A6）：colors 17 键 #rrggbb + spacing/radius 全档 + typography
+ * sans/mono，一次拼成 JSON 写入 out（至多 outlen-1 字节 + '\0'），返回长度；
+ * 无窗口/无 app/截断返回 0。上游每 palette 构建一次（ThemeTokensSync），PHP 侧
+ * json_decode。JSON 形状照 runtime.cpp 的 JS 路快照（AppendThemeColor/"%g"）。 */
+int gpui_shim_theme_tokens(void* win, char* out, int outlen);
 /* 诊断：把当前 spec arena 树 dump 成文本写入 out（至多 outlen-1 字节），返回长度。 */
 int gpui_shim_debug_tree(void* win, char* out, int outlen);
 /* 取本帧最近一次 registered 构造/方法失败的原因，写入 out（至多 outlen-1 字节 +
@@ -442,6 +447,9 @@ void gpui_shim_param_style(void* win, uint32_t spec, const char* name,
 void gpui_shim_method(void* win, uint32_t spec, const char* name,
                       const GpuiArg* args, int argc);
 /* 声明一个回调 op；elem_id/type 供事件回传时反查。返回 callbackId。 */
+// typephp-gpui: host action callback (patch-host-action-cb.sh).
+uint64_t gpui_shim_on_action(void* win, uint32_t spec,
+                             const char* action_name, const char* elem_id);
 uint64_t gpui_shim_callback(void* win, uint32_t spec, const char* elem_id,
                             const char* type);
 void gpui_shim_attach(void* win, uint32_t parent, uint32_t child);

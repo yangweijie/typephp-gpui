@@ -73,7 +73,7 @@ function catalogTree(int $tree = 1): El
     // 这一族栽过两次（system 第一次、catalog 加第二棵时又一次），现在 cmd/shotdiff.php
     // 有一条门直接拦重复帧，所以这里漏选会被当场报出来而不是悄悄进基线。
     $builder = $tree === 2 ? 'sectionCatalogStates' : 'sectionCatalog';
-    return El::vFlex([$builder(ExampleState::get())])->sizeFull()->bg(0xF6F3EE);
+    return El::vFlex([$builder(ExampleState::get())])->sizeFull()->bg('#f6f3ee');
 }
 
 function runCatalogShot(string $path, int $tree): void

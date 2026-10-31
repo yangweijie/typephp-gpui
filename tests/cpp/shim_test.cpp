@@ -75,8 +75,15 @@ void testKindFromString() {
     const K unnameable[] = {K::Registered, K::ChildView};
 
     // 批3（2026-10-31）：kKindNames 补 {"accordion", K::Accordion}，14→13；
-    // 批5（2026-10-31）再补 {"path_fill"}/{path_stroke"}（路径绘制 kind），13→11。
-    // 下一次上游加 kind 时这里同样要跟着动。
+    // 批5（2026-10-31）再补 {"path_fill"}/{path_stroke"}（给上游既有的 PathFill/
+    // PathStroke kind 补登记名），13→11。
+    // 批2 A4（2026-10-31）：TitleBar 是**新 kind**（patch-title-bar.sh 加进枚举）
+    // 且 {"title_bar"} 同步入表——枚举总数 +1、登记数 +1，无名数**恒 11 不变**
+    // （11 个无名值还是那批：Pagination/AvatarImage/AvatarFallback/FpsMonitor/
+    // SliderTrack/SliderIndicator/SliderThumb/DockArea/DockContent/VVirtualList/
+    // HVirtualList，实测 2026-10-31）。侦察口径"11→10"是错误推断：那是把新 kind
+    // 当成了"给既有 kind 补名"。下一次上游加 kind 时：补既有 kind 的名才减数，
+    // 新 kind 带名入表不动本钉值。
     const int kExpectedUnnamed = 11;
     int unnamed = 0;
     for (unsigned v = 0; v <= (unsigned)K::Registered; v++) {

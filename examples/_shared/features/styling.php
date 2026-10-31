@@ -26,14 +26,14 @@ function sectionStyling(array $s): El
         El::text('样式、图标与弹层原语')->font(22.0)->semibold(),
         El::text('rounded / roundedMd / roundedLg / roundedFull / border / borderWidth / shadowSm / shadowMd / opacity / bg / textColor / borderColor')->font(11.0)->truncate(),
         El::hFlex([
-            El::text('roundedFull + shadowMd')->font(12.0)->p(12.0)->bg(0xFFFFFF)->textColor(0x2F2F2F)->borderWidth(1)->borderColor(0xE0DAD1)->roundedFull()->shadowMd(),
-            El::text('roundedLg + shadowSm')->font(12.0)->p(12.0)->bg(0xF3EFE8)->roundedLg()->shadowSm()->opacity(0.9),
-            El::text('rounded(8) + roundedMd')->font(12.0)->p(12.0)->bg(0xE8F0E4)->rounded(8.0)->roundedMd(),
+            El::text('roundedFull + shadowMd')->font(12.0)->p(12.0)->bg('#ffffff')->textColor('#2f2f2f')->borderWidth(1)->borderColor('#e0dad1')->roundedFull()->shadowMd(),
+            El::text('roundedLg + shadowSm')->font(12.0)->p(12.0)->bg('#f3efe8')->roundedLg()->shadowSm()->opacity(0.9),
+            El::text('rounded(8) + roundedMd')->font(12.0)->p(12.0)->bg('#e8f0e4')->rounded(8.0)->roundedMd(),
         ])->gap(14.0)->itemsCenter(),
         El::hFlex([
             El::text('underline')->font(13.0)->underline(),
-            El::text('textCenter')->font(13.0)->textCenter()->w(120.0)->bg(0xF7F4EF),
-            El::text('textRight')->font(13.0)->textRight()->w(120.0)->bg(0xF7F4EF),
+            El::text('textCenter')->font(13.0)->textCenter()->w(120.0)->bg('#f7f4ef'),
+            El::text('textRight')->font(13.0)->textRight()->w(120.0)->bg('#f7f4ef'),
             El::text('这是一段会被 truncate 截断的很长很长的文本，用来验证单行省略')->font(13.0)->truncate()->w(180.0),
         ])->gap(8.0)->itemsCenter(),
         El::hFlex([

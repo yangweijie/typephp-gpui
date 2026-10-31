@@ -1,5 +1,6 @@
 #include "shell/materialize.h"
 
+#include "component_shell/families.h"
 #include "base/accordion.h"
 #include "gpui/image.h"
 #include "base/avatar.h"
@@ -2138,6 +2139,13 @@ static El* Construct(Ctx* cx, ShellRuntime* runtime,
         case shell::ComponentKind::PathFill:
         case shell::ComponentKind::PathStroke:
             return Div(cx->a);
+        // typephp-gpui: TitleBar construct case (patch-title-bar.sh): the
+        // kind is dispatched in MaterializeNode's else-if chain (children go
+        // through TitleBar::Child); reaching Construct means that chain
+        // missed — build the bare bar rather than an empty box.
+        case shell::ComponentKind::TitleBar:
+            return component_shell::title_bar_node_materialize(
+                cx, nullptr, 0, nullptr);
         case shell::ComponentKind::HResizable:
             return Div(cx->a)->FlexRow();
         case shell::ComponentKind::VResizable:
@@ -2435,6 +2443,22 @@ static El* MaterializeNode(Ctx* cx, ShellRuntime* runtime,
         path->node = node;
         element->customPaint = &PaintMaterialPath;
         element->customUser = path;
+        childrenConsumed = true;
+    } else if (node->component.kind == shell::ComponentKind::TitleBar) {
+        // typephp-gpui: TitleBar kind (patch-title-bar.sh): the client-drawn
+        // title bar for a borderless window. Children materialize first and
+        // go through TitleBar::Child (the justify-between content slot) —
+        // attaching them to the bar root would fight PadL/ItemsCenter.
+        int nkids = (int)node->children.len;
+        El** kids =
+            nkids > 0 ? (El**)Alloc(cx->a, (int)sizeof(El*) * nkids) : nullptr;
+        int made = 0;
+        for (shell::SpecId child : node->children) {
+            El* c = MaterializeNode(cx, runtime, specs, child, error);
+            if (c) kids[made++] = c;
+        }
+        element = component_shell::title_bar_node_materialize(
+            cx, kids, made, error);
         childrenConsumed = true;
     } else if (node->component.kind == shell::ComponentKind::HResizable ||
                node->component.kind == shell::ComponentKind::VResizable) {

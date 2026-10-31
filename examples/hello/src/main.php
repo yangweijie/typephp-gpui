@@ -764,7 +764,7 @@ function runShot(string $path, int $tree = 0): void
                     fn ($i) => El::text("Item " . (string) $i)->font(14.0)->px(8.0),
                     range(1, 50)
                 )
-            )->sizeFull()->overflowYScroll()->bg(0xF5F5F5),
+            )->sizeFull()->overflowYScroll()->bg('#f5f5f5'),
             12 => El::vFlex([
                 El::text('Select + DatePicker')->font(18.0)->semibold(),
                 El::select('pick', ['Apple', 'Banana', 'Cherry'])->w(200),

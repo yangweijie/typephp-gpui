@@ -62,7 +62,7 @@ function step(string $name, bool $ok, string $detail): void
 
 function embeddedTree(): El
 {
-    return El::vFlex([sectionEmbedded(ExampleState::get())])->sizeFull()->bg(0xF6F3EE);
+    return El::vFlex([sectionEmbedded(ExampleState::get())])->sizeFull()->bg('#f6f3ee');
 }
 
 function runEmbeddedShot(string $path): void

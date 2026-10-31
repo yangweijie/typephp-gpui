@@ -506,6 +506,11 @@ static const KindName kKindNames[] = {
     // customPaint）。不登记则 gpui_shim_push 拒建节点。
     {"path_fill", K::PathFill},
     {"path_stroke", K::PathStroke},
+    // 批2 A4：客户端标题条（borderless+clientTitleBar 窗）。widget 层
+    // ui/title_bar.{h,cpp} vendored 已在；kind 分支 materialize.cpp 的
+    // TitleBar else-if（patch-title-bar.sh 落）经 title_bar_node_materialize
+    // 建杆、children 逐个挂 content 槽。不登记则 gpui_shim_push 拒建节点。
+    {"title_bar", K::TitleBar},
     // 手风琴三件（materialize.cpp:2548/2571/2588 的 kind 分支在上游）：没有这三条
     // 登记名，El::accordionItem 的 header/trigger/panel 部件造不出来（kindFromString
     // 不认就静默降级），折叠头永远是一颗空按钮。

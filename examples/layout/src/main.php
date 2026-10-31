@@ -257,7 +257,7 @@ function step(string $name, bool $ok, string $detail): void
 function layoutTree(int $tree = 1): El
 {
     $content = $tree === 2 ? sectionDock(ExampleState::get()) : sectionLayout(ExampleState::get());
-    return El::vFlex([$content])->sizeFull()->bg(0xF6F3EE);
+    return El::vFlex([$content])->sizeFull()->bg('#f6f3ee');
 }
 
 function runLayoutShot(string $path, int $tree): void

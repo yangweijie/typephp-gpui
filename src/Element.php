@@ -628,6 +628,31 @@ class Element
         return $e;
     }
 
+    /**
+     * 客户端标题条（批2 A4，TitleBar C 期）：borderless+clientTitleBar 窗
+     * （App::createWindow 的窗选项）里自绘的 34px 标题条。widget 层
+     * ui/title_bar.{h,cpp}（vendored 上游）：bar 混 default_title_bar_background
+     * 55% 进窗口背景、未被子元素认领的面是拖拽带（ClickWinCaption）、macOS
+     * 红绿灯由 Cocoa 画（WindowControls 为空）。children 走 justify-between 的
+     * content 槽——直接挂 bar 根会跟 PadL/ItemsCenter 打架，materialize 的
+     * 专用 kind 分派逐个走 TitleBar::Child（cmd/patch-title-bar.sh 落，
+     * component_shell/title_bar.cpp 双通道：kind 分派 + descriptor 注册面）。
+     */
+    public static function titleBar(array $children = []): self
+    {
+        $e = new self();
+        $e->kind = 'title_bar';
+        foreach ($children as $c) {
+            if (!$c instanceof self) {
+                throw new \InvalidArgumentException(
+                    'Element::titleBar(): children 只收 Element，收到 '
+                    . get_debug_type($c));
+            }
+            $e->child($c);
+        }
+        return $e;
+    }
+
     public static function tableHeader(array $children = []): self
     {
         $e = new self();
@@ -1362,9 +1387,20 @@ class Element
     public function mb(float $v): self { return $this->paramStyle('mb', [$v]); }
     public function ml(float $v): self { return $this->paramStyle('ml', [$v]); }
     public function mr(float $v): self { return $this->paramStyle('mr', [$v]); }
-    public function bg(string|int $color): self { return $this->paramStyle('bg', [$color]); }
-    public function textColor(string|int $color): self { return $this->paramStyle('text_color', [$color]); }
-    public function borderColor(string|int $color): self { return $this->paramStyle('border_color', [$color]); }
+    /**
+     * 背景色/文字色/边框色。**只收 `'#rrggbb'` 字符串或主题 token 名**
+     * （background/primary/muted/…），不收整型：上游 BridgedAsColor
+     * （参考仓 src/shell/value.cpp:119-145）先走 BridgedAsString，
+     * BridgedKind::Number 直接 fail（value.cpp:71-78），随后 ApplyParam
+     * 返回 false → materialize.cpp:513-521 continue **丢弃该 op、不中断
+     * 渲染也不报错**——int 色静默落空读默认色（2026-10-31 实证：12 域根
+     * bg(0xF6F3EE) 全部渲染成默认白，tests/baseline/catalog/tree1.png
+     * 根像素 rgb(255,255,255)；kit 用 '#f6f3ee' 则正确 rgb(246,243,238)）。
+     * 陷阱已全清（examples 41 处 int 色转 '#hex'），签名收窄为 string 防复发。
+     */
+    public function bg(string $color): self { return $this->paramStyle('bg', [$color]); }
+    public function textColor(string $color): self { return $this->paramStyle('text_color', [$color]); }
+    public function borderColor(string $color): self { return $this->paramStyle('border_color', [$color]); }
     public function font(float $px): self { return $this->paramStyle('text_size', [$px]); }
     public function opacity(float $v): self { return $this->paramStyle('opacity', [$v]); }
     public function rounded(float $v): self { return $this->paramStyle('rounded', [$v]); }
@@ -3625,9 +3661,29 @@ class Element
     public function hasCallbacks(): bool
     {
         foreach ($this->ops as $op) {
-            if ($op['kind'] === 'callback') { return true; }
+            if ($op['kind'] === 'callback' || $op['kind'] === 'on_action') { return true; }
         }
         return false;
+    }
+
+    /**
+     * 元素级动作回调（批2 A5）：op kind='on_action'，op 的 name 就是动作名——
+     * materialize 经 ShellActionOf(op.name) intern（与键位表 bindKeys 的
+     * binding.action、菜单动作同表，任意脚本 id 可 intern 无白名单），挂
+     * element->OnAction 后，dispatchAction(动作名)/键位命中焦点链上的监听器，
+     * 经 DispatchArgs 的 shim 分叉把事件还给 PHP 队列（队列短名固定 'action'，
+     * cmd/patch-host-action-cb.sh 落的 gpui_shim_on_action）。处理器照旧
+     * App::on($元素id, 'action', fn)。限制：同一元素多次 onAction 共用同一
+     * 队列通道（(elem_id,'action') 幂等键）——多动作分到不同元素。
+     */
+    public function onAction(string $action): self
+    {
+        if ($action === '') {
+            throw new \InvalidArgumentException(
+                'Element::onAction(): 动作名不能为空');
+        }
+        $this->ops[] = ['kind' => 'on_action', 'name' => $action, 'args' => []];
+        return $this;
     }
 
     /**

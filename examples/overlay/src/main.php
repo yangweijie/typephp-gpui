@@ -70,7 +70,7 @@ function step(string $name, bool $ok, string $detail): void
 
 function overlayTree(): El
 {
-    return El::vFlex([sectionOverlays(ExampleState::get())])->sizeFull()->bg(0xF6F3EE);
+    return El::vFlex([sectionOverlays(ExampleState::get())])->sizeFull()->bg('#f6f3ee');
 }
 
 function runInteractive(): void

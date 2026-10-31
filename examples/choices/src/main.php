@@ -61,7 +61,7 @@ function step(string $name, bool $ok, string $detail): void
 
 function choicesTree(): El
 {
-    return El::vFlex([sectionChoices(ExampleState::get())])->sizeFull()->bg(0xF6F3EE);
+    return El::vFlex([sectionChoices(ExampleState::get())])->sizeFull()->bg('#f6f3ee');
 }
 
 function runChoicesShot(string $path, int $tree): void

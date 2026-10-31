@@ -34,6 +34,7 @@ function kitTrees(): array
         1 => ['kit 基础件', 'sectionKitBasics'],
         2 => ['kit 数据与导航', 'sectionKitData'],
         3 => ['kit 弹层与 CSV', 'sectionKitOverlays'],
+        4 => ['kit 滚动条模式对拍', 'sectionKitScrollbarPair'],
     ];
 }
 
@@ -44,6 +45,34 @@ function kitHeader(string $title, string $sub): array
         El::text($title)->font(22.0)->semibold(),
         El::text($sub)->font(11.0)->truncate(),
     ];
+}
+
+/** 滚动条模式对拍（收尾轮 A3 的 --shot 验收树）：hover vs always 两盒同内容
+ * 同尺寸，唯一差别 scrollbarMode——cmd/check-scrollbar-paint.sh 读两盒右缘
+ * 竖条区域断互异。探针 244/504 换算基准：外层 vFlex **p(40)** + hFlex gap40 +
+ * 盒 w220 → 盒1 右缘内 16px 竖条 = x 244..260、盒2 = x 504..520（y 48..108，
+ * 与 main.php scrollbarModePaintPair 门同构——首版漏了 p(40)，盒从 (0,0) 起，
+ * 探针 244/504 读到根底色，2026-10-31 已修）。**不放 kitHeader**：header 两行
+ * 会把盒子 y 推离 48 探针基准，判别树坐标确定性优先于观感一致。 */
+function sectionKitScrollbarPair(array $s): El
+{
+    $rows = static function (string $tag): array {
+        $out = [];
+        for ($i = 1; $i <= 8; $i++) {
+            $out[] = El::text($tag . '盒 · 第 ' . sprintf('%02d', $i) . ' 行')->font(11.0);
+        }
+        return $out;
+    };
+    $box = static function (array $children, string $mode): El {
+        return El::vFlex($children)->gap(4.0)->p(8.0)->w(220.0)->h(120.0)
+            ->bg('#ffffff')->rounded(6.0)->overflowScrollbar()->scrollbarMode($mode);
+    };
+    return El::vFlex([
+        El::hFlex([
+            $box($rows('hover'), 'hover'),
+            $box($rows('always'), 'always'),
+        ])->gap(40.0)->itemsStart(),
+    ])->p(40.0);
 }
 
 /** 基础件：分割线 / Tooltip / 骨架屏 / 空状态 / 徽标 / 标签 / 键帽 / 微光文字。 */
@@ -457,6 +486,19 @@ function sectionKitBasics(array $s): El
             El::text('弹簧 width')->font(11.0)->px(6.0)->py(2.0)->borderWidth(1.0)
                 ->id('kit-an-s')->spring('width', 250.0, 1.0, 0.001),
         ])->gap(10.0)->itemsCenter(),
+        // ── 批2 A4：TitleBar C 期（专用 kind + descriptor 双通道）。组件形态在
+        // 普通窗里只展示 bar 本体（混色面 + 子元素 justify-between）；拖拽带、
+        // 红绿灯与 windowAction 三动词的完整语义在 selftest 的 titlebarWindowGate
+        // （borderless+clientTitleBar 专属窗，树 1 基线不受影响——bar 高 34px
+        // 落在视口折叠线下时基线逐字节不变，这里放显眼处会改 tree1 基线，随构建
+        // 一并重录）。children 走 content 槽：materialize 的 kind 分派逐个
+        // TitleBar::Child，不落 bar 根。
+        El::text('TitleBar 客户端标题条（完整拖拽/红绿灯语义在 borderless 窗，见 selftest）')
+            ->font(13.0)->semibold(),
+        El::titleBar([
+            El::text('kit · TitleBar C 期')->font(12.0),
+            El::text('34px · theme 混色')->font(11.0),
+        ])->w(480.0),
     ]))->sizeFull()->gap(10.0)->p(16.0)->overflowYScroll();
 }
 

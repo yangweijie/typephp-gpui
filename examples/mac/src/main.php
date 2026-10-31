@@ -60,7 +60,7 @@ function step(string $name, bool $ok, string $detail): void
 
 function macTree(): El
 {
-    return El::vFlex([sectionMac(ExampleState::get())])->sizeFull()->bg(0xF6F3EE);
+    return El::vFlex([sectionMac(ExampleState::get())])->sizeFull()->bg('#f6f3ee');
 }
 
 function runMacShot(string $path): void

@@ -64,7 +64,7 @@ function step(string $name, bool $ok, string $detail): void
 
 function styleTree(): El
 {
-    return El::vFlex([sectionStyling(ExampleState::get())])->sizeFull()->bg(0xF6F3EE);
+    return El::vFlex([sectionStyling(ExampleState::get())])->sizeFull()->bg('#f6f3ee');
 }
 
 function runStyleShot(string $path, int $tree): void

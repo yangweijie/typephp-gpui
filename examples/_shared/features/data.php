@@ -104,7 +104,7 @@ function sectionData(array $s): El
         // gpui 只为可见那一段要行。门在 examples/data 的 virtualListLazy：要过的行数
         // 必须远小于总数——"一万行全描述一遍"与"只描述可见的几行"在画面上看不出区别。
         El::text('uniformList：' . DATA_LIST_ROWS . ' 行，行由 PHP 闭包按可见区间给')->font(11.0)->truncate(),
-        El::uniformList('da-vlist', DATA_LIST_ROWS)->w(260.0)->h(90.0)->border()->borderColor(0xCCC6BD),
+        El::uniformList('da-vlist', DATA_LIST_ROWS)->w(260.0)->h(90.0)->border()->borderColor('#ccc6bd'),
         El::text('下面这排是 vFlex 近似的可滚动列表（读屏语义演示）：')->font(11.0)->truncate(),
         // 读屏侧的语义：容器是 list、每项是 list_item，第 3 项标 aria-selected。
         // 这一族全是 behavior op（materialize 认 role / aria_* / tab_* / key_context / selectable），
@@ -121,6 +121,6 @@ function sectionData(array $s): El
             ->ariaActiveDescendant()->selectable(false),
         El::text('progress / progressTrack + progressIndicator')->font(12.0),
         El::progress(0.65)->w(240.0),
-        El::progressTrack([El::progressIndicator()])->w(240.0)->h(8.0)->bg(0xE6E1D9)->roundedFull(),
+        El::progressTrack([El::progressIndicator()])->w(240.0)->h(8.0)->bg('#e6e1d9')->roundedFull(),
     ])->sizeFull()->gap(10.0)->p(16.0)->overflowYScroll();
 }

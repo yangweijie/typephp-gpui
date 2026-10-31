@@ -59,7 +59,7 @@ function step(string $name, bool $ok, string $detail): void
 
 function chromeTree(): El
 {
-    return El::vFlex([sectionChrome(ExampleState::get())])->sizeFull()->bg(0xF6F3EE);
+    return El::vFlex([sectionChrome(ExampleState::get())])->sizeFull()->bg('#f6f3ee');
 }
 
 function runChromeShot(string $path): void
@@ -218,7 +218,7 @@ function runChromeSelfTest(): void
     $app->render(El::hFlex([
         El::vFlex($navRows)->w(220.0)->gap(10.0)->p(12.0),
         El::text('内容区')->font(18.0)->flex1(),
-    ])->sizeFull()->bg(0xF7F4EF));
+    ])->sizeFull()->bg('#f7f4ef'));
     // 只跑一帧就要逐行点得中——这条同时钉住"首帧可点"。修之前 frames=1 时真点击产生
     // 0/38 个事件、跑到第二帧才有 18/38（App::view() 现在注册时就预热一帧）。
     // 先 loop(4) 再点会把这件事糊过去，所以帧数本身就是这条门的一部分。

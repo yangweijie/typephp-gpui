@@ -195,8 +195,9 @@ accurate for the pre-batch-4 world — the fork in question was the **JS path's
 ElementId branch**; batch 4's patch-host-element-cb.sh adds a shimId fork in
 BuildComponentElement, so host element descriptions flow through emitTree into a
 frame arena and bypass it. The SankeyChart-era segfault's faulting frame was the
-snapshot bookkeeping misusing a PhpView entity — Get<ScriptView> has no type
-check — and is gone now that the fork uses the frame arena). MessageScroller's
+snapshot bookkeeping misusing a PhpView entity — the `Get()` template tag has no
+type check for ScriptView — and is gone now that the fork uses the frame arena).
+MessageScroller's
 render_item has real-render evidence = the kit selftest's messageRowRender gate
 (renderCalls>0, ledgers clean; row pixels advisory). render_cell's mechanism is
 the same seam and works; the examples keep the cellText default rendering.
@@ -390,23 +391,125 @@ cannot prove that a listener was attached to the correct node or ever triggered.
 | Upstream topic | PHP counterpart or boundary |
 |---|---|
 | Installation / packaging | Native build and `.app` bundle through [CLI](./cli); no auto-update |
-| Windows | `createWindow()` accepts `['borderless','clientTitleBar']` options and `windowAction()` exposes the three verbs (batch 5, the TitleBar period-B slice); the period-C design (TitleBar as a descriptor/kind) is design-only, see Components |
+| Windows | `createWindow()` accepts `['borderless','clientTitleBar']` options and `windowAction()` exposes the three verbs (batch 5, the TitleBar period-B slice); **period C landed** (batch 2 A4, 2026-10-31): `El::titleBar()` (kind=`title_bar`) plus a dual-channel descriptor (`component_shell/title_bar.cpp`), `cmd/patch-title-bar.sh` with eight insertion points (spec.h enum / spec.cpp name / runtime.cpp lexicon / materialize dispatch / Construct exhaustiveness case / descriptor file / families.h / lib.cpp), kit selftest `titleBarShape` + the `titlebarWindowGate` wiring arm (debug_tree contains the TitleBar node), see Components |
 | Entity / context / render / task / global / view-cache | Not a one-to-one Rust API mapping: PHP declarations, retained native entities, and a dirty-driven loop; see [Architecture](./architecture) |
 | Styles | 135/137 nullary keywords (batch-1 diff closed; h_flex/v_flex go through kind names) plus parameterized helpers |
 | Focus | Focus metadata, `focusElement()`, native focus-trap/Escape evidence; human HID still separate |
-| Actions | `dispatchAction()` and menu-action routing |
+| Actions | `dispatchAction()` and menu-action routing; **element-level `on_action` landed** (batch 2 A5, 2026-10-31): `El::onAction('name')` ops intern via `gpui_shim_on_action` (`cmd/patch-host-action-cb.sh`) into ShellActions bound through `element->OnAction`; the DispatchArgs shim fork routes the event back to the PHP queue (short type `action`, handler `App::on(id,'action',fn)`). kit `actionDeliveryGate`: the fire_registered hard arm is green across all three stages (op registered + queue + delivery); the dispatchAction arm cannot reach the OnAction listener without a real focus in the synthesized state → advisory, tracked in C1 |
 | Keybindings | Batch 5 (2026-10-31): `bindKeys` landed — KeyChordsParse → ShellActionOf → KeymapBind, the three steps of NativeBindKeys (whole-list pre-validation); unclaimed actions enqueue as the action event. Install receipt/table probe = the bindKeysGate hard assertion; synthesized cmd-key delivery is advisory (NSApp swallows cmd chords with no menu row; native keyboard is HID) | Events | 24 declared callback names, 20 with native delivery evidence |
 | Animation | `transition` and `spring` not exposed |
 | Paint / geometry / text | Layout and text available; no general path drawing |
 | Accessibility | Validated roles and ARIA operations; VoiceOver acceptance remains manual |
-| Images / assets / fonts | Embedded icon paths; shape validation is not a full base-icon whitelist; no font-loading or HTTP-image policy API |
-| Internationalization | No application locale API; documentation locales are unrelated |
+| Images / assets / fonts | Embedded icon paths; shape validation is not a full base-icon whitelist. **HTTP images**: the remote core is implemented (the HttpFetch state machine at image.cpp:223-234 — Pending/None retrying next frame IS the whole retry policy; `data:` URIs decode locally, local assets walk `AssetsExists`) — `El::image($src)` passes src straight into the text field, and there is **no capability check on the img path** (the TextView path has one; the img path follows the reference repo's convention — whether to add a whitelist is a design decision); system-domain `imageAssetRenders`/`imageUrlPolicy` gates (batch 3 A8). **Font loading: none** — design section below |
+| Internationalization | No application locale API; documentation locales are unrelated. Design section: [i18n design section (batch 4 D1)](#i18n-design-section-batch-4-d1) — the reference repo's `LocaleNow` (ui/i18n.cpp:47) plus the ThemeTokensSync revision refresh make a future `App::locale()` a shell-level addition, not a gpui-core one |
 | System notifications | macOS wrapper exists; visible OS delivery needs separate acceptance |
 | WebView | WKWebView through ChildView, including frame visibility management |
 | Native extensions | PHP is the host; script-side host modules are not the same abstraction |
-| WebAssembly / mobile | Not supported by this binding; current target is macOS arm64 |
+| WebAssembly / mobile | Not supported by this binding; current target is macOS arm64. Conclusion section: [wasm/mobile conclusion (batch 4 D2)](#webassemblymobile-conclusion-batch-4-d2) — the reference repo's window backend matrix actually ships a complete wasm pair (window_wasm.cpp + paint_wasm.cpp); what is missing is this repo's host chain, not the upstream surface |
 | Tests / FPS | Native selftests, snapshots, shotdiff, and FPS HUD; HUD resource-row stability is still open |
-| Design tokens | `App::setTheme()` exists; no PHP semantic-token table |
+| Design tokens | `App::setTheme()` exists; **the semantic token table is now exposed to PHP** (batch 3 A6, 2026-10-31): `App::themeTokens()` reads the whole table as one JSON document through `gpui_shim_theme_tokens` (a pure `char*` out-param per the C-ABI gate, testing.md gate 8) — colors as 17 `#rrggbb` keys + 7 spacing steps + 6 radius steps + typography sans/mono family names, built once per palette upstream (ThemeTokensSync), JSON shaped after the JS-route snapshot in runtime.cpp; system-domain `tokenTableExpose` gate asserts the 17-key set, the step lists and non-empty values. Semantic names like `bg('primary')` now have a PHP-side queryable value |
+
+## Font loading channel (design section, batch 3 A7)
+
+**Measured status**: the reference repo (the same-shaped C++ pin as upstream) has
+**zero font-file loading seams** — a tree-wide grep for
+`CTFontManagerRegisterFonts` / `AddFontMemResource` / `loadFont` /
+`registerFont` hits nothing. Font resolution is system family lookup only:
+`static CTFontRef FontFor(PaintApp*, float fontSize, uint16_t weight)` at
+`src/gpui/paint_mac.cpp:1097` goes through `NSFontManager fontWithFamily:name`
+and falls back to Menlo/system fonts on a miss (:1127-1139); `FontFamilyIntern`
+at `src/gpui/gpui.cpp:2599` is just a string→uint8 intern (`gFontFamilies[128]`
+cap). `El::FontFamily(Str)` (gpui.h:3172) takes an **interned family name**, not
+a file.
+
+**Future path** (a gpui-core paint-layer change, tier-B/L — outside this repo's
+patch-*.sh shell convention):
+1. `CTFontManagerRegisterFontsForURL` (or the in-memory
+   `CTFontManagerRegisterFontRefs`) to register font files with CoreText;
+2. cache invalidation for `pa->fonts` in `FontFor` (paint_mac.cpp:1097) — after
+   registration the same family name must re-resolve, or the stale CTFontRef
+   keeps hitting the fallback;
+3. the id face of `FontFamilyIntern`: the `gFontFamilies[128]` cap and the
+   lifetime of registered names (registry entries must outlive intern ids)
+   need to line up;
+4. a new shim ABI (say `int gpui_shim_font_load(const char* path, char* outName,
+   int cap)`), pure C per testing.md gate 8 (no std::).
+
+**Relation to A6**: `typography.sans/mono` in the semantic table
+(`ThemeTypographyTokens` at theme_tokens.h:27, exposed to PHP by batch 3 A6 via
+`App::themeTokens()['typography']`) are exactly the two family-name slots a
+future loading channel fills: after loading a custom font, point sans/mono at
+the registered name and `El::fontFamily(...)` plus the type scale take effect
+as a whole.
+
+## i18n design section (batch 4 D1)
+
+**Status**: no locale mechanism in this repo (the ❌ row above) — no PHP-side
+reader, no example consumption, no bridge channel.
+
+**Reference-repo shape** (precedents exist; both are reproducible runtime
+readers):
+- `build/gpui-kit-cpp/port-map.md:26` records `locale` → `LocaleNow`; the
+  implementation lives at `src/ui/i18n.cpp:47` (`Str LocaleNow()` returns
+  `kLocaleNames[gLocale]`, with a setter in the same file that looks the name
+  up and sets the index) — locale is **ui/base-side runtime state**, not a
+  build-time constant;
+- the refresh precedent is `src/shell/theme_tokens.h:21`'s
+  `ThemeTokensSync(app)` (batch 3 A6's four-layer reader already plugs into
+  it): appearance/theme changes bump the revision and rebuild the thread_local
+  table — a locale change is the same family of refresh, and the semantic
+  token table (including typography.sans/mono) should be invalidated together
+  with locale/appearance.
+
+**Future shape** (tier-B, a shell-level addition, no gpui-core changes):
+1. an `App::locale(): string` reader — wrap `LocaleNow` following A6's
+   `themeTokens()` four-layer precedent (shim pure-C ABI `char*` → bridge →
+   stub → FakeBridge → App.php);
+2. the semantic token table refreshing with locale/appearance:
+   `ThemeTokensSync`'s revision mode is already in place — adding locale to
+   its invalidation key is enough, `App::themeTokens()` keeps its shape;
+3. an `App::setLocale(string)` writer, if ever needed, must first align with
+   the `i18n.cpp` setter's allowlist (only names inside `kLocaleNames`).
+
+**Why no code this round**: the upstream pin's locale face stops at a ui-layer
+reader — the shell never exposes it to the host bridge, and no existing
+example consumes it (no UI copy goes through a locale table). A reader with
+nothing to assert is cost without benefit. When a real localization need
+appears, follow the three steps above; the scale matches A6.
+
+## wasm/mobile conclusion (batch 4 D2)
+
+**Conclusion: still not doing it**, and the evidence is now stronger after a
+correction — first, one ledger fix: the reference repo's window backend matrix
+is not "mac/win/linux three platforms"; the actual listing is **mac/win/
+linux/wasm four backends plus posix/mem_posix/window_common shared pieces**
+(`ls src/gpui/`: window_mac/window_win/window_linux/**window_wasm**/
+window_posix/window_mem_posix/window_common + paint_mac/paint_win/paint_linux/
+**paint_wasm**), and no iOS/Android. A first-hand read of `window_wasm.cpp`'s
+header: "The browser window: the canvas, the DOM events, the animation-frame
+loop… mirror of Window_win.cpp and Window_linux.cpp" — the reference repo's
+wasm window backend and Canvas2D paint backend (paint_wasm.cpp, EM_JS straight
+into JavaScript) are **complete**.
+
+So the blocker for wasm/mobile lives **entirely in the host chain**, three
+counts:
+1. **The host chain is bound to Cocoa**: the phpx AOT host plus
+   `-framework Cocoa` linking is part of the artifact shape — seen at
+   `cmd/onscreen-probe.sh:56`, `cmd/check-hotkey-pump.sh:51` and
+   `cmd/build-tap-probe.sh:16` (`-framework Cocoa … -framework Metal
+   -framework QuartzCore -framework Carbon`); a wasm target has no such chain;
+2. **Ownership of the wasm face differs**: the reference repo's wasm face is
+   C++-shell-drawn (canvas + DOM events + the animation-frame loop); this
+   repo's host is the PHP → shim → gpui chain — landing wasm means rewriting
+   the host runtime (no browser counterpart for the PHP interp/AOT layer);
+3. **No mobile backend in the matrix**: beyond mac/win/linux/wasm there is no
+   iOS/Android backend, so "mobile" has nothing to hang on in the reference
+   repo either.
+
+Decision record: wasm/mobile stays ❌ (the table row above is unchanged) unless
+a browser-distribution need shows up on the product side — and the first thing
+to evaluate then is not the gpui layer (the backends exist) but a wasm path
+for the PHP host layer.
 
 Continue with [Events](./events), [System Capabilities](./system-capabilities),
 and [Testing](./testing) for the evidence behind each boundary.

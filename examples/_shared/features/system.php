@@ -16,6 +16,11 @@ declare(strict_types=1);
 use TypePHP\Gpui\App;
 use TypePHP\Gpui\Element as El;
 
+/** 批3 A8：data URI 用 4x4 蓝块（#2f6fed）的 PNG，base64 内联——解码路径与
+ * 网络无关，selftest 与树里共用同一字面量（image.cpp DataUriBytes 本地解码）。 */
+const SY_DATA_PNG_B64 =
+    'iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAIAAAAmkwkpAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAAFElEQVQImWPUz3/LAANMDEgANwcATWwBkzi21GoAAAAASUVORK5CYII=';
+
 /** 本域的像素树清单：树号 → [标题, builder]。两节两棵树。 */
 function systemTrees(): array
 {
@@ -44,10 +49,26 @@ function sectionSystem(array $s): El
             El::catalogButton('sy-proc', '跑 /bin/echo')->onClick()->ghost(),
             El::catalogButton('sy-store', '存储 set/get')->onClick()->ghost(),
         ])->gap(8.0),
+        // ── 批3 A8：image 三路 src。远程面核心 image.cpp:223-234 已在 vendored
+        // 上游（本地资产走 AssetsExists、data: URI 本地解码、http(s) 走
+        // HttpFetch 状态机，Pending/None 每帧重试即全部重试策略）——PHP 侧
+        // src 直传 text 字段即达。本地两颗可见（像素确定、进基线，探针见
+        // selftest 的 imageAssetRenders 门）；远程颗 hidden：无头会话的 fetch
+        // 结果随网络态走，像素不确定，进树是为门 12 的工厂覆盖与 imageUrlPolicy
+        // 门的结构读数，hidden 保基线逐字节确定。
+        El::text('image 三路 src：本地资产 / data: URI / 远程 URL（hidden，像素随网络态）')
+            ->font(13.0)->semibold(),
+        El::hFlex([
+            El::image('tile.png', '本地资产 8x8 橙块')->w(64.0)->h(64.0),
+            El::image('data:image/png;base64,' . SY_DATA_PNG_B64, 'data URI 4x4 蓝块')
+                ->w(64.0)->h(64.0),
+            El::image('https://example.com/gpui-probe.png', '远程 URL（hidden）')
+                ->w(64.0)->h(64.0)->hidden(),
+        ])->gap(16.0)->itemsStart(),
         El::vFlex(array_map(
             static fn (string $line): El => El::text($line)->font(11.0)->truncate(),
             $s['sysLog'] === [] ? ['（还没点上面三个按钮）'] : $s['sysLog']
-        ))->gap(2.0)->p(8.0)->bg(0xFAF8F5)->roundedMd()->h(130.0)->overflowYScroll(),
+        ))->gap(2.0)->p(8.0)->bg('#faf8f5')->roundedMd()->h(130.0)->overflowYScroll(),
     ])->sizeFull()->gap(10.0)->p(16.0)->overflowYScroll();
 }
 
@@ -68,7 +89,7 @@ function sectionServices(array $s): El
         El::vFlex(array_map(
             static fn (string $line): El => El::text($line)->font(11.0)->truncate(),
             $s['sysInfo']
-        ))->gap(2.0)->p(8.0)->bg(0xFAF8F5)->roundedMd(),
+        ))->gap(2.0)->p(8.0)->bg('#faf8f5')->roundedMd(),
         El::hFlex([
             El::catalogButton('sv-insp', 'Inspector 拾取')->onClick()->ghost(),
             El::catalogButton('sv-theme', '切主题 dark/light')->onClick()->ghost(),

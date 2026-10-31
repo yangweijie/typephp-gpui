@@ -1816,6 +1816,8 @@ static shell::ComponentKind ComponentKindOf(Str name) {
     };
     static const NamedKind kinds[] = {
         {"div", shell::ComponentKind::Div},
+        // typephp-gpui: TitleBar kind (patch-title-bar.sh).
+        {"title_bar", shell::ComponentKind::TitleBar},
         {"h_flex", shell::ComponentKind::HFlex},
         {"v_flex", shell::ComponentKind::VFlex},
         {"text", shell::ComponentKind::Text},

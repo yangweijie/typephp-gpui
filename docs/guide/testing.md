@@ -22,6 +22,29 @@
 | 15 | 帧/节点预算棘轮 | `composer bench:tree`（= `php cmd/bench-tree.php --check cmd/bench-tree-budgets.txt`；CI 的 php job 里排在 Pest 之后） | 只量 PHP 半边（view builder + `toArray()`）：5 个规模各跑 5 次取 **min** 与预算比，超一档即红，`us/node` 单独一档。取 min 而不是中位数是同机 A/B 量出来的——中位数随机器状态漂（med 48ms 的序列里混着 max 94ms 的停顿），min 在快/慢状态间只差 10~20%。内存只报不门（2 万行峰值 168MB 是框架特性，不是回归信号）。红臂实测：注入真 O(n²) ⇒ 大档全超（60001 档 302ms、µs/node 5.04）rc=1，小档仍 OK。机器正忙时的显式逃生阀 `GPUI_SKIP_BENCH_TREE=1` | 否 |
 | 16 | 热键泵不吃鼠标（#99） | `composer check:hotkey-pump`（= `bash cmd/check-hotkey-pump.sh`；CI 原生 job 里跟着 bundle 门跑） | 驱动**生产 `gpui_mac_pump()`**（把 `cpp-src/gpui_mac.mm` 编进来一起链），不是它的抄本——抄本只能证明设计成立，生产改回去它照样绿。免人手三臂：①注册一颗真热键（泵在 `g_hotkeys` 为空时早退，不注册就没测到那条路），塞「热键在队头、鼠标紧跟其后」一对再跑生产泵 ⇒ 鼠标必须还在、热键必须被取走**且 sink 真收到一条 hotkey**（「事件不见了」≠「事件被派发了」）；②撤掉热键再塞一对，泵必须一个都不碰（`empty()` 早退那条路）；③负向对照用修复前那版「任意事件」排空，它**必须**吃掉鼠标，否则这条自证没有判别力 ⇒ rc=2 未判定。**自带红臂**：把生产源里 peek 的 `false` 翻成 `true` 编一份临时副本（生产文件一个字不动），门必须随之变红。实测正向 `旧排空吃鼠标=1 生产泵留鼠标=1 留热键=0 热键送达=1 无热键时留鼠标=1 留热键=1`、红臂 `生产泵留鼠标=0 热键送达=0` ⇒ `HOTKEY-PUMP GATE OK（正向绿 + 红臂红）`。量的是**队列层**（down 有没有被摘走），不是像素也不是真人送达；前置产物缺、热键注册不上、红臂锚点不唯一、未知开关都 rc=2 | 是（gpui.o + 窗口会话） |
 | 17 | 正常退出不段错误（#101） | `composer check:exit-clean`（= `bash cmd/check-exit-clean.sh`；CI 原生 job 里跟着热键泵门跑） | 交互 quit／关窗走「main 正常返回 → exit → `__cxa_finalize_ranges` → 静态析构」，而 bridge 的登记表里存着 PHP callable（`php::Variant`）：Zend 引擎先关、析构后跑 ⇒ `~Variant → zval_ptr_dtor` 摸已释放内存，SIGSEGV。**`--selftest` 走 PHP `exit()`，不跑这些析构**，所以十几支自检全绿也照不出这条路——真人一关窗就崩。免人手复现：`--automation <dir>` 放一条 `quit`，**目录每轮新建**（命令文件吃过就 unlink，复用旧目录会永远等下一号，那是夹具错不是门红）。门先 `build --no-native` 再量（失败的建设会留下上一版二进制），断 rc=0 **且**回执里 `commands=1` 与 `#1 quit -> bye` 都在（「没跑起来」不许冒充通过）；挂住超 40s 看门狗、产物建不出来、未知开关都 rc=2 未判定。红侧修前实测 hello／input 都 139，修后都 0 | 是（二进制 + 窗口会话） |
+| 18 | token 徽章像素判别臂 | `bash cmd/check-token-paint-png.sh` | kit `tokenDeliveryRender` 门（硬门仍在 selftest）的**第二条色通道**复核：selftest 在 ON 帧在屏时 `App::snapshot()` 离屏出图（`sys_get_temp_dir()` 读环境 TMPDIR——脚本侧必须 `${TMPDIR:-/tmp}` 同源，写死 `/tmp` 会报"没出图"），脚本用 PHP GD 按 selftest 同一网格找红徽章（GD 判读不进 AOT 编译域——examples 无 GD 先例）。出读数不出门红：PNG 有红=通道分歧实证（regionRgb 读不到但 paint 帧有）；**PNG 无红=缺口实证——宿主回调 subtree 没进 paint/合成帧**（regionRgb 与 PNG 两通道一致缺席，2026-10-31 实测后者，修复另立轮，findings.md 有记）。selftest 门红/没出图/PNG 尺寸≠420x200 都 rc=2 未判定 | 是（二进制 + 窗口会话） |
+| 19 | always 滚动条真画探针（前提式） | `bash cmd/check-scrollbar-paint.sh` | "scrollbarMode always 的 thumb 真画出来"的 `--shot` 通道验收：kit tree4（`sectionKitScrollbarPair`，hover/always 两盒同构 w220/h120/gap40/p40，探针 (244,48)/(504,48) 右缘 16x60 竖条——**builder 必须带 `p(40)`**，首版漏了盒从 (0,0) 起、探针读到根底色）。断两盒区域均色互异；同色 ⇒ **applicable=false rc=2 未判定**（2026-10-31 实测同色 rgb(223,223,223)：离屏合成也不画 always thumb——"无真人鼠标事件 NSScroller overlay 自动隐藏"对 --shot 同样成立）。不设 rc=1：没画出滚动条不是回归红，是前提不成立；出不了图/PNG≠900x680 也 rc=2。"always 真画"目前只能真人 HID 前提式验收 | 是（二进制 + 窗口会话） |
+
+### 真人 HID 复验清单 v2（批4 C1）
+
+门禁表量的是机器可判的部分；下面五项的**期望证据只能真人手做**。每项格式 =
+前提 → 操作 → 期望读数 → 前提不成立记 `applicable=false`（未验，不判红也不假绿）——
+语义照门 16/17 的「未判定 rc=2」与「前提式纪律」（testing.md shotdiff 节：
+「焦点/HID 依赖的门必须写成前提式……环境不给焦点那属真人 HID 那一格」）；
+像素证据与真人验收互不背书（见下文论述）。汇总依据：kit selftest 的 advisory
+读数（2026-10-31 实跑）。
+
+| # | 项 | selftest 现状（机器半边） | 真人操作 | 期望读数 |
+|---|---|---|---|---|
+| H1 | NativeMenu 行选中送达 | `nativeMenuShape` 只断工厂形状（trigger 硬带 on_effect_error + item(label,action) + children 白名单） | 前提=应用前台；真点触发器弹 OS 菜单（keyed event effect），再真选一行（两次真人交互——NSMenu 行选择是模态会话，合成点击够不到） | `$app->on($action,'action',…)` 的处理器收到一条事件，事件 id = 行声明的 action 名 |
+| H2 | Resizable 拖拽把手 | `catalogResizableShape` 只断形状（无拖拽） | 前提=窗口前台；真按住面板间把手拖动 | 面板尺寸随拖动连续变化（ResizablePanel 的 resize 读数/视觉宽度），松手后保持 |
+| H3 | Accordion trigger on_change 送达 | `accordionCatalogShape` 只断形状（header/panel 槽契约） | 前提=窗口前台；真点 trigger 头 | `on_change` 事件到 PHP（open 状态翻转），panel 展开/收起与事件一致 |
+| H4 | scrollbar always 真画 | `scrollbarModePaintPair` regionRgb 两盒同色（advisory）；`cmd/check-scrollbar-paint.sh` --shot 通道也同色 **applicable=false 亲测**（2026-10-31，rgb(223,223,223)） | 前提=窗口前台；鼠标悬停 always 盒并滚动 | always 盒右缘出现 thumb 且随滚动移动；hover 盒仅悬停时出现——两盒右缘区域色从此可判互异 |
+| H5 | token + link 鼠标命中 | `tokenDeliveryRender`（造粒/事件送达/renderCalls 硬门绿；徽章像素 regionRgb+PNG 两通道一致缺席——A2 判别臂缺口实证，修复另立轮）+ `linkDelivery`（fire 通道量化） | 前提=窗口前台；真点击输入框内的 token 徽章、真点击 link 文字 | onTokenClick / on_link_click 事件到 PHP，事件载荷含 token/link 的 id |
+
+前提不成立的标准记法：会话无 GUI/窗口不在前台/无法人工交互 ⇒ 该项记
+`applicable=false`（未验），**不得**引用 selftest 绿冒充已验，也**不得**因做不到
+而判红——那正是「前提式纪律」的定义（testing.md shotdiff 节）。
 
 一键：`composer test:all`（Pest + PHPStan + 上游词表 parity + shim_test）。
 全量示例跑一遍：`composer examples:all` = `bash cmd/all-examples.sh`

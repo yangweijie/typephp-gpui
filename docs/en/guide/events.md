@@ -190,8 +190,9 @@ are pinned in the patch headers: the shim's re-prefix turns `token` into
 `on_token` (the upstream op name is the unprefixed `token`, compared verbatim —
 special-cased), and the element fork's batch must live in the cx->a frame arena —
 the JS path's RenderSnapshot/frameSnapshots must NOT be used for shim entries
-(their entry->view is a PhpView entity; Get<ScriptView> has no type check and the
-Vec gets a garbage allocator — measured as a malloc abort). Acceptance boundary:
+(their entry->view is a PhpView entity; the `Get()` template tag has no type
+check for ScriptView and the Vec gets a garbage allocator — measured as a malloc
+abort). Acceptance boundary:
 the callback chain is fully proven (tokenDeliveryRender renderCalls=2630,
 messageRowRender renderCalls=15); the chip/row pixel placement depends on
 upstream BoundsOut multi-frame settlement and is unstable headless under the
@@ -454,6 +455,21 @@ clicking it and choosing a row are two human interactions (NSMenu row selection 
 modal session synthetic clicks cannot reach) — the kit selftest only pins the factory
 shape and the `$app->on($action, 'action', …)` wiring; delivery evidence stays with
 human acceptance.
+
+Batch 2 A5 (2026-10-31) adds a fourth source: the **element-level
+`on_action`** — `El::text(...)->id('src')->onAction('kit::copy')`. The op's
+name is the action's name (materialize interns it via `ShellActionOf`, the
+same table as the keymap and menu actions) and binds `element->OnAction`;
+once `dispatchAction()` or a keystroke reaches the listener on the focus
+chain, the DispatchArgs shim fork routes the event back to the queue
+(`cmd/patch-host-action-cb.sh`). The handler wiring is the same
+(`$app->on('src', 'action', …)`), with the fixed queue short type `'action'`;
+kit's `actionDeliveryGate` measured the fire_registered hard arm green across
+all three stages (op registration + queue + PHP handler), while the
+`dispatchAction` arm cannot reach the listener without a real focus in the
+synthesized state → advisory (same situation as bindKeysGate). Limitation:
+repeated `onAction` calls on one element share one queue channel — spread
+multiple actions across different elements.
 
 ## Foreground state and human input
 

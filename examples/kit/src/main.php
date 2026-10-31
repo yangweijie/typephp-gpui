@@ -82,11 +82,12 @@ function step(string $name, bool $ok, string $detail): void
 function kitTree(int $tree = 1): El
 {
     // 按**树号**选 builder：写死一棵的话两棵"不同的树"会拍出逐字节相同的帧，
-    // cmd/shotdiff.php 有门直接拦重复帧。kit 三棵都非空，漏选当场会被报出来。
+    // cmd/shotdiff.php 有门直接拦重复帧。kit 四棵都非空，漏选当场会被报出来。
     $builders = [
         1 => 'sectionKitBasics',
         2 => 'sectionKitData',
         3 => 'sectionKitOverlays',
+        4 => 'sectionKitScrollbarPair',
     ];
     $fn = $builders[$tree] ?? 'sectionKitBasics';
     return El::vFlex([$fn(ExampleState::get())])->sizeFull()->bg('#f6f3ee');
@@ -1590,7 +1591,13 @@ function runKitSelfTest(): void
     //    不绘制 thumb）——实测两盒右缘 regionRgb 读数完全相同（rgb(224,224,224)）。
     //    所以像素对拍降为 advisory 读数，硬门只断结构面：registeredError 清零 +
     //    componentFailure 清零 + advancedScrollSugar 结构门（上面已跑）。
-    //    "always 真的画出了滚动条"这一像素事实需要真人 HID 或 --shot 模式验收。
+    //    --shot 通道复验（2026-10-31，收尾轮 A3）：tree4（sectionKitScrollbarPair，
+    //    同构两盒）经 App::snapshot 离屏渲染，cmd/check-scrollbar-paint.sh 读同位
+    //    探针两盒右缘仍同色（rgb(223,223,223)）——**离屏合成通道也不画 always
+    //    thumb**，"无真人鼠标事件 overlay 自动隐藏"对 --shot 同样成立，该门前提
+    //    不成立记 applicable=false（rc=2 未判定，不硬断）。
+    //    结论："always 真的画出了滚动条"这一像素事实目前只能真人 HID 验收
+    //    （前提式——未验，不得声称已验）。
     ExampleState::boot(['section' => 1]);
     $rows = static function (string $tag): array {
         $out = [];
@@ -1622,14 +1629,16 @@ function runKitSelfTest(): void
     // 硬门：结构面清零（registeredError / componentFailure）。
     $sbStructOk = $sbApp->registeredError() === ''
         && (int) (App::componentFailure()['count'] ?? 1) === 0;
-    // advisory 读数：像素对拍（macOS 无头渲染自动隐藏滚动条，预期两盒同色）。
+    // advisory 读数：像素对拍（macOS 无头渲染自动隐藏滚动条，预期两盒同色；
+    // --shot 通道也已复验同样不画——见上注与 cmd/check-scrollbar-paint.sh）。
     $pixelDiff = $hoverBar !== $alwaysBar;
     step('scrollbarModePaintPair', $sbStructOk,
         '结构面 registeredError=空 componentFailure=0'
         . ' hover 右缘=' . $fmt($hoverBar) . ' always 右缘=' . $fmt($alwaysBar)
         . ' → 右缘两盒不同=' . var_export($pixelDiff, true)
-        . ($pixelDiff ? '' : '（macOS 无头渲染自动隐藏原生滚动条，像素对拍预期同色——'
-            . '"always 真的画出滚动条"需真人 HID 或 --shot 验收）'));
+        . ($pixelDiff ? '' : '（macOS 无头渲染自动隐藏原生滚动条，像素对拍预期同色；'
+            . '--shot 通道复验同色 rgb(223,223,223) applicable=false——'
+            . '"always 真的画出滚动条"只能真人 HID 前提式验收）'));
     $ok = $ok && $sbStructOk;
     $sbApp->close();
     // 7b) ScrollbarHandle 实体探针（批3）：NewHostState 对**无参 creator** 的
@@ -1784,6 +1793,39 @@ function runKitSelfTest(): void
         . '（键盘送达 advisory：native 键盘归真人 HID，见 events 页）');
     $ok = $ok && $bkOk;
 
+    // 7h) actionDeliveryGate（批2 A5）：元素级 on_action(动作名)。硬门=
+    //     fire_registered('action') 送达——它按 (elem_id,'action') 查
+    //     shimCallbacks 表，条目只在 bridge 的 on_action 分支真跑过才存在
+    //     （patch-host-action-cb.sh 的 gpui_shim_on_action 登记）⇒ op 真进了
+    //     SpecArena；InvokeWith → shimId 分叉 → 队列 → PHP handler 收到 =
+    //     "op 挂表 + 队列 + 送达"全通。advisory 臂=dispatchAction 真 ShellAction
+    //     派发：动作从焦点节点冒泡，合成态无真人焦点时到不了 OnAction 监听器
+    //     （bindKeysGate 同款处境）——到不了降 advisory 记 C1 清单，不硬断。
+    ExampleState::$v['gateAction'] = '';
+    $app->on('kit-action-src', 'action', static function (): void {
+        ExampleState::$v['gateAction'] = 'delivered';
+    });
+    $app->render(El::vFlex([
+        El::text('copy 源')->font(12.0)->id('kit-action-src')->onAction('kit::copy'),
+    ])->sizeFull()->p(40.0)->bg('#f6f3ee'));
+    $app->loop(4);
+    $fAction = \gpui_selftest_fire_registered($app->handle(), 'kit-action-src', 'action');
+    $ev = \gpui_poll_event($app->handle());
+    if (!empty($ev)) { $app->dispatch($ev); }
+    $realDispatch = $app->dispatchAction('kit::copy');
+    $app->loop(3);
+    $ev2 = \gpui_poll_event($app->handle());
+    if (!empty($ev2)) { $app->dispatch($ev2); }
+    $adOk = $fAction && ExampleState::$v['gateAction'] === 'delivered'
+        && $app->registeredError() === '';
+    step('actionDeliveryGate', $adOk,
+        'fire_registered(action)=' . var_export($fAction, true)
+        . ' 送达=' . var_export(ExampleState::$v['gateAction'], true)
+        . ' dispatchAction(kit::copy)=' . var_export($realDispatch, true)
+        . '（fire 臂=op 挂表+队列+PHP handler 三段；dispatch 臂=真 ShellAction 派发，'
+        . '无真人焦点时到不了 OnAction 监听器——advisory，见 events 页）');
+    $ok = $ok && $adOk;
+
     $app->close();
     // 9) 批4 的事件/渲染三门——放在主窗关闭**之后**：GpuiWindow() 返回
     //    [NSApp windows] 里第一个可见窗，主窗活着时 realClick 会点到主窗上
@@ -1862,10 +1904,19 @@ function runKitSelfTest(): void
     $tkApp->loop(4);
     $made = $tkApp->inputReplaceToken('kit-gate-tok', 'tok-g1', '@张三', '张三');
     $tkApp->loop(4);
-    // 渲染正臂：徽章（蓝）应出现在输入框文本起点（输入框 (40,40,w300)，探针留出内边距）。
-    // 徽章定位用网格扫描（chip 随文本排版走，不硬编码探针）：ON 帧里找蓝点；
-    // OFF 帧同点必须是 chip/底色（非蓝）——两帧同点颜色分歧 = 渲染回调真的
-    // 改变了像素（正/负对拍的双方）。全网格无蓝点 = 处理器没被调用。
+    // 判别臂 b)·PNG 通道出图：趁 ON 帧在屏离屏出图（GD 判读在
+    // cmd/check-token-paint-png.sh，不进 AOT 域）；判别臂 a)·通道活性对照：
+    // input 框框缘/内里两已知区域，非根底 ⇒ regionRgb 通道活。
+    $tokPngOk = $tkApp->snapshot(sys_get_temp_dir() . '/gpui-kit-token-probe.png', 420, 200);
+    $ctrlEdge = $tkApp->regionRgb(40, 40, 4, 4);
+    $ctrlInner = $tkApp->regionRgb(44, 44, 8, 8);
+    // 渲染正臂：徽章（红，bg('#ff0000')）应出现在输入框文本起点（输入框
+    // (40,40,w300)，探针留出内边距）。徽章定位用网格扫描（chip 随文本排版走，
+    // 不硬编码探针）：ON 帧里找红点（判据 r>200/g<90/b<90，与内联判据一致）；
+    // OFF 帧同点必须是 chip/底色（非红）——两帧同点颜色分歧 = 渲染回调真的
+    // 改变了像素（正/负对拍的双方）。全网格无红点 = 处理器没被调用。
+    // （2026-10-31 订正：徽章是 '#ff0000' 红，上文"找蓝点"是旧版蓝徽章的
+    // 陈旧口径，判据一直是红的——注释已按实际判据改写。）
     $tokOn = $tkApp->regionRgb(56, 50, 12, 12);
     $tokOff = $tokOn;
     $grid = [];
@@ -1903,11 +1954,22 @@ function runKitSelfTest(): void
     $fHover = \gpui_selftest_fire_registered($tkApp->handle(), 'kit-gate-tok', 'token_hover');
     $ev = \gpui_poll_event($tkApp->handle());
     if (!empty($ev)) { $tkApp->dispatch($ev); }
-    $isBlueish = static fn (array $c): bool => isset($c['b']) && $c['b'] > 150 && isset($c['r']) && $c['r'] < 200;
     $tokValue = $tkApp->text('kit-gate-tok');
     $tokRendered = (int) (ExampleState::$v['gateTokRendered'] ?? 0);
     // 硬门=造粒 + 事件送达 + 渲染回调链路（handler 被调>0）；徽章像素落位降为
-    // advisory（chip BoundsOut 的多帧沉降在无头+当前机器态下不稳，批4 实测）。
+    // advisory。归因订正（2026-10-31）：旧注"chip BoundsOut 的多帧沉降在无头+
+    // 当前机器态下不稳"不成立——同读数连跑 3 遍逐字相同（徽章@=null、
+    // chip帧=rgb(224,221,217)、renderCalls 恒定），是**确定性缺席**而非多帧
+    // 抖动/机器态漂移。嫌疑修正为宿主回调 subtree 的像素面缺席（渲染回调链路
+    // 硬门全绿但像素两通道都读不到，与 messageRowRender 同款）。
+    // 判别臂（本轮落，不动硬门）：
+    //  a) 通道活性对照（同帧）：读 input 框框缘/内里两已知区域——非根底
+    //     rgb(246,243,238) ⇒ 这扇窗 regionRgb 通道活，徽章缺席不是"通道死"；
+    //  b) PNG 通道：趁 ON 帧在屏 App::snapshot() 离屏出图（与 regionRgb 两条
+    //     色通道，tree30 案实证可分歧），GD 判读在 cmd/check-token-paint-png.sh
+    //     （GD 函数不进 AOT 编译域）——PNG 有红而 regionRgb 无 ⇒ 通道分歧；
+    //     两通道都无红 ⇒ 宿主回调 subtree 确实没进 paint/合成帧（缺口实证，
+    //     修复另立轮，findings.md 有记）。
     $tokOk = $made && $fClick === true && ExampleState::$v['gateTokClick'] === 'delivered'
         && $fHover === true && ExampleState::$v['gateTokHover'] === 'delivered'
         && $tokRendered > 0 && $tkApp->registeredError() === '';
@@ -1916,10 +1978,13 @@ function runKitSelfTest(): void
         . ' renderCalls=' . (string) $tokRendered
         . ' 徽章@=' . json_encode($badgeAt)
         . ' 徽章帧=' . json_encode($tokOn) . ' chip帧=' . json_encode($tokOff)
+        . ' 判别臂:PNG出图=' . var_export($tokPngOk, true)
+        . ' 通道对照(框缘/内里)=' . json_encode($ctrlEdge) . '/' . json_encode($ctrlInner)
         . ' fire(click/hover)=' . var_export($fClick, true) . '/' . var_export($fHover, true)
         . ' 送达=' . var_export(ExampleState::$v['gateTokClick'], true) . '/'
         . var_export(ExampleState::$v['gateTokHover'], true)
-        . ($tokOk ? '' : '（徽章帧不蓝：先查 token 是否真进文本与探针坐标；'
+        . ' PNG通道判读见 cmd/check-token-paint-png.sh'
+        . ($tokOk ? '' : '（徽章帧不红：先查 token 是否真进文本与探针坐标；'
             . 'fire=0：查 (kit-gate-tok,on_token_click) 是否进了 shim 回调表）'));
     $ok = $ok && $tokOk;
     $tkApp->close();
@@ -1947,8 +2012,10 @@ function runKitSelfTest(): void
     $isRowBlue = static fn (array $c): bool => isset($c['b']) && $c['b'] > 240
         && isset($c['r']) && isset($c['g']) && $c['b'] > $c['r'] + 5;
     $msgCalls = (int) (ExampleState::$v['gateMsgRendered'] ?? 0);
-    // 硬门=回调链路（fork 为行调处理器>0、账本清零）；行像素的 regionRgb 落位在
-    // 当前机器态下不稳定（虚拟行 PrePaint 与探针时序），降为 advisory 读数。
+    // 硬门=回调链路（fork 为行调处理器>0、账本清零）；行像素落位降为 advisory。
+    // 归因订正（2026-10-31）：旧注"虚拟行 PrePaint 与探针时序不稳"是猜测——
+    // 同读数连跑 3 遍逐字相同，是确定性缺席；与 tokenDeliveryRender 同款
+    // （宿主回调 subtree 像素面缺席，判别臂见该门注释与 cmd/check-token-paint-png.sh）。
     $msOk = $msgCalls > 0 && $msApp->registeredError() === ''
         && (int) (App::componentFailure()['count'] ?? 1) === 0;
     step('messageRowRender', $msOk,
@@ -1992,7 +2059,16 @@ function runKitSelfTest(): void
     // 10c) titlebarWindowGate：无边框 + clientTitleBar 窗口（TitleBar B 期最小面）。
     //     断言：窗口带选项开出、windowAction 三动词可用；close 动词后 isOpen=false
     //     是硬证据。双击最大化的 caption 通道（window_common.cpp:2526）与系统红绿灯
-    //     属真人验收。C 期（TitleBar 出 descriptor/kind）仅立项设计，见 coverage 页。
+    //     属真人验收。C 期串联臂（批2 A4）：窗内 render 换 El::titleBar 组件——
+    //     debug_tree 有 "TitleBar" 节点 = 专用 kind 真物化进 clientTitleBar 窗
+    //     （patch-title-bar.sh 的 materialize 分派 → title_bar_node_materialize）。
+    //     结构门 titleBarShape（FakeBridge 层，kind/children 契约）在上面单独断。
+    $tbShape = El::titleBar([El::text('t')]);
+    $shapeOk = $tbShape->kind === 'title_bar' && count($tbShape->children) === 1;
+    step('titleBarShape', $shapeOk,
+        'kind=' . $tbShape->kind . ' children=' . count($tbShape->children)
+        . ($shapeOk ? '' : '（El::titleBar 的 kind/children 契约破了）'));
+    $ok = $ok && $shapeOk;
     ExampleState::boot(['section' => 3]);
     $tbApp = new App();
     $tbApp->create();
@@ -2000,14 +2076,17 @@ function runKitSelfTest(): void
         'borderless' => true, 'clientTitleBar' => true,
     ]);
     $tbApp->render(El::vFlex([
-        // PHP 自拼 34px 标题条（title_bar.h kTitleBarHeight=34）：拖拽带归系统
-        // caption 通道，macOS 红绿灯由 Cocoa 画在透明标题栏上。
-        El::hFlex([El::text('Kit · 自绘标题条')->font(12.0)])
-            ->h(34.0)->w(360.0)->bg('#e8e2d8')->itemsCenter(),
+        // C 期串联臂：TitleBar 组件（34px 混色面 + content 槽）替代 B 期的
+        // PHP 自拼条；拖拽带归系统 caption 通道，macOS 红绿灯由 Cocoa 画。
+        El::titleBar([
+            El::text('Kit · 自绘标题条')->font(12.0),
+        ]),
         El::vFlex([El::text('无边框窗口内容')->font(12.0)])
             ->sizeFull()->bg('#f6f3ee'),
     ]));
     $tbApp->loop(4);
+    $tbDebug = \gpui_debug_tree($tbApp->handle());
+    $tbHasNode = str_contains($tbDebug, 'TitleBar');
     $openBefore = $tbApp->isOpen();
     $zoomed = $tbApp->windowAction('zoom');
     $minimized = $tbApp->windowAction('minimize');
@@ -2015,13 +2094,15 @@ function runKitSelfTest(): void
     $tbApp->windowAction('close');
     $tbApp->loop(3);
     $openAfter = $tbApp->isOpen();
-    $tbOk = $openBefore && $zoomed && $minimized && !$openAfter;
+    $tbOk = $openBefore && $zoomed && $minimized && !$openAfter && $tbHasNode;
     step('titlebarWindowGate', $tbOk,
         'openBefore=' . var_export($openBefore, true)
         . ' zoom=' . var_export($zoomed, true)
         . ' minimize=' . var_export($minimized, true)
         . ' isOpenAfterClose=' . var_export($openAfter, true)
-        . ($tbOk ? '' : '（openBefore=false：borderless 窗口没开出；close 后仍 open：AppClose 没到）'));
+        . ' debug_tree含TitleBar节点=' . var_export($tbHasNode, true)
+        . ($tbOk ? '' : '（openBefore=false：borderless 窗口没开出；close 后仍 open：AppClose 没到；'
+            . 'TitleBar 节点缺席：kind 分派没接通——查 patch-title-bar.sh 的 materialize 分支）'));
     $ok = $ok && $tbOk;
     $tbApp->close();
     echo ($ok ? 'KIT SELFTEST OK' : 'KIT SELFTEST FAIL') . "\n";

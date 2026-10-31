@@ -36,6 +36,10 @@ bool RegisterTypedCompound(shell::ComponentRegistry*, shell::RegistryError*);
 bool RegisterLifecycle(shell::ComponentRegistry*, shell::RegistryError*);
 bool RegisterCollections(shell::ComponentRegistry*, shell::RegistryError*);
 bool RegisterCommand(shell::ComponentRegistry*, shell::RegistryError*);
+bool RegisterTitleBar(shell::ComponentRegistry*, shell::RegistryError*);
+// typephp-gpui: TitleBar kind — materialize.cpp's dispatch target.
+El* title_bar_node_materialize(Ctx* cx, El** children, int count,
+                               ShellError* error);
 bool RegisterWindowEffects(shell::ComponentRegistry*, shell::RegistryError*);
 bool RegisterOverlays(shell::ComponentRegistry*, shell::RegistryError*);
 bool RegisterRetainedForms(shell::ComponentRegistry*, shell::RegistryError*);
@@ -60,6 +64,10 @@ bool RegisterControlsText(shell::ComponentRegistry*, shell::RegistryError*);
 // delegate_collections/mod.rs
 bool RegisterDelegateCollectionsList(shell::ComponentRegistry*,
                                      shell::RegistryError*);
+
+// searchable_list.cpp (typephp-gpui)
+bool RegisterSearchableList(shell::ComponentRegistry*,
+                            shell::RegistryError*);
 
 // list.rs test_probe, widened into a seam: when set, it hears the id of every
 // List row whose renderer built an element, in the order they were built.
@@ -143,6 +151,9 @@ bool RegisterOverlaysHoverCard(shell::ComponentRegistry*,
 bool RegisterOverlaysPopover(shell::ComponentRegistry*, shell::RegistryError*);
 bool RegisterOverlaysDropdownMenu(shell::ComponentRegistry*,
                                   shell::RegistryError*);
+
+bool RegisterOverlaysPopupMenu(shell::ComponentRegistry*,
+                               shell::RegistryError*);
 
 // layout/mod.rs
 bool RegisterLayoutTextarea(shell::ComponentRegistry*, shell::RegistryError*);
