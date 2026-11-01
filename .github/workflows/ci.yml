@@ -129,6 +129,14 @@ jobs:
       - name: Doc anchors resolve against built ids
         run: php cmd/check-doc-anchors.php
 
+      # 能力对照页的"概念对照"表不许说某面没接而代码里已经有（2026-11-02 实测到
+      # animation 行与本页第 3 节自相矛盾）。先跑自检臂：内置矛盾样本必须被判红，
+      # 探测器坏了就不许把"没看"冒充成"看过且干净"。
+      - name: Capability table does not contradict the code
+        run: |
+          php cmd/check-doc-claims.php --self-check
+          php cmd/check-doc-claims.php
+
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v5
         with:

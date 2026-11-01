@@ -2814,3 +2814,19 @@ app 队列取事件，窗口级"忽略鼠标"管不到那条路。所以真正�
 结论（写进 selftest 的注释与 HID 清单 H6）：`hoverId` 的**零侧可硬断**（出图后必须为 0，
 篡改臂量过：报成非零 ⇒ selftest 红），**非零侧只能真人证**（真实光标移进按钮并停住）。
 所以 #106 色态判据的 headroom 缺口不是懒，是这条缝造不出前提。
+
+## 文档自己跟自己对仗不上，是这类页最典型的腐法（#上游一致性审计，2026-11-02）
+
+`upstream-coverage.md` 的"概念对照"表与本页第 3 节是两处独立手写的，改一处忘另一处就打架。
+实测抓到三处：
+- zh/en 对照表：`Animation ❌ transition/spring 整族未接` —— 同一页第 3 节写着糖已接，
+  代码里 `src/Element.php:1171` 有 `transition()`/`spring()`，kit selftest 有 `transitionInterpolation` 门。
+- en 对照表：`Tests / FPS … HUD resource-row stability is still open` —— #86 已结案
+  （出图前泵到 120 帧的稳定态，实测改前五跑五张图）。
+三处都没有任何一层门会红：编译期、phpstan、pest、selftest、shotdiff 全都不读文档语义。
+所以补了一条窄门 `cmd/check-doc-claims.php`（只查那张表、只认"正好等于公开方法名"的点名，
+反射拿 587 个方法名做对照），带 `--self-check` 自检臂，红臂用真实旧文案量过（FAIL(2) 点名
+transition/spring）。入口接进 composer + CI docs job。
+
+教训：文档里的"缺口声明"是可验证命题，不是修辞。凡是"某面没接"的句子，都该能被机器
+拿代码对一遍——对不上就是红，别等下一个读者信了错的那半句。

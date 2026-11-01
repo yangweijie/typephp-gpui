@@ -47,6 +47,7 @@
         "check:exit-clean": "bash cmd/check-exit-clean.sh",
         "check:kit-gates": "bash cmd/check-kit-gates.sh",
         "check:kit-arms": "bash cmd/check-kit-arms.sh",
+        "check:doc-claims": "@php cmd/check-doc-claims.php",
         "bench:tree": "@php cmd/bench-tree.php --check cmd/bench-tree-budgets.txt",
         "test:all": [
             "@php vendor/bin/pest",

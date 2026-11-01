@@ -2844,3 +2844,23 @@ run `dwfrun-1ebf1186`（被用户停，批1+批2 施工完成门禁全绿，批3
 - [x] **17-H 落勾**，同时写清它不覆盖什么：真人 HID 清单 v2（含今天新增的 H6=hoverId 非零侧）
   按定义只能人手做；**push 仍未做**（本地领先 origin/main，等用户单独授权）。
   Phase 33 的"批3/归档提交"两项也按实测补勾并给出提交号（`da48a5d`/`6b995e5`/`4b81886`）。
+
+### Phase 34 批9（2026-11-02，上游一致性审计：抓到文档自相矛盾并给它加了主人）
+- [x] 顺着"和上游保持一致"去扫 `upstream-coverage.md` 的概念对照表，抓到**两处陈旧声明**
+  （中英各一处 + EN 另一处）：对照表写 `Animation ❌ transition/spring 整族未接`，
+  而同一页第 3 节与代码都是"已接"（`src/Element.php:1171` 的 `transition()`/`spring()` +
+  kit `transitionInterpolation` 门）；EN 的 Tests/FPS 行还写着"HUD 资源行稳定性仍未收"，
+  而 #86 早结案（出图前泵到 120 帧的稳定态）。两处都按代码读数订正。
+- [x] 给这类漂移加主人：新门 `cmd/check-doc-claims.php`——只看两份 coverage 的"概念对照"表，
+  行里带缺口标记（❌/未接/not exposed/not supported）又反引号点名一个**真实存在的
+  `El`/`Element`/`App` 公开方法**（反射取表，587 项）就判红，并打 file:line + 方法全名。
+  判据刻意窄：上游 op 名（`move_to`/`PathFill`）不误红。
+- [x] 三条读数都量过：`--self-check`（内置矛盾样本必判红、内置 op 名样本必不误判）rc=0；
+  红臂（把 EN 那行改回旧说法）⇒ `DOC CLAIMS FAIL (2)` 点名 transition/spring，还原 ⇒ rc=0；
+  正向 ⇒ `DOC CLAIMS OK`。入口接齐（可达性审计那条规矩）：`composer check:doc-claims` +
+  CI docs job 紧跟锚点门（先 `--self-check` 再正判）。
+- [x] 过程里被自己的门抓两次：`check-build-inputs` 立刻红在"CI 点名但不在版本控制里"
+  （新脚本还没 add）⇒ 按名字暂存后 OK；门表新增行的列数（zh 5 格 / en 4 格）先按"竖线数"
+  误判为写坏，数完才发现是对的——记下来免得下次再惊一次。
+- [x] 复跑：`composer test:all` rc=0（141/975）、`check-doc-anchors` OK、`docs:build` rc=0、
+  `check-build-inputs` OK、`gpui doctor` rc=0。

@@ -2823,3 +2823,14 @@ bin/gpui、GPUI.lock、tests/baseline/input/tree1.png（两度重录）、compos
   ⇒ 该侧并入真人 HID 清单新增的 **H6**，selftest 只把 armed 当读数不断——不拿做不到的事冒充已验。
 - 复跑：`composer test:all` rc=0（141/975）、hello `--selftest` rc=0、`check hello` SHOTDIFF OK、
   build-inputs / doctor / 锚点 / `docs:build` 全 rc=0。
+
+## 2026-11-02 Phase 34 批9：上游一致性审计抓到三处陈旧"缺口声明"，并给它加了门
+- 订正 `upstream-coverage.md`（中英）：对照表还在说 `transition/spring 整族未接`（同一页第 3 节
+  与代码都是"已接"：`src/Element.php:1171` + kit `transitionInterpolation` 门）；EN 还在说
+  HUD 资源行未收（#86 已结案）。
+- 新门 `cmd/check-doc-claims.php`：只看概念对照表，缺口标记 + 反引号点名真实公开方法 ⇒ 判红
+  （file:line + 方法全名）。`--self-check` 内置一行真矛盾与一行上游 op 名，前者必须红后者必须不红；
+  红臂用真实旧文案实测 `DOC CLAIMS FAIL (2)`，还原 rc=0。入口：`composer check:doc-claims` +
+  CI docs job 紧跟锚点门。
+- 门抓自己：新脚本没 add 时 `check-build-inputs` 立刻红（"CI 点名但不在版本控制里"）⇒ 按名字暂存后 OK。
+- 复跑：test:all rc=0（141/975）、锚点 OK、`docs:build` rc=0、build-inputs OK、doctor rc=0。
