@@ -431,9 +431,10 @@ function sectionKitBasics(array $s): El
         El::text('Accordion 根（base kind 版）：Div+Group role 挂三段件；'
             . '点头部翻 open（on_change → kit-acc-i0/i1）')->font(13.0)->semibold(),
         El::accordion('kit-acc', [
-            El::accordionItem('第一节（点我翻页）', El::text('第一节的折叠内容。')->font(12.0), 'kit-acc-i0'),
+            El::accordionItem('第一节（点我翻页）', El::text('第一节的折叠内容。')->font(12.0),
+                'kit-acc-i0', (bool) ($s['accI0'] ?? false)),
             El::accordionItem('第二节', El::vFlex([El::text('第二节的折叠内容。')->font(12.0)])
-                ->gap(4.0), 'kit-acc-i1'),
+                ->gap(4.0), 'kit-acc-i1', (bool) ($s['accI1'] ?? false)),
         ])->w(420.0),
         // 批3：ScrollbarHandle/Scroll/Scrollbar 三件——15 个 state kind 的最后一个
         // 缺口闭合（Scroll 视口与 Scrollbar 条共用一颗 ScrollbarHandle，条本体由
@@ -850,7 +851,11 @@ function sectionKitOverlays(array $s): El
         El::hFlex([
             El::input('kit-tok-in')->placeholder('输入 @ 提及…')
                 ->tokenRenderer()->onTokenClick()->onTokenHover()->w(320.0),
-            El::link('打开文档', 'https://example.com')->id('kit-link')->onLinkClick(),
+            // Phase 33 批1 H3：base kind Link 的 click 语义是打开 href
+            // （OpenUrlCallback），不消费 on_link_click——首版用错载体，实测点击
+            // 零送达后改 textView（materialize.cpp:1728 OnLinkWithContext 才是
+            // on_link_click 的真实消费端；selftest linkDelivery 门同款注）。
+            El::textView('[打开文档](https://example.com)', 'kit-link')->onLinkClick(),
         ])->gap(16.0)->itemsCenter(),
         // 批5（TitleBar B 期）：无边框 + clientTitleBar 窗口的样例在 selftest 的
         // titlebarWindowGate（独立窗口：PHP 自拼 34px 标题条 + windowAction 三动词；
@@ -863,10 +868,11 @@ function sectionKitOverlays(array $s): El
         El::text('El::dataTable()：rows 数据半边已于批 6 接通（宿主数据回路 '
             . 'cmd/patch-host-data.sh——rows 快照经 shimId 分叉同步回填，'
             . '$app->on($id,\'render_rows\',…) 返回真数组；正/负路门 dataTableRowsCallbackSuccess '
-            . '/ dataTableRowsCallbackLoud，探针 dataTableFails 留作负路证据）。还没通的是 '
-            . 'render_cell 那半边：它返回的是元素不是数据，宿主数据回路只运"返回数据"回调'
-            . '——元素回调是 BuildComponentElement shimId 分叉会 SIGBUS 的实证禁区，'
-            . 'cell 现走上游 cellText 默认渲染。')
+            . '/ dataTableRowsCallbackLoud，探针 dataTableFails 留作负路证据）。render_cell 半边'
+            . '已于批2 D1 接通（patch-host-element-cb.sh——宿主渲染回调返回 Element，经 '
+            . 'gpuiBuildShimElement → emitTree → 根 SpecId 回来 → RenderSnapshot 挂 frameSnapshots；'
+            . '门 dataTableRenderCellSuccess 验 builds 上涨 + 蓝底格内容像素 + registeredError 清零）。'
+            . 'cell 现可走宿主渲染回调，不再只走上游 cellText 默认渲染。')
             ->font(12.0)->p(8.0)->borderWidth(1.0)->rounded(6.0),
     ]))->sizeFull()->gap(10.0)->p(16.0)->overflowYScroll();
 }
@@ -933,9 +939,14 @@ function wireKit(App $app): void
     // 批3：手风琴三段件的 on_change（trigger 翻 open 的回调）与 transition 两态
     // 的切换钮——点一下在 40↔240 间过渡（ExampleState 记宽态，重渲染时目标值变，
     // materialize 采样器逐帧插值）。
+    // Phase 33 批1 H1：on_change 的值是 !open（base/accordion.cpp:19 ListenerFill
+    // (onChange, !open)）——trigger 点击告诉脚本"该把 open 设成这个值"。处理器
+    // 改 ExampleState，下一帧 view 重读状态 → 工厂吃 $open → 面板挂载/卸载。
+    // 这是 base 手风琴"open 归脚本所有"模型的 PHP 侧闭环。
     foreach (['kit-acc-i0' => 'accI0', 'kit-acc-i1' => 'accI1'] as $id => $key) {
-        $app->on($id, 'change', static function () use ($log, $key): void {
-            $log($key, 'toggled');
+        $app->on($id, 'change', static function (array $e) use ($log, $key): void {
+            ExampleState::$v[$key] = (bool) ($e['value'] ?? false);
+            $log($key, (bool) ExampleState::$v[$key] ? 'open' : 'closed');
         });
     }
     $app->on('kit-anim-toggle', 'click', static function () use ($log): void {

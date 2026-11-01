@@ -21,6 +21,10 @@ declare(strict_types=1);
  *   --sections           打印本示例的像素树清单（shotdiff 按它枚举基线）
  *   --shot <path> [tree] 出一棵树的 PNG
  *   --selftest           跑本域的硬门，rc=0 即通过
+ *   --automation <dir> [tree] [height]
+ *                         无人值守驱动真实窗口（dropbox 动词见 App::automationExec）；
+ *                         tree 选像素树（1-4，默认 1），height 加高窗（默认 KIT_H=680，
+ *                         树1 滚动视口样例在折叠线下时加高使上屏）
  */
 
 use TypePHP\Gpui\App;
@@ -58,12 +62,27 @@ function kitDispatch(array $argv): void
         runKitShot($path, $tree);
         return;
     }
+    // --automation <dir> [tree] [height]：无人值守驱动真实窗口。取值排在未知开关
+    // 扫描**之前**——否则 --automation 会被自己的扫描拒掉（rc=2），input 域踩过
+    // 同一条（2026-10-22 修）。tree 选像素树（默认 1），height 加高窗（默认 KIT_H）。
+    $autoIdx = array_search('--automation', $argv, true);
+    if ($autoIdx !== false) {
+        $autoDir = (string) ($argv[$autoIdx + 1] ?? '');
+        $autoTree = (int) ($argv[$autoIdx + 2] ?? 1);
+        $autoH = (int) ($argv[$autoIdx + 3] ?? KIT_H);
+        if ($autoDir === '' || str_starts_with($autoDir, '--')) {
+            echo "用法: --automation <dir> [tree] [height]\n";
+            exit(2);
+        }
+        runKitAutomation($autoDir, $autoTree, $autoH);
+        return;
+    }
     // 未知开关必须拒绝。静默忽略会一路落到交互 run() 去开一扇窗口，于是"跑一下某个模式"
     // 变成永久挂住（input 域踩过），拿不到任何结论；退出码 2 与"门红"的 1 分开。
     foreach ($argv as $arg) {
         if (is_string($arg) && str_starts_with($arg, '--')) {
             echo '未知开关: ' . $arg . "\n"
-                . "可用：--sections / --selftest / --shot <path> [tree]\n";
+                . "可用：--sections / --selftest / --shot <path> [tree] / --automation <dir> [tree] [height]\n";
             exit(2);
         }
     }
@@ -109,6 +128,39 @@ function runKitShot(string $path, int $tree): void
     echo $shotOk ? "SHOT OK tree={$tree} {$path}\n" : "SHOT FAIL tree={$tree} {$path}\n";
     $app->close();
     exit($shotOk ? 0 : 1);
+}
+
+/**
+ * --automation 无人值守路径（Phase 33 批1）：起真实窗口 + dropbox，外部脚本写
+ * command-<n>.txt 驱动。与 run() 的差别：① 不走 run()（它一步进 loop 不回头），
+ * 首帧物化后、主循环前可以插预造粒（树 3 的 token）；② automation() 在预造粒
+ * **之后**才挂——否则 hits 命令会在 token 造出来前消费，命中表里没有 token chip。
+ *
+ * 视图用闭包包 kitTree($tree)：每帧重读 ExampleState，on_change 处理器改了状态
+ * 下一帧就反映在树上（手风琴 open 态、kitLog 行文本都走这条路）。
+ */
+function runKitAutomation(string $dir, int $tree, int $h): void
+{
+    $tree = isset(kitTrees()[$tree]) ? $tree : 1;
+    $h = $h > 0 ? $h : KIT_H;
+    ExampleState::boot(['section' => $tree]);
+    $app = new App();
+    $app->create();
+    $app->createWindow('Kit · tier-A 工厂批', KIT_W, $h);
+    wireKit($app);
+    $app->view(static function () use ($tree): El {
+        return kitTree($tree);
+    });
+    $app->loop(4);
+    // 树 3 的 token 预造粒（H3）：input 已在首帧物化，造一颗 token 让 'token'
+    // 渲染回调出 chip、hits 表里有 token 的命中几何。照 selftest 的
+    // App::inputReplaceToken 先例（main.php tokenDeliveryRender 门）。
+    if ($tree === 3) {
+        $app->inputReplaceToken('kit-tok-in', 'kit-tok-g1', '@张三', '张三');
+        $app->loop(4);
+    }
+    $app->automation($dir);
+    $app->loop();
 }
 
 /**
@@ -1449,6 +1501,63 @@ function runKitSelfTest(): void
         . ' registeredError=' . ($dtErr === '' ? '空（DataTable 的失败走它自己的'
             . ' Failure()：错误文本只画在那一格里，不进任何账本——这也是本门存在的原因）' : $dtErr));
     $ok = $ok && $dtOk;
+    // 7c) dataTableRenderCellSuccess 门（批2 D1）：render_cell 半边已接
+    //     （patch-host-element-cb.sh——宿主渲染回调返回 Element，经 gpuiBuildShimElement
+    //     → emitTree → 根 SpecId 回来 → RenderSnapshot 挂 frameSnapshots）。
+    //     关键缺口：需同时注册 render_rows 回调给行数据——El::dataTable(id, columns)
+    //     只吃表头，空表没有 cell，render_cell 不会被调（照 rows 门的 render_rows
+    //     回调先例 main.php:1457）。
+    //     断言：(a) stateCounts 的 dataTableBuilds 上涨（render_cell 路走 RenderTd、
+    //     cellText 路不进，与 rows 门 builds 不动形成对照）；(b) regionRgb 格内容
+    //     像素（render_cell 返回蓝底 #2f6fed，扫描窗口找蓝点）；(c) registeredError
+    //     清零。
+    $app->on('kit-dt-cell', 'render_rows', static function (): array {
+        return [
+            ['名称' => 'alpha', '数量' => 3],
+            ['名称' => 'beta', '数量' => 7],
+        ];
+    });
+    $app->elementCallback('kit-dt-cell', 'render_cell', static function (): El {
+        // 返回蓝底格内容——regionRgb 扫描据此断格内容像素（#2f6fed = r<150 && b>150）。
+        return El::hFlex([El::text('宿主渲染格内容')->font(11.0)])
+            ->p(4.0)->bg('#2f6fed')->rounded(4.0);
+    });
+    $dtCellProbeBefore = $app->stateCounts();
+    $dtCellBuildsBefore = (int) ($dtCellProbeBefore['dataTableBuilds'] ?? -1);
+    $dtCellFailsBefore = (int) ($dtCellProbeBefore['dataTableFails'] ?? -1);
+    $app->render(El::vFlex([El::dataTable('kit-dt-cell', ['名称', '数量'])])->sizeFull());
+    $app->loop(4);
+    $dtCellProbeAfter = $app->stateCounts();
+    $dtCellBuildsAfter = (int) ($dtCellProbeAfter['dataTableBuilds'] ?? -1);
+    $dtCellFailsAfter = (int) ($dtCellProbeAfter['dataTableFails'] ?? -1);
+    $dtCellErr = $app->registeredError();
+    // regionRgb：扫描窗口找蓝底（#2f6fed）——render_cell 返回的格内容。
+    // 窗口 900x680，粗网格扫描（步长 20/20）约 45*34=1530 次——与 tokenDeliveryRender
+    // 门同款（窗口 420x200，步长 10/6 约 41*32=1312 次）。
+    $cellBlue = false;
+    for ($gx = 2; $gx <= 898; $gx += 20) {
+        for ($gy = 2; $gy <= 678; $gy += 20) {
+            $c = $app->regionRgb($gx, $gy, 4, 4);
+            if (isset($c['r']) && $c['r'] < 150 && $c['b'] > 150) {
+                $cellBlue = true;
+                break 2;
+            }
+        }
+    }
+    $dtCellOk = $dtCellBuildsAfter > $dtCellBuildsBefore
+        && $dtCellFailsAfter === $dtCellFailsBefore
+        && $dtCellErr === ''
+        && $cellBlue;
+    step('dataTableRenderCellSuccess', $dtCellOk,
+        '正路（注册 render_rows + render_cell）：探针 builds ' . $dtCellBuildsBefore . '→' . $dtCellBuildsAfter
+        . '（期望上涨：render_cell 路进 RenderTd，与 rows 门 builds 不动形成对照）'
+        . ' fails ' . $dtCellFailsBefore . '→' . $dtCellFailsAfter
+        . '（期望不动：快照成功）'
+        . ' 蓝底扫描=' . var_export($cellBlue, true)
+        . ' registeredError=' . ($dtCellErr === '' ? '空' : $dtCellErr)
+        . ($dtCellOk ? '' : '（builds 没涨：render_cell 路没进 RenderTd——查 elementCallback 注册；'
+            . '蓝底扫描不到：格内容没画出来——查 gpuiBuildShimElement 返回的根 SpecId）'));
+    $ok = $ok && $dtCellOk;
     // 8) CandlestickChart 渲染门（批6）：正路 + 负路。
     //    正路：注册 render_rows 处理器返回 {open,high,low,close} 行 → 数据回路端到端
     //    → 图表渲染无 registeredError/componentFailure。负路：不注册处理器 →
@@ -2117,6 +2226,62 @@ function runKitSelfTest(): void
             . 'TitleBar 节点缺席：kind 分派没接通——查 patch-title-bar.sh 的 materialize 分支）'));
     $ok = $ok && $tbOk;
     $tbApp->close();
+    // ── 批2 D1c：accordionToggleGate（独立窗口 regionRgb 面板开/关两态）─────────
+    // 依赖批1 的 open 参数暴露（Element.php El::accordionItem 加 bool $open）。
+    // 关态：面板不挂载（AccordionItem::Panel 只在 open||keepMounted 时挂子，
+    // base/accordion.cpp:65），regionRgb 扫描无蓝底。
+    // 开态：fire change 事件 → handler 改 ExampleState → 下一帧重渲染 →
+    // 面板挂载，regionRgb 扫描有蓝底（#2f6fed）。
+    ExampleState::boot(['section' => 1]);
+    $accApp = new App();
+    $accApp->create();
+    $accApp->createWindow('Kit Accordion Toggle', 400, 200);
+    $accApp->on('kit-acc-toggle', 'change', static function (array $e): void {
+        ExampleState::$v['accToggle'] = (bool) ($e['value'] ?? false);
+    });
+    ExampleState::$v['accToggle'] = false;
+    $accApp->view(static function (): El {
+        return El::vFlex([
+            El::accordion('kit-acc-toggle', [
+                El::accordionItem('第一节',
+                    El::vFlex([El::text('第一节面板内容')->font(11.0)])
+                        ->p(8.0)->bg('#2f6fed')->rounded(4.0),
+                    'kit-acc-toggle', (bool) (ExampleState::$v['accToggle'] ?? false)),
+            ])->w(360.0),
+        ])->sizeFull()->p(20.0)->bg('#f6f3ee');
+    });
+    $accApp->loop(4);
+    // 扫描窗口找蓝底（#2f6fed = r<150 && b>150）——面板内容的唯一可辨读签名。
+    $scanBlue = static function (App $a): bool {
+        for ($gx = 2; $gx <= 398; $gx += 10) {
+            for ($gy = 2; $gy <= 198; $gy += 6) {
+                $c = $a->regionRgb($gx, $gy, 4, 4);
+                if (isset($c['r']) && $c['r'] < 150 && $c['b'] > 150) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    };
+    $closedHasBlue = $scanBlue($accApp);
+    // 开态：fire change 事件 → handler 改 ExampleState → 下一帧重渲染 → 面板挂载。
+    $fired = \gpui_selftest_fire($accApp->handle(), 'kit-acc-toggle', 'change');
+    $accApp->loop(4);
+    $openHasBlue = $scanBlue($accApp);
+    $accErr = $accApp->registeredError();
+    $accOk = $fired && !$closedHasBlue && $openHasBlue && $accErr === '';
+    step('accordionToggleGate', $accOk,
+        'fire(change)=' . var_export($fired, true)
+        . ' 关态蓝底=' . var_export($closedHasBlue, true)
+        . '（期望 false：面板不挂载）'
+        . ' 开态蓝底=' . var_export($openHasBlue, true)
+        . '（期望 true：面板挂载）'
+        . ' registeredError=' . ($accErr === '' ? '空' : $accErr)
+        . ($accOk ? '' : '（关态有蓝底：面板没卸载——查 open 参数没传到 item behavior；'
+            . '开态无蓝底：fire 没派发或 handler 没改 ExampleState——查 callbacks 表 '
+            . '与 drainEvents count() 修复）'));
+    $ok = $ok && $accOk;
+    $accApp->close();
     echo ($ok ? 'KIT SELFTEST OK' : 'KIT SELFTEST FAIL') . "\n";
     exit($ok ? 0 : 1);
 }
