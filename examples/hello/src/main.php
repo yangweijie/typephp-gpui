@@ -583,12 +583,27 @@ function runSelfTest(bool $expectBundle = false): void
     //     frontmost **不当硬门**：前台是和当时握着焦点的一方竞争出来的状态，
     //     macOS 会正当拒绝后台进程抢焦点，拿它当门就变成随机红灯；所以只报读数。
     $app->activate();
+    // 先把"前台 + 钥匙窗口"当**前置条件**轮询到，再投第一次事件。
+    // 为什么必须轮：Deliver() 只在 [NSApp isActive] && w == [NSApp keyWindow] 时才走真路由
+    // （gpui_mac.mm:411），回执要靠 runloop 走几拍才落地——抢在生效之前投就整条退回
+    // [w sendEvent:]，nsappDeliveries 恒 0 ⇒ routeGreen 红（2026-11-02 实测：bundle 路径
+    // 连两次 nsapp=0，同一天裸二进制路径 nsapp=3，差别就在这儿，不在事件缝本身）。
+    $pre = $app->windowState();
+    $preTries = 0;
+    while (!($pre['active'] && $pre['key']) && $preTries < 40) {
+        $app->loop(3);
+        $app->activate();
+        $pre = $app->windowState();
+        $preTries++;
+    }
     $app->realMouseMove(200, 150);
     $app->realClick(200, 150);
     $app->loop(3);
     $winEnd = $app->windowState();
     $bundled = (bool) $winEnd['bundled'];
-    $frontmost = (bool) $winEnd['active'] && (bool) $winEnd['key'];
+    // 豁免判据看的是**投递那一刻**的状态（$pre），不是事后读到的——事后拿到前台不代表
+    // Deliver() 当时有机会走真路由。
+    $frontmost = (bool) $pre['active'] && (bool) $pre['key'];
     $nsappDeliveries = (int) $winEnd['nsappDeliveries'];
     $fgTries = $app->foregroundTries();
     $bundleGreen = !$expectBundle || $bundled;
@@ -641,7 +656,8 @@ function runSelfTest(bool $expectBundle = false): void
             . "/bundleGreen=" . var_export($bundleGreen, true)
             . "/routeGreen=" . var_export($routeGreen, true)
             . " insp=" . ($inspOn ? '1' : '0') . '/' . ($inspAfterPickOff ? '1' : '0')
-            . '/' . ($inspOff ? '1' : '0') . "\n";
+            . '/' . ($inspOff ? '1' : '0')
+            . " preFg tries=" . $preTries . '/' . ($frontmost ? '1' : '0') . "\n";
 
     echo $ok
         ? sprintf("SELFTEST OK (input + click + timer hits=%d + dialog + registered-cb + err-channel"
