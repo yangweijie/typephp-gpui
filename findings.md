@@ -2583,3 +2583,13 @@ hits 同（y 向下）。**未量到的臂**：空白态如今复现不出（会
   - messageRowRender 行像素：gpuiBuildShimElement fix 生效，pixel 位置待查（advisory）
   - `vendor/bin/pest` → 137 passed (959 assertions) ✓
   - 基线 tree1.png git diff 无变更 ✓
+
+## Phase 32 A2 批2 与主会话收尾的对账（2026-11-01）
+
+- 工作流 f126a85e（用户 GUI 恢复）完成批2+终检：终检全绿（含判别臂"宿主回调像素在册"），
+  报告 artifact「A2 专轮报告」；其 kit 门改动与主会话提交（65946eb）同树，终检在已提交树上跑绿。
+- 上条 messageRowRender "行像素仍 advisory、探针坐标 (60,90) 不匹配、待另行处理"——
+  **已被主会话收口**（见"Phase 32 A2 专轮结案"段）：y 扫描实证行在画（行底色 #eef4ff 落位
+  y≈48..78/105..145/175..205，(60,90) 是行间间隙），改扫描式硬门（行@=[60,50] 定位、
+  负向滚动器同扫无行底色），KIT SELFTEST OK。工作流的这条结论按此订正，不再成立。
+- 其余读数（tokenDeliveryRender 硬门、3 遍逐字相同、基线无回归）与主会话一致。
