@@ -572,7 +572,7 @@ class Element
     }
 
     public static function accordionItem(string $header, self $panel,
-        ?string $changeId = null): self
+        ?string $changeId = null, bool $open = false): self
     {
         $e = new self();
         $e->kind = 'accordion_item';
@@ -581,6 +581,13 @@ class Element
         // AccordionTrigger——真正可点、翻 open 的那颗，没有 on_change 时上游 Warn
         // "cannot open anything"，只剩 ->open(true) 强展可用）；panel 槽用
         // AccordionPanel 挂内容（aria 语义位）。open 在 item 上设一次、下推两半。
+        //
+        // Phase 33 批1 H1：$open 参数——base 手风琴的 open 归脚本所有
+        // （materialize.cpp:2618-2619 "base has no uncontrolled mode, and the
+        // script owns which item is showing"），trigger 点击只派发 on_change(!open)
+        // 不自己翻（base/accordion.cpp:19）。所以面板能不能出现，取决于 PHP 侧
+        // 有没有把 open 传进 item 的 behavior——ExampleState 记开态、工厂吃 $open、
+        // on_change 处理器改状态后下一帧重渲染，三段缺一不可。
         $trigger = new self();
         $trigger->kind = 'accordion_trigger';
         $trigger->children[] = self::text($header);
@@ -595,6 +602,7 @@ class Element
         $pane->children[] = $panel;
         $e->slot('header', $hdr);
         $e->slot('panel', $pane);
+        if ($open) { $e->open(true); }
         return $e;
     }
 
@@ -2531,13 +2539,13 @@ class Element
      * 高级表格。构造吃三实参：DataTableState 实体（列名非空且唯一——上游 NewState
      * 逐条验）+ rows 回调 + render_cell 回调（data_table/mod.cpp kArguments）。
      *
-     * ⚠ **数据通道今天是断的**：rows/render_cell 必须是"返回数据/元素"的回调，
-     * 而 shim 回调通道只会发事件、不带返回值（runtime.cpp:12922 的 shimId 分支
-     * 转 enqueue 后即返回）——真渲染时上游 SnapshotRowsWith 会拿到 true 而不是数组，
-     * 当帧 Fail "DataTable rows callback must return an array of rows"。所以本工厂
-     * 现在只能建出结构并把失败**响亮地**报出来（examples/kit 的
-     * dataTableRowsCallbackLoud 门钉着这条）；数据通道要走 examples/_shared 的
-     * listRenderer 同款宿主回路（patch-host-list.sh 的形状），属 tier B。
+     * rows 回调（patch-host-data.sh——CallInLayout shimId 分叉同步回填快照，
+     * $app->on($id,'render_rows',…) 返回真数组）+ render_cell 回调（patch-host-element-cb.sh
+     * ——BuildComponentElement shimId 分叉调 gpuiBuildShimElement 宿主渲染 Element）。
+     * 两条路互不重叠：数据半边（rows/items 快照）走 CallInLayout 分叉，元素半边
+     * （render_cell/render_item/render_row/token）走 BuildComponentElement 分叉。
+     * 正/负路门 dataTableRowsCallbackSuccess / dataTableRowsCallbackLoud（rows 半边）
+     * 与 dataTableRenderCellSuccess（render_cell 半边，批2 D1）在 examples/kit selftest。
      * stripe/sortable/column_resizable 等行为参数用 ->rm() 透传（都在 kMethods）。
      * to_csv 是纯数据变换，见 tableToCsv()。
      */

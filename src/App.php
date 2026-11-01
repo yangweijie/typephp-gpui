@@ -1407,7 +1407,11 @@ final class App
         $n = 0;
         while (true) {
             $event = \gpui_poll_event($this->handle());
-            if (empty($event)) {
+            // nano PHP Array 的 empty() 在 AOT 下不认键集合——C 侧 poll 返回了
+            // 事件但 PHP empty($event) 为 true（实测：drainEvents 取走了事件但
+            // handler 没收到）。改用 count()——nano Array 的 count 正确返回键数。
+            // gpui_poll_event 返回类型是 array（FakeBridge 声明），is_array() 冗余。
+            if (count($event) === 0) {
                 break;
             }
             $this->handleEvent($event);
@@ -1546,6 +1550,37 @@ final class App
                 }
                 return $ok ? "clicked($via) $id" : "not-found $id";
 
+            case 'fire':
+                // 泛化的事件派发缝（Phase 33 批1）：widget-click 的 event 名固定 'click'，
+                // token_click/link_click 等不同事件名无 verb 可达。本动词把 event 名泛化为
+                // 参数，先试元素缝（gpui_selftest_fire 只认 click/change/hover 三类），
+                // 不中再试 registered 缝（gpui_selftest_fire_registered 按 (id,type) 查
+                // shimCallbacks 表，任意事件名都走 ComponentCallback::InvokeWith → shimId
+                // 分叉 → 队列 → PHP handler——token/link 族走的就是这条）。
+                $id = (string) ($args[0] ?? '');
+                $event = (string) ($args[1] ?? '');
+                if ($id === '' || $event === '') {
+                    return 'err missing id or event';
+                }
+                $ok = \gpui_selftest_fire($this->handle(), $id, $event);
+                $via = 'element';
+                if (!$ok) {
+                    $ok = \gpui_selftest_fire_registered($this->handle(), $id, $event);
+                    $via = 'registered';
+                }
+                return $ok ? "fired($via) $id $event" : "not-found $id $event";
+
+            case 'poll':
+                // 诊断动词（Phase 33 批1）：poll 一次事件队列，把事件原文打回执。
+                // 用来分"事件没入队"与"入队了但 handler 没收到"——widget-click
+                // 返回 clicked 但截图无变化时，先 poll 看队列里有没有那条事件。
+                $ev = \gpui_poll_event($this->handle());
+                if (empty($ev)) {
+                    return 'poll empty';
+                }
+                return 'poll ' . ($ev['type'] ?? '?') . ' ' . ($ev['id'] ?? '?')
+                    . ' value=' . json_encode($ev['value'] ?? null);
+
             case 'click':
                 // 坐标缝的合成点击（gpui_real_mouse → 进程内 kit 派发），与物理点击走
                 // 同一个 GpuiView::mouseDown。2026-10-23 物理点击重开时用它当同进程对照臂：
@@ -1663,6 +1698,37 @@ final class App
                 file_put_contents($this->automationDir . '/hits.txt', implode("\n", $lines) . "\n");
                 return 'hits n=' . $n;
 
+            case 'rgb':
+                // 区域均色读数（Phase 33 批1）：screenshot 只截可见区（内容视口
+                // 高度），折叠线以下的目标（手风琴面板、滚动条条带）在 PNG 里
+                // 不可见。本动词走 regionRgb（窗口 paint 缓冲），可以读任意坐标
+                // ——包括视口外已布局的内容。判据用均色签名（如面板底色≠背景）。
+                // 格式：rgb <x> <y> <w> <h> → "rgb(r,g,b)" 进回执。
+                if (!isset($args[0], $args[1], $args[2], $args[3])) {
+                    return 'err missing x y w h';
+                }
+                $this->automationForceFrame();
+                $c = $this->regionRgb((int) $args[0], (int) $args[1],
+                    (int) $args[2], (int) $args[3]);
+                if (!isset($c['r'])) {
+                    return 'rgb-failed ' . json_encode($c);
+                }
+                return 'rgb(' . $c['r'] . ',' . $c['g'] . ',' . $c['b'] . ')';
+
+            case 'scroll':
+                // 滚动缝（Phase 33 批1 H1）：overflowYScroll 视口里的目标在折叠线
+                // 以下时 hits 表 h=0（未布局）、clickat 返回 0。本动词发一个滚轮
+                // 事件（realScroll → gpui_mac_send_scroll），把目标滚进可见区。
+                // **不调 automationForceFrame**——那会重建树、重置 ScrollView 的
+                // 滚动位置（实测：scroll 后 hits 表不变，因为渲染把滚动复位了）。
+                // 滚动事件在下一帧的 pump 里处理，下一帧的 hits/rgb 读到的就是
+                // 滚动后的几何。格式：scroll <x> <y> <deltaY>。
+                if (!isset($args[0], $args[1], $args[2])) {
+                    return 'err missing x y deltaY';
+                }
+                $ok = $this->realScroll((int) $args[0], (int) $args[1], (int) $args[2]);
+                return 'scroll ' . (int) $args[2] . ' -> ' . ($ok ? '1' : '0');
+
             case 'screenshot':
                 $label = (string) ($args[0] ?? '');
                 // 标签净化：非 [A-Za-z0-9._-] 一律替换，且限长 64。否则一个 "../" 就能把
@@ -1708,7 +1774,7 @@ final class App
         return null;
     }
 
-    /** 立刻跑一遍视图构建函数并渲染。screenshot 动词专用。 */
+    /** 立刻跑一遍视图构建函数并渲染。screenshot/hits/clickat 动词专用。 */
     private function automationForceFrame(): void
     {
         foreach ($this->views as $builder) {
@@ -1717,6 +1783,11 @@ final class App
                 \gpui_render($this->handle(), $tree->toArray());
             }
         }
+        // 泵一帧让布局/命中表跟上最新渲染：gpui_render 只建树 + NotifyApp，
+        // 布局与 paint.hits 在事件循环（GpuiAppRunStep）里才算。hits/clickat
+        // 动词读命中表前不泵就会读到上一帧的旧几何（实测：accordion trigger
+        // 的 h=0、clickat 返回 0——命中表是上一帧的，trigger 还没布局完）。
+        \gpui_pump_events($this->handle());
     }
 
     /**

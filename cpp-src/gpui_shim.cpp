@@ -1697,11 +1697,13 @@ int gpui_shim_selftest_fire(void* win, const char* elem_id, const char* type) {
     if (cbid == 0) return 0;
     // self 传 PhpView*（即 box->viewPtr）——gpuiEnqueue* 内部 boxForView 反查回 Box2，
     // 与真实点击分派（entity.cpp: EntityGet(l.view) → 实体数据指针）走同一条路。
-    auto* self = (gpui::ScriptView*)box->viewPtr;
+    // Phase 33 批1 修：直接 box->enqueue 入队，不走 gpuiEnqueue* 的 boxForView
+    // 反查——反查失败时事件静默丢失但本函数照样返回 1（实测 automation 路径
+    // poll 返回 empty）。box 已在手上，无需反查。
     std::string t(type);
-    if (t == "click") gpui::gpuiEnqueueClick(self, nullptr, cbid, 1);
-    else if (t == "change") gpui::gpuiEnqueueChange(self, nullptr, cbid, true);
-    else if (t == "hover") gpui::gpuiEnqueueHover(self, nullptr, cbid, true);
+    if (t == "click") box->enqueue(cbid, GPUI_ARG_NUM, 1.0, 0, nullptr);
+    else if (t == "change") box->enqueue(cbid, GPUI_ARG_BOOL, 0, 1, nullptr);
+    else if (t == "hover") box->enqueue(cbid, GPUI_ARG_BOOL, 0, 1, nullptr);
     else return 0;
     return 1;
 }

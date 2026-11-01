@@ -249,3 +249,61 @@ test('a change verb reaches handlers with the value it was given', function (): 
     @unlink($dir . '/snapshot.txt');
     @rmdir($dir);
 });
+
+/*
+ * `fire <id> <event>` 动词的存在理由（Phase 33 批1 H3）：widget-click 的 event 名
+ * 固定 'click'，token_click/link_click 等不同事件名无 verb 可达。fire 把 event 名
+ * 泛化为参数，先试元素缝（gpui_selftest_fire 只认 click/change/hover），不中再试
+ * registered 缝（gpui_selftest_fire_registered 按 (id,type) 查 shimCallbacks 表，
+ * 任意事件名都走 ComponentCallback::InvokeWith → 队列 → PHP handler）。
+ * FakeBridge 的元素缝恒 true（与 change 动词测试同款），所以这里验的是
+ * "fire 派发了事件、handler 收到"这条链，不断言走哪条缝（那归真二进制）。
+ */
+test('a fire verb dispatches a custom event type to the handler', function (): void {
+    $dir = sys_get_temp_dir() . '/gpui-auto-' . getmypid() . '-fire';
+    @mkdir($dir, 0755, true);
+    file_put_contents($dir . '/command-1.txt', "fire tok token_click\n");
+    file_put_contents($dir . '/command-2.txt', "fire link link_click\n");
+
+    $hits = [];
+    $app = new App();
+    $app->create();
+    $app->createWindow('auto', 400, 300);
+    $app->on('tok', 'token_click', static function () use (&$hits): void {
+        $hits[] = 'tok';
+    });
+    $app->on('link', 'link_click', static function () use (&$hits): void {
+        $hits[] = 'link';
+    });
+    $app->automation($dir);
+    $app->loop(4);
+
+    $snap = (string) file_get_contents($dir . '/snapshot.txt');
+    expect($snap)->toContain('#1 fire tok token_click -> fired');
+    expect($snap)->toContain('#2 fire link link_click -> fired');
+    expect($snap)->toContain('commands=2');
+    expect($hits)->toBe(['tok', 'link']);
+
+    @unlink($dir . '/snapshot.txt');
+    @rmdir($dir);
+});
+
+test('fire verb with missing args is answered, not thrown', function (): void {
+    $dir = sys_get_temp_dir() . '/gpui-auto-' . getmypid() . '-fire-err';
+    @mkdir($dir, 0755, true);
+    file_put_contents($dir . '/command-1.txt', "fire\n");
+    file_put_contents($dir . '/command-2.txt', "fire tok\n");
+
+    $app = new App();
+    $app->create();
+    $app->createWindow('auto', 400, 300);
+    $app->automation($dir);
+    $app->loop(3);
+
+    $snap = (string) file_get_contents($dir . '/snapshot.txt');
+    expect($snap)->toContain("#1 fire -> err missing id or event");
+    expect($snap)->toContain("#2 fire tok -> err missing id or event");
+
+    @unlink($dir . '/snapshot.txt');
+    @rmdir($dir);
+});
