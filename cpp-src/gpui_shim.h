@@ -119,6 +119,9 @@ long long gpui_shim_component_failure(char* out, int outlen);
  * ⇒ 切换不在进程内。会话离开控制台（锁屏/切换用户/远程断开）是那种成段的外部状态。
  * out[11]=`pthread_main_np()`、out[12]=`[NSThread isMainThread]`：分开读才能看出
  * "真 main thread"与"AppKit 收养为 main 的线程"是否分家（实测两个都 1，该候选已排除）。
+ * out[13]=gpui 自己记的**悬停元素 id**（0 = 没有元素被悬停）。0..12 由 `gpui_mac_window_state`
+ * 填（AppKit/WindowServer 侧），这一列由 shim 从 `Window::hoverId` 读：paint 直接拿它画 hover 态
+ * （window_common.cpp:465），所以像素门要问"这一帧有没有被鼠标污染"就读这一列（#106 色态那一类）。
  * 返回 1 = 找到窗口。 */
 int   gpui_shim_window_state(void* win, double* out);
 

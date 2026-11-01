@@ -154,6 +154,13 @@ test('the url gate mirrors gpui on the parts that decide it', function (): void 
     expect(FakeBridge::isOpenableUrl('http://:80'))->toBeFalse();
 });
 
+test('windowState reports exactly the documented key set on the headless side', function (): void {
+    $keys = array_keys(sysApp()->windowState());
+    sort($keys);
+    expect($keys)->toBe(App::WINDOW_STATE_KEYS,
+        'windowState 的键表两侧漂移：无头侧（FakeBridge）与 App::WINDOW_STATE_KEYS 不一致');
+});
+
 test('toggleInspector flips the window inspector', function (): void {
     $app = sysApp();
     expect(FakeBridge::$inspectorOpen)->toBeFalse();

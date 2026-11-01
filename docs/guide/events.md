@@ -466,7 +466,10 @@ Escape 与连续按键都进读数，最后打印一行 `WAIT-KEY …` 并以退
 `postEvent → nextEventMatchingMask → -[NSApp sendEvent:]` 的条数）、
 `appkitDeliveries`（AppKit 派发到本进程的 keyDown/leftMouseDown 条数，local monitor 计数）、
 `onScreen`（WindowServer 的**在屏账本**里有没有这扇窗）与它的自证臂 `onScreenPeers`
-（同一账本的在屏窗口总数）。
+（同一账本的在屏窗口总数），再加 `hoverId`（gpui 记的**悬停元素 id**，0 = 这一帧没有元素被悬停）——
+像素门用它自证"这张图没被鼠标污染"（`#106` 的色态那一类：hover 会真的改变基线像素）。
+键表由 `App::WINDOW_STATE_KEYS` 单一来源钉住：无头侧（`tests/SystemTest.php`）与原生侧
+（hello `--selftest` 的 `shotHover=0/keys=1`）各比一遍，少一列或多一列都红。
 
 `php bin/gpui run` **默认跑裸二进制**（`--bundle` 才走 `.app`），`selftest` 仍走 bundle
 ——它断的是"产物有没有 bundle 身份"这件产物属性（`--expect-bundle`）。

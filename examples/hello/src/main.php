@@ -625,7 +625,20 @@ function runSelfTest(bool $expectBundle = false): void
     $armWA = armPngWidth($armPathA);
     $armWB = armPngWidth($armPathB);
     $armBound = $armShotA && $armShotB && $armWA > 0 && $armWB > 0 && $armWA !== $armWB;
-    $ok = $ok && $armBound;
+    // 出图之后 gpui 记的悬停必须是 0：指针归位只有把 hoverId 打回 0 才算真的定住画面，
+    // 否则这张图里混着"鼠标当时停在某个可悬停元素上"的色态（#106 那一类）。顺带对一遍
+    // 键表：原生侧少一列（bridge 没补）与无头侧少一列（FakeBridge 没补）都得在这里红。
+    $stShot = $app->windowState();
+    $hoverClean = (int) ($stShot['hoverId'] ?? -1) === 0;
+    // 逐列点名而不是整体比一句：少哪一列要能直接从读数里看出来。
+    $missingKeys = [];
+    foreach (App::WINDOW_STATE_KEYS as $k) {
+        if (!array_key_exists($k, $stShot)) {
+            $missingKeys[] = $k;
+        }
+    }
+    $keysOk = $missingKeys === [];
+    $ok = $ok && $armBound && $hoverClean && $keysOk;
 
     // 26) inspector 状态读回：toggle 开 → on 真；关拾取 → on 仍真（面板只看 on，
     //     拾取只决定 hover 高亮画不画）；再 toggle 关 → on 假。
@@ -655,7 +668,7 @@ function runSelfTest(bool $expectBundle = false): void
             . "/nsapp={$nsappDeliveries}/fgTries={$fgTries}"
             . "/bundleGreen=" . var_export($bundleGreen, true)
             . "/routeGreen=" . var_export($routeGreen, true)
-            . " insp=" . ($inspOn ? '1' : '0') . '/' . ($inspAfterPickOff ? '1' : '0')
+            . " shotHover=" . (int) ($stShot['hoverId'] ?? -1) . '/missKeys=' . ($missingKeys === [] ? '0' : implode(',', $missingKeys))            . " insp=" . ($inspOn ? '1' : '0') . '/' . ($inspAfterPickOff ? '1' : '0')
             . '/' . ($inspOff ? '1' : '0')
             . " preFg tries=" . $preTries . '/' . ($frontmost ? '1' : '0') . "\n";
 

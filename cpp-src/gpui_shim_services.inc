@@ -300,8 +300,13 @@ void gpui_shim_method(void* win, uint32_t spec, const char* name,
 int gpui_shim_window_state(void* win, double* out) {
     auto* box = static_cast<Box2*>(win);
     if (!box || !out) return 0;
-    for (int i = 0; i < 13; i++) out[i] = 0;
-    return gpui_mac_window_state(out);
+    for (int i = 0; i < 14; i++) out[i] = 0;
+    int found = gpui_mac_window_state(out);
+    /* out[13] = gpui 自己记的悬停元素 id（paint 直接读它画 hover 态，
+       window_common.cpp:465）。像素门需要能问出"这一帧到底有没有元素被悬停"：
+       快照里的指针归位只有把 hoverId 打回 0 才算真的定住画面（#106 的色态那一类）。 */
+    if (box->window) out[13] = box->window->hoverId;
+    return found;
 }
 
 int gpui_shim_activate(void* win) {

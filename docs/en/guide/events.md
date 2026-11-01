@@ -488,7 +488,12 @@ Inspect
 `App::windowState()` for `active`, `key`, `visible`, `main`, `bundled`,
 `nsappDeliveries`, `appkitDeliveries` (keyDown/leftMouseDown that AppKit dispatched
 into this process), `onScreen` (is this window in WindowServer's on-screen ledger at
-all?) and its self-proof arm `onScreenPeers` (how many windows that ledger lists).
+all?) and its self-proof arm `onScreenPeers` (how many windows that ledger lists), plus
+`hoverId` — the element gpui currently considers hovered (0 = nothing hovered). The pixel gates
+read it to self-prove that a capture was not contaminated by the mouse (the colour-state class
+in #106: hover really does change baseline pixels). The key set itself has one owner,
+`App::WINDOW_STATE_KEYS`, checked from both sides: headless (`tests/SystemTest.php`) and native
+(hello `--selftest`, reading `shotHover=0/keys=1`), so a column added on only one side goes red.
 
 **Bundle identity only buys the self-report half.** Measured: an app launched from a
 `.app` can report `active/key/visible/main` all true while `onScreen=false` — the window

@@ -479,7 +479,7 @@ namespace {
                 'main' => false, 'nsappDeliveries' => 0, 'bundled' => false,
                 'appkitDeliveries' => 0, 'onScreen' => false, 'onScreenPeers' => 0,
                 'onConsole' => false, 'sessionId' => 0,
-                'onRealMain' => true, 'onAppKitMain' => true];
+                'onRealMain' => true, 'onAppKitMain' => true, 'hoverId' => 0];
     }
 
     function gpui_activate(mixed $window): int

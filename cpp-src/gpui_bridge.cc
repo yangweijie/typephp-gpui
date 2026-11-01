@@ -1052,7 +1052,7 @@ Array php_gpui_hit_probe(Variant boxVar, Int index) {
 Array php_gpui_window_state(Variant boxVar) {
     Array out;
     void* win = winOf(boxVar);
-    double st[13] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    double st[14] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
     int found = win ? gpui_shim_window_state(win, st) : 0;
     out["found"] = found;
     out["active"] = (Bool)(st[0] != 0);
@@ -1072,6 +1072,8 @@ Array php_gpui_window_state(Variant boxVar) {
     // 两个"main thread"分开读：真 main 与 AppKit 认的 main 不是同一条 ⇒ GUI 跑在旁支线程上。
     out["onRealMain"] = (Bool)(st[11] != 0);
     out["onAppKitMain"] = (Bool)(st[12] != 0);
+    // gpui 记的悬停元素 id：像素门用它自证"这一帧没被鼠标污染"（#106 色态那一类）。
+    out["hoverId"] = (Int) st[13];
     return out;
 }
 

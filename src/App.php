@@ -300,6 +300,7 @@ final class App
 
     /**
      * 窗口/应用状态：active（NSApp 是否前台）、key（窗口是否钥匙窗口）、visible、main、
+     * hoverId（gpui 记的悬停元素 id，0 = 没有元素被悬停——像素门用它自证画面没被鼠标污染），
      * bundled（进程有没有 .app bundle 身份），外加 nsappDeliveries——realClick/realKey 里
      * 已经走真路由（NSApp 队列 → nextEventMatchingMask → -[NSApp sendEvent:]）的事件条数，
      * 单调累加。
@@ -308,6 +309,14 @@ final class App
      * 哪一环没成立；nsappDeliveries 则用来说明这份绿是哪条路给的：0 表示事件缝退回了
      * 直投 -[NSWindow sendEvent:]，跳过了 NSApplication 的路由判定。
      */
+    /** windowState() 的键表：无头门（Pest）与原生门（hello --selftest）都对着它比，
+     *  两侧少一列或多一列都会红——新加的 hoverId 就是靠这条自证"画面没被鼠标污染"。 */
+    public const WINDOW_STATE_KEYS = [
+        'active', 'appkitDeliveries', 'bundled', 'found', 'hoverId', 'key', 'main',
+        'nsappDeliveries', 'onAppKitMain', 'onConsole', 'onRealMain', 'onScreen',
+        'onScreenPeers', 'sessionId', 'visible',
+    ];
+
     public function windowState(): array
     {
         return \gpui_window_state($this->handle());
