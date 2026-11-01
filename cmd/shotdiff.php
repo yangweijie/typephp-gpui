@@ -200,7 +200,19 @@ foreach ($trees as $tree) {
     }
     $d = pixelDiff($ref, $shot);
     if ($d['value'] > $THRESHOLD) {
-        printf("  ✗ tree %d：%s=%.5f 超容差（worst=%.3f）\n", $tree, $d['metric'], $d['value'], $d['worst']);
+        // 红帧自己留下：$tmpDir 每棵树出图前都要 unlink 那一个文件，别的跑法还会整个换掉它，
+        // 于是"偶发的那一帧"永远抓不住——#106 连跑 20 遍只红过 1 次，当场没存下来就成了悬案。
+        // 落盘位置走仓库内的 tmp/（.gitignore 里既屏蔽目录也屏蔽 *.png，两重都盖得住）。
+        $failDir = "$root/tmp/shotdiff-fail";
+        if (!is_dir($failDir) && !@mkdir($failDir, 0777, true)) {
+            fwrite(STDERR, "  ✗ tree {$tree}：红帧存不下来（建不了 {$failDir}）\n");
+        }
+        $keep = sprintf('%s/%s-tree%d-%s-%s.png', $failDir, $example, $tree,
+                       date('Ymd-His'), substr((string) $digest, 0, 8));
+        $kept = is_dir($failDir) && @copy($shot, $keep);
+        printf("  ✗ tree %d：%s=%.5f 超容差（worst=%.3f）%s\n", $tree, $d['metric'],
+               $d['value'], $d['worst'],
+               $kept ? "红帧=" . $keep : "红帧未存下");
         $failures++;
     } else {
         printf("  ✓ tree %d：%s=%.5f\n", $tree, $d['metric'], $d['value']);
