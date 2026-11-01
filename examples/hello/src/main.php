@@ -984,16 +984,21 @@ function runShot(string $path, int $tree = 0): void
     }
     if ($tree === 29) {
         // inspector 没有可读的状态查询，所以它的验收只能是像素：开→出图。
+        // 2026-11-01 量过的两条（别再重走）：泵 3→80 帧**没修好**间歇红（3 次里 1 次
+        // tree29 gdfrac=1.00000），单跑 6/6 又全等于基线 ⇒ 不是帧数问题。
+        // 基线本身是"面板没进这次合成"的那一态（整张近白），所以偶发的"红"其实是
+        // 面板真画出来了——这张图该断什么状态要先定夺（task #105）。
         $app->toggleInspector();
         echo "inspector_toggled=1\n";
-        $app->loop(3);
+        $app->loop(80);
     }
     if ($tree === 31) {
         // 面板只在 inspector 开着的时候画：component::Inspector::IntoEl() 关着返回
         // null（inspector.h:63 的契约），所以这张图得先开拾取模式。
+        // 同 tree29：泵到 80 帧不解决间歇性，见上。
         $app->toggleInspector();
         echo "inspector_panel_toggled=1\n";
-        $app->loop(3);
+        $app->loop(80);
     }
     if ($tree === 32) {
         // 通知层挂上之后画不画得出来。timeout 用 0 = 不自动退场，免得拍到一半没了。

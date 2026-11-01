@@ -22,8 +22,9 @@
 | 15 | 帧/节点预算棘轮 | `composer bench:tree`（= `php cmd/bench-tree.php --check cmd/bench-tree-budgets.txt`；CI 的 php job 里排在 Pest 之后） | 只量 PHP 半边（view builder + `toArray()`）：5 个规模各跑 5 次取 **min** 与预算比，超一档即红，`us/node` 单独一档。取 min 而不是中位数是同机 A/B 量出来的——中位数随机器状态漂（med 48ms 的序列里混着 max 94ms 的停顿），min 在快/慢状态间只差 10~20%。内存只报不门（2 万行峰值 168MB 是框架特性，不是回归信号）。红臂实测：注入真 O(n²) ⇒ 大档全超（60001 档 302ms、µs/node 5.04）rc=1，小档仍 OK。机器正忙时的显式逃生阀 `GPUI_SKIP_BENCH_TREE=1` | 否 |
 | 16 | 热键泵不吃鼠标（#99） | `composer check:hotkey-pump`（= `bash cmd/check-hotkey-pump.sh`；CI 原生 job 里跟着 bundle 门跑） | 驱动**生产 `gpui_mac_pump()`**（把 `cpp-src/gpui_mac.mm` 编进来一起链），不是它的抄本——抄本只能证明设计成立，生产改回去它照样绿。免人手三臂：①注册一颗真热键（泵在 `g_hotkeys` 为空时早退，不注册就没测到那条路），塞「热键在队头、鼠标紧跟其后」一对再跑生产泵 ⇒ 鼠标必须还在、热键必须被取走**且 sink 真收到一条 hotkey**（「事件不见了」≠「事件被派发了」）；②撤掉热键再塞一对，泵必须一个都不碰（`empty()` 早退那条路）；③负向对照用修复前那版「任意事件」排空，它**必须**吃掉鼠标，否则这条自证没有判别力 ⇒ rc=2 未判定。**自带红臂**：把生产源里 peek 的 `false` 翻成 `true` 编一份临时副本（生产文件一个字不动），门必须随之变红。实测正向 `旧排空吃鼠标=1 生产泵留鼠标=1 留热键=0 热键送达=1 无热键时留鼠标=1 留热键=1`、红臂 `生产泵留鼠标=0 热键送达=0` ⇒ `HOTKEY-PUMP GATE OK（正向绿 + 红臂红）`。量的是**队列层**（down 有没有被摘走），不是像素也不是真人送达；前置产物缺、热键注册不上、红臂锚点不唯一、未知开关都 rc=2 | 是（gpui.o + 窗口会话） |
 | 17 | 正常退出不段错误（#101） | `composer check:exit-clean`（= `bash cmd/check-exit-clean.sh`；CI 原生 job 里跟着热键泵门跑） | 交互 quit／关窗走「main 正常返回 → exit → `__cxa_finalize_ranges` → 静态析构」，而 bridge 的登记表里存着 PHP callable（`php::Variant`）：Zend 引擎先关、析构后跑 ⇒ `~Variant → zval_ptr_dtor` 摸已释放内存，SIGSEGV。**`--selftest` 走 PHP `exit()`，不跑这些析构**，所以十几支自检全绿也照不出这条路——真人一关窗就崩。免人手复现：`--automation <dir>` 放一条 `quit`，**目录每轮新建**（命令文件吃过就 unlink，复用旧目录会永远等下一号，那是夹具错不是门红）。门先 `build --no-native` 再量（失败的建设会留下上一版二进制），断 rc=0 **且**回执里 `commands=1` 与 `#1 quit -> bye` 都在（「没跑起来」不许冒充通过）；挂住超 40s 看门狗、产物建不出来、未知开关都 rc=2 未判定。红侧修前实测 hello／input 都 139，修后都 0 | 是（二进制 + 窗口会话） |
-| 18 | token 徽章像素判别臂 | `bash cmd/check-token-paint-png.sh` | kit `tokenDeliveryRender` 门（硬门仍在 selftest）的**第二条色通道**复核：selftest 在 ON 帧在屏时 `App::snapshot()` 离屏出图（`sys_get_temp_dir()` 读环境 TMPDIR——脚本侧必须 `${TMPDIR:-/tmp}` 同源，写死 `/tmp` 会报"没出图"），脚本用 PHP GD 按 selftest 同一网格找红徽章（GD 判读不进 AOT 编译域——examples 无 GD 先例）。出读数不出门红：PNG 有红=通道分歧实证（regionRgb 读不到但 paint 帧有）；**PNG 无红=缺口实证——宿主回调 subtree 没进 paint/合成帧**（regionRgb 与 PNG 两通道一致缺席，2026-10-31 实测后者，修复另立轮，findings.md 有记）。selftest 门红/没出图/PNG 尺寸≠420x200 都 rc=2 未判定 | 是（二进制 + 窗口会话） |
+| 18 | token 徽章像素判别臂 | `bash cmd/check-token-paint-png.sh` | kit `tokenDeliveryRender` 门（硬门仍在 selftest）的**第二条色通道**复核：selftest 在 ON 帧在屏时 `App::snapshot()` 离屏出图（`sys_get_temp_dir()` 读环境 TMPDIR——脚本侧必须 `${TMPDIR:-/tmp}` 同源，写死 `/tmp` 会报"没出图"），脚本用 PHP GD 按 selftest 同一网格找红徽章（GD 判读不进 AOT 编译域——examples 无 GD 先例）。出读数不出门红：PNG 有红=合成帧里有徽章（**A2 修复后的期望态**，2026-11-01 实测 有红@(42,44)，与 selftest 的 regionRgb 硬门同片像素）；**PNG 无红=徽章没进 paint/合成帧**——那是修复前（2026-10-31）实测到的缺陷态，如今出现即 A2 回归，回归红由 kit `tokenDeliveryRender` 承担。selftest 门红/没出图/PNG 尺寸≠420x200 都 rc=2 未判定 | 是（二进制 + 窗口会话） |
 | 19 | always 滚动条真画探针（前提式） | `bash cmd/check-scrollbar-paint.sh` | "scrollbarMode always 的 thumb 真画出来"的 `--shot` 通道验收：kit tree4（`sectionKitScrollbarPair`，hover/always 两盒同构 w220/h120/gap40/p40，探针 (244,48)/(504,48) 右缘 16x60 竖条——**builder 必须带 `p(40)`**，首版漏了盒从 (0,0) 起、探针读到根底色）。断两盒区域均色互异；同色 ⇒ **applicable=false rc=2 未判定**（2026-10-31 实测同色 rgb(223,223,223)：离屏合成也不画 always thumb——"无真人鼠标事件 NSScroller overlay 自动隐藏"对 --shot 同样成立）。不设 rc=1：没画出滚动条不是回归红，是前提不成立；出不了图/PNG≠900x680 也 rc=2。"always 真画"目前只能真人 HID 前提式验收 | 是（二进制 + 窗口会话） |
+| 20 | kit 门批量入口（可达性收口） | `composer check:kit-gates`（= `bash cmd/check-kit-gates.sh`；CI 原生 job 一步）／`composer check:kit-arms` | 五道 kit 域门此前**只有文档没有入口**（composer / CI / tests 都不点名它们），写好的门没人跑等于没有门。按 rc 语义分两把：`check:kit-gates` 收有"红=回归"这一档的两道（`cmd/check-accordion-toggle.sh` = v2 H3、`cmd/check-token-link-hits.sh` = v2 H5），任一 rc=1 总 rc=1，否则有 rc=2 总 rc=2；`check:kit-arms` 收只有"实证(0)/前提不成立(2)"两档的三条（`check-scrollbar-click.sh`、`check-scrollbar-paint.sh`、`check-token-paint-png.sh`），**不进 CI**，免得把"CI 没给条件"读成回归。两把都逐道打自己的判定行再打 `GATE/ARM <名> rc=`——**包装器 rc 不是门判定**，结论读每道门那一行；kit 二进制缺、未知开关都 rc=2 未判定 | 是（二进制 + 窗口会话） |
 
 ### 真人 HID 复验清单 v2（批4 C1）
 
@@ -38,13 +39,22 @@
 |---|---|---|---|---|
 | H1 | NativeMenu 行选中送达 | `nativeMenuShape` 只断工厂形状（trigger 硬带 on_effect_error + item(label,action) + children 白名单） | 前提=应用前台；真点触发器弹 OS 菜单（keyed event effect），再真选一行（两次真人交互——NSMenu 行选择是模态会话，合成点击够不到） | `$app->on($action,'action',…)` 的处理器收到一条事件，事件 id = 行声明的 action 名 |
 | H2 | Resizable 拖拽把手 | `catalogResizableShape` 只断形状（无拖拽） | 前提=窗口前台；真按住面板间把手拖动 | 面板尺寸随拖动连续变化（ResizablePanel 的 resize 读数/视觉宽度），松手后保持 |
-| H3 | Accordion trigger on_change 送达 | `accordionCatalogShape` 只断形状（header/panel 槽契约） | 前提=窗口前台；真点 trigger 头 | `on_change` 事件到 PHP（open 状态翻转），panel 展开/收起与事件一致 |
-| H4 | scrollbar always 真画 | `scrollbarModePaintPair` regionRgb 两盒同色（advisory）；`cmd/check-scrollbar-paint.sh` --shot 通道也同色 **applicable=false 亲测**（2026-10-31，rgb(223,223,223)） | 前提=窗口前台；鼠标悬停 always 盒并滚动 | always 盒右缘出现 thumb 且随滚动移动；hover 盒仅悬停时出现——两盒右缘区域色从此可判互异 |
-| H5 | token + link 鼠标命中 | `tokenDeliveryRender`（造粒/事件送达/renderCalls 硬门绿；徽章像素 regionRgb+PNG 两通道一致缺席——A2 判别臂缺口实证，修复另立轮）+ `linkDelivery`（fire 通道量化） | 前提=窗口前台；真点击输入框内的 token 徽章、真点击 link 文字 | onTokenClick / on_link_click 事件到 PHP，事件载荷含 token/link 的 id |
+| H3 | Accordion trigger on_change 送达 | `accordionCatalogShape` 断形状（header/panel 槽契约）+ `accordionToggleGate`（独立窗口 regionRgb 面板开/关两态——关态无蓝底、开态有蓝底，依赖批1 open 参数暴露） | 前提=窗口前台；真点 trigger 头 | `on_change` 事件到 PHP（open 状态翻转），panel 展开/收起与事件一致 |
+| H4 | scrollbar always 真画 | `scrollbarModePaintPair` regionRgb 两盒同色（advisory，macOS 无头渲染自动隐藏）；`cmd/check-scrollbar-paint.sh` --shot 通道也同色 **applicable=false 亲测**（2026-10-31，rgb(223,223,223)）；`scrollbarHandleProbe` 独立窗口硬门（自绘路径 ApplyBar 画条——非 NSScroller overlay，批1 的自动隐藏结论不适用这条） | 前提=窗口前台；鼠标悬停 always 盒并滚动 | always 盒右缘出现 thumb 且随滚动移动；hover 盒仅悬停时出现——两盒右缘区域色从此可判互异 |
+| H5 | token + link 鼠标命中 | `tokenDeliveryRender`（造粒/事件送达/renderCalls/徽章像素落位全硬门绿——Phase 32 A2 批2 root=0 物化修复后徽章@必有值）+ `linkDelivery`（fire 通道量化） | 前提=窗口前台；真点击输入框内的 token 徽章、真点击 link 文字 | onTokenClick / on_link_click 事件到 PHP，事件载荷含 token/link 的 id |
 
 前提不成立的标准记法：会话无 GUI/窗口不在前台/无法人工交互 ⇒ 该项记
 `applicable=false`（未验），**不得**引用 selftest 绿冒充已验，也**不得**因做不到
 而判红——那正是「前提式纪律」的定义（testing.md shotdiff 节）。
+
+**编号冲突警示**：本表 H1–H5 的编号（H1=NativeMenu、H2=Resizable、H3=Accordion、
+H4=scrollbar、H5=token+link）与 `findings.md`「真人 HID 类五项」顺序一致，是**既有
+编号**。批1 施工用的 H1–H3 编号（H1=Accordion、H2=scrollbar、H3=token/link）来自
+施工批次内部的工作计划，与本表编号**完全冲突**（如批1 的 H1 Accordion 对应本表 H3）。
+后续施工文档一律沿用本表/findings.md 编号，否则撞号。批1 的三支 automation 脚本
+（`cmd/check-accordion-toggle.sh`、`cmd/check-scrollbar-click.sh`、
+`cmd/check-token-link-hits.sh`）沿用批1 内部编号，在脚本注释里标注了对应的本表编号
+（accordion→H3、scrollbar→H4、token/link→H5）以避免歧义。
 
 一键：`composer test:all`（Pest + PHPStan + 上游词表 parity + shim_test）。
 全量示例跑一遍：`composer examples:all` = `bash cmd/all-examples.sh`
@@ -220,6 +230,10 @@ sleep 2 && cat /tmp/auto/snapshot.txt
 | `clickat <x> <y>` | 按坐标合成一次真点击（与 selftest 的 `realClick` 同源） | id 缝够不着的部件（slot 按钮、catalog 日期触发器）只能按矩形点；#103 的判别臂用它。input 的 `--automation <dir> [height]` 第三参可加高窗，够到折线外的目标 |
 | `hits` | 把这一帧命中表整张落盘 `<dir>/hits.txt` | 行格式 `i id x y w h click down drag`（tab 分隔，gpui 视图系坐标）；与同帧 `screenshot` 对照可分「产品命中错」与「合成缝坐标换算错」 |
 | `screenshot <标签>` | 先强制渲染一帧再出 PNG | 标签净化过，产物逃不出目录 |
+| `fire <id> <event>` | 泛化的事件派发缝：先试元素缝（`gpui_selftest_fire` 只认 click/change/hover），不中再试 registered 缝（`gpui_selftest_fire_registered` 按 (id,type) 查 shimCallbacks 表，任意事件名都走 `ComponentCallback::InvokeWith` → 队列 → PHP handler） | widget-click 的 event 名固定 'click'，token_click/link_click 等不同事件名无 verb 可达——fire 是 H3 送达读数面的唯一途径 |
+| `rgb <x> <y> <w> <h>` | 区域均色读数（走 `regionRgb` 窗口 paint 缓冲） | screenshot 只截可见区（内容视口高度），折叠线以下的目标在 PNG 里不可见。本动词可读任意坐标——但 display buffer 在 automation 路径下不同步更新（handler 运行、ExampleState 更新、kitTree 重建都确认，像素不变），这是渲染时序限制不是派发链问题 |
+| `scroll <x> <y> <deltaY>` | 发一个滚轮事件（`realScroll` → `gpui_mac_send_scroll`） | overflowYScroll 视口里的目标在折叠线以下时 hits 表 h=0、clickat 返回 0。滚动事件在下一帧 pump 里处理。**不调 automationForceFrame**——那会重建树、重置 ScrollView 滚动位置 |
+| `poll` | 诊断：poll 一次事件队列，把事件原文打回执 | 用来分"事件没入队"与"入队了但 handler 没收到" |
 | `quit` | 退出主循环并写最后一轮回执 | CI 能跑完的前提，否则只能 kill 进程 |
 
 回执 `snapshot.txt` 每处理一口命令重写一次（不是每帧），内容含帧数/渲染数、窗口状态
@@ -235,7 +249,29 @@ agent 与 CI 只能验到"进程内派发链"，这是边界不是缺陷。
 实测（2026-10-20，`gpui run hello --automation`）：两次点击让 `Clicked: 2 times` 上线；
 `input` 设值后问候语不变（因为没发 `change`），改走 `key a a`×3 后问候语变成 `Hello, abc!`
 ——这条链是真事件、真状态、真重渲染。无头侧的同名门在 `tests/AutomationTest.php`
-（9 项，含乱序等待、标签逃逸、quit 停机）。
+（11 项，含乱序等待、标签逃逸、quit 停机、fire 派发自定义事件名）。
+
+`kit` 这一支也接了同一张嘴：`php bin/gpui run kit --automation <dir> [tree] [height]`——
+tree 选像素树（1-4，默认 1），height 加高窗（默认 680，树1 滚动视口样例在折叠线下时
+加高使上屏）。**kit-tok-in 的 token 预造粒**在树3 路径里自动做（`runKitAutomation`
+在首帧物化后调 `App::inputReplaceToken`），否则 hits 表里没有 token chip 的命中几何。
+
+**scrollbar 命中口径**（Phase 33 批1 H2）：catalogScrollbar 是 registered 视图，
+hits.txt 可见 rect（click=1）。但 Scrollbar 鼠标语义是拖拽（press+move+release），
+同点按下抬起不滚动且自动化协议无 drag 动词——这是 #96 边界内的半边（滚动语义不可达）。
+NSScroller overlay 那条路无真人鼠标自动隐藏（`cmd/check-scrollbar-paint.sh` 亲测
+两盒同色 applicable=false，rc=0/rc=2 前提式形状）。`cmd/check-scrollbar-click.sh`
+验的是 scrollbar 在命中表里（click=1），clickat 结果记读数（h=0 时折叠线下不可点）。
+
+**token/link 命中口径**（Phase 33 批1 H3）：widget-click 只发 'click'，
+token_click/link_click 是不同事件名——fire 动词是送达读数面的唯一途径。
+树3 的 El::link 已换成 El::textView（base kind Link 的 click 语义是打开 href
+不消费 on_link_click）。真人鼠标命中 token/link 归真人 HID（#96 边界），
+agent 只验进程内派发链（fire 缝送达 + hits 命中）。
+
+**批1 automation 脚本 ↔ v2 编号映射**：`cmd/check-accordion-toggle.sh` → v2 H3
+（Accordion）、`cmd/check-scrollbar-click.sh` → v2 H4（scrollbar）、
+`cmd/check-token-link-hits.sh` → v2 H5（token+link）。脚本注释里也标注了对应编号。
 
 `input` 这一支也接了同一张嘴，且**单独用即可**：`php bin/gpui run input --automation /tmp/auto`
 不需要搭 `--trace`。这一条是 2026-10-22 修出来的——它原先只在 `runInteractive()` 里读

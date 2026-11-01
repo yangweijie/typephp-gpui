@@ -2687,3 +2687,48 @@ bin/gpui、GPUI.lock、tests/baseline/input/tree1.png（两度重录）、compos
 - 提交：feat 一笔 + docs 一笔。A2 专轮结案，延后清单系列两轮（续集批1-5 + 收尾批1-4 +
   A2）全部收官；剩真人 HID 五项（testing.md 清单 v2）。
 
+### Phase 33（2026-11-01）：HID 自动化门 + A8 + render_cell（run 1ebf1186，批1+批2 绿，批3 用户停）
+
+- 范围：延后清单系列收官后的剩余账——HID 五项自动化可达改造（H1 Accordion trigger、H2
+  scrollbar always、H3 token/link 命中做成 automation 门；H4 NativeMenu 行选中、H5
+  Resizable 拖拽维持真 HID 前提式门）+ A8 img capability 白名单 + DataTable render_cell 示例。
+- 脚本：`.zcode/workflow-drafts/Phase33-HID自动化与A8.dwf.ts`；run `dwfrun-1ebf1186`
+  （用户于批3 施工中停止）。
+- 批1（H1-H3 + 框架扩展）：首运红（catalog selftest ❌ patch-selftest-fire-direct 时序 +
+  pest 门12 新脚本无调用）→ 回炉 → 复验全绿。三支新门脚本
+  `cmd/check-accordion-toggle.sh`（H1 clickat→展开像素+on_change 闭环）、
+  `cmd/check-scrollbar-click.sh`（H2 读数型，h=0 折叠线不可点）、
+  `cmd/check-token-link-hits.sh`（H3 clickat→hits 命中表+on_token_click 送达）；
+  `src/App.php` +75（自动化消费路径扩展）、`tests/AutomationTest.php` +58（无头同名门）；
+  `cpp-src/gpui_shim.cpp` +10（gpui_shim_selftest_fire 改直接 box->enqueue，不走
+  boxForView 反查——automation 路径 poll 返回 empty 的根因）；
+  `cmd/patch-selftest-fire-direct.sh` 新建。
+- 批2（A8 + render_cell 示例 + testing.md 边界指引）全绿：A8 = patch-*.sh 幂等补丁 +
+  upstream + GPUI.lock + shim_test；DataTable render_cell 示例落 examples/kit（机制批4
+  已通，本批补示例调用）；testing.md CN/EN 成对补 HID 边界指引（#96 口径：agent 只验
+  进程内派发链，真 OS 投递归用户 Terminal.app；NativeMenu/Resizable 维持真 HID 前提式门）。
+- 工作树状态：14 文件未提交（批1+批2 交付，+438/−29）；批3 未启动。归档待用户指示。
+- 教训：patch-selftest-fire-direct 的 automation 目录须先建再 fire；门12 对新增 cmd/*.sh
+  要求 tests/ 里有同名调用。
+
+### Phase 33 批3（2026-11-01，用户"继续"授权后落账）
+
+- **可达性审计（本轮新发现，先给结论）**：把 `cmd/check-*` 全表对着 composer / CI / tests
+  逐个点名，发现 **5 道门有文档无入口**（accordion-toggle、scrollbar-click、token-link-hits、
+  scrollbar-paint、token-paint-png）——写好的门没人跑等于没有门。
+- 收法按 rc 语义分两把（不合并相反约定）：
+  `cmd/check-kit-gates.sh`（有"红=回归"档的 accordion + token-link，进 CI 原生 job 一步）；
+  `cmd/check-kit-arms.sh`（只有"实证 0 / 前提不成立 2"两档的 scrollbar-click、
+  scrollbar-paint、token-paint-png，只进 composer 不进 CI，免得把"CI 没给条件"读成回归）。
+  两把都逐道打自己的判定行再打 `GATE/ARM <名> rc=`，聚合规则：任一 1 ⇒ 1，否则任一 2 ⇒ 2。
+- 读数：`composer check:kit-gates` rc=0（`ACCORDION … 命中表=true fired=true rgb变=false`
+  已知限制照原样、`TOKENLINK … fired次数=2`）；`composer check:kit-arms` rc=0
+  （scrollbar-click 实证、scrollbar-paint 两盒同色 ⇒ 未判定、token-paint 有红@(42,44)）。
+- 顺手订正一条**过期解释**：`check-token-paint-png.sh` 的判定文字还写着"有红=通道分歧
+  （regionRgb 读不到）"——那是 A2 修复前的语义。Phase 32 修好后两通道一致，
+  脚本头/echo/中英文档第 18 行都改成"有红=期望态、无红=A2 回归证据（回归红由
+  kit tokenDeliveryRender 承担）"。
+- 全量复跑（本轮 first-native 重建后）：14 域 selftest 全 rc=0、`all-examples rc=0`；
+  `composer test:all` rc=0（139 passed / 965 assertions）；docs build + 锚点门 rc=0
+  （71 链接 / 16 带锚）；两张门表列数零失配（22 行）。像素全域复跑见下条提交前读数。
+

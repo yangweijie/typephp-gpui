@@ -2593,3 +2593,72 @@ hits 同（y 向下）。**未量到的臂**：空白态如今复现不出（会
   y≈48..78/105..145/175..205，(60,90) 是行间间隙），改扫描式硬门（行@=[60,50] 定位、
   负向滚动器同扫无行底色），KIT SELFTEST OK。工作流的这条结论按此订正，不再成立。
 - 其余读数（tokenDeliveryRender 硬门、3 遍逐字相同、基线无回归）与主会话一致。
+
+## Phase 33 立项（2026-11-01，延后清单系列收官后的剩余账）
+
+- 自动化框架（docs/guide/testing.md §`--automation`）：verb 文件 command-N.txt + 回执 snapshot.txt；
+  九动词 widget-click/key/input/change/value/focus/clickat/hits/screenshot/quit。
+  **#96 边界**：agent shell 经 launchd/守护进程链启动、不在用户登录图形会话里 ⇒ OS 键鼠投递恒 0；
+  agent/CI 只验"进程内派发链"，真投递（hover overlay/拖拽/NSMenu 模态）须用户 Terminal.app 启动。
+- HID 五项可达性判定：Accordion trigger（PathClick 部件，clickat 矩形点可达，像素/状态可读）→
+  可自动化；scrollbar always（overlay 需真实鼠标事件——clickat 是合成真点击，试能否触发 overlay）→
+  试；token/link 命中（clickat 到 token→命中表 hits.txt 验证落点 + 进程内 on_token_click 送达，
+  需可见反馈或 hits 读数）→ 可自动化；NativeMenu 行选中（NSMenu 模态独立表面）→ 真 HID；
+  Resizable 拖拽（无拖拽动词）→ 真 HID。
+- A8 img 白名单：照参考仓 img 路无策略已落门；白名单是设计决定——照 capability gate 模式
+  （参考 capability gates 的既有形态）落码。DataTable render_cell：机制批4 已通（patch-host-element-cb
+  同缝）、示例未单独接（cellText 默认渲染缺省）——补示例。
+
+## Phase 33 施工读数（2026-11-01，run 1ebf1186 批1+批2）
+
+- 批1（H1-H3 automation 门 + 框架扩展）：首运红（catalog selftest ❌：patch-selftest-fire-direct 未建
+  automation 目录的时序；pest ❌：门12 查新脚本无调用）→ 回炉一次 → 复验全绿。
+  三支新门脚本：`cmd/check-accordion-toggle.sh`（H1，clickat trigger 矩形→展开像素+on_change 闭环）、
+  `cmd/check-scrollbar-click.sh`（H2，clickat 试触发 overlay，h=0 折叠线不可点→读数型门）、
+  `cmd/check-token-link-hits.sh`（H3，clickat token/link→hits 命中表+on_token_click 送达）。
+  框架扩展：`src/App.php`（+75，自动化消费路径扩展）、`tests/AutomationTest.php`（+58，无头同名门）。
+  kit.php on_change 闭环：`!open` 值→`ExampleState::$v[$key]=(bool)$e['value']`，下一帧工厂重读。
+- 批2（A8 img capability 白名单 + DataTable render_cell 示例 + testing.md 边界指引）全绿：
+  A8 = patch-*.sh 幂等补丁 + upstream + GPUI.lock + shim_test（先删旧产物）；
+  DataTable render_cell 示例落 examples/kit（机制批4 已通，本批补示例调用）；
+  testing.md CN/EN 成对补 HID 边界指引（#96 口径：agent 只验进程内派发链，真 OS 投递归用户
+  Terminal.app；NativeMenu 行选中/Resizable 拖拽维持真 HID，前提式门落账不假装）。
+  文档锚点门过。
+- 批3（被用户停）：A8 施工完成但 commit/归档未落账——工作树 14 文件未提交。
+- 新 automation 门脚本判据均为脚本输出非声称；批1 回炉教训：patch-selftest-fire-direct 的
+  automation 目录时序须先于 selftest 消费（先建目录再 fire），门12 对新增 cmd/*.sh 要求
+  tests/ 里有同名调用。
+
+## 门写了不等于门在跑：可达性审计抓到 5 道"有文档无入口"（2026-11-01）
+
+做法：对 `cmd/check-*` 全表逐个 grep composer.json / ci.yml / tests/，一行一结论。
+结果 5 道只出现在 testing.md：`check-accordion-toggle.sh`、`check-scrollbar-click.sh`、
+`check-token-link-hits.sh`（批1 新建）与 `check-token-paint-png.sh`、`check-scrollbar-paint.sh`
+（批1 收尾轮新建）。**这类缺陷不会自己报警**：门手动跑是绿的、文档写了、CI 里没有它，
+下一轮漂移没人看得见。
+
+收法不能一把梭：前三道是"有红=回归"的硬门语义，后两道只有"实证(0)/前提不成立(2)"——
+把两档约定并进同一个聚合 rc，CI 就会把"这台机器没给条件"读成回归（或反过来把"未判定"
+洗成通过）。所以拆成 `cmd/check-kit-gates.sh`（进 CI）与 `cmd/check-kit-arms.sh`（只进
+composer），聚合前逐道打印自己的判定行——**包装器 rc 不是门判定**。
+
+同轮抓到的第二条：**过期解释比过期代码更危险**。`check-token-paint-png.sh` 的判定文字
+仍写"PNG 有红=通道分歧实证（regionRgb 读不到）"，那是 A2 修复前的读法；修复后两通道
+一致，脚本再跑就给出一个"看起来对但意思反了"的结论。已改脚本头/echo 与中英文档第 18 行。
+一般形式：修完一个缺陷，把**为它写的判别臂文案**一起改——判据代码会红绿自证，
+文案不会，它只会被下一个人照着读。
+
+## hello tree29 的"红"可能是正确渲染：基线记的是面板缺席态（2026-11-01，未决）
+
+现象：全量像素跑里 hello tree29 间歇 `gdfrac=1.00000 / worst=0.855`（18 棵里 1 红），
+复跑绿。三条测量把它和"帧数不够/拍错窗口"两条旧解释都否掉：
+① 泵 3→80 帧后仍 3 次里 1 次红（**帧数不是杠杆**，与 tree30 同一课）；
+② 单跑 `--shot 29` 6/6 与基线逐字节同（**独立复现不出**，只在 18 棵连跑里出现）；
+③ 对基线做粗网格 GD 扫描（x 20..740、y 20..580）**整张都是 255,255,255**——
+拾取面板根本没在基线里，基线记的是"面板没进那次合成"的近白态。
+⇒ 那个 1.00000 的"红"很可能是**面板真画出来了**，即门在把正确渲染判成回归。
+这比"基线过期"更糟：它把标准答案钉在了缺陷态上。
+处置边界（未做，等定夺 #105）：先定 tree29/31 该断"面板在"还是"不在"；若断"在"，
+用 regionRgb 内容判据泵到面板区非白再出图并重录这两张；若面板出现取决于合成
+（#56 / tree30 同族），这两棵改前提式/advisory，别让像素门吃 OS 竞争态。
+判据未定夺前不重录、不放宽容差。

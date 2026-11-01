@@ -254,6 +254,14 @@ jobs:
           fi
           echo "DOMAIN LOOP OK"
 
+      # kit 域两道确定性门（H3 accordion trigger 派发链 / H5 token+link 命中与送达）。
+      # 它们此前**只有文档没有入口**（composer / CI / tests 都不点名）——写好的门没人跑
+      # 就等于没有门。前提式/判别臂那三条（scrollbar-click、scrollbar-paint、
+      # token-paint-png）rc 语义不同（只有"实证/未判定"两档），走 composer check:kit-arms，
+      # 不并进这一步，免得把"CI 没给条件"读成回归。
+      - name: kit gates（accordion / token-link 派发链）
+        run: bash cmd/check-kit-gates.sh
+
       # 边界（不装）：这里跑的是**裸二进制**，所以 selftest 读数里 bundled=false，
       # bundleGreen/routeGreen 两道门在 CI 记为"未验"而不是"通过"——它们要的是
       # "有 .app 身份 → NSApp.isActive 起得来 → 事件缝走真 NSApp 路由"，而托管 runner

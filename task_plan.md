@@ -4,7 +4,9 @@
 用 TypePHP (AOT) 参考 gpui-kit-cpp（本地源码 `/Volumes/data/git/c/gpui-kit-cpp`）重新实现一套 PHP 原生桌面 GUI 框架，让 PHP 开发者能用声明式 API 构建跨平台 GPU 加速桌面应用。
 
 ## Current Phase
-**当前 = Phase 32 已结案（待提交）**：A2 专轮（宿主回调像素缺口）修复+两像素硬门全过、判别臂翻转实证；延后清单系列全部收官。剩非代码项：真人 HID 五项（testing.md 清单 v2）。
+**当前 = Phase 33：HID 五项自动化可达改造 + A8 img 白名单 + DataTable render_cell 示例（批1+批2 绿，批3 用户停，待归档提交）**。
+延后清单系列（续集批1-5 + 收尾批1-4 + A2 专轮）已全部收官（65946eb/ff5ab21 等）。
+HID 五项中 clickat 进程内可达的三项（Accordion trigger 翻开/scrollbar always overlay/token+link 鼠标命中）做成 automation 门；NativeMenu 行选中与 Resizable 拖拽维持真 HID（NSMenu 模态/拖拽动词不存在，#96 边界：agent 只验进程内派发链）。A8 img 白名单落码；DataTable render_cell 示例接（机制批4 已通、示例未单独接）。
 真遗留四类：A 代码可落地（三例根底色整型陷阱、TitleBar C 期 El::titleBar、元素级 on_action、语义 token 表暴露、字体装载、http 图片策略）；
 B 像素量化重试（token chip 落位、scrollbarModePaintPair always——机器已恢复）；C 真人 HID 五项汇账为前提式门 + 统一复验清单；D 设计段（i18n、wasm/mobile 结论）。
 **批1 施工轮（2026-10-31）已消化：A 类「三例根底色」实为 41 处 int 色全清 + bg/textColor/borderColor 签名收窄（13 域基线重录，catalog 根像素白→#f6f3ee 亲验）；B 类两项判别已定案——token chip：regionRgb 与 PNG 两通道一致缺席 = 宿主回调 subtree 未进 paint/合成帧（缺口实证，修复另立轮）；scrollbar always：--shot 离屏也不画（applicable=false 未判定），真人 HID 前提式验收（cmd/check-scrollbar-paint.sh）。**
@@ -2633,4 +2635,38 @@ rc=1 且 `routeGreen=false`；kit 裸 rc=0 `KIT SELFTEST OK`（含两条 DataTab
 - [x] 归档（progress/findings/task_plan）+ 按名字分批提交 + 终报。
 - 教训：判别臂 regionRgb 臂读时点早于物化（探针"通道分歧"是时点伪分歧）；消息行门固定坐标 (60,90) 打进行间间隙——门坐标按几何算。
 - **结案**：延后清单系列（续集批1-5 + 收尾批1-4 + A2 专轮）全部收官；代码级待办清空，剩真人 HID 五项（testing.md 清单 v2）。
+
+### Phase 33: HID 五项自动化可达改造 + A8 + DataTable render_cell（2026-11-01，批1+批2 绿，批3 用户停）
+来源：延后清单系列收官后的剩余账（testing.md 清单 v2 + coverage.md render_cell 行 + A8 img 白名单设计决定）。
+run `dwfrun-1ebf1186`（被用户停，批1+批2 施工完成门禁全绿，批3 未启动）。
+- [x] 批1｜HID 三项 automation 门：H1 `cmd/check-accordion-toggle.sh`（clickat trigger 矩形→展开像素+on_change 闭环）、H2 `cmd/check-scrollbar-click.sh`（clickat 试触发 overlay，h=0 折叠线不可点→读数型门）、H3 `cmd/check-token-link-hits.sh`（clickat token/link→hits 命中表+on_token_click 送达）。首运红（catalog selftest ❌ 时序 + pest 门12 新脚本无调用）→ 回炉 → 复验全绿。
+- [x] 批2｜DataTable render_cell 示例（examples/kit）+ testing.md HID 边界指引（#96 口径，NativeMenu/Resizable 维持真 HID 前提式门）。门禁全绿。
+  **订正（2026-11-01 批3 对账）**：本批原文写"A8 img capability 白名单（patch-*.sh +
+  upstream + GPUI.lock + shim_test）"——工作树里没有这些实现，A8 实际早在 **Phase 31 批3**
+  落地（system 域 `imageAssetRenders` / `imageUrlPolicy` 两门 + coverage.md 的"img 路无
+  capability 策略、白名单属设计决定"结论）。记重了，按实测改口。
+- [ ] 批3（被用户停）：commit/归档落账未做——14 文件工作树未提交。
+- [ ] 归档 + 按名字分批提交 + 终报（等用户指示）。
+- 教训：patch-selftest-fire-direct 的 automation 目录须先建再 fire；门12 对新增 cmd/*.sh 要求 tests/ 里有同名调用。
+
+### Phase 33 批3（2026-11-01 15:30，用户"继续"后落账）
+- [x] **可达性审计**：`cmd/check-*` 全表对着 composer / CI / tests 逐个点名 ⇒ 抓到 5 道
+  "有文档无入口"的门（accordion-toggle / scrollbar-click / token-link-hits /
+  scrollbar-paint / token-paint-png）。写好的门没人跑等于没有门。
+- [x] 收法按 rc 语义拆两把：`cmd/check-kit-gates.sh`（有"红=回归"档的两道，进 CI 原生 job
+  一步）与 `cmd/check-kit-arms.sh`（只有"实证 0 / 前提不成立 2"两档的三条，只进 composer）。
+  聚合前逐道打自己的判定行 + `GATE/ARM <名> rc=`；未知开关/缺 kit 二进制 rc=2。
+  实测：gates rc=0（2/2 通过）、arms rc=0（实证 2、未判定 1＝scrollbar-paint 前提不成立）。
+- [x] 过期解释订正：`check-token-paint-png.sh` 的判读文案仍写"有红=通道分歧（regionRgb
+  读不到）"（A2 修复前语义）；脚本头/echo 与中英文档第 18 行改为"有红=A2 修复后期望态、
+  无红=回归证据（回归红由 kit tokenDeliveryRender 承担）"。2026-11-01 实测 有红@(42,44)。
+- [x] 门禁复跑（first-native 全量重建后）：14 域 selftest 全 rc=0、`all-examples rc=0`、
+  `composer test:all` rc=0（139/965）、docs build + 锚点 rc=0（71 链接/16 带锚）、
+  两张门表列数零失配（22 行）。
+- [x] 按名字分三批提交（批1 派发链+三门+无头门 / 批2 A8+render_cell 示例 / 批3 可达性
+  入口+文案订正+归档+inspector 测量记录）。
+- [ ] **新立 #105（未决，需定夺）**：hello tree29 间歇红 gdfrac=1.00000——泵 3→80 帧不解决
+  （3 次 1 红）、单跑 6/6 等基线，而基线粗网格整张 255,255,255 ⇒ 基线记的是"拾取面板没进
+  这次合成"的近白态，偶发的"红"很可能是面板真画出来。该断哪一态、要不要用 regionRgb 判据
+  泵到面板在再重录、或改前提式——未定夺前不重录、不改判据。
 

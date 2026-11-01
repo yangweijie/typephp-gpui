@@ -12,11 +12,13 @@
 # GD 判读放脚本侧不进 AOT 编译域（examples 编译域无 GD 函数先例）。
 #
 # 判定（判别臂不出门红——它只出证据，硬门仍在 selftest）：
-#   rc=0 + "PNG通道=有红@(x,y)"  → 通道分歧实证：paint/合成帧里有徽章而
-#         regionRgb 读不到（tree30 案同款两读分歧）——嫌疑改判"读数通道"；
-#   rc=0 + "PNG通道=无红"        → 缺口实证：两条色通道都读不到，宿主回调
-#         subtree 确实没进 paint/合成帧（与 messageRowRender 同款）——修复
-#         另立轮（findings.md 有记）；
+#   rc=0 + "PNG通道=有红@(x,y)"  → 合成帧里有徽章。**这是 A2 修复后的期望态**
+#         （Phase 32：gpuiRenderShimToken 的 `if(root)` 把合法 spec 0 判为"无元素"，
+#         徽章从未被物化；修后 kit selftest 的 tokenDeliveryRender 用 regionRgb 扫描
+#         在同一片像素上硬断，两通道一致）。2026-11-01 实测 有红@(42,44) rgb(255,0,0)。
+#   rc=0 + "PNG通道=无红"        → 徽章没进 paint/合成帧——**这是修复前（2026-10-31）
+#         实测到的缺陷态**，如今出现即意味着 A2 回归；本臂仍只出证据不判红，
+#         回归红由 kit selftest 的 tokenDeliveryRender 承担。
 #   rc=2                         → 未判定：二进制不在 / selftest 没出图 /
 #         PNG 不可解（前提不成立，不硬断）。
 #
@@ -67,9 +69,9 @@ for ($gx = 2; $gx <= 410 && $at === null; $gx += 10) {
 }
 imagedestroy($img);
 if ($at !== null) {
-    echo "TOKEN-PNG PNG通道=有红@({$at[0]},{$at[1]}) {$at[2]} ⇒ 通道分歧实证（paint/合成帧有徽章、regionRgb 读不到）\n";
+    echo "TOKEN-PNG PNG通道=有红@({$at[0]},{$at[1]}) {$at[2]} ⇒ 合成帧里有徽章（A2 修复后的期望态，与 selftest 的 regionRgb 硬门同片像素）\n";
     exit(0);
 }
-echo "TOKEN-PNG PNG通道=无红 ⇒ 缺口实证（两色通道一致缺席，宿主回调 subtree 未进 paint/合成帧；修复另立轮）\n";
+echo "TOKEN-PNG PNG通道=无红 ⇒ 徽章没进 paint/合成帧（修复前的缺陷态；若 selftest 同步红即 A2 回归）\n";
 exit(0);
 ' "$PNG"

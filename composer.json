@@ -45,6 +45,8 @@
         "check:bundle": "@php cmd/check-bundle-signature.php",
         "check:hotkey-pump": "bash cmd/check-hotkey-pump.sh",
         "check:exit-clean": "bash cmd/check-exit-clean.sh",
+        "check:kit-gates": "bash cmd/check-kit-gates.sh",
+        "check:kit-arms": "bash cmd/check-kit-arms.sh",
         "bench:tree": "@php cmd/bench-tree.php --check cmd/bench-tree-budgets.txt",
         "test:all": [
             "@php vendor/bin/pest",
