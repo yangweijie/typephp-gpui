@@ -75,10 +75,14 @@ function runEmbeddedShot(string $path): void
     $app->createWindow('Embedded Shot', EMBEDDED_W, EMBEDDED_H);
     wireEmbedded($app);
     $app->render(embeddedTree());
-    // Inspector 面板只在拾取模式开着的时候画（component::Inspector::IntoEl() 关着返回 null），
-    // 所以出图前先开它——与 hello 的 tree31 同一处理。
+    // Inspector 面板只看 inspector.on 画（component::Inspector::IntoEl()，inspector.h:63 的
+    // 契约）。旧注释写"只在拾取模式开着的时候画"是错的：拾取管的是 hover 高亮，而那个高亮
+    // 画在真实指针最后命中的那个框上（window_common.cpp:626），整张图就跟着鼠标走。
+    // 所以开 inspector、再把拾取关掉：面板留着，出图与指针位置无关（同 hello tree29/31，#105）。
     $app->toggleInspector();
+    $app->setInspectorPicking(false);
     $app->loop(80);
+    echo 'inspector enabled=' . ($app->inspectorEnabled() ? '1' : '0') . "\n";
     echo '--- debug tree (embedded 1) ---' . "\n" . \gpui_debug_tree($app->handle()) . "\n---\n";
     $shotOk = $app->snapshot($path, EMBEDDED_W, EMBEDDED_H);
     echo $shotOk ? "SHOT OK tree=1 {$path}\n" : "SHOT FAIL tree=1 {$path}\n";
