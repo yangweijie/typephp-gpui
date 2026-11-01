@@ -2779,14 +2779,15 @@ run `dwfrun-1ebf1186`（被用户停，批1+批2 施工完成门禁全绿，批3
 - [ ] #106 仍开：现在缺的只是"红的那一次什么时候再来"，但证据不会再丢。
 
 ### Phase 34 批5（2026-11-02，#106 取证后分类 + 一条 falsified 注释）
-- [x] 红帧落盘第一次就用上：一次 14 支链跑红 3 支，逐张定位后是**三类**（chrome＝hover 形状、
-  mac＝同一帧的稳定另态、overlay＝动画在飞），详见 findings 同名表。原先想把它们当一条修，
-  是三张图放一起才分开的。
+- [x] 红帧落盘第一次就用上：一次 14 支链跑红 3 支，逐张定位后是**至少两类**（chrome 与 mac 都是
+  按钮色态：chrome 那颗 ghost 按钮 89×32 从页面底色变 hover 底色，mac 是 `->primary()` 的
+  "装 app 菜单"整块换色 `#171717↔#262626`；overlay 是动画在飞），详见 findings 同名表。
+  "mac 两次同帧"不是第三种成因——hoverId 是粘的，光标停在同一处就次次重现同一帧。
 - [x] 证伪并订正 `gpui_shim_snapshot` 里一条旧说法：`ignoresMouseEvents` 挡不住坐标被改回去
   （带取证 6 次：ignores=1 时 `win->mouseX` 仍是窗口内真实坐标）。gpui 从 app 队列取事件。
 - [x] 加一条"归位→泵→看 `hoverId` 归零"的收敛判据（≤20 轮），并**如实标注它的 headroom
   本轮没量到**：`GPUI_SHOT_PARK_ROUNDS=1 vs 20` 的 A/B 两侧 `hoverId` 恒 0（没人动鼠标）
   ⇒ 这个 A/B 什么也没判，只证明"无移动时两侧等价"。补臂方法写进 #106。
 - [x] 复跑：hello 全链重建 rc=0、`--selftest` rc=0、chrome `check` 三遍 OK、mac `check` OK。
-- [ ] #106 继续开着，按三类各自收：mac 那条最省（同一帧稳定复现 ⇒ 直接问"哪一块为什么变浅"），
-  overlay 是墙钟/动画态，chrome 需要"归位之后还有真实 move 落地"的那一臂。
+- [ ] #106 继续开着，按两类各自收：色态那一类要"归位之后还有真实 move 落地"的那一臂
+  （并分开 hover 与 pressed），动画那一类（overlay）要拍到静止态或按内容判据等它落定。

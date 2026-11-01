@@ -456,10 +456,13 @@ The chain's intermittent reds are not one class (#106, evidence kept in `tmp/sho
 chrome tree1 differs by 0.494% confined to one 89x32 ghost button, page background `#f6f3ee`
 turning into hover background `#f5f5f5`, i.e. the real cursor was *moved* onto a hoverable
 element after the park; mac tree1 differs by 1.764% over one 222x32 dark block that merely
-lightens (`#171717` to `#262626`) and reproduced as the identical frame twice, so that is a
-second stable state rather than random hover; overlay tree1 produced two frames differing from
-each other by 4.905% with pale green/red toast tints, i.e. an animation caught mid-flight.
-Each needs its own fix. Also measured: `ignoresMouseEvents` inside the snapshot does **not**
+lightens (`#171717` to `#262626`) — zoomed in, that is the `->primary()` "装 app 菜单" button
+swapping its whole fill, i.e. the same class of button colour state, and the reason it reproduced
+as the identical frame twice is that `hoverId` is sticky (only move events rewrite it, so a cursor
+resting in the same place re-creates the same frame; hover vs pressed is not yet separated);
+overlay tree1 produced two frames differing from each other by 4.905% with pale green/red toast
+tints, i.e. an animation caught mid-flight. So there are at least two classes (colour state vs
+animation in flight), each needing its own fix. Also measured: `ignoresMouseEvents` inside the snapshot does **not**
 keep the coordinate parked (`win->mouseX` still read a point inside the window while the flag
 was 1), because gpui pulls events off the application queue.
 
