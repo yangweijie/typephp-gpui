@@ -2790,3 +2790,14 @@ bin/gpui、GPUI.lock、tests/baseline/input/tree1.png（两度重录）、compos
 - 自抓自修：EN 门表那行被我写成跨 5 行，`docs:build` 红（`Element is missing end tag`）；
   本仓的门表列数门当时是绿的（它只数 `|` 开头的行 ⇒ 数不到续行）。这条不变式的主人是 vitepress
   构建（已在 CI），所以不新开门，只把话写清。修后 docs rc=0、`composer test:all` rc=0、锚点 OK。
+
+## 2026-11-02 Phase 34 批5：红帧落盘立刻换到三类结论 + 一条注释被证伪
+- 一次链跑红 3 支，三张图逐张定位：chrome=hover 形状（89×32 那颗 ghost 按钮底色从页面色变 hover 色）、
+  mac=同一帧稳定复现的另一稳定态（222×32 深色块整体变浅，两次 md5 相同）、overlay=动画在飞
+  （两帧互差 4.905%，带浅绿/浅红 toast 底）。⇒ "偶发红"不是一条，别按一条修。
+- 插桩取证 6 次后**证伪**了快照里"设 ignoresMouseEvents 就挡得住坐标"的旧说法：
+  ignores=1 时 `win->mouseX` 仍是窗口内真实坐标（gpui 从 app 队列取事件）。注释已按实测改。
+- 加了"归位→泵→hoverId 归零"的收敛判据，同时如实记：**headroom 没量到**
+  （`PARK_ROUNDS=1 vs 20` 两侧 hoverId 恒 0，那段时间没人动鼠标）⇒ 这条 A/B 什么也没判。
+  临时插桩与开关都已撤，留判据 + 注释里的补臂方法。
+- 复跑：hello 全链重建 rc=0、selftest rc=0、chrome check 三遍 OK、mac check OK。

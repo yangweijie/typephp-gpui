@@ -452,6 +452,17 @@ re-recorded. The comment there claimed the panel "only draws while picking mode 
 mechanism is wrong: `IntoEl()` keys off `on`, and picking only controls the hover highlight,
 which is exactly why turning picking off keeps the panel.
 
+The chain's intermittent reds are not one class (#106, evidence kept in `tmp/shotdiff-fail/`):
+chrome tree1 differs by 0.494% confined to one 89x32 ghost button, page background `#f6f3ee`
+turning into hover background `#f5f5f5`, i.e. the real cursor was *moved* onto a hoverable
+element after the park; mac tree1 differs by 1.764% over one 222x32 dark block that merely
+lightens (`#171717` to `#262626`) and reproduced as the identical frame twice, so that is a
+second stable state rather than random hover; overlay tree1 produced two frames differing from
+each other by 4.905% with pale green/red toast tints, i.e. an animation caught mid-flight.
+Each needs its own fix. Also measured: `ignoresMouseEvents` inside the snapshot does **not**
+keep the coordinate parked (`win->mouseX` still read a point inside the window while the flag
+was 1), because gpui pulls events off the application queue.
+
 For any unexpected difference:
 
 1. Keep the failed image and inspect it, not only its score.
