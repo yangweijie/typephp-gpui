@@ -2711,3 +2711,51 @@ run `dwfrun-1ebf1186`（被用户停，批1+批2 施工完成门禁全绿，批3
   处置边界：没抓到红帧并定位差异区域之前，不重录、不放容差。
   本轮另记一条自己的测量纪律失误：重录前的 4 次连跑我用 `grep -E "✗|OK"` 过滤，
   其中一次的 FAIL 没带树号 ⇒ 那条读数作废（不计入 #106 的频次），后续连跑改成整份日志落盘。
+
+### Phase 34 批2（2026-11-02，同类扫面 + 17-H 复审）
+- [x] 扫 `toggleInspector()` 的全部出图调用点：`examples/embedded` 的 `--shot` 也开着拾取
+  （它那棵树有 `El::inspector('em-inspector')`）。补同款 `setInspectorPicking(false)`，
+  并订正那里"面板只在拾取模式开着时画"的错机制说法（`IntoEl()` 读 `on`，拾取只管 hover 高亮）。
+  实测：关掉拾取后连拍 20 次逐字节相同（md5 `d5a7e2e040d3f474686e07e880c15f81`，8+12 两遍同值）；
+  与旧基线差 998/395200=0.253%，同样只落在 32×32 放大镜 (25,374)-(56,405)（`worst=0.141`，
+  与 hello 一模一样）⇒ 只重录 `tests/baseline/embedded/tree1.png`，`check embedded` 三遍 0.00000。
+- [x] **17-H 复审在今天的产物上重跑**（不沿用 2026-10-15 的日志）：
+  `all-examples.sh first-native` ⇒ selftest **13/14 绿，hello rc=1**（见下条 #107）；
+  `all-examples.sh shotdiff` ⇒ **13 支全绿 rc=0**（hello 18 棵、catalog 2、kit 4、system 2、
+  layout 2、choices/chrome/embedded/input/mac/overlay/style/table 各 1）；
+  `composer test:all` rc=0（pest 140/974 + phpstan + parity + shim cpp）、
+  `check-build-inputs` rc=0、`gpui doctor` ✗0、`check-doc-anchors` OK（71/16）、
+  `npm run docs:build` rc=0。showcase 复扫：目录不存在、`docs/**` 正文 0 处引用、
+  `tests/baseline/*` 与 `examples/*` 一一对应（无孤儿、无缺基线）。
+  ⇒ **17-H 保持未勾选**：它要求"所有实际待办有证据"，而 #106/#107 两条今天新量出来的还开着。
+- [ ] **新立 #107（未决）**：hello 的 `routeGreen` 在 **bundle 路径**确定性红——
+  `.app/Contents/MacOS/hello --selftest` 连两次都是 `bundled=true/frontmost=true/nsapp=0`
+  ⇒ `routeGreen=false`；而**裸二进制** `examples/hello/build/hello --selftest` 同一天两次
+  `nsapp=3`、`SELFTEST OK`。这条与本轮改动无关（step 25 在 step 26 之前算完，事件缝没被我碰）。
+  要问的两件事：① 今天的绿是不是**环境鼠标**供给的（物理指针恰好压在窗口上时 AppKit 自己
+  产生 mouseMoved，走 NSApp 路由；没人动时就 0）——那这条门的绿名不副实；
+  ② `realClick/realMouseMove` 在 bundle 下到底经不经 `-[NSApp sendEvent:]`（#98 的"保不住 key"
+  是同族）。处置边界：先做双臂（裸/包 × 指针在/不在），再决定是改投递路径还是改判据，
+  别把 `nsapp>0` 当"路由通了"的证据而不问它是谁给的。
+
+### Phase 34 批3（2026-11-02，#107 当场定住 + 全量复跑）
+- [x] **#107 结案（是同一条门的时序缺陷，不是事件缝坏了）**：`Deliver()` 只在
+  `g_postMode && [NSApp isActive] && w == [NSApp keyWindow]` 时才走真路由，否则整条退回
+  `-[NSWindow sendEvent:]` 且**不计数**（`gpui_mac.mm:411`）。旧的第 25 步 `activate()` 之后
+  **不重试**就投递，而 `activate()` 的回执要靠 runloop 走几拍才落地（`src/App.php:316-325`
+  早就写明"调用方按帧重试即可"）⇒ bundle 路径投递时还没生效，`nsapp=0`。
+  而 `$frontmost` 又是**投递之后**才读的，于是"事后拿到了前台"反过来把这条门变成硬红。
+  修法：把"active && key"当**前置条件**有界轮询（≤40 轮，每轮 loop(3) + 再 activate()），
+  豁免判据改用投递那一刻的状态；EXTRA 加 `preFg tries=N/M` 说清是哪一拍给的绿。
+- [x] 双臂实测（改前/改后同一路径）：改前 bundle 连两次 `bundled=true/frontmost=true/nsapp=0`
+  ⇒ `routeGreen=false`、rc=1；改后 bundle 连三次 `nsapp=3`、`preFg tries=0/1` 与 `1/1`、
+  `routeGreen=true`、rc=0。裸二进制路径本来就绿（同一天 `nsapp=3`），没被这次改动动坏。
+- [x] 全量复跑（今天的产物）：`all-examples.sh first-native` ⇒ **14/14 selftest rc=0，
+  ALL EXAMPLES: OK**；`composer test:all` rc=0（pest 140/974、phpstan `[OK] No errors`、
+  `UPSTREAM PARITY OK`、`SHIM CPP TESTS OK`）；`shotdiff check hello` rc=0；
+  `check-exit-clean` rc=0（2 支）；`check-hotkey-pump --arm=both` rc=0；
+  `check-kit-gates` rc=0（2 道）；`check-build-inputs` rc=0；`gpui doctor` rc=0（✗0）。
+- [ ] **17-H 仍不勾**：复审本身已按今天的产物重跑（像素 13 支全绿、selftest 14/14 绿），
+  但它同时要求"所有实际待办有证据"——**#106（hello tree22 连跑间歇红）还开着**：
+  今天累计 20 遍链跑只红过 1 次（`gdfrac=0.01555 / worst=0.082`），单跑 24/24 逐字节等基线，
+  红帧没抓到（后 12 遍全绿）。真人 HID 清单（testing.md 清单 v2）也仍待人来跑。

@@ -2760,3 +2760,24 @@ bin/gpui、GPUI.lock、tests/baseline/input/tree1.png（两度重录）、compos
   EXTRA 读数拆成多行、grep 不到 ⇒ 改回 `1/1/0` 紧凑形式。
 - 仍未闭：#106（tree22 连跑抖）、真人 HID 清单（testing.md 清单 v2）、以及全部提交的推送授权
   （本地未 push）。
+
+## 2026-11-02 Phase 34 批2/批3：同类扫面（embedded）+ 17-H 复审抓到 #107 并当场定住
+- 扫 `toggleInspector()` 的出图调用点抓到第二颗成员：`examples/embedded --shot` 也开着拾取
+  （它那棵树有 `El::inspector('em-inspector')`）。补 `setInspectorPicking(false)` 后连拍
+  20/20 逐字节相同（md5 `d5a7e2e040d3f474686e07e880c15f81`），与旧基线差 998/395200=0.253%，
+  同样只落在 32×32 放大镜 (25,374)-(56,405)（`worst=0.141` 与 hello 一致）⇒ 只重录
+  `tests/baseline/embedded/tree1.png`，`check embedded` 三遍 0.00000。
+  顺带订正那里"面板只在拾取模式开着时画"的错机制说法（`IntoEl()` 读 `on`）。
+- 订正自己 #105 的措辞：出图函数**早就**做指针归位（`gpui_shim.cpp:1729` 的注释点名"hello
+  tree31 整张不同"），所以准确说法是"归位不足以定住拾取态，关拾取才定得住"——
+  中英文档都按这句改了，别留一条把既有机制说漏的结论。
+- 17-H 复审按今天的产物重跑：`all-examples.sh first-native` 第一次给出 **13/14**（hello rc=1），
+  复跑仍红（不是抖动）。定位到 `Deliver()` 的真路由四条件（`gpui_mac.mm:411`）与
+  `activate()` 回执要几拍才落地（`src/App.php:316-325` 写明要按帧重试）⇒ 门在投递时还没生效，
+  而 `$frontmost` 取的是投递**之后**的读数。改成有界轮询前置条件 + 豁免看投递那一刻，
+  EXTRA 加 `preFg tries=N/M`。双臂：改前 bundle 2/2 `nsapp=0` rc=1；改后 3/3 `nsapp=3` rc=0；
+  裸二进制同一天 `nsapp=3` 未变坏。⇒ 全量重跑 **14/14 selftest rc=0、ALL EXAMPLES: OK**，
+  像素 13 支全绿，`composer test:all` rc=0（140/974），exit-clean / hotkey-pump(both 臂) /
+  kit-gates / build-inputs / doctor 全 rc=0。
+- 仍开：**#106**（tree22 连跑累计 20 遍红 1 次、单跑 24/24 等基线、红帧未抓到）与真人 HID 清单；
+  **17-H 保持未勾**（它要求所有实际待办有证据）。本轮全部提交只在本地，push 仍待人授权。

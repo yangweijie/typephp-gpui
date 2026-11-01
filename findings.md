@@ -2703,3 +2703,50 @@ tree29 的基线确实是"面板没进那次合成"的缺陷态，而间歇 `gdf
 结构性缺席比合成缺席更常见；② 像素门吃外部输入态（真实指针位置）时，优先找一个能把它
 关掉的公开开关，而不是加容差或改判据；③ 状态查询缺失时"只能靠像素"是**当时的**约束，
 不是永久约束——补一个读回的代价远小于把一张图的标准答案钉错。
+
+## 同类缺陷的第二颗成员：embedded 的出图路径也开着拾取（#105 扫面，2026-11-02）
+
+修完 hello 的 tree29/31 之后按"一条 API 的缺陷类别很少只有一个成员"去扫
+`toggleInspector` 的全部调用点（`git grep`，不加路径过滤也一样）：
+- `examples/hello/src/main.php`：出图路径两处（已修）+ selftest 一处（新加的硬断）。
+- `examples/embedded/src/main.php:80`：**出图路径**——`--shot` 里 `toggleInspector()` + `loop(80)`
+  直接拍，而它那一棵树里有 `El::inspector('em-inspector')`（`_shared/features/embedded.php:44`），
+  所以这张基线同样吃真实指针位置。已按 hello 同款补 `setInspectorPicking(false)`。
+- `examples/embedded/src/main.php:138/147`：selftest 的第 5 步（开合前后不许留错误节点），
+  断的是 `registeredError`/`componentFailure` 这类状态读数，不受拾取影响。
+- `examples/_shared/features/system.php:255`：交互 demo 的按钮 handler，不在像素路径里。
+
+顺带抓到一处**说错机制的注释**（embedded 出图路径）：它写"Inspector 面板只在**拾取模式**开着的时候
+画（IntoEl 关着返回 null）"。`IntoEl()` 读的是 `st->on`（`inspector.cpp:363`），拾取只管 hover 高亮。
+结论一样（"出图前要开 inspector"），理由是错的——错理由会让人以为关拾取就把面板关了，
+而这次修法恰恰是"关拾取、留面板"。
+
+重录证据（与 hello 同一形状）：关掉拾取后 20 次连拍逐字节相同（md5
+`d5a7e2e040d3f474686e07e880c15f81`，前 8 次一组、后 12 次一组，两组各自 `distinct=1`，
+两遍之间也同值）；与旧基线差 998/395200=0.253%，差异**全部**在
+(25,374)-(56,405) 那个 32×32 的放大镜按钮（`#d4d4d4` 按下态 → `#f8f8f8` 未按下态，
+`worst=0.141` 与 hello 那条一模一样）⇒ 只重录 `tests/baseline/embedded/tree1.png` 一张，
+`check embedded` 连三遍 0.00000。
+
+自己丢掉的一条读数（记法教训）：第一遍我按"md5 分组计数"跑了 12 次，得到 `distinct=3`，
+但每帧都往同一个路径覆写、没留各组的代表帧 ⇒ 那 3 组差异事后无法定位，只能作废。
+教训：分组计数型测量必须**每组留一张**（`g43` 那遍就每组留了，结果 `distinct=1`）。
+
+## #107：routeGreen 的红是"投递早于生效"，不是事件缝坏了（2026-11-02）
+
+`Deliver()` 的真路由分支有四个前提：`g_postMode && [NSApp isActive] && w == [NSApp keyWindow]
+&& ev.windowNumber == w.windowNumber`（`cpp-src/gpui_mac.mm:411`）；任何一条不成立就整条退到
+`[w sendEvent:]`，而且 `g_nsappDeliveries` **只在真路由分支自增** ⇒ 走直投时计数恒 0。
+hello 第 25 步过去是 `activate()` 一次就立刻投，而 `activate()` 的回执要 runloop 走几拍才落地
+（`src/App.php:316-325` 的注释早就写了"调用方按帧重试即可"）；再加上 `$frontmost` 是**投递之后**
+才从 `windowState()` 读的，于是"事后确实拿到前台"反过来把这条门判成硬红。
+
+双臂读数（同一路径，改前/改后）：
+- 改前 `.app/Contents/MacOS/hello --selftest`：`nsapp=0`、`frontmost=true`、`routeGreen=false`、
+  rc=1（连两次，含不带 `--expect-bundle` 的一次 ⇒ 与开关无关）。
+- 改后 `bin/gpui selftest hello`：`nsapp=3`、`preFg tries=0/1`、`1/1`、`1/1`，三次全 rc=0。
+- 裸二进制同一天两次 `nsapp=3`、rc=0 ⇒ 改动没把已绿的一侧改坏。
+
+教训：一条门"要不要豁免"的判据必须取**被检动作发生那一刻**的状态，不能取动作之后的读数——
+后者会把"竞态没赢"渲染成"功能坏了"。前置条件要显式轮询到有界超时，并把轮询次数打进读数，
+绿是哪一拍给的要说得出来。

@@ -423,11 +423,15 @@ decide first whether the panel never mounted or the capture grabbed a different 
 
 Closed (**#105**, 2026-11-02), and neither candidate was the mechanism: toggling the
 inspector also enters picking mode (`entity.cpp:381`), and while picking is on each frame
-paints a 20% accent fill across whichever element the *real* pointer last hovered
-(`win->mouseX/mouseY`; `window_common.cpp:626` plus `gpui.cpp:7600`). Pointer-inside and
-pointer-outside are therefore two whole-frame-different images. Frame count was never the
-lever: 80 frames still went intermittent, and eight solo captures of tree31 split 4 / 3 / 1
-between near-white, accent-heavy and a mid-animation frame. Two changes: capture with
+paints a 20% accent fill across whichever element the window's recorded pointer position
+(`win->mouseX/mouseY`) lands on (`window_common.cpp:626` plus `gpui.cpp:7600`). Pointer
+inside and pointer outside are therefore two whole-frame-different images. One division of
+labour is worth naming: the capture function has long parked that pointer (`gpui_shim.cpp:1729`
+onwards — its comment even lists "hello tree31 whole-frame different" as the symptom it was
+written for), but parking is **not enough** while picking is on: with the park in place, eight
+solo captures of tree31 still split 4 / 3 / 1 between near-white, accent-heavy and a
+mid-animation frame. What actually settles the frame is turning picking off. Frame count was
+never the lever either: 80 frames still went intermittent. Two changes: capture with
 `App::setInspectorPicking(false)` (the panel keys off `on`, so it keeps drawing), and assert
 the toggle itself through `App::inspectorEnabled()` (hello selftest step 26, reading
 `insp=1/1/0` — on, still on after picking off, off after the second toggle). Measured: tree29
@@ -437,6 +441,16 @@ while differing from its old baseline in 998/480000 = 0.208% of pixels, all insi
 magnifier button at (489,0)-(520,31), where the pressed `#d4d4d4` reverts to the unpressed
 `#f8f8f8`. Only tree31's reference pixels were re-recorded. The boundary still holds: name
 the mechanism, then show the delta is one localized box, before touching a baseline.
+
+Sweeping the same defect class found a second member: `examples/embedded`'s `--shot` path also
+toggles the inspector (its tree contains `El::inspector('em-inspector')`), so its baseline was
+eating the same pointer-dependent highlight. It now captures with
+`App::setInspectorPicking(false)` too: 20 consecutive captures are byte-identical, and the delta
+against its old baseline is 998/395200 = 0.253% confined to the same 32×32 magnifier box
+(`worst = 0.141`, identical to hello's), so only `tests/baseline/embedded/tree1.png` was
+re-recorded. The comment there claimed the panel "only draws while picking mode is on" — the
+mechanism is wrong: `IntoEl()` keys off `on`, and picking only controls the hover highlight,
+which is exactly why turning picking off keeps the panel.
 
 For any unexpected difference:
 
