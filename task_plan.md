@@ -1483,9 +1483,10 @@ SIGSEGV 报成了它自己那一行，而它在画廊里时只是"某轮 rc=11�
       `composer test:all`、`check-build-inputs`、`check-upstream-parity`、`docs:build` 全绿；
       当时唯一红的是 `hello` 像素，即 #86（已单独修掉并三次复验，见 17-H）。
 
-- [ ] **17-H** 完成审计：所有实际待办有证据、没有 showcase 源/死引用；
+- [x] **17-H** 完成审计：所有实际待办有证据、没有 showcase 源/死引用；
       Pest/PHPStan/parity/ABI/shim/native selftest/shotdiff/docs 构建均覆盖迁移后的独立域。
-      **审计已执行，结论如下**（保持未勾选，因为 17-D/17-E 两项待办本身还没完成）：
+      **审计已执行，结论如下**（当时保持未勾选，因为 17-D/17-E 两项待办本身还没完成；
+      这两项现已结案——17-D 见 run 38723837690 全绿，17-E 见 #56 定性结案 + 真人 HID 清单 v2）：
       **2026-10-15 05:17 在含 #90 修法与 input 门改动的同一批产物上复跑过一遍**（不沿用旧日志）：
       `composer test:all` 四步按序全过（Pest `Duration: 1.32s` → PHPStan `[OK] No errors` →
       `UPSTREAM PARITY OK` → `SHIM CPP TESTS OK`，全程无 FAIL/ERROR 行；composer 遇首个失败脚本即中止，
@@ -2645,8 +2646,9 @@ run `dwfrun-1ebf1186`（被用户停，批1+批2 施工完成门禁全绿，批3
   upstream + GPUI.lock + shim_test）"——工作树里没有这些实现，A8 实际早在 **Phase 31 批3**
   落地（system 域 `imageAssetRenders` / `imageUrlPolicy` 两门 + coverage.md 的"img 路无
   capability 策略、白名单属设计决定"结论）。记重了，按实测改口。
-- [ ] 批3（被用户停）：commit/归档落账未做——14 文件工作树未提交。
-- [ ] 归档 + 按名字分批提交 + 终报（等用户指示）。
+- [x] 批3：已做完并按名字分批提交（提交号按 `git log` 核对过：`fbba123` 派发链+三门+无头门 /
+      `da48a5d` render_cell 示例 / `6b995e5` 可达性入口+文案订正 / `4b81886` 归档补测量），工作树干净。
+- [x] 归档 + 按名字分批提交 + 终报：提交见上，终报随每批读数给出；**push 仍未做**（等用户单独授权，本地领先 origin/main 若干提交）。
 - 教训：patch-selftest-fire-direct 的 automation 目录须先建再 fire；门12 对新增 cmd/*.sh 要求 tests/ 里有同名调用。
 
 ### Phase 33 批3（2026-11-01 15:30，用户"继续"后落账）
@@ -2828,3 +2830,17 @@ run `dwfrun-1ebf1186`（被用户停，批1+批2 施工完成门禁全绿，批3
 - [x] 复跑：`composer test:all` rc=0（pest 141/975）、hello selftest rc=0、`check hello` OK、
   build-inputs / doctor / 锚点 / `docs:build` 全 rc=0。
 - [ ] #106 剩余：色态那一类的"非零侧"证据只能由真人光标给出（H6）；动画那一类已闭。
+
+### Phase 34 批8（2026-11-02，17-H 落勾：审计在今天的产物上整套重跑）
+- [x] 逐项读数（不沿用 2026-10-15 那份）：`cmd/all-examples.sh both` = **ALL EXAMPLES: OK**
+  （14 支逐支 selftest + 14 支 shotdiff，共 28 行 rc=0）；`check hello` 复跑两遍再 OK；
+  `composer test:all` rc=0（pest 141/975 + phpstan `[OK] No errors` + `UPSTREAM PARITY OK` +
+  `SHIM CPP TESTS OK`）；`check-cxx17.sh` rc=0；`check-build-inputs` rc=0；`gpui doctor` rc=0；
+  `check-doc-anchors` rc=0（71 链接/16 带锚）；`check-kit-gates` rc=0；`check-exit-clean` rc=0。
+- [x] showcase 复扫（今天重做）：`examples/showcase` 与 `tests/baseline/showcase` 均不存在、
+  `docs/**/*.md` 正文 0 处引用、`tests/baseline/*` 与 `examples/*` 一一对应（无孤儿基线目录、
+  无缺基线示例）；仓内只剩讲历史的注释（CI、`cmd/check-build-inputs.php`、`cmd/headless-trees.php`、
+  `examples/_shared/*` 等）与 findings/progress 里带日期的历史条目。
+- [x] **17-H 落勾**，同时写清它不覆盖什么：真人 HID 清单 v2（含今天新增的 H6=hoverId 非零侧）
+  按定义只能人手做；**push 仍未做**（本地领先 origin/main，等用户单独授权）。
+  Phase 33 的"批3/归档提交"两项也按实测补勾并给出提交号（`da48a5d`/`6b995e5`/`4b81886`）。
