@@ -2813,3 +2813,13 @@ bin/gpui、GPUI.lock、tests/baseline/input/tree1.png（两度重录）、compos
   篡改臂重建共享产物后 staleness 门拒绝比对旧 overlay 二进制（重建后才量）。
 - 复跑全绿：`composer test:all` rc=0（141/975）、build-inputs、doctor、`check hello`、
   `check overlay`、锚点 71/16、`docs:build`。
+
+## 2026-11-02 Phase 34 批7：selftest 第 27 步把悬停读数固定下来（并承认非零侧断不了）
+- 新增第 27 步：画一颗带 onClick 的按钮 → 从命中表算中心 → 投合成移动 → 出图。
+  硬断两侧：命中表找得到可悬停元素、出图后 `hoverId===0`；`hoverArm=<armed>/<cleared>/hits=<n>`
+  作例行读数（实测 `0/1/hits=2`）。篡改臂量过：目标条件改成 `w > 5000` ⇒ rc=1，还原 ⇒ rc=0。
+- 想给 `hoverId` 做"非零侧"自证臂，实测**造不出来**：`mainKey=1` 下 `realMouseMove` 与
+  `realClick` 打到按钮中心，`hoverId` 仍 0（详见 findings「合成缝喂不出悬停」）。
+  ⇒ 该侧并入真人 HID 清单新增的 **H6**，selftest 只把 armed 当读数不断——不拿做不到的事冒充已验。
+- 复跑：`composer test:all` rc=0（141/975）、hello `--selftest` rc=0、`check hello` SHOTDIFF OK、
+  build-inputs / doctor / 锚点 / `docs:build` 全 rc=0。

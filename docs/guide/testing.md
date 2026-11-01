@@ -28,7 +28,7 @@
 
 ### 真人 HID 复验清单 v2（批4 C1）
 
-门禁表量的是机器可判的部分；下面五项的**期望证据只能真人手做**。每项格式 =
+门禁表量的是机器可判的部分；下面六项的**期望证据只能真人手做**。每项格式 =
 前提 → 操作 → 期望读数 → 前提不成立记 `applicable=false`（未验，不判红也不假绿）——
 语义照门 16/17 的「未判定 rc=2」与「前提式纪律」（testing.md shotdiff 节：
 「焦点/HID 依赖的门必须写成前提式……环境不给焦点那属真人 HID 那一格」）；
@@ -41,6 +41,7 @@
 | H2 | Resizable 拖拽把手 | `catalogResizableShape` 只断形状（无拖拽） | 前提=窗口前台；真按住面板间把手拖动 | 面板尺寸随拖动连续变化（ResizablePanel 的 resize 读数/视觉宽度），松手后保持 |
 | H3 | Accordion trigger on_change 送达 | `accordionCatalogShape` 断形状（header/panel 槽契约）+ `accordionToggleGate`（独立窗口 regionRgb 面板开/关两态——关态无蓝底、开态有蓝底，依赖批1 open 参数暴露） | 前提=窗口前台；真点 trigger 头 | `on_change` 事件到 PHP（open 状态翻转），panel 展开/收起与事件一致 |
 | H4 | scrollbar always 真画 | `scrollbarModePaintPair` regionRgb 两盒同色（advisory，macOS 无头渲染自动隐藏）；`cmd/check-scrollbar-paint.sh` --shot 通道也同色 **applicable=false 亲测**（2026-10-31，rgb(223,223,223)）；`scrollbarHandleProbe` 独立窗口硬门（自绘路径 ApplyBar 画条——非 NSScroller overlay，批1 的自动隐藏结论不适用这条） | 前提=窗口前台；鼠标悬停 always 盒并滚动 | always 盒右缘出现 thumb 且随滚动移动；hover 盒仅悬停时出现——两盒右缘区域色从此可判互异 |
+| H6 | 悬停态非零侧（`hoverId`） | selftest 第 27 步硬断"出图后 `hoverId` 必须为 0"与"命中表里找得到可悬停元素"，并把 `hoverArm=<armed>/<cleared>/hits=<n>` 作例行读数打出（实测 `0/1/hits=2`）；非零侧**断不了**：合成 `mouseMoved` 与 `mouseDown/Up` 打到按钮中心（主窗 `mainKey=1`）后 `hoverId` 仍为 0 | 前提=窗口前台；把真实光标移进那颗 `hover-me` 按钮并停住 | `hoverArm` 的第一位变 1（gpui 记到悬停），且此时出的图带 hover 底色——这一条同时给 #106 色态判据补上真正的 headroom |
 | H5 | token + link 鼠标命中 | `tokenDeliveryRender`（造粒/事件送达/renderCalls/徽章像素落位全硬门绿——Phase 32 A2 批2 root=0 物化修复后徽章@必有值）+ `linkDelivery`（fire 通道量化） | 前提=窗口前台；真点击输入框内的 token 徽章、真点击 link 文字 | onTokenClick / on_link_click 事件到 PHP，事件载荷含 token/link 的 id |
 
 前提不成立的标准记法：会话无 GUI/窗口不在前台/无法人工交互 ⇒ 该项记
@@ -49,7 +50,8 @@
 
 **编号冲突警示**：本表 H1–H5 的编号（H1=NativeMenu、H2=Resizable、H3=Accordion、
 H4=scrollbar、H5=token+link）与 `findings.md`「真人 HID 类五项」顺序一致，是**既有
-编号**。批1 施工用的 H1–H3 编号（H1=Accordion、H2=scrollbar、H3=token/link）来自
+编号**；H6（`hoverId` 非零侧）是 2026-11-02 为 #106 新增的一项，findings.md 里对应
+「合成缝喂不出悬停」那段。批1 施工用的 H1–H3 编号（H1=Accordion、H2=scrollbar、H3=token/link）来自
 施工批次内部的工作计划，与本表编号**完全冲突**（如批1 的 H1 Accordion 对应本表 H3）。
 后续施工文档一律沿用本表/findings.md 编号，否则撞号。批1 的三支 automation 脚本
 （`cmd/check-accordion-toggle.sh`、`cmd/check-scrollbar-click.sh`、
@@ -414,6 +416,12 @@ Inspector 拾取高亮读的是窗口记下的指针坐标——窗口常常就�
   `--selftest` 出图后硬断它为 0，并逐列点名键表（读数 `shotHover=0/missKeys=0`）。三条篡改臂
   都量过：无头侧少一列 ⇒ Pest 键表门红；原生侧少一列 ⇒ `missKeys=hoverId` 且 rc=1；把 `hoverId`
   报成非零 ⇒ 同一条 selftest 红。键表的单一来源是 `App::WINDOW_STATE_KEYS`。
+  selftest 第 27 步把这条读数固定成例行输出（`hoverArm=<armed>/<cleared>/hits=<n>`，实测
+  `0/1/hits=2`）：`cleared`（出图后必须为 0）与「命中表里找得到那颗可悬停元素」两侧硬断，
+  篡改臂量过（把目标条件改成 `w > 5000` ⇒ rc=1，还原 ⇒ rc=0）。**但 `armed` 只作读数不断**：
+  画一颗带 onClick 的按钮、按命中表算出中心、把主窗升回 key（`mainKey=1`）之后投合成
+  `mouseMoved` 与 `mouseDown/Up`，`hoverId` 仍是 0 ⇒ 合成缝喂不出悬停，能证伪这条读数的非零侧
+  只有真实光标移动（已并入真人 HID 清单）。
 tree 32（通知层）**必须跑够墙钟才拍得到**：通知入场是动画，`Starting` 段的不透明度
 = `elapsedMs / 400`（`ui/notification.cpp:948`），而推它的是 50ms 的墙钟计时器——只泵
 3 帧等于拍在 0 上，图上只有宿主标题、两张卡一片透明，`SHOT OK` 却照样成立。现在跑

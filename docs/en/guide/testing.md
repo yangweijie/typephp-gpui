@@ -305,7 +305,10 @@ HID (#96 boundary); the agent verifies only the in-process dispatch chain (fire 
 hits).
 
 **Numbering note**: the zh guide's v2 checklist uses H1–H5 (H1=NativeMenu, H2=Resizable,
-H3=Accordion, H4=scrollbar, H5=token+link), matching `findings.md`. Batch 1's internal
+H3=Accordion, H4=scrollbar, H5=token+link), matching `findings.md`, plus H6 added on
+2026-11-02 for #106: the non-zero side of `hoverId`, which no synthetic seam can produce
+(`mouseMoved` and `mouseDown/Up` aimed at a button's hit-table centre leave `hoverId` at 0 even
+with `mainKey=1`), so only a real cursor move can falsify it. Batch 1's internal
 H1–H3 (H1=Accordion, H2=scrollbar, H3=token/link) conflict with this. The automation scripts
 (`cmd/check-accordion-toggle.sh` → v2 H3, `cmd/check-scrollbar-click.sh` → v2 H4,
 `cmd/check-token-link-hits.sh` → v2 H5) annotate their v2 numbering in comments.
@@ -478,6 +481,14 @@ needed. The colour-state class is now self-provable: `windowState()` carries `ho
 side reddens the Pest key-set test; dropping it in the bridge yields `missKeys=hoverId` with rc=1;
 reporting a non-zero `hoverId` reddens the same selftest. The key list has one owner,
 `App::WINDOW_STATE_KEYS`.
+Selftest step 27 makes that reading a standing output (`hoverArm=<armed>/<cleared>/hits=<n>`,
+measured `0/1/hits=2`): the cleared side (must be 0 after a capture) and "the hit table contains a
+hoverable element" are both hard-asserted, and the latter's arm was measured (changing the target
+predicate to `w > 5000` yields rc=1; restoring yields rc=0). The `armed` side is only a reading,
+never an assertion: after drawing a button with `onClick`, computing its centre from the hit table,
+and re-promoting the main window to key (`mainKey=1`), a synthetic `mouseMoved` and
+`mouseDown/Up` still leave `hoverId` at 0 — the synthetic seam cannot produce a hover, so only a
+real cursor move can falsify the non-zero side (added to the manual HID checklist).
 
 For any unexpected difference:
 

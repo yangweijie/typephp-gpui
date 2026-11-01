@@ -2815,3 +2815,16 @@ run `dwfrun-1ebf1186`（被用户停，批1+批2 施工完成门禁全绿，批3
 - [ ] #106 剩下色态那一类的"分开 hover 与 pressed"：现在有 `hoverId` 可读，但要把
   "光标在归位之后又被真实移动进可悬停元素"这一臂造出来（需要一次真实移动，或一个在
   归位之后才落地的注入臂）。动画那一类已闭。
+
+### Phase 34 批7（2026-11-02，selftest 第 27 步：悬停读数入例行，非零侧交真人）
+- [x] hello `--selftest` 新增第 27 步：画一颗带 `onClick` 的按钮 → 从命中表算中心 → 投合成移动
+  → 出图。硬断两侧：命中表里找得到可悬停元素、出图后 `hoverId===0`；
+  `hoverArm=<armed>/<cleared>/hits=<n>` 进 EXTRA 作例行读数（实测 `0/1/hits=2`）。
+  篡改臂量过：目标条件改成 `w > 5000` ⇒ rc=1；还原 ⇒ rc=0。
+- [x] **非零侧造不出来，如实记**：`mainKey=1` 下 `realMouseMove` 与 `realClick` 打到按钮中心
+  仍 `hoverId=0`（`DispatchMouseMove` 的 hover 就是 `HitTest(&win->paint,x,y)`）。再往下钻要动
+  `.mm` 的事件投递，而 #98/#56 已证明"真人鼠标到不到"是环境竞争态 ⇒ 该项并入真人 HID 清单
+  新增的 **H6**，selftest 只把 armed 当读数不断。
+- [x] 复跑：`composer test:all` rc=0（pest 141/975）、hello selftest rc=0、`check hello` OK、
+  build-inputs / doctor / 锚点 / `docs:build` 全 rc=0。
+- [ ] #106 剩余：色态那一类的"非零侧"证据只能由真人光标给出（H6）；动画那一类已闭。

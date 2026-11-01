@@ -2797,3 +2797,20 @@ app 队列取事件，窗口级"忽略鼠标"管不到那条路。所以真正�
    之后 `check overlay` 拒绝比对并打印"先 build overlay --no-native 再比对，否则量的是上一次
    构建的产物"。这正是 #60 那条审核项当初要防的坑（拿旧二进制量出"绿"）。⇒ 臂跑完要按
    "共享产物 mtime"重排复验顺序，别假设上一次构建还有效。
+
+## 合成缝喂不出悬停（#106 色态判据的 headroom 缺口，2026-11-02）
+
+给 `windowState()` 加 `hoverId` 之后，本来想顺手做一条自证臂："把指针投到一颗可悬停元素上，
+`hoverId` 必须变非零"。实测**投不出来**：
+- 画 `El::catalogButton('hv-selftest')->onClick()`，泵 6 帧，命中表里拿得到它
+  （`rect=(16,16,83,32) click=1`，`hits=2`）；
+- 主窗重新升回 key（`mainKey=1`，第 25 步那扇 420x320 判别臂窗口会抢 key，先抢回来）；
+- 投 `realMouseMove(中心)` ⇒ `hoverId=0`；再投 `realClick(中心)` ⇒ 仍 `hoverId=0`。
+
+`DispatchMouseMove` 里 hover 就是 `HitTest(&win->paint, x, y)`（`window_common.cpp:1974`），
+所以要么合成事件没走到那条 handler，要么 `HitTest` 在这条路上不吃这个坐标——**没继续往下钻**，
+因为再钻就要动 `.mm` 的事件投递，而 #98/#56 已经证明"真人鼠标到不到"本身是环境竞争态。
+
+结论（写进 selftest 的注释与 HID 清单 H6）：`hoverId` 的**零侧可硬断**（出图后必须为 0，
+篡改臂量过：报成非零 ⇒ selftest 红），**非零侧只能真人证**（真实光标移进按钮并停住）。
+所以 #106 色态判据的 headroom 缺口不是懒，是这条缝造不出前提。
