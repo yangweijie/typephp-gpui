@@ -2855,3 +2855,19 @@ bin/gpui、GPUI.lock、tests/baseline/input/tree1.png（两度重录）、compos
 - 工具坑两条：①描述"没有那个记号"的句子不能直接写那个记号（我自己的句子被自己的计数器抓成 1）；
   ②zh HID 表 H6 排在 H5 前 ⇒ 交换成 H1→H6 连续。
 - 复跑：doc-claims rc=0、`docs:build` rc=0、锚点 OK。
+
+## 2026-11-02 Phase 34 批12：全量电池抓到 #108（selftest cpu 判据没 headroom），配对差重写
+- 电池 `all-examples.sh both` = FAIL(1)：27 行 rc=0，唯一红 `hello selftest rc=1`，FAIL dump 里
+  `sys=[…,0,5]` ⇒ `$sys2['cpu']` 正好 0。裸跑 8/8、12/12 绿 ⇒ 间歇 ≈1/10。
+- 机制量出来：`host_cpu_load_info` ticks 发布量化——60 个 150ms 窗里 39 个 totalD=0，发布间隔最长
+  851ms；冻结时 gpui 的 `if (totalD > 0)` 不写值 ⇒ cpu 留初值 0。旧注释"离 0 有余量"作废。
+- 第一版改法被自己的判别臂否掉：断"本进程 cpu>0"时，把自旋整个删掉仍读到 `hello:10` ⇒ 空转判据。
+  定版改**配对差**：空闲窗 0.399 vs 烧核窗 9.999 ⇒ delta=9.599（阈值 3）；顺序调换 ⇒ delta=−10.001 ⇒ rc=1。
+  全机 cpu 降级为硬②（≤24 个烧核窗内必须读到 >0，只证通道通不证是我填的），读数全进 EXTRA。
+- nano 三坑：`getmypid()` 未编进时即使包在 `function_exists` 三元里也抛（AOT 两分支都编）；
+  `round($v, 1)` 第二实参 = ArgumentCountError；探针引用未赋值的 `$procs` 在编译期就报 Undefined variable。
+- 复跑：修后裸跑 15 连 0 红；`check hello` 18 树 SHOTDIFF OK；doc-claims rc=0、`docs:build` rc=0、
+  锚点 OK、pest 141/975、parity OK、build-inputs OK。文档同轮订正（中英 sysInfo 行 + 采样语义 +
+  testing 第 17 步），历史口径就地改写不删。
+- 修完整跑复验：`all-examples.sh both` = ALL EXAMPLES: OK，28 行全 rc=0（/tmp/g124-allex-final.log）
+  ⇒ 批8 那句"机器侧无剩余待办"在今晚的产物上重新成立（那条红正是它当时没抓到的）。

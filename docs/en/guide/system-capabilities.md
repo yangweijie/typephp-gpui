@@ -40,7 +40,7 @@ that current CI or every platform is green.
 | `webviewProbe($id)` | `WebViewUrlTemp` / `WebViewBounds` | Reads the native control's applied rectangle and URL |
 | `httpGet($url, $id): bool`, `httpResponse($id): ?array` | `HttpSendAsync` | Offline failure-path round trip; URL predicate tests |
 | `watchDir($dir, $id, $create): int`, `unwatchDir($handle)` | `DirWatchStart` / macOS FSEvents | Native test seam verifies posting and dispatch; not an OS file-change test |
-| `App::sysInfo($topProcs = 0): array` | `SysStateInit/Refresh/SortProcesses` | Direct values and two-sample CPU checks |
+| `App::sysInfo($topProcs = 0): array` | `SysStateInit/Refresh/SortProcesses` | Route, with two hard criteria that each claim only what it can measure: **1 paired difference** - two consecutive windows in the same process, an idle window (frame pumping only) versus a spinning window (main thread busy 200 ms), must differ by at least 3 points of `procs[].cpu`; measured 0.4% versus 10.0%. Its discriminating arm swaps the two windows, which yields -10.0 and reddens the gate. **2 whole-machine `cpu` delta channel** - must read >0 within at most 24 spinning windows; this proves the channel reaches PHP, not that this spin filled it (with the machine busy, 66.7% was read with the spin deleted). Plus the local filesystem cross-check in Pest. The earlier wording ("burn 150 ms, cpu must be >0, plenty of headroom") is withdrawn: whole-machine ticks are publish-quantized - 39 of 60 measured 150 ms windows returned a zero delta, with freezes up to 851 ms. |
 | `App::inflate($bytes, $gzip = false): ?string` | `shell::ZlibInflate` | Same external zlib/gzip fixtures in C++, native PHP, and Pest |
 | `showFpsHud($anchor)`, `hideFpsHud()`, `fpsHudVisible()` | ShellRoot FPS monitor | Lifecycle route; resource-row pixel stability remains open |
 | `openSheet(Element, $anchor)`, `closeSheet()`, `hasSheet()` | ShellRoot sheet APIs | Wrapper, lifecycle route, and pixels |
@@ -129,6 +129,14 @@ are direct readings and can be useful immediately.
 
 - CPU percentages are normalized across the whole machine to 0–100, not
   0–100 multiplied by the number of cores.
+- A short-window zero in the whole-machine `cpu` field is publish quantization, not
+  a defect. On this 10-core machine, 39 of 60 measured 150 ms windows saw a zero
+  tick delta and the longest gap between publishes was 851 ms; while frozen,
+  `sysinfo_mac.cpp`'s `if (totalD > 0)` simply does not write, so `cpu` keeps its
+  previous value. Do not treat "whole-machine cpu above zero in a short window" as
+  evidence of load: read `procs[].cpu`, which comes from `proc_pidinfo` task ticks
+  (measured in the same run: 0.4% while pumping frames idle, 10.0% while spinning
+  one core), or widen the sampling window to at least one second.
 - Sizes are bytes. On macOS, disk readings describe the startup volume, not all
   mounted disks.
 - Native sampling state is process-wide. A call from another window advances the

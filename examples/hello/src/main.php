@@ -182,6 +182,31 @@ function armPngWidth(string $path): int
     return (ord($hdr[0]) << 24) + (ord($hdr[1]) << 16) + (ord($hdr[2]) << 8) + ord($hdr[3]);
 }
 
+/**
+ * 从一次 App::sysInfo($top) 采样里认出自己那一行（进程名 $name）的每进程 cpu，
+ * 顺便把前五行的 `name:cpu` 拼成读数串。
+ *
+ * 每进程 cpu 走 proc_pidinfo 的 tick 实计（相对上一次采样的差 / 墙钟 / ncpu），
+ * 不受 HOST_CPU_LOAD_INFO 那条全机通道的发布量化影响。
+ *
+ * @return array{0: float, 1: string} [本进程 cpu，前五名读数串]
+ */
+function selfProcCpu(array $sys, string $name): array
+{
+    $rows = is_array($sys['procs'] ?? null) ? $sys['procs'] : [];
+    $cpu = 0.0;
+    $readout = [];
+    for ($i = 0; $i < count($rows); $i++) {
+        $rowName = (string) ($rows[$i]['name'] ?? '?');
+        $rowCpu = (float) ($rows[$i]['cpu'] ?? 0.0);
+        if ($rowName === $name) {
+            $cpu = max($cpu, $rowCpu);
+        }
+        $readout[] = $rowName . ':' . (int) round($rowCpu);
+    }
+    return [$cpu, implode(',', $readout)];
+}
+
 function runSelfTest(bool $expectBundle = false): void
 {
     $app = new App();
@@ -373,20 +398,59 @@ function runSelfTest(bool $expectBundle = false): void
     $ok = $ok && $itemText === "ITEM-{$timerHits}"
         && $item['image'] === null && $item['paths'] === [];
 
-    // 17) 系统状态。mem/disk/ncpu 不是差值量，第一次采样就能断言非零；cpu 是两次采样
-    //     之间的差值，所以先断言"第一次报 0"（这是文档承诺的行为），再烧 ~150ms 单核
-    //     把全机占用推起来，第二次采样必须 > 0。烧单核在 8 核机器上约 12%，离 0 有
-    //     足够余量——不是靠噪声过关。
+    // 17) 系统状态。mem/disk/ncpu 不是差值量，第一次采样就能断言非零；cpu 是两次采样之间的
+    //     差值，所以先断言"第一次报 0"（文档承诺的行为），再让本进程真烧核。
+    //     【2026-11-02 修间歇红，并撤一条说过头的口径】
+    //     原先"烧满 150ms 就单次采样、断全机 cpu>0"是掷硬币：host_cpu_load_info 的 ticks 在机器
+    //     其余部分空闲时**连续冻结**——同机实测 60 个 150ms 窗口里 39 个 totalD=0，发布间隔最长
+    //     量到 851ms（探针 /tmp/g108b-cputicks、/tmp/g110-cadence）。冻结时 gpui 那句
+    //     `if (totalD > 0)` 根本不写 cpu，值留在初值 0 ⇒ 判红（2026-11-02 电池跑红过一次，
+    //     现场 /tmp/all-hello.log：win=188ms、cpu2=0，同一轮 sysTop5=hello:8）。
+    //     判据拆成两条，各自只说自己能说的话：
+    //       硬①（配对差）同一进程连续两窗：空闲窗（只泵帧）与烧核窗（主线程全程自旋），
+    //          每进程 cpu 必须差出 ≥3 个百分点。为什么不能用"self cpu>0"：实测把自旋整个删掉，
+    //          空闲泵帧的本进程 cpu 照样读到 ~10 ⇒ 那条判据不看烧核，是空转的。差值才看。
+    //       硬②（发布量化的那条通道）全机 cpu 必须在有限次重复采样内读到 >0（每窗 150ms 持续烧，
+    //          上界 24 窗 ≈ 3.6s）。这条只证"全机差值通道通到 PHP"，**不**证"是这次自旋填的"——
+    //          机器忙时不烧也能读到 66.7%（同轮实测），旧口径"离 0 有足够余量"因此作废。
     $sys1 = App::sysInfo();
     $firstCpuZero = ($sys1['cpu'] ?? -1.0) === 0.0;
     $noProcList = ($sys1['procs'] ?? null) === [];
     $sink = 0;
-    $burnUntil = microtime(true) + 0.15;
+    // 垫一次带 procs 的采样：每进程 cpu 是相对"上一次"的差值，不垫就没有基线。
+    App::sysInfo(5);
+    $idleUntil = microtime(true) + 0.2;
+    while (microtime(true) < $idleUntil) {
+        $app->loop(1);
+    }
+    $sysIdle = App::sysInfo(5);
+    $burnUntil = microtime(true) + 0.2;
     while (microtime(true) < $burnUntil) {
         $sink++;
     }
-    $app->loop(2);
-    $sys2 = App::sysInfo(5);
+    $sysBurn = App::sysInfo(5);
+    $idleRead = selfProcCpu($sysIdle, 'hello');
+    $burnRead = selfProcCpu($sysBurn, 'hello');
+    $sysIdleCpu = (float) $idleRead[0];
+    $sysBurnCpu = (float) $burnRead[0];
+    $sysDelta = $sysBurnCpu - $sysIdleCpu;
+    // 硬②：全机差值通道重复采样直到读到非零，每个窗口都保持烧核。
+    $sys2 = $sysBurn;
+    $sysCpu2 = (float) ($sysBurn['cpu'] ?? 0.0);
+    $sysTries = 0;
+    $tRetry0 = microtime(true);
+    while ($sysCpu2 <= 0.0 && $sysTries < 24) {
+        $sysTries++;
+        $burnUntil = microtime(true) + 0.15;
+        while (microtime(true) < $burnUntil) {
+            $sink++;
+        }
+        $sys2 = App::sysInfo(5);
+        $sysCpu2 = max($sysCpu2, (float) ($sys2['cpu'] ?? 0.0));
+    }
+    $sysWinMs = (int) round((microtime(true) - $tRetry0) * 1000);
+    $retryRead = selfProcCpu($sys2, 'hello');
+    $procTop = (string) $retryRead[1];
     $procs = is_array($sys2['procs'] ?? null) ? $sys2['procs'] : [];
     $topNamed = $procs !== [] && (string) ($procs[0]['name'] ?? '') !== ''
         && (int) ($procs[0]['pid'] ?? 0) > 0;
@@ -395,7 +459,8 @@ function runSelfTest(bool $expectBundle = false): void
         && (float) $sys1['memPct'] > 0.0
         && (int) $sys1['diskTotal'] > 0 && (float) $sys1['diskPct'] > 0.0
         && $firstCpuZero && $noProcList
-        && (float) $sys2['cpu'] > 0.0
+        && $sysDelta >= 3.0
+        && $sysCpu2 > 0.0
         && count($procs) > 0 && count($procs) <= 5 && $topNamed;
 
     // 18) 应用内通知中心：推一条 → count 起来 → dismiss → 退场走完后 count 归零，
@@ -709,6 +774,9 @@ function runSelfTest(bool $expectBundle = false): void
             . " hoverArm=" . ($hoverArmed ? '1' : '0')
             . '/' . ($hoverCleared ? '1' : '0') . '/hits=' . $hvCount            . " insp=" . ($inspOn ? '1' : '0') . '/' . ($inspAfterPickOff ? '1' : '0')
             . '/' . ($inspOff ? '1' : '0')
+            . " sysIdle={$sysIdleCpu}/sysBurn={$sysBurnCpu}/delta={$sysDelta}"
+            . " sysTries={$sysTries}/retryWin={$sysWinMs}ms/cpu2={$sysCpu2}"
+            . " sysTop5=" . $procTop
             . " preFg tries=" . $preTries . '/' . ($frontmost ? '1' : '0') . "\n";
 
     echo $ok

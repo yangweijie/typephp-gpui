@@ -2914,3 +2914,40 @@ run `dwfrun-1ebf1186`（被用户停，批1+批2 施工完成门禁全绿，批3
 - [x] 顺手收真人清单的一处行序缺陷：zh `testing.md` 的 HID 表里 H6 排在 H5 之前（编号不连续），
   交换两行后按 H1→H6 连续；正文"下面六项"已是六项、en 侧的编号说明也含 H6，无需改。
   复跑：`check-doc-claims` rc=0、`docs:build` rc=0、`check-doc-anchors` OK（73/16 带锚）。
+
+### Phase 34 批12（2026-11-02，全量电池抓到 #108：selftest 第 17 步的 cpu 判据没有 headroom）
+- [x] 电池跑读数：`bash cmd/all-examples.sh both` ⇒ `ALL EXAMPLES: FAIL(1)`，27 行 rc=0，唯一红
+  `hello selftest rc=1`（包装器 rc=0，判定读每行自己的 rc）。现场 `/tmp/all-hello.log` 的 FAIL dump
+  里 `sys=[true,true,10,75.9,98.35,0,5]` —— 第 6 位是 `$sys2['cpu']`，**正好 0**，撞的就是
+  `&& (float) $sys2['cpu'] > 0.0` 那一条。
+- [x] 频率先定住而不是定罪：同一二进制裸跑 8/8 绿、12/12 绿（绿时 cpu2 读数 14.4–17.6），
+  加上新的一次 bundle 红 ⇒ 间歇红（≈1/10）。retry-green 仍是红，继续找机制。
+- [x] 机制用探针量出来（不猜）：`host_cpu_load_info` 的 ticks 在 Apple Silicon 上是**发布量化**的——
+  `/tmp/g108b-cputicks` 连续 60 个 150ms 自旋窗里 **39 个 totalD=0**（计数器整段不动），
+  `/tmp/g110-cadence` 两次发布之间最长 **851ms**。冻结时 `sysinfo_mac.cpp` 的 `if (totalD > 0)`
+  根本不写 `s->cpu` ⇒ 值停在初值 0 ⇒ 判红。原注释"烧单核≈12%，离 0 有足够余量——不是靠噪声过关"
+  被这两个读数推翻：窗长 150–190ms 本身就和发布间隔同量级，赶上不赶上才是决定项。
+- [x] 第一版改法被**自己的判别臂否掉**：改成断"本进程 `procs[].cpu`>0（名字 `hello`）"看似更硬，
+  但把自旋**整个删掉**再跑 ⇒ rc=0、`sysTop5=Qoder:12,hello:10,…` —— 不烧也读到 ~10，
+  因为 selftest 期间本进程本来就在渲染。⇒ 那条判据不看被操纵的量，是空转判据（弃用）。
+- [x] 定版＝两窗**配对差** + 通道重试，各说自己能说的话：
+  - 硬①同一进程连续两窗：空闲窗（只 `$app->loop(1)` 泵帧）vs 烧核窗（主线程全程自旋），
+    断 `procs[].cpu` 差 ≥3 个百分点。实测 `sysIdle=0.399 / sysBurn=9.999 / delta=9.599`
+    （每进程 cpu 走 `proc_pidinfo` 的 tick 实计：10 核机单核满烧＝10 点，与读数吻合）。
+    **判别臂＝两窗顺序调换** ⇒ `sysIdle=10.001 / sysBurn=0 / delta=-10.001` ⇒ rc=1（真能红），
+    还原 ⇒ rc=0。这才是"移动了被测量的量"的证据。
+  - 硬②全机 `cpu` 通道：在 ≤24 个 150ms 烧核窗内重复采样，必须读到 >0（跨过发布冻结）。
+    口径写死：只证"全机差值通道通到 PHP"，**不**证"是本次自旋填的"（不烧也能读到 66.7% 就是反例）。
+  - 读数进 EXTRA：`sysIdle/sysBurn/delta`、`sysTries/retryWin/cpu2`、`sysTop5=name:cpu,…`，
+    红时一眼分辨是哪条没满足。
+- [x] 三条 nano 坑（都写进代码注释，别再踩）：①`getmypid()` 没编进产物时，**即使包在
+  `function_exists` 的三元里**也抛 Unhandled TypePHP exception——AOT 两个分支都编；
+  ②`round($v, 1)` 的第二个实参在 nano 里是 ArgumentCountError（PHP 容忍多余实参，nano 不容忍）；
+  ③探针引用了尚未赋值的 `$procs`，nano 在**编译期**就报 Undefined variable（比运行时早，
+  所以"插个探针再跑"的排障法在 nano 里要先把读取点放到赋值之后）。
+- [x] 修后复跑：裸二进制 **15 连跑 0 红**；`check hello` 18 棵树 SHOTDIFF OK（像素不受影响）；
+  `check-doc-claims` rc=0、`docs:build` rc=0、锚点 OK（73 条 / 16 带锚）、pest 141/975、
+  parity OK、build-inputs OK。**17-H 的落勾按这条红重新对账**：批8 那句"机器侧无剩余待办"
+  在当时的产物上成立，但全量电池会抓到新红 ⇒ 本批修完后 `all-examples` 需要整跑复验才算。
+- [x] 修完立刻整跑复验（不沿用批8 那份）：`bash cmd/all-examples.sh both` = **ALL EXAMPLES: OK**，
+  28 行全 rc=0（现场 `/tmp/g124-allex-final.log`）⇒ 17-H 的"机器侧无剩余待办"在今晚的产物上重新成立。

@@ -25,7 +25,7 @@
 | 18 | token 徽章像素判别臂 | `bash cmd/check-token-paint-png.sh` | kit `tokenDeliveryRender` 门（硬门仍在 selftest）的**第二条色通道**复核：selftest 在 ON 帧在屏时 `App::snapshot()` 离屏出图（`sys_get_temp_dir()` 读环境 TMPDIR——脚本侧必须 `${TMPDIR:-/tmp}` 同源，写死 `/tmp` 会报"没出图"），脚本用 PHP GD 按 selftest 同一网格找红徽章（GD 判读不进 AOT 编译域——examples 无 GD 先例）。出读数不出门红：PNG 有红=合成帧里有徽章（**A2 修复后的期望态**，2026-11-01 实测 有红@(42,44)，与 selftest 的 regionRgb 硬门同片像素）；**PNG 无红=徽章没进 paint/合成帧**——那是修复前（2026-10-31）实测到的缺陷态，如今出现即 A2 回归，回归红由 kit `tokenDeliveryRender` 承担。selftest 门红/没出图/PNG 尺寸≠420x200 都 rc=2 未判定 | 是（二进制 + 窗口会话） |
 | 19 | always 滚动条真画探针（前提式） | `bash cmd/check-scrollbar-paint.sh` | "scrollbarMode always 的 thumb 真画出来"的 `--shot` 通道验收：kit tree4（`sectionKitScrollbarPair`，hover/always 两盒同构 w220/h120/gap40/p40，探针 (244,48)/(504,48) 右缘 16x60 竖条——**builder 必须带 `p(40)`**，首版漏了盒从 (0,0) 起、探针读到根底色）。断两盒区域均色互异；同色 ⇒ **applicable=false rc=2 未判定**（2026-10-31 实测同色 rgb(223,223,223)：离屏合成也不画 always thumb——"无真人鼠标事件 NSScroller overlay 自动隐藏"对 --shot 同样成立）。不设 rc=1：没画出滚动条不是回归红，是前提不成立；出不了图/PNG≠900x680 也 rc=2。"always 真画"目前只能真人 HID 前提式验收 | 是（二进制 + 窗口会话） |
 | 20 | kit 门批量入口（可达性收口） | `composer check:kit-gates`（= `bash cmd/check-kit-gates.sh`；CI 原生 job 一步）／`composer check:kit-arms` | 五道 kit 域门此前**只有文档没有入口**（composer / CI / tests 都不点名它们），写好的门没人跑等于没有门。按 rc 语义分两把：`check:kit-gates` 收有"红=回归"这一档的两道（`cmd/check-accordion-toggle.sh` = v2 H3、`cmd/check-token-link-hits.sh` = v2 H5），任一 rc=1 总 rc=1，否则有 rc=2 总 rc=2；`check:kit-arms` 收只有"实证(0)/前提不成立(2)"两档的三条（`check-scrollbar-click.sh`、`check-scrollbar-paint.sh`、`check-token-paint-png.sh`），**不进 CI**，免得把"CI 没给条件"读成回归。两把都逐道打自己的判定行再打 `GATE/ARM <名> rc=`——**包装器 rc 不是门判定**，结论读每道门那一行；kit 二进制缺、未知开关都 rc=2 未判定 | 是（二进制 + 窗口会话） |
-| 21 | 能力对照表不许与代码打架（两个方向） | `php cmd/check-doc-claims.php`（`composer check:doc-claims`；CI docs job 里紧跟锚点门，先跑 `--self-check`） | 同一判据的正反两面，共扫四张表。**A 少报**：`upstream-coverage.md`（中英）"上游概念对照"表里带缺口标记（❌/未接/not exposed/not supported）又反引号点名了一个**真实存在的 `El`/`Element`/`App` 公开方法** ⇒ 红，打 file:line 与方法全名。起因是 2026-11-02 实测到的自相矛盾：第 3 节写着动画糖已接（`El::transition()`/`El::spring()` + kit `transitionInterpolation` 门），对照表里却还留着 `Animation ❌ transition/spring 整族未接`。**B 多报**（同日补）：`system-capabilities.md`（中英）「已接」/「Connected APIs」表**第一列**签名的方法在代码里根本不存在 ⇒ 红；带前缀的（`El::x()`、`$app->x()`）按那个类判，裸名按三张表并集判，`App::a/b/c` 这种斜杠清单逐成员判。判据刻意窄：A 不扫"端口里有、还没接"那类表，因为那里把**已接**的方法当对照上下文写进同一格（deflate 那行的"解压侧已经接了（`App::inflate`）"），扫它必假红；B 只扫第一列且只认调用形（名字后紧跟 `(` 或 `/`），所以第二列的 C++ 符号与 `move_to` 一类上游名不误红。正向读数 `DOC CLAIMS OK — 扫 4/4 张表（A:21 A:20 B:34 B:34 行），方法并集 587 名`。红臂实测（逐条往真文档插一行再撤销）：插 `El::notARealSurface()` ⇒ `FAIL (1 = 少报 0 / 多报 1)`；插 `El::clipboardText()` 加 `$app->notHere()` ⇒ `多报 2` 且分别打「El 类没有」「App 类没有」（跨类误配判得出）；A 侧插裸名与带前缀两种写法各 ⇒ `少报 1`；负对照插 `shell::ZlibDeflate` 与 `move_to` ⇒ 仍 rc=0；前提臂把 zh 标题改成「接通清单」⇒ rc=2 未判定并打「『已接』表里没读到任何行」，撤销后回 rc=0。`--self-check` 是探测器自检：A、B 各内置一对样本（矛盾必须判红、合法必须不判红） | 否 |
+| 21 | 能力对照表不许与代码打架（两个方向） | `php cmd/check-doc-claims.php`（`composer check:doc-claims`；CI docs job 里紧跟锚点门，先跑 `--self-check`） | 同一判据的正反两面，共扫四张表。**A 少报**：`upstream-coverage.md`（中英）"上游概念对照"表里带缺口标记（❌/未接/not exposed/not supported）又反引号点名了一个**真实存在的 `El`/`Element`/`App` 公开方法** ⇒ 红，打 file:line 与方法全名。起因是 2026-11-02 实测到的自相矛盾：第 3 节写着动画糖已接（`El::transition()`/`El::spring()` + kit `transitionInterpolation` 门），对照表里却还留着 `Animation ❌ transition/spring 整族未接`。**B 多报**（同日补）：`system-capabilities.md`（中英）「已接」/「Connected APIs」表**第一列**签名的方法在代码里根本不存在 ⇒ 红；带前缀的（`El::x()`、`$app->x()`）按那个类判，裸名按三张表并集判，`App::a/b/c` 这种斜杠清单逐成员判。判据刻意窄：A 不扫"端口里有、还没接"那类表，因为那里把**已接**的方法当对照上下文写进同一格（deflate 那行的"解压侧已经接了（`App::inflate`）"），扫它必假红；B 只扫第一列且只认调用形（名字后紧跟 `(` 或 `/`），所以第二列的 C++ 符号与 `move_to` 一类上游名不误红。窄界是量出来的：把 A 放宽到两份 coverage + 两份能力页 + components + events 的**全部**表格，多出来的命中只有一条——`upstream-coverage.md:181` 里路径 op 名 `close` 恰好等于真方法 `App::close()` ⇒ 放宽就是 1 条假红，所以 A 停在概念表。正向读数 `DOC CLAIMS OK — 扫 4/4 张表（A:21 A:20 B:34 B:34 行），方法并集 587 名`。红臂实测（逐条往真文档插一行再撤销）：插 `El::notARealSurface()` ⇒ `FAIL (1 = 少报 0 / 多报 1)`；插 `El::clipboardText()` 加 `$app->notHere()` ⇒ `多报 2` 且分别打「El 类没有」「App 类没有」（跨类误配判得出）；A 侧插裸名与带前缀两种写法各 ⇒ `少报 1`；负对照插 `shell::ZlibDeflate` 与 `move_to` ⇒ 仍 rc=0；前提臂把 zh 标题改成「接通清单」⇒ rc=2 未判定并打「『已接』表里没读到任何行」，撤销后回 rc=0。`--self-check` 是探测器自检：A、B 各内置一对样本（矛盾必须判红、合法必须不判红） | 否 |
 
 ### 真人 HID 复验清单 v2（批4 C1）
 
@@ -145,8 +145,16 @@ headless、不开窗口，故任意环境可跑。`cmd/test-shim.sh` 两步编�
     必须报"没有"。这验的是 flags 判别，不依赖粘贴板里恰好有什么。
 17. 系统状态（`App::sysInfo`）：`memPct`/`diskPct`/`memTotal`/`diskTotal`/`ncpu` 是直接
     读数，第一次采样就能断言非零；`cpu` 是差值量，所以先断言"第一次报 0"（这是文档承诺的
-    行为，不是巧合），再烧 150ms 单核、泵两帧，第二次采样必须 > 0。烧单核在 8 核机器上约
-    12%，离 0 有足够余量——不是靠机器噪声过关。`procs` 验前 5 条非空且首条有 pid 与名字。
+    行为，不是巧合）。烧核那一条 2026-11-02 重写，因为旧口径"烧 150ms 后单次采样断 cpu>0"
+    会间歇红——全机 ticks 有**发布量化**（本机实测 60 个 150ms 窗口里 39 个差值为 0，
+    冻结最长 851ms），而改成"本进程 cpu>0"也不行：那是**不看烧核的空转判据**（把自旋整个
+    删掉，空闲泵帧照样读到 ~10）。现在两条硬判据各说各的：**①配对差**——同一进程连续两窗
+    （空闲窗只泵帧、烧核窗主线程全程自旋），`procs[].cpu` 必须差出 ≥3 个百分点，实测
+    0.4% vs 10.0%（差 9.6）；判别臂＝两窗顺序调换 ⇒ 差值 −10.0 ⇒ 门红（量过，还原回绿）。
+    **②全机 `cpu` 差值通道**——必须在 ≤24 个烧核窗内读到 >0；它只证"通道通到 PHP"，不证
+    "是这次自旋填的"（机器忙时不烧也读到 66.7%），所以旧那句"离 0 有足够余量"作废。
+    读数 `sysIdle/sysBurn/delta`、`sysTries/retryWin/cpu2`、`sysTop5` 进 EXTRA 行，
+    红时能立刻分辨是哪条没满足。`procs` 仍验前 5 条非空且首条有 pid 与名字。
 18. 通知中心（`App::notify`）：推一条带 id 的通知 → `notificationCount` 1 → `dismiss` →
     泵帧后计数归 0，并且 PHP 侧收到一条 `close` 事件。验的是"推得进、退得出、回调打得回来"
     这条路由；卡片画不画得出来归 tree 32 的像素。

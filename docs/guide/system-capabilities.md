@@ -29,7 +29,7 @@
 | `$app->webviewProbe($id)` | `wry::WebViewUrlTemp` + `WebViewBounds` | route（#12，读出 400×300 的应用盒子） |
 | `$app->httpGet($url, $id): bool`<br>`$app->httpResponse($id): ?array` | `gpui::HttpSendAsync`（**不是**阻塞的 `HttpSend`） | route（selftest #15：打 loopback 关闭端口，验整条异步路而不碰外网）+ native（`HttpUrlIsRemote` 判据表） |
 | `$app->watchDir($dir, $id, $create): int`<br>`$app->unwatchDir($watchId)` | `gpui::DirWatchStart`（macOS 走 FSEvents） | route（#14，走 gpui 的 DirWatchAdd/Signal 测试接缝，不碰文件系统） |
-| `App::sysInfo($topProcs = 0): array` | `gpui::SysStateInit/SysRefresh/SysSortProcesses` | route（selftest #17：烧 150ms 单核后 cpu 必须报 >0，实测 46.2%）+ 本机文件系统对照（Pest） |
+| `App::sysInfo($topProcs = 0): array` | `gpui::SysStateInit/SysRefresh/SysSortProcesses` | route（selftest #17 两条硬判据各说各的：**①配对差**——同一进程连续两窗，空闲窗（只泵帧）与烧核窗（主线程全程自旋）的 `procs[].cpu` 必须差出 ≥3 个百分点，实测 0.4% vs 10.0%；判别臂＝两窗顺序调换 ⇒ 差值 −10.0 ⇒ 门红（量过）。**②全机 `cpu` 差值通道**——必须在 ≤24 个烧核窗内读到 >0，只证"通道通到 PHP"，不证"是这次自旋填的"）+ 本机文件系统对照（Pest）。为什么不是旧口径那句"烧 150ms 后 cpu 必须 >0、离 0 有余量"：全机 ticks 有**发布量化**，实测 60 个 150ms 窗口里 39 个差值为 0、冻结最长 851ms |
 | `App::inflate($bytes, $gzip = false): ?string` | `gpui::shell::ZlibInflate`（真解 Huffman） | 三方锚：同一批向量在 C++ 测试、原生 selftest #13、Pest 里各解一遍 |
 | `$app->showFpsHud(string $anchor): bool`<br>`$app->hideFpsHud()` / `fpsHudVisible()` | `ShellRootShow/HideFpsMonitor` | wrap + route（#10）+ pixel（tree27） |
 | `$app->openSheet(Element, string $anchor): int`<br>`$app->closeSheet()` / `hasSheet()` | `ShellRootOpenSheetView` 等 | wrap + route（#11）+ pixel（tree28） |
@@ -96,6 +96,13 @@ $b = App::sysInfo(10);          // 这一次的 cpu 才是 200ms 窗口里的真
 
 - **`cpu` 与 `procs[].cpu` 是两次采样之间的差值**，第一次必然报 0。`memPct`、`diskPct`、
   `memTotal/Used`、`diskTotal/Used`、`ncpu`、电池都是直接读数，第一次就有效。
+- **全机 `cpu` 在短窗口里会读到 0，这不是缺陷而是内核的发布量化**：mac 侧
+  `host_cpu_load_info` 的 ticks 在机器其余部分空闲时可以连续冻结——本机（10 核）实测
+  60 个 150ms 窗口里 **39 个差值为 0**，两次发布之间最长量到 **851ms**；冻结时
+  `sysinfo_mac.cpp` 那句 `if (totalD > 0)` 不写值，`cpu` 就留在上一次（或初值 0）。
+  所以别拿"短窗口全机 cpu>0"当占用证据：要判这段时间到底忙不忙，用 `procs[].cpu`
+  （走 `proc_pidinfo` 的 tick 实计，同一轮实测空闲窗 0.4% / 单核自旋窗 10.0%），
+  或把采样窗口拉到 ≥1s。
 - 百分比都是 0..100，且 cpu 是**全机跨核归一**的（不是"单核 0..100×n"）。
 - 字节单位是 B；`disk` 指**启动卷**（gpui 在 mac 上 `statfs("/")`），不含其它挂载点。
 - 采样状态在原生侧是**进程内一份**，不是每窗口一份——mac 的墙钟差本身就是文件静态量
