@@ -653,6 +653,43 @@ function runSelfTest(bool $expectBundle = false): void
     $inspOk = $inspOn && $inspAfterPickOff && !$inspOff;
     $ok = $ok && $inspOk;
 
+    // 27) 悬停读数（#106 色态那一类）：出图之后 gpui 记的 hoverId 必须是 0——
+    //     快照里的归位只有把悬停打回 0 才算真的定住画面。这一条硬断。
+    //     另一半"能不能把它弄成非零"目前**断不了**：画一颗带 onClick 的按钮、按命中表
+    //     把中心算出来（实测 rect=(16,16,83,32) click=1）、把主窗重新升回 key（mainKey=1）
+    //     之后投递合成 mouseMoved 与 mouseDown/Up，hoverId 仍是 0（2026-11-02 实测）。
+    //     ⇒ 合成缝喂不出悬停，能证伪这条读数的只有真实光标移动（归真人 HID 清单）。
+    //     所以这里只把 armed 当**读数**打出来（hoverArm=armed/cleared/hits），不断它。
+    $app->render(El::vFlex([
+        El::catalogButton('hv-selftest', 'hover-me')->onClick(),
+    ])->sizeFull()->itemsStart()->p(16.0));
+    $app->loop(6);
+    $hvCount = (int) ($app->hitProbe(-1)['n'] ?? 0);
+    $hvTarget = null;
+    for ($i = 0; $i < $hvCount; $i++) {
+        $h = $app->hitProbe($i);
+        if ((int) $h['click'] !== 0 && (int) $h['w'] > 20 && (int) $h['h'] > 10) {
+            $hvTarget = $h;
+            break;
+        }
+    }
+    $hoverArmed = false;
+    if ($hvTarget !== null) {
+        $app->activate();
+        $app->loop(3);
+        $app->realMouseMove(
+            (int) $hvTarget['x'] + (int) ($hvTarget['w'] / 2),
+            (int) $hvTarget['y'] + (int) ($hvTarget['h'] / 2)
+        );
+        $app->loop(3);
+        $hoverArmed = (int) $app->windowState()['hoverId'] !== 0;
+    }
+    // 命中表空 = 这颗按钮根本没进表，读数就成了假的，所以这一侧要硬断。
+    $hvTargetOk = $hvTarget !== null;
+    $hvShot = $app->snapshot('/tmp/gpui-hover-converge.png', 800, 600);
+    $hoverCleared = (int) $app->windowState()['hoverId'] === 0;
+    $ok = $ok && $hvTargetOk && (bool) $hvShot && $hoverCleared;
+
     echo 'EXTRA'
         . " snaparm=" . var_export($armBound, true)
         . "/A{$armWA}px/B{$armWB}px shot=" . var_export((bool) $armShotA, true)
@@ -668,7 +705,9 @@ function runSelfTest(bool $expectBundle = false): void
             . "/nsapp={$nsappDeliveries}/fgTries={$fgTries}"
             . "/bundleGreen=" . var_export($bundleGreen, true)
             . "/routeGreen=" . var_export($routeGreen, true)
-            . " shotHover=" . (int) ($stShot['hoverId'] ?? -1) . '/missKeys=' . ($missingKeys === [] ? '0' : implode(',', $missingKeys))            . " insp=" . ($inspOn ? '1' : '0') . '/' . ($inspAfterPickOff ? '1' : '0')
+            . " shotHover=" . (int) ($stShot['hoverId'] ?? -1) . '/missKeys=' . ($missingKeys === [] ? '0' : implode(',', $missingKeys))
+            . " hoverArm=" . ($hoverArmed ? '1' : '0')
+            . '/' . ($hoverCleared ? '1' : '0') . '/hits=' . $hvCount            . " insp=" . ($inspOn ? '1' : '0') . '/' . ($inspAfterPickOff ? '1' : '0')
             . '/' . ($inspOff ? '1' : '0')
             . " preFg tries=" . $preTries . '/' . ($frontmost ? '1' : '0') . "\n";
 
@@ -677,7 +716,7 @@ function runSelfTest(bool $expectBundle = false): void
             . " + appmenu + clipboard + urlgate + fps + sheet + webview %.0fx%.0f"
             . " + inflate + dirChange x%d + http拒连回环 ok=%s/status=%d + clipboard-item"
             . " + sys cpu=%.1f%% mem=%.0f%% procs=%d"
-            . " + notify x%d→%d %s + mac=%d fs=%d svc=%d + inspector读回)\n",
+            . " + notify x%d→%d %s + mac=%d fs=%d svc=%d + inspector读回 + 出图后无悬停)\n",
             $timerHits,
             $probe['w'],
             $probe['h'],
