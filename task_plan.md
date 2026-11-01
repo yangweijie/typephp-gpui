@@ -2705,7 +2705,7 @@ run `dwfrun-1ebf1186`（被用户停，批1+批2 施工完成门禁全绿，批3
   `/tmp/gpui-shotdiff-hello` 整个目录不见（本门自己从不删目录，只在每棵树出图前 unlink 那一个
   文件，`cmd/shotdiff.php:152` 起）⇒ 判为读数被另一跑扰动，作废），`check-doc-anchors` OK（71 链接/16 带锚）、
   `npm run docs:build` rc=0。
-- [ ] **新立 #106（未决）**：`check hello` 8 遍里 1 次红在 **tree22**
+- [x] **#106 新立（写下时未决）**〔批11 就地结案：两类各自收——动画类由内容判据闭（批6），色态类机器侧改由 `hoverId` 自证（批6/批7），非零一侧只能真人光标给出 ⇒ 转真人 HID 清单 H6，不再是门禁待办。下面原文照留〕：`check hello` 8 遍里 1 次红在 **tree22**
   （`gdfrac=0.01555 / worst=0.082`：~1.5% 像素、每像素最大偏差 8%，形状像悬停/焦点类小面积差，
   不是 tree29 那种整帧）；而 tree22 **独立单跑 24/24 与基线逐字节相同** ⇒ 只在 18 棵连跑里出现。
   快照本身已经做指针归位（`gpui_shim.cpp:1738` 起 `ignoresMouseEvents=YES` + 排空 +
@@ -2778,7 +2778,8 @@ run `dwfrun-1ebf1186`（被用户停，批1+批2 施工完成门禁全绿，批3
   不会把续行当成表格的一部分。这条不变式的**主人是 vitepress 构建本身**，而它已在 CI 里，
   所以不新开一道门，按"谁拥有谁负责"记在这儿。
 - [x] 复跑：docs build rc=0、`composer test:all` rc=0（pest 140/974）、`check-doc-anchors` OK（71/16）。
-- [ ] #106 仍开：现在缺的只是"红的那一次什么时候再来"，但证据不会再丢。
+- [x] #106〔批4 写下时的缺口，批11 收口：证据不会再丢（红帧已落盘），"什么时候再来"不再是要等的事——
+  两类已各自归因，非零侧转真人 H6〕仍开过：当时缺的只是"红的那一次什么时候再来"。
 
 ### Phase 34 批5（2026-11-02，#106 取证后分类 + 一条 falsified 注释）
 - [x] 红帧落盘第一次就用上：一次 14 支链跑红 3 支，逐张定位后是**至少两类**（chrome 与 mac 都是
@@ -2791,7 +2792,9 @@ run `dwfrun-1ebf1186`（被用户停，批1+批2 施工完成门禁全绿，批3
   本轮没量到**：`GPUI_SHOT_PARK_ROUNDS=1 vs 20` 的 A/B 两侧 `hoverId` 恒 0（没人动鼠标）
   ⇒ 这个 A/B 什么也没判，只证明"无移动时两侧等价"。补臂方法写进 #106。
 - [x] 复跑：hello 全链重建 rc=0、`--selftest` rc=0、chrome `check` 三遍 OK、mac `check` OK。
-- [ ] #106 继续开着，按两类各自收：色态那一类要"归位之后还有真实 move 落地"的那一臂
+- [x] #106 继续开着〔批11 收口读数：动画类批6 已闭；色态类机器侧 `hoverId` 自证已建（实测 `hoverArm=0/1/hits=2`
+  与出图后 `hoverId===0`），"归位之后还有真实 move 落地"这一臂**合成缝喂不出**（批7 已证），
+  分开 hover 与 pressed 的非零侧转真人 H6〕，当时按两类各自收：色态那一类要"归位之后还有真实 move 落地"的那一臂
   （并分开 hover 与 pressed），动画那一类（overlay）要拍到静止态或按内容判据等它落定。
 
 ### Phase 34 批6（2026-11-02，#106 两类各自收：动画类结案 + 色态类可自证）
@@ -2814,7 +2817,9 @@ run `dwfrun-1ebf1186`（被用户停，批1+批2 施工完成门禁全绿，批3
 - [x] 复跑：`composer test:all` rc=0（pest 141/975，含新键表门）、`check-build-inputs` rc=0、
   `gpui doctor` rc=0、`check hello` SHOTDIFF OK、`check overlay` SHOTDIFF OK、
   `check-doc-anchors` OK（71/16）、`npm run docs:build` rc=0。
-- [ ] #106 剩下色态那一类的"分开 hover 与 pressed"：现在有 `hoverId` 可读，但要把
+- [x] #106 剩下色态那一类的"分开 hover 与 pressed"〔批11 结案：这一臂的"真实移动"由真人给出，
+  已立为真人 HID 清单 H6（`docs/guide/testing.md` / en 同页），门禁侧不再挂待办；
+  合成臂为什么造不出来见批7 记录与 findings「合成缝喂不出悬停」〕：现在有 `hoverId` 可读，但要把
   "光标在归位之后又被真实移动进可悬停元素"这一臂造出来（需要一次真实移动，或一个在
   归位之后才落地的注入臂）。动画那一类已闭。
 
@@ -2829,7 +2834,9 @@ run `dwfrun-1ebf1186`（被用户停，批1+批2 施工完成门禁全绿，批3
   新增的 **H6**，selftest 只把 armed 当读数不断。
 - [x] 复跑：`composer test:all` rc=0（pest 141/975）、hello selftest rc=0、`check hello` OK、
   build-inputs / doctor / 锚点 / `docs:build` 全 rc=0。
-- [ ] #106 剩余：色态那一类的"非零侧"证据只能由真人光标给出（H6）；动画那一类已闭。
+- [x] #106 剩余：色态那一类的"非零侧"证据只能由真人光标给出（H6，已立在真人清单里，
+  门禁侧不冒充已验、也不因做不到判红——前提式纪律）；动画那一类已闭。〔批11：这一条自此归真人清单，
+  不再是门禁待办〕
 
 ### Phase 34 批8（2026-11-02，17-H 落勾：审计在今天的产物上整套重跑）
 - [x] 逐项读数（不沿用 2026-10-15 那份）：`cmd/all-examples.sh both` = **ALL EXAMPLES: OK**
@@ -2864,3 +2871,46 @@ run `dwfrun-1ebf1186`（被用户停，批1+批2 施工完成门禁全绿，批3
   误判为写坏，数完才发现是对的——记下来免得下次再惊一次。
 - [x] 复跑：`composer test:all` rc=0（141/975）、`check-doc-anchors` OK、`docs:build` rc=0、
   `check-build-inputs` OK、`gpui doctor` rc=0。
+
+### Phase 34 批10（2026-11-02，check-doc-claims 补反方向：多报也要能判红）
+- [x] B 向落地：同一门现在扫**四张表**。A 少报 = 两份 coverage 的"概念对照"表说"没接"而代码里有；
+  B 多报 = 两份 `system-capabilities.md` 的「已接」/「Connected APIs」表**第一列**签名的方法代码里没有。
+  第一遍裸探（只读不改）读数：两表第一列共 116 个点名，**0 个不存在** ⇒ 文档此刻没有多报，B 是空手归来的
+  真门（不是"还没写就没人红过"）。
+- [x] B 的匹配规则：`Class::m()` / `$app->m()` 按那个类判（跨类误配判得出）；裸 `m()` 按三张表并集判
+  （en 页习惯省前缀）；`App::a/b/c` 斜杠清单逐成员；**只认调用形**（名字后紧跟 `(` 或 `/`），
+  所以第二列的 C++ 符号与 `move_to` 一类上游名不误红。A 侧顺手补了带前缀的点名（`App::toggleInspector()`
+  这种写法原先漏判，因为只比整串）。
+- [x] 盲区可见化：正向读数自带普查行 `DOC CLAIMS OK — 扫 4/4 张表（A:21 A:20 B:34 B:34 行），方法并集 587 名`；
+  某张表一行都没读到 ⇒ 打「…表里没读到任何行」并且 rc=2 未判定，不拿"没看"冒充"看过且干净"。
+- [x] 六条臂全在**真文档**上量过（插一行 ⇒ 判红 ⇒ 撤销 ⇒ 回绿，逐条打 rc）：
+  插 `El::notARealSurface()` ⇒ `FAIL (1 = 少报 0 / 多报 1)`；插 `El::clipboardText()` + `$app->notHere()`
+  ⇒ `多报 2`，分别打「El 类没有」「App 类没有」；A 侧插裸名与带前缀各 ⇒ `少报 1`；
+  负对照插 `shell::ZlibDeflate` / `move_to` ⇒ 仍 rc=0；前提臂把 zh 标题 `## 已接` 改成 `## 接通清单`
+  ⇒ rc=2 且打「扫 3/4 张表」。事后 `git status --short docs/` 空、`grep notARealSurface|ArmProbe|接通清单`
+  两文件 0 命中 ⇒ 没留残渣。
+- [x] 过程缺陷（自己抓自己）：第一版臂脚本的 `insert()` **只改内存没写回磁盘**，四条臂齐读 rc=0，
+  看着像"门不动"。手动插一行立刻 `FAIL (1 = 多报 1)` 才定位到调用方。 ⇒ 臂必须先证明它移动了被测量的量，
+  否则"全绿"是脚本坏了而不是门坏了。另：`show()` 里 `.strip()` 会把首条 ✗ 行的两格缩进吞掉（读数表象，非门的错）。
+- [x] 覆盖面声明：`phpstan.neon` 的 paths 只有 `src` ⇒ `composer analyse` rc=0 对本门**不构成证据**，
+  本门的证据是 `php -l` + 上面六条臂。B 的裸名并集规则判不出"裸名写错类"（那种写法本身没点类）。
+- [x] 文档同轮更新：门表 zh 行 21 / en 行改写为两向并把六条臂读数写进去；两份能力页开头各加一句
+  "第一列由 `cmd/check-doc-claims.php` 对着代码判"（不变式有自己的归属）；CI 步骤名与注释改成
+  under- and over-report。
+- [x] 复跑读数：`--self-check` rc=0（A 判出 transition/spring、B 判出 notARealMethod/clipboardText，合法样本不红）；
+  正向 rc=0；臂套件 rc=0；`docs:build` rc=0；`check-doc-anchors` OK（73 条链接、16 带锚）；
+  `composer test` rc=0（141/975）；`parity:upstream` OK；`check-build-inputs` OK。
+
+### Phase 34 批11（2026-11-02，计划里的待办扫面：#106 五条勾就地收口）
+- [x] `grep -c '\- \[ \]' task_plan.md` = 5，全部是 #106 的分批记录行。逐条就地标注结案口径并落勾
+  （原文照留，不删历史）：动画类批6 已闭（内容判据）；色态类机器侧 `hoverId` 自证已建（实测
+  `hoverArm=0/1/hits=2`，`cleared` 与「命中表找得到可悬停元素」两侧硬断 + 篡改臂量过）；
+  "归位后还有真实 move 落地"这一臂**合成缝喂不出**（批7 已证），非零侧归真人 HID 清单 **H6**。
+- [x] 落勾不等于做完：这五条的余下部分**明确归真人**，门禁不冒充已验、也不因做不到判红（前提式纪律）。
+  `task_plan.md` 的未勾选项计数归零（`grep -c` 那个复选框字面形现在 0 命中）；余下只有两类非门禁事项——
+  真人 HID（H1–H6）与 push 授权（本地提交待人放行）。
+  〔记一条工具坑：本条原先直接写那个字面形来描述"没有它"，结果自己被计数器抓成 1 —— 描述记号的句子
+  不能用记号本身。〕
+- [x] 顺手收真人清单的一处行序缺陷：zh `testing.md` 的 HID 表里 H6 排在 H5 之前（编号不连续），
+  交换两行后按 H1→H6 连续；正文"下面六项"已是六项、en 侧的编号说明也含 H6，无需改。
+  复跑：`check-doc-claims` rc=0、`docs:build` rc=0、`check-doc-anchors` OK（73/16 带锚）。

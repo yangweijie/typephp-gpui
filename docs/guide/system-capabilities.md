@@ -2,6 +2,9 @@
 
 这一页回答两个问题：**PHP 现在能调到哪些桌面能力**，以及**哪些是真的接不上**。
 每条都标了它的验收级别——"有 API"和"验过"不是一回事。
+下面「已接」表第一列签名的方法由 `cmd/check-doc-claims.php` 对着代码判：写了代码里不存在
+的方法 ⇒ 判红（方向 B）；反方向（说"没接"的面其实已接）由同一门判概念对照表（方向 A），
+见[测试与门禁](./testing)。
 
 - **wrap-green**：`tests/SystemTest.php`（Pest + FakeBridge）证明 PHP 层的包装、空值语义、枚举校验
 - **native-green**：`tests/cpp/shim_test.cpp` 直接量 gpui 的真实判据函数

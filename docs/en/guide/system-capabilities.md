@@ -1,6 +1,11 @@
 # System Capabilities
 
 This page separates available desktop APIs from the evidence that they work.
+The method names signed in the first column of the "Connected APIs" table below
+are checked against the code by `cmd/check-doc-claims.php`: a name that exists
+nowhere is a red gate (direction B), and the opposite drift - a surface still
+described as missing although the code has it - is the same gate reading the
+concept-mapping table (direction A); see [Testing](./testing).
 The current implementation target is macOS arm64; a C++ upstream symbol does not
 imply that the PHP binding has implementations on every upstream platform.
 

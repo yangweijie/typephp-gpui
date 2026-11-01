@@ -2834,3 +2834,24 @@ bin/gpui、GPUI.lock、tests/baseline/input/tree1.png（两度重录）、compos
   CI docs job 紧跟锚点门。
 - 门抓自己：新脚本没 add 时 `check-build-inputs` 立刻红（"CI 点名但不在版本控制里"）⇒ 按名字暂存后 OK。
 - 复跑：test:all rc=0（141/975）、锚点 OK、`docs:build` rc=0、build-inputs OK、doctor rc=0。
+
+## 2026-11-02 Phase 34 批10：check-doc-claims 补上反方向（多报）
+- 先裸探再动门：两份能力页「已接」表第一列 116 个点名、0 个不存在 ⇒ B 建出来时没有存货缺陷。
+- 门改判两面：A 少报（概念对照表说"没接"、代码里有）+ B 多报（「已接」表签名了代码里没有的方法）。
+  B 只扫第一列且只认调用形；带前缀按类判、裸名按三张表并集判、斜杠清单逐成员。A 顺手补了带前缀的点名。
+- 盲区可见化：正向读数自带 `扫 4/4 张表（A:21 A:20 B:34 B:34 行），方法并集 587 名`；某张表读到 0 行 ⇒ rc=2 未判定。
+- 六条真文档插行臂全量过：多报 1（`El::notARealSurface`）、多报 2 含跨类（`El::clipboardText` + `$app->notHere`）、
+  少报 1 裸名、少报 1 带前缀、负对照（`shell::ZlibDeflate`/`move_to`）仍 rc=0、前提臂（标题改名）⇒ rc=2；
+  每条撤销后回 rc=0，事后 docs/ 目录无残留。
+- 臂脚本自己的缺陷（`insert()` 没写回磁盘）让四条臂齐读 rc=0，看着像门不动；手动插一行才定位。教训记进 findings。
+- 文档同轮：门表 zh 行 21 / en 行改写为两向、两份能力页开头各加归属句、CI 步骤名改 under- and over-report。
+- 复跑：`--self-check` rc=0、正向 rc=0、臂套件 rc=0、`docs:build` rc=0、锚点 OK（73 条 / 16 带锚）、
+  pest rc=0（141/975）、parity OK、build-inputs OK、phpstan rc=0（但 paths 只有 src，对本门不算证据）。
+
+## 2026-11-02 Phase 34 批11：计划的未勾项扫面（#106 五条就地收口）+ 一处行序缺陷
+- `task_plan.md` 的 5 个未勾复选框全是 #106 的分批记录。逐条落勾并写清口径：动画类批6 已闭、
+  色态类机器侧 `hoverId` 自证已建（`hoverArm=0/1/hits=2`）、"归位后真实 move"合成缝喂不出 ⇒ 非零侧归真人 H6。
+  落勾不等于做完——余下归真人清单，门禁不冒充已验。计数器现在 0 命中。
+- 工具坑两条：①描述"没有那个记号"的句子不能直接写那个记号（我自己的句子被自己的计数器抓成 1）；
+  ②zh HID 表 H6 排在 H5 前 ⇒ 交换成 H1→H6 连续。
+- 复跑：doc-claims rc=0、`docs:build` rc=0、锚点 OK。

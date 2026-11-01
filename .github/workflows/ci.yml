@@ -129,10 +129,11 @@ jobs:
       - name: Doc anchors resolve against built ids
         run: php cmd/check-doc-anchors.php
 
-      # 能力对照页的"概念对照"表不许说某面没接而代码里已经有（2026-11-02 实测到
-      # animation 行与本页第 3 节自相矛盾）。先跑自检臂：内置矛盾样本必须被判红，
+      # 文档的"接了/没接"声明不许与代码打架，两个方向都判：A 少报（概念对照表说没接、
+      # 代码里已有——2026-11-02 实测到 animation 行与第 3 节自相矛盾）；B 多报（能力页
+      # 「已接」表第一列签名了一个代码里不存在的方法）。先跑自检臂：两向各内置一对样本，
       # 探测器坏了就不许把"没看"冒充成"看过且干净"。
-      - name: Capability table does not contradict the code
+      - name: Capability tables match the code (under- and over-report)
         run: |
           php cmd/check-doc-claims.php --self-check
           php cmd/check-doc-claims.php
