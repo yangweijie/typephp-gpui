@@ -273,7 +273,10 @@ void gpui_shim_param_style(void* win, uint32_t spec, const char* name,
     so.name = cppStr(name);
     so.args = tmp.data();
     so.argCount = argc;
-    box->arena().PushOp(spec, so);
+    if (!box->arena().PushOp(spec, so)) {
+        noteError(box, std::string("param_style `") + (name ? name : "") +
+                       "` not pushed (CheckLive failed)");
+    }
 }
 
 void gpui_shim_method(void* win, uint32_t spec, const char* name,
@@ -288,7 +291,10 @@ void gpui_shim_method(void* win, uint32_t spec, const char* name,
     so.name = cppStr(name);
     so.args = tmp.data();
     so.argCount = argc;
-    box->arena().PushOp(spec, so);
+    if (!box->arena().PushOp(spec, so)) {
+        noteError(box, std::string("method `") + (name ? name : "") +
+                       "` not pushed (CheckLive failed)");
+    }
 }
 
 int gpui_shim_window_state(void* win, double* out) {

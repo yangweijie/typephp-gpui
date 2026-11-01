@@ -119,6 +119,7 @@ function patchManifest(): array {
         ['patch-host-action-cb.sh', "$root/cpp-src/gpui_bridge.cc", 'typephp-gpui: host action callback'],
         ['patch-host-action-cb.sh', "$root/cpp-src/gpui_shim_services.inc", 'typephp-gpui: host action callback'],
         ['patch-host-action-cb.sh', "$root/cpp-src/gpui_shim.h", 'typephp-gpui: host action callback'],
+        ['patch-diag-zero-ops.sh', "$gpui/src/shell/materialize.cpp", 'typephp-gpui: zero-op diagnostic'],
     ];
 }
 

@@ -28,8 +28,9 @@ MARK="typephp-gpui: host element callback"
 
 if grep -qF "$MARK" "$SRC"; then
     [[ $(grep -cF 'gpuiBuildShimElement(cx->app, entry->view, entry->shimId,' "$SRC") -eq 1 &&
-       $(grep -cF '__attribute__((weak)) bool gpuiBuildShimElement(App*, EntityId, uint64_t,' "$SRC") -eq 1 ]] \
-        || { echo "ERROR: element-cb marker exists but its hook signature is incomplete" >&2; exit 1; }
+       $(grep -cF '__attribute__((weak)) bool gpuiBuildShimElement(App*, EntityId, uint64_t,' "$SRC") -eq 1 &&
+       $(grep -cF 'delete hostBatch' "$SRC") -ge 1 ]] \
+        || { echo "ERROR: element-cb marker exists but update incomplete (missing delete hostBatch)" >&2; exit 1; }
     echo "runtime.cpp: host element callback already patched, skip"
     exit 0
 fi
@@ -71,6 +72,10 @@ src = src.replace(body, body + """    // """ + mark + """ — a shim-registered 
         // 不需要 JS 路的 RenderSnapshot（那是给堆上 batch 跨帧续命用的；且 shim
         // 表项的 entry->view 是 PhpView 实体，frameSnapshots 的 ScriptView 路走
         // 不得——Get 无类型检查，Vec 会拿到垃圾分配器，实测 malloc abort）。
+        // delete hostBatch 消除泄漏（Phase 32 A2：与 gpuiBuildShimElement 的
+        // delete batch 同款——SpecArena 析构归还帧 arena 分配权）。
+        // 条件删除：强符号 gpuiBuildShimElement 返回 true 时已自删 batch；
+        // 弱桩返回 false 时未管理 batch，这里补删。
         shell::SpecArena* hostBatch = new shell::SpecArena(cx->a);
         El* hostEl = nullptr;
         uint32_t hostRoot = 0;
@@ -78,6 +83,7 @@ src = src.replace(body, body + """    // """ + mark + """ — a shim-registered 
         bool hostOk = gpuiBuildShimElement(cx->app, entry->view, entry->shimId,
                                            arguments, count, cx, hostBatch,
                                            &hostFailure, &hostEl, &hostRoot);
+        if (!hostOk) delete hostBatch;
         if (error) *error = hostOk ? hostFailure
                                    : StrDup(cx->a, StrL("host element callback failed"));
         return hostOk ? hostEl : nullptr;

@@ -115,8 +115,26 @@ ElementId 分叉**；批4 的 patch-host-element-cb.sh 在 BuildComponentElement
 shimId 分叉，宿主元素描述经 emitTree 进帧 arena 物化，绕开该分叉。批3 时代
 "SankeyChart 实测段错误"的崩点是快照记账误用 PhpView 实体（`Get()` 模板标签对
 ScriptView 无类型检查，Vec 拿到垃圾分配器），批4 改走帧 arena 后消除）。MessageScroller 的 render_item 真渲染证据 =
-kit selftest 的 messageRowRender 门（renderCalls>0、账本清零；行像素 advisory）。
+kit selftest 的 messageRowRender 门（renderCalls>0、账本清零；行像素硬门——扫描定位行底色落位，见下 Phase 32）。
 render_cell 的机制同缝已通，示例未单独接（cellText 默认渲染仍是缺省）。
+
+**Phase 32 A2 泄漏修复 + 物化根因修复（2026-10-31，已闭环）**：两处修复——
+①批1 泄漏修复：patch-host-element-cb.sh 的 shim 分叉在 BuildComponentElement 里创建
+`hostBatch = new SpecArena(cx->a)` 后原代码不 delete 也不注册 RenderSnapshot——与同文件
+gpuiRenderShimItems:265 / gpuiRenderShimToken:403 的 `delete batch` 对照坐实泄漏；
+`gpuiBuildShimElement` 末尾补 `delete batch;`（gpui_shim_events.inc:459），runtime.cpp
+shim 分叉补条件 `delete hostBatch`（强符号返回 true 时已自删，弱桩返回 false 时补删，
+避免 double free）；诊断补丁 `cmd/patch-diag-zero-ops.sh` 使宿主 batch 的 op 落空可观测。
+②批2 真根因修复：`gpuiRenderShimToken` 的 `if(root)` 把合法的 spec 0（SpecArena 首个
+spec）判为"无元素"跳过 ShellMaterializeSpec——徽章从未被物化（消息行同款机制经
+gpuiBuildShimElement 的 if(root) 同样跳过）；改 `if(root!=0 || batch->Structure().value!=0)`。
+判别臂 `cmd/check-token-paint-png.sh` 翻转实证：PNG通道=有红@(42,44) rgb(255,0,0)
+（门内徽章特意做红 bg('#ff0000')）。kit selftest 两像素硬门过：tokenDeliveryRender
+（徽章@=[42,44]，ON 帧网格扫描定位、OFF 帧同点回落 label chip 非红——正负对拍）、
+messageRowRender（行@=[60,50] 扫描定位，行底色 #eef4ff 签名 b>245；负向滚动器无处理器
+同扫无行底色）。注：判别臂脚本的 regionRgb 臂读时点早于徽章物化（selftest 扫描在
+inputReplaceToken+loop(4) 之后读得到），其"通道分歧"判据是探针时点伪分歧，非读数通道
+问题——regionRgb 通道经扫描实证可用。
 
 **看起来缺、其实走了别的路**：Dialog / AlertDialog / Sheet —— 2026-10-28 起**两条路都在**：
 `App::openDialog()`/`openSheet()` 的保留态弹窗，与真按钮触发的 catalog 工厂

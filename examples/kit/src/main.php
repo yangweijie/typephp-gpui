@@ -1956,23 +1956,19 @@ function runKitSelfTest(): void
     if (!empty($ev)) { $tkApp->dispatch($ev); }
     $tokValue = $tkApp->text('kit-gate-tok');
     $tokRendered = (int) (ExampleState::$v['gateTokRendered'] ?? 0);
-    // 硬门=造粒 + 事件送达 + 渲染回调链路（handler 被调>0）；徽章像素落位降为
-    // advisory。归因订正（2026-10-31）：旧注"chip BoundsOut 的多帧沉降在无头+
-    // 当前机器态下不稳"不成立——同读数连跑 3 遍逐字相同（徽章@=null、
-    // chip帧=rgb(224,221,217)、renderCalls 恒定），是**确定性缺席**而非多帧
-    // 抖动/机器态漂移。嫌疑修正为宿主回调 subtree 的像素面缺席（渲染回调链路
-    // 硬门全绿但像素两通道都读不到，与 messageRowRender 同款）。
-    // 判别臂（本轮落，不动硬门）：
-    //  a) 通道活性对照（同帧）：读 input 框框缘/内里两已知区域——非根底
-    //     rgb(246,243,238) ⇒ 这扇窗 regionRgb 通道活，徽章缺席不是"通道死"；
-    //  b) PNG 通道：趁 ON 帧在屏 App::snapshot() 离屏出图（与 regionRgb 两条
-    //     色通道，tree30 案实证可分歧），GD 判读在 cmd/check-token-paint-png.sh
-    //     （GD 函数不进 AOT 编译域）——PNG 有红而 regionRgb 无 ⇒ 通道分歧；
-    //     两通道都无红 ⇒ 宿主回调 subtree 确实没进 paint/合成帧（缺口实证，
-    //     修复另立轮，findings.md 有记）。
+    // 硬门=造粒 + 事件送达 + 渲染回调链路 + 徽章像素落位（Phase 32 A2 批2
+    // 升硬门：root=0 物化修复后徽章@必有值，不再是 advisory）。
+    // 归因（2026-10-31）：旧注"宿主回调 subtree 像素面缺席"的根因是
+    // gpuiRenderShimToken 的 if(root) 把合法的 spec 0（SpecArena 首个
+    // spec）判为"无元素"跳过 ShellMaterializeSpec——badge 从未被物化。
+    // 修复：if(root) → if(root!=0 || batch->Structure().value!=0)。
+    // Phase 32 A2 批2：徽章像素从 advisory 升硬门。根因修复（root=0 被
+    // if(root) 跳过物化——SpecArena 首个 spec 是 0，if(0) 为 false）后，
+    // 徽章@ 必有值。硬门=造粒 + 事件送达 + 渲染回调链路 + 徽章像素落位。
     $tokOk = $made && $fClick === true && ExampleState::$v['gateTokClick'] === 'delivered'
         && $fHover === true && ExampleState::$v['gateTokHover'] === 'delivered'
-        && $tokRendered > 0 && $tkApp->registeredError() === '';
+        && $tokRendered > 0 && $tkApp->registeredError() === ''
+        && $badgeAt !== null;
     step('tokenDeliveryRender', $tokOk,
         '造粒=' . var_export($made, true) . ' value=' . json_encode($tokValue)
         . ' renderCalls=' . (string) $tokRendered
@@ -2006,24 +2002,40 @@ function runKitSelfTest(): void
         El::messageScroller('kit-gate-msgs-neg', 3)->w(160.0)->h(200.0),
     ])->sizeFull()->p(40.0)->bg('#f6f3ee')->gap(40.0)->itemsStart());
     $msApp->loop(6);
-    $rowPos = $msApp->regionRgb(60, 90, 16, 16);
+    // 行像素探测（Phase 32 A2 批2 升硬门）：行底色 #eef4ff 签名 = b>245
+    // （根底 #f6f3ee b=238、错误行文本暗色 b<200 都不误伤）。左滚动器逐 y
+    // 扫描定位行落位（行高≈29px+PadB 32px，固定坐标会打进行间间隙——
+    // 2026-10-31 实测：行在 y≈48..78/105..145/175..205，间隙在 y≈80..105）；
+    // 右滚动器（无处理器 → 上游错误行）同扫应无行底色。
+    $rowAt = null;
+    for ($sy = 40; $sy <= 240; $sy += 10) {
+        $c = $msApp->regionRgb(60, $sy, 6, 6);
+        if (isset($c['b']) && $c['b'] > 245) { $rowAt = [60, $sy]; break; }
+    }
+    $negRowBlue = false;
+    for ($sy = 40; $sy <= 240; $sy += 10) {
+        $c = $msApp->regionRgb(260, $sy, 6, 6);
+        if (isset($c['b']) && $c['b'] > 245) { $negRowBlue = true; break; }
+    }
+    $rowPos = $rowAt !== null ? $msApp->regionRgb($rowAt[0], $rowAt[1], 16, 16) : [];
     $rowNeg = $msApp->regionRgb(260, 90, 16, 16);
-    // 行底 #eef4ff = rgb(238,244,255)：蓝分量盖过红、且明显高于根底色的 b(238)。
-    $isRowBlue = static fn (array $c): bool => isset($c['b']) && $c['b'] > 240
-        && isset($c['r']) && isset($c['g']) && $c['b'] > $c['r'] + 5;
     $msgCalls = (int) (ExampleState::$v['gateMsgRendered'] ?? 0);
-    // 硬门=回调链路（fork 为行调处理器>0、账本清零）；行像素落位降为 advisory。
-    // 归因订正（2026-10-31）：旧注"虚拟行 PrePaint 与探针时序不稳"是猜测——
-    // 同读数连跑 3 遍逐字相同，是确定性缺席；与 tokenDeliveryRender 同款
-    // （宿主回调 subtree 像素面缺席，判别臂见该门注释与 cmd/check-token-paint-png.sh）。
+    // 硬门=回调链路（fork 为行调处理器>0、账本清零）+ 行像素落位（左滚动器
+    // 扫描到行底色 #eef4ff、右滚动器无处理器同扫无行底色——负向对照）。
+    // 归因（2026-10-31 Phase 32 A2 批2）：旧"行像素缺席"根因是 gpuiRenderShimToken
+    // 的 if(root) 把合法 spec 0 判为无元素跳过物化（token 徽章同款）；修复后
+    // 消息行与徽章都进 paint。原固定坐标 (60,90) 打进行间间隙（行在
+    // y≈48..78/105..145/175..205），改扫描定位。
     $msOk = $msgCalls > 0 && $msApp->registeredError() === ''
-        && (int) (App::componentFailure()['count'] ?? 1) === 0;
+        && (int) (App::componentFailure()['count'] ?? 1) === 0
+        && $rowAt !== null && !$negRowBlue;
     step('messageRowRender', $msOk,
         'renderCalls=' . (string) $msgCalls
         . ' 正盒=' . json_encode($rowPos) . ' 负盒=' . json_encode($rowNeg)
         . ' registeredError=' . ($msApp->registeredError() === '' ? '空' : $msApp->registeredError())
-        . ' 行像素(advisory)=' . var_export($isRowBlue($rowPos), true)
-        . ($msOk ? '' : '（renderCalls=0：fork 没有为行调处理器，真卡点）'));
+        . ' 行@=' . json_encode($rowAt) . ' 行像素=' . json_encode($rowPos)
+        . ' 负扫行底色=' . var_export($negRowBlue, true)
+        . ($msOk ? '' : '（行像素缺席或负向对照有行底色：扫描坐标/签名核对）'));
     $ok = $ok && $msOk;
     $msApp->close();
     // ── 批5：路径绘制 / keymap / TitleBar B 期三门（主窗已关，独立窗口各自唯一可见）──

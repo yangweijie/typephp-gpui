@@ -388,13 +388,18 @@ bool gpuiRenderShimToken(App* app, EntityId view, uint64_t shimId, Ctx* cx,
     uint32_t root = g_tokenRender(box, it->second.first.c_str(),
                                   it->second.second.c_str());
     box->building = nullptr;
-    if (root) {
+    // root=0 是宿主 batch 的第一个 spec（SpecArena::Push 返回 nodes.len-1，
+    // 首个返回 0）。if(root) 会把合法的 spec 0 判为"无元素"跳过物化——
+    // 这是 token badge 像素缺席的根因（Phase 32 A2 批2 修复）。
+    // 改用 Structure() 判 batch 是否有内容：Push 会更新 structure，
+    // 有节点则非零。
+    if (root != 0 || batch->Structure().value != 0) {
         ShellError err = {};
         *out = ShellMaterializeSpec(cx, g_runtime, batch, root, &err);
         if (err.IsSet()) {
             noteError(box, std::string("token render: ") +
-                               std::string(err.message.s ? err.message.s : "",
-                                           (size_t)(err.message.len > 0 ? err.message.len : 0)));
+                           std::string(err.message.s ? err.message.s : "",
+                                       (size_t)(err.message.len > 0 ? err.message.len : 0)));
             ShellErrorClear(&err);
             *out = nullptr;
         }
@@ -443,19 +448,21 @@ bool gpuiBuildShimElement(App* app, EntityId view, uint64_t shimId,
     uint32_t root = g_elementCb(box, it->second.first.c_str(),
                                 it->second.second.c_str());
     box->building = nullptr;
-    if (root) {
+    // 同 gpuiRenderShimToken：root=0 是合法的首个 spec，if(root) 会跳过物化。
+    if (root != 0 || batch->Structure().value != 0) {
         Ctx rowCx = *cx;
         ShellError err = {};
         *out = ShellMaterializeSpec(&rowCx, g_runtime, batch, root, &err);
         if (err.IsSet()) {
             noteError(box, std::string("host element callback: ") +
-                               std::string(err.message.s ? err.message.s : "",
-                                           (size_t)(err.message.len > 0 ? err.message.len : 0)));
+                           std::string(err.message.s ? err.message.s : "",
+                                       (size_t)(err.message.len > 0 ? err.message.len : 0)));
             ShellErrorClear(&err);
             *out = nullptr;
         }
         *outRoot = root;
     }
+    delete batch;
     return true;
 }
 

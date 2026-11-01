@@ -199,8 +199,36 @@ snapshot bookkeeping misusing a PhpView entity — the `Get()` template tag has 
 type check for ScriptView — and is gone now that the fork uses the frame arena).
 MessageScroller's
 render_item has real-render evidence = the kit selftest's messageRowRender gate
-(renderCalls>0, ledgers clean; row pixels advisory). render_cell's mechanism is
+(renderCalls>0, ledgers clean; row-pixel hard gate — scan-located row background,
+see Phase 32 below). render_cell's mechanism is
 the same seam and works; the examples keep the cellText default rendering.
+
+**Phase 32 A2 leak fix + materialization root-cause fix (2026-10-31, closed)**:
+two fixes — ①the leak fix: the shim fork inserted by patch-host-element-cb.sh in
+BuildComponentElement creates `hostBatch = new SpecArena(cx->a)` but the original
+code neither deleted it nor registered a RenderSnapshot — a leak confirmed by
+comparison with `delete batch;` in gpuiRenderShimItems:265 / gpuiRenderShimToken:403
+in the same file. Fix: `gpuiBuildShimElement` now ends with `delete batch;`
+(gpui_shim_events.inc:459), and the runtime.cpp shim fork adds a conditional
+`delete hostBatch` (strong symbol returns true and self-deletes; weak stub
+returns false and the caller cleans up, avoiding double free). The diagnostic
+patch `cmd/patch-diag-zero-ops.sh` makes host-batch op drops observable.
+②the root-cause fix: `gpuiRenderShimToken`'s `if(root)` treated the legitimate
+spec 0 (the SpecArena's first spec) as "no element" and skipped
+ShellMaterializeSpec — the badge was never materialized (the message-row path
+skipped the same way through gpuiBuildShimElement's `if(root)`); changed to
+`if(root!=0 || batch->Structure().value!=0)`. The discriminating arm
+`cmd/check-token-paint-png.sh` flipped: PNG channel = red@(42,44) rgb(255,0,0)
+(the gate's badge is deliberately red, bg('#ff0000')). Both kit selftest pixel
+hard gates pass: tokenDeliveryRender (badge@=[42,44] located by the ON-frame
+grid scan; the same point reads the label-chip fallback, not red, on the OFF
+frame — positive/negative pair) and messageRowRender (row@=[60,50] scan-located
+by the row background #eef4ff signature b>245; the negative scroller without a
+handler shows no row background under the same scan). Note: the probe script's
+own regionRgb arm reads before the badge materializes (the selftest scan reads
+after inputReplaceToken+loop(4)), so its "channel divergence" verdict is a probe
+timing artifact, not a reading-channel problem — regionRgb is proven usable by
+the scan.
 
 ### Alternate host APIs
 
