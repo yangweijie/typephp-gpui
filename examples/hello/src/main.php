@@ -612,6 +612,19 @@ function runSelfTest(bool $expectBundle = false): void
     $armBound = $armShotA && $armShotB && $armWA > 0 && $armWB > 0 && $armWA !== $armWB;
     $ok = $ok && $armBound;
 
+    // 26) inspector 状态读回：toggle 开 → on 真；关拾取 → on 仍真（面板只看 on，
+    //     拾取只决定 hover 高亮画不画）；再 toggle 关 → on 假。
+    //     这条替代了"用像素断 inspector 开合"：拾取开着时高亮画在真实指针命中的
+    //     那个框上（window_common.cpp:626），像素里混得进外部态，开关本身读不出来。
+    $app->toggleInspector();
+    $inspOn = $app->inspectorEnabled();
+    $app->setInspectorPicking(false);
+    $inspAfterPickOff = $app->inspectorEnabled();
+    $app->toggleInspector();
+    $inspOff = $app->inspectorEnabled();
+    $inspOk = $inspOn && $inspAfterPickOff && !$inspOff;
+    $ok = $ok && $inspOk;
+
     echo 'EXTRA'
         . " snaparm=" . var_export($armBound, true)
         . "/A{$armWA}px/B{$armWB}px shot=" . var_export((bool) $armShotA, true)
@@ -626,14 +639,16 @@ function runSelfTest(bool $expectBundle = false): void
         . " win bundled=" . var_export($bundled, true) . "/frontmost=" . var_export($frontmost, true)
             . "/nsapp={$nsappDeliveries}/fgTries={$fgTries}"
             . "/bundleGreen=" . var_export($bundleGreen, true)
-            . "/routeGreen=" . var_export($routeGreen, true) . "\n";
+            . "/routeGreen=" . var_export($routeGreen, true)
+            . " insp=" . ($inspOn ? '1' : '0') . '/' . ($inspAfterPickOff ? '1' : '0')
+            . '/' . ($inspOff ? '1' : '0') . "\n";
 
     echo $ok
         ? sprintf("SELFTEST OK (input + click + timer hits=%d + dialog + registered-cb + err-channel"
             . " + appmenu + clipboard + urlgate + fps + sheet + webview %.0fx%.0f"
             . " + inflate + dirChange x%d + http拒连回环 ok=%s/status=%d + clipboard-item"
             . " + sys cpu=%.1f%% mem=%.0f%% procs=%d"
-            . " + notify x%d→%d %s + mac=%d fs=%d svc=%d)\n",
+            . " + notify x%d→%d %s + mac=%d fs=%d svc=%d + inspector读回)\n",
             $timerHits,
             $probe['w'],
             $probe['h'],
@@ -983,21 +998,31 @@ function runShot(string $path, int $tree = 0): void
         $app->loop(3);
     }
     if ($tree === 29) {
-        // inspector 没有可读的状态查询，所以它的验收只能是像素：开→出图。
-        // 2026-11-01 量过的两条（别再重走）：泵 3→80 帧**没修好**间歇红（3 次里 1 次
-        // tree29 gdfrac=1.00000），单跑 6/6 又全等于基线 ⇒ 不是帧数问题。
-        // 基线本身是"面板没进这次合成"的那一态（整张近白），所以偶发的"红"其实是
-        // 面板真画出来了——这张图该断什么状态要先定夺（task #105）。
+        // inspector 现在能读状态了（App::inspectorEnabled），所以"开关有没有生效"
+        // 由这条硬断，不再靠像素。像素这边只断这棵树画得出来。
+        // 2026-11-01 把三条猜测量完了（别再重走）：
+        //  - 泵 3→80 帧**没修好**间歇红（3 次里 1 次 gdfrac=1.00000），单跑 40/40 逐字
+        //    相同 ⇒ 不是帧数问题；
+        //  - 这棵树里没有 El::inspector()，而面板只由那颗元素画（Inspector::IntoEl），
+        //    所以"红＝面板真画出来了"不成立；
+        //  - 真原因是拾取高亮：window_common.cpp:626 用 win->mouseX/mouseY（真实指针的
+        //    最后位置）命中元素、把 20% 强调色铺满那个框 ⇒ 整张近白只在指针不在窗口内
+        //    时成立。所以拍之前关掉拾取，让这张图与鼠标在哪儿无关。
         $app->toggleInspector();
-        echo "inspector_toggled=1\n";
+        $on = $app->inspectorEnabled();
+        $app->setInspectorPicking(false);
+        echo 'inspector_toggled=1 enabled=' . ($on ? '1' : '0') . "\n";
         $app->loop(80);
     }
     if ($tree === 31) {
         // 面板只在 inspector 开着的时候画：component::Inspector::IntoEl() 关着返回
         // null（inspector.h:63 的契约），所以这张图得先开拾取模式。
-        // 同 tree29：泵到 80 帧不解决间歇性，见上。
+        // 关拾取不关面板（IntoEl 只看 on），但能关掉那颗跟着真实指针走的高亮 ——
+        // 同 tree29，见那里的三条测量。
         $app->toggleInspector();
-        echo "inspector_panel_toggled=1\n";
+        $app->setInspectorPicking(false);
+        echo 'inspector_panel_toggled=1 enabled='
+            . ($app->inspectorEnabled() ? '1' : '0') . "\n";
         $app->loop(80);
     }
     if ($tree === 32) {
