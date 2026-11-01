@@ -2801,3 +2801,15 @@ bin/gpui、GPUI.lock、tests/baseline/input/tree1.png（两度重录）、compos
   （`PARK_ROUNDS=1 vs 20` 两侧 hoverId 恒 0，那段时间没人动鼠标）⇒ 这条 A/B 什么也没判。
   临时插桩与开关都已撤，留判据 + 注释里的补臂方法。
 - 复跑：hello 全链重建 rc=0、selftest rc=0、chrome check 三遍 OK、mac check OK。
+
+## 2026-11-02 Phase 34 批6：#106 两类各自收——动画类结案、色态类可自证
+- 动画类：overlay 出图前泵到「右上卡图标读回成功绿」（`regionRgb(526,68,4,4)`，`g > r + 60`；
+  静止 (145,226,175) / 入场 (200,240,214) / 卡没在位 (247,162,162)）。headroom 量到了：
+  判据前 `loop(80)`→`loop(2)` 后连 6 次 `tries=4`，产物仍逐字节等基线 ⇒ 不重录；还原后 3/3 `tries=0`。
+- 色态类：`windowState()` 加 `hoverId`（shim 从 `Window::hoverId` 读，out[13] 契约进头文件），
+  hello selftest 出图后硬断它为 0 并逐列点名键表（`shotHover=0/missKeys=0`）；键表单一来源
+  `App::WINDOW_STATE_KEYS`，Pest 与 selftest 各比一遍。三条篡改臂全红过、还原后复绿。
+- 两次"门抓自己"：新公开常量被覆盖门要求举证（改成逐列遍历，顺手把读数改成点名缺哪列）；
+  篡改臂重建共享产物后 staleness 门拒绝比对旧 overlay 二进制（重建后才量）。
+- 复跑全绿：`composer test:all` rc=0（141/975）、build-inputs、doctor、`check hello`、
+  `check overlay`、锚点 71/16、`docs:build`。

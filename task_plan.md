@@ -2791,3 +2791,27 @@ run `dwfrun-1ebf1186`（被用户停，批1+批2 施工完成门禁全绿，批3
 - [x] 复跑：hello 全链重建 rc=0、`--selftest` rc=0、chrome `check` 三遍 OK、mac `check` OK。
 - [ ] #106 继续开着，按两类各自收：色态那一类要"归位之后还有真实 move 落地"的那一臂
   （并分开 hover 与 pressed），动画那一类（overlay）要拍到静止态或按内容判据等它落定。
+
+### Phase 34 批6（2026-11-02，#106 两类各自收：动画类结案 + 色态类可自证）
+- [x] **动画那一类结案**：`examples/overlay --shot` 出图前泵到「右上卡的图标读回成功绿」
+  （`regionRgb(526,68,4,4)`，判据 `g > r + 60`）。三态实测均值：静止 (145,226,175)、
+  入场半透明 (200,240,214)、卡没在位 (247,162,162) ⇒ 阈值 60 把两条没落定的都挡在外面。
+  判别臂有 headroom：判据前 `loop(80)`→`loop(2)` 后连 6 次 `tries=4`（拒收未落定帧），
+  产物仍逐字节等基线（`8cdc13c910a3a8df7e38aa27719ce475`）⇒ **不重录**。还原后 3/3 `tries=0`。
+- [x] **色态那一类改为可自证**：`windowState()` 新增 `hoverId`（`gpui_shim_services.inc` 从
+  `Window::hoverId` 读，`gpui_shim.h` 补 out[13] 契约，bridge/FakeBridge/App 三层同步），
+  hello `--selftest` 出图后硬断 `hoverId===0` 并逐列点名键表（读数 `shotHover=0/missKeys=0`）。
+  键表单一来源 `App::WINDOW_STATE_KEYS`，无头侧 Pest + 原生侧 selftest 各比一遍。
+  三条篡改臂实测：无头少一列 ⇒ Pest 红（owned_fail=1）；原生少一列 ⇒ `missKeys=hoverId` rc=1；
+  `hoverId` 报非零 ⇒ 同一条 selftest 红。跑完全部还原并复绿。
+- [x] 自己的门抓了自己一次：新增公开常量后 `ExampleCoverageTest「示例集用过每个枚举常量的每个取值」`
+  红（它要求公开常量的取值被示例用到或整体遍历）。把 hello 里的"整表等值比较"改成
+  `foreach (App::WINDOW_STATE_KEYS as $k)` 逐列点名——既满足门，读数也更可用（少哪列直接打出来）。
+- [x] staleness 门也按设计拦了一次：三条臂重建了共享产物后，`check overlay` 拒绝比对
+  （"先 build overlay --no-native 再比对，否则量的是上一次构建的产物"）⇒ 重建后再量，没拿到旧帧。
+- [x] 复跑：`composer test:all` rc=0（pest 141/975，含新键表门）、`check-build-inputs` rc=0、
+  `gpui doctor` rc=0、`check hello` SHOTDIFF OK、`check overlay` SHOTDIFF OK、
+  `check-doc-anchors` OK（71/16）、`npm run docs:build` rc=0。
+- [ ] #106 剩下色态那一类的"分开 hover 与 pressed"：现在有 `hoverId` 可读，但要把
+  "光标在归位之后又被真实移动进可悬停元素"这一臂造出来（需要一次真实移动，或一个在
+  归位之后才落地的注入臂）。动画那一类已闭。

@@ -462,9 +462,22 @@ as the identical frame twice is that `hoverId` is sticky (only move events rewri
 resting in the same place re-creates the same frame; hover vs pressed is not yet separated);
 overlay tree1 produced two frames differing from each other by 4.905% with pale green/red toast
 tints, i.e. an animation caught mid-flight. So there are at least two classes (colour state vs
-animation in flight), each needing its own fix. Also measured: `ignoresMouseEvents` inside the snapshot does **not**
-keep the coordinate parked (`win->mouseX` still read a point inside the window while the flag
-was 1), because gpui pulls events off the application queue.
+animation in flight), each needing its own fix. Also measured: `ignoresMouseEvents` inside the
+snapshot does **not** keep the coordinate parked (`win->mouseX` still read a point inside the
+window while the flag was 1), because gpui pulls events off the application queue.
+
+The animation class is now closed: `examples/overlay`'s `--shot` pumps until the top-right card's
+icon reads success-green (`App::regionRgb(526,68,4,4)`, predicate `g > r + 60`; resting mean
+measured (145,226,175), mid-entry (200,240,214), card-absent (247,162,162)) and otherwise captures
+anyway, printing `note_ready=0`. The arm has headroom: dropping the pre-predicate `loop(80)` to
+`loop(2)` made six consecutive runs report `tries=4` — the predicate rejected the unsettled frames —
+while the produced PNG stayed byte-identical to the baseline (`8cdc13c9…`), so no re-record was
+needed. The colour-state class is now self-provable: `windowState()` carries `hoverId`, and hello's
+`--selftest` hard-asserts it is 0 after a capture and names any missing column (reading
+`shotHover=0/missKeys=0`). All three tamper arms were measured: dropping the column on the headless
+side reddens the Pest key-set test; dropping it in the bridge yields `missKeys=hoverId` with rc=1;
+reporting a non-zero `hoverId` reddens the same selftest. The key list has one owner,
+`App::WINDOW_STATE_KEYS`.
 
 For any unexpected difference:
 

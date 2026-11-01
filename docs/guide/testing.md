@@ -403,8 +403,17 @@ Inspector 拾取高亮读的是窗口记下的指针坐标——窗口常常就�
   ⇒ **同一类的按钮色态**（hoverId 是粘的：只由移动事件改写，光标停在同一处就次次重现同一帧，
   所以"两次同帧"不是另一种成因；hover 还是 pressed 未分开）；
   overlay tree1 两次红互差 4.905% 且带浅绿/浅红底（`#d5f4e1`/`#fcdcdc`）⇒ 动画在飞。
-  ⇒ 至少两类（色态 / 动画在飞），各自要各自的修法，别当成一条。快照里的 `ignoresMouseEvents` **挡不住**坐标被改回去
+  ⇒ 至少两类（色态 / 动画在飞），各自要各自的修法。快照里的 `ignoresMouseEvents` **挡不住**坐标被改回去
   （实测 ignores=1 时 `win->mouseX` 仍是窗口内真实坐标）——gpui 从 app 队列取事件。
+  **动画那一类已收**：`examples/overlay` 的 `--shot` 出图前泵到「右上那张卡的图标读回成功绿」
+  （`App::regionRgb(526,68,4,4)`，判据 `g > r + 60`；静止态实测均值 (145,226,175)、入场半透明
+  (200,240,214)、卡没在位的另一态 (247,162,162)），泵不出来照拍并打印 `note_ready=0`。
+  判别臂有 headroom：把判据前的 `loop(80)` 临时降到 `loop(2)`，连 6 次都报 `tries=4`
+  （判据把没落定的帧拒了），而产物仍与基线逐字节相同（`8cdc13c9…`）⇒ 不用重录。
+  **色态那一类现在可自证**：`windowState()` 多了 `hoverId`（gpui 记的悬停元素 id），hello
+  `--selftest` 出图后硬断它为 0，并逐列点名键表（读数 `shotHover=0/missKeys=0`）。三条篡改臂
+  都量过：无头侧少一列 ⇒ Pest 键表门红；原生侧少一列 ⇒ `missKeys=hoverId` 且 rc=1；把 `hoverId`
+  报成非零 ⇒ 同一条 selftest 红。键表的单一来源是 `App::WINDOW_STATE_KEYS`。
 tree 32（通知层）**必须跑够墙钟才拍得到**：通知入场是动画，`Starting` 段的不透明度
 = `elapsedMs / 400`（`ui/notification.cpp:948`），而推它的是 50ms 的墙钟计时器——只泵
 3 帧等于拍在 0 上，图上只有宿主标题、两张卡一片透明，`SHOT OK` 却照样成立。现在跑
