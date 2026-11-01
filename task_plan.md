@@ -2730,7 +2730,7 @@ run `dwfrun-1ebf1186`（被用户停，批1+批2 施工完成门禁全绿，批3
   `npm run docs:build` rc=0。showcase 复扫：目录不存在、`docs/**` 正文 0 处引用、
   `tests/baseline/*` 与 `examples/*` 一一对应（无孤儿、无缺基线）。
   ⇒ **17-H 保持未勾选**：它要求"所有实际待办有证据"，而 #106/#107 两条今天新量出来的还开着。
-- [ ] **新立 #107（未决）**：hello 的 `routeGreen` 在 **bundle 路径**确定性红——
+- [x] **新立 #107（未决）**〔2026-11-02 同轮结案，见下面 Phase 34 批3：投递早于生效，前置条件轮询后 bundle 3/3 绿〕：hello 的 `routeGreen` 在 **bundle 路径**确定性红——
   `.app/Contents/MacOS/hello --selftest` 连两次都是 `bundled=true/frontmost=true/nsapp=0`
   ⇒ `routeGreen=false`；而**裸二进制** `examples/hello/build/hello --selftest` 同一天两次
   `nsapp=3`、`SELFTEST OK`。这条与本轮改动无关（step 25 在 step 26 之前算完，事件缝没被我碰）。
@@ -2757,7 +2757,7 @@ run `dwfrun-1ebf1186`（被用户停，批1+批2 施工完成门禁全绿，批3
   `UPSTREAM PARITY OK`、`SHIM CPP TESTS OK`）；`shotdiff check hello` rc=0；
   `check-exit-clean` rc=0（2 支）；`check-hotkey-pump --arm=both` rc=0；
   `check-kit-gates` rc=0（2 道）；`check-build-inputs` rc=0；`gpui doctor` rc=0（✗0）。
-- [ ] **17-H 仍不勾**：复审本身已按今天的产物重跑（像素 13 支全绿、selftest 14/14 绿），
+- [x] **17-H 仍不勾**〔2026-11-02 批8 改判并已落勾：#107 结案 + 全套重跑 28 行 rc=0，机器侧无剩余待办；余下只有真人 HID 与 push 授权，均非门禁能判〕：复审本身已按今天的产物重跑（像素 13 支全绿、selftest 14/14 绿），
   但它同时要求"所有实际待办有证据"——**#106（hello tree22 连跑间歇红）还开着**：
   今天累计 20 遍链跑只红过 1 次（`gdfrac=0.01555 / worst=0.082`），单跑 24/24 逐字节等基线，
   红帧没抓到（后 12 遍全绿）。真人 HID 清单（testing.md 清单 v2）也仍待人来跑。
