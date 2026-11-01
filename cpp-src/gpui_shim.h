@@ -277,6 +277,16 @@ int gpui_shim_open_url(const char* url);
 /* DevTools：⌘I 那个 inspector 的程序化入口（KeymapDefaults 已自动绑按键）。 */
 void gpui_shim_toggle_inspector(void* win);
 
+/* inspector 的可读状态。enabled 读 WindowInspector 的 on（没有状态查询时，
+ * 开合只能靠像素断言，而像素里混得进外部态，见下）。 */
+int gpui_shim_inspector_enabled(void* win);
+
+/* 拾取（hover 高亮）开关，对应 WindowInspectorPick。inspector 开着时，paint
+ * 把高亮画在 win->mouseX/mouseY（真实指针最后位置）命中那个元素的框上
+ * （window_common.cpp:626 + gpui.cpp:7600），所以出图会吃"鼠标当下在哪儿"
+ * 这个外部态；拍像素前关掉它就与指针无关。 */
+void gpui_shim_set_inspector_picking(void* win, int picking);
+
 /* 帧率 HUD。anchor 是 FpsAnchorNames() 里的名字（top_left / top_right /
  * bottom_left / bottom_right / top_center / bottom_center / left_center /
  * right_center）；名字非法返回 0 且不弹。HUD 由窗口根持有：重复调用只是移动或

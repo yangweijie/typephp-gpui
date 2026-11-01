@@ -2094,6 +2094,18 @@ void gpui_shim_toggle_inspector(void* win) {
     gpui::WindowToggleInspector(box->window);
 }
 
+int gpui_shim_inspector_enabled(void* win) {
+    auto* box = static_cast<Box2*>(win);
+    if (!box || !box->window) return 0;
+    return box->window->inspector.on ? 1 : 0;
+}
+
+void gpui_shim_set_inspector_picking(void* win, int picking) {
+    auto* box = static_cast<Box2*>(win);
+    if (!box || !box->window) return;
+    gpui::WindowInspectorPick(box->window, picking != 0);
+}
+
 int gpui_shim_show_fps(void* win, const char* anchor) {
     auto* box = static_cast<Box2*>(win);
     if (!box || !box->window) return 0;

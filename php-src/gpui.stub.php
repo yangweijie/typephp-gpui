@@ -202,6 +202,13 @@ function gpui_open_url(string $url): bool {}
 /** 开/关窗口 inspector（DevTools），与 ⌘I 同一个。 */
 function gpui_toggle_inspector(mixed $window): void {}
 
+/** inspector 此刻开着吗（读 Window.inspector.on）。窗口失效返回 false。 */
+function gpui_inspector_enabled(mixed $window): bool {}
+
+/** 开/关拾取模式（WindowInspectorPick）。拾取开着时，hover 高亮画在真实指针
+ *  最后位置命中的元素上，所以出图前关掉它才与鼠标在哪儿无关。 */
+function gpui_set_inspector_picking(mixed $window, bool $picking): void {}
+
 /** 弹帧率 HUD，$anchor 见 App::FPS_ANCHORS；非法名或渲染期间调用返回 false。 */
 function gpui_show_fps(mixed $window, string $anchor): bool {}
 

@@ -1520,6 +1520,16 @@ void php_gpui_toggle_inspector(Variant boxVar) {
     if (win) gpui_shim_toggle_inspector(win);
 }
 
+Bool php_gpui_inspector_enabled(Variant boxVar) {
+    void* win = winOf(boxVar);
+    return win && gpui_shim_inspector_enabled(win) != 0;
+}
+
+void php_gpui_set_inspector_picking(Variant boxVar, Bool picking) {
+    void* win = winOf(boxVar);
+    if (win) gpui_shim_set_inspector_picking(win, picking ? 1 : 0);
+}
+
 Bool php_gpui_show_fps(Variant boxVar, String anchor) {
     void* win = winOf(boxVar);
     std::string a(anchor.data(), anchor.length());

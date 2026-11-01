@@ -156,10 +156,29 @@ test('the url gate mirrors gpui on the parts that decide it', function (): void 
 
 test('toggleInspector flips the window inspector', function (): void {
     $app = sysApp();
+    expect(FakeBridge::$inspectorOpen)->toBeFalse();
+    expect($app->inspectorEnabled())->toBeFalse();
     $app->toggleInspector();
     expect(FakeBridge::$inspectorOpen)->toBeTrue();
+    expect($app->inspectorEnabled())->toBeTrue();
     $app->toggleInspector();
     expect(FakeBridge::$inspectorOpen)->toBeFalse();
+    expect($app->inspectorEnabled())->toBeFalse();
+});
+
+test('inspector picking follows the toggle and can be pinned off without closing the panel', function (): void {
+    $app = sysApp();
+    $app->toggleInspector();
+    // gpui：开 inspector 顺带进拾取（entity.cpp:381），而面板只看 on
+    // （inspector.h:63）⇒ 关拾取应当留着面板。
+    expect(FakeBridge::$inspectorPicking)->toBeTrue();
+    $app->setInspectorPicking(false);
+    expect(FakeBridge::$inspectorPicking)->toBeFalse();
+    expect($app->inspectorEnabled())->toBeTrue();
+    $app->setInspectorPicking(true);
+    expect(FakeBridge::$inspectorPicking)->toBeTrue();
+    $app->toggleInspector();
+    expect(FakeBridge::$inspectorPicking)->toBeFalse();
 });
 
 test('fps hud shows, reports visible, and hides exactly once', function (): void {

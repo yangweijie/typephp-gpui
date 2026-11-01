@@ -86,6 +86,9 @@ namespace TypePHP\Gpui {
         /** 模拟 inspector 开合（toggle 翻转） */
         public static bool $inspectorOpen = false;
 
+        /** 模拟拾取模式（与 gpui 同：toggle 开时跟着开，可单独关） */
+        public static bool $inspectorPicking = false;
+
         /** @var string|null 帧率 HUD 的锚点（null = 未显示） */
         public static ?string $fpsAnchor = null;
 
@@ -170,6 +173,7 @@ namespace TypePHP\Gpui {
             self::$openedUrls = [];
             self::$rejectedUrls = [];
             self::$inspectorOpen = false;
+            self::$inspectorPicking = false;
             self::$fpsAnchor = null;
             self::$sheetCount = 0;
             self::$webviewNavs = [];
@@ -843,6 +847,18 @@ namespace {
     function gpui_toggle_inspector(mixed $window): void
     {
         FakeBridge::$inspectorOpen = !FakeBridge::$inspectorOpen;
+        // 与 gpui 同：开拾取模式是"开 inspector"的一部分，关时一起关。
+        FakeBridge::$inspectorPicking = FakeBridge::$inspectorOpen;
+    }
+
+    function gpui_inspector_enabled(mixed $window): bool
+    {
+        return FakeBridge::$inspectorOpen;
+    }
+
+    function gpui_set_inspector_picking(mixed $window, bool $picking): void
+    {
+        FakeBridge::$inspectorPicking = $picking;
     }
 
     function gpui_show_fps(mixed $window, string $anchor): bool

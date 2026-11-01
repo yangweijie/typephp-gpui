@@ -799,6 +799,25 @@ final class App
         \gpui_toggle_inspector($this->handle());
     }
 
+    /** inspector 此刻开着吗。开 inspector 是唯一能读的判据，像素不是（见 setInspectorPicking）。 */
+    public function inspectorEnabled(): bool
+    {
+        return (bool) \gpui_inspector_enabled($this->handle());
+    }
+
+    /**
+     * 开/关拾取模式（DevTools 的 hover 高亮）。
+     *
+     * 拾取开着时 gpui 每帧按 win->mouseX/mouseY（真实指针的最后位置）去命中一个
+     * 元素并把 20% 的强调色画在它整个框上（window_common.cpp:626 +
+     * gpui.cpp:7600），于是"这张图长什么样"取决于鼠标当时停在哪 —— 出图前关掉它，
+     * 像素门才只断渲染。面板本体只看 inspector.on，关拾取不会把面板关掉。
+     */
+    public function setInspectorPicking(bool $picking): void
+    {
+        \gpui_set_inspector_picking($this->handle(), $picking);
+    }
+
     /**
      * 弹帧率 HUD。$anchor 见 self::FPS_ANCHORS。
      * HUD 由窗口根持有：已在位时重复调用只是移动它，隐藏再显示保留历史。
