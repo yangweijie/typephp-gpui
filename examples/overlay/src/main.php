@@ -100,6 +100,23 @@ function runShot(string $path, int $tree): void
     $app->notify('已保存', '3 个文件写好了', 'success', 'top_right', 0, 'shot-note');
     $app->notify('磁盘将满', '只剩 8 GB', 'warning', 'bottom_left', 0, 'shot-note');
     $app->loop(80);
+    // 内容判据：右上那张卡的图标必须是"成功绿"。链跑里量到过两种没落定的态——
+    // 半透明绿（入场动画在飞，4x4 均值 (200,240,214)，g-r=40）与整张红底卡
+    // （右上露出页面里那张静态示例卡，均值 (247,162,162)，g-r=-85）；静止态实测
+    // (144,226,174)，g-r=82。判据取 g>r+60：两条没落定的都在 60 以下。
+    // 泵不出来照拍并打印 note_ready=0 —— 红要可诊断，不靠加容差或重录咽下去（同 tree30 口径）。
+    $noteRgb = [];
+    $noteReady = false;
+    for ($noteTry = 0; $noteTry < 30; $noteTry++) {
+        $noteRgb = $app->regionRgb(526, 68, 4, 4);
+        if ($noteRgb !== [] && $noteRgb['g'] > $noteRgb['r'] + 60) {
+            $noteReady = true;
+            break;
+        }
+        $app->loop(10);
+    }
+    echo 'overlay note_ready=' . ($noteReady ? '1' : '0') . ' tries=' . $noteTry
+        . ' rgb=' . json_encode($noteRgb) . "\n";
     echo '--- debug tree (overlay ' . $tree . ': ' . (string) $trees[$tree][0] . ') ---'
         . "\n" . \gpui_debug_tree($app->handle()) . "\n---\n";
     $ok = $app->snapshot($path, OVERLAY_W, OVERLAY_H);
