@@ -2781,3 +2781,12 @@ bin/gpui、GPUI.lock、tests/baseline/input/tree1.png（两度重录）、compos
   kit-gates / build-inputs / doctor 全 rc=0。
 - 仍开：**#106**（tree22 连跑累计 20 遍红 1 次、单跑 24/24 等基线、红帧未抓到）与真人 HID 清单；
   **17-H 保持未勾**（它要求所有实际待办有证据）。本轮全部提交只在本地，push 仍待人授权。
+
+## 2026-11-02 Phase 34 批4：红帧自己落盘（补 #106 丢证据的洞）+ 一条表格行缺陷自抓自修
+- `shotdiff` 红的时候过去只打分数、把帧留在会被下一遍 unlink 的临时目录里——今天 20 遍链跑红 1 次
+  却拿不到那一帧，就是这个设计。现在 ✗ 行带 `红帧=<abs path>`，产物落 `tmp/shotdiff-fail/`。
+- 双臂实测：红臂（临时把 tree26 基线换成 tree25 的图）rc=1、路径打出来、产物与**真基线**逐像素
+  相同（0/480000）；绿臂（还原）rc=0 且产物目录空。用完当场 cp 备份还原，`git status` 干净。
+- 自抓自修：EN 门表那行被我写成跨 5 行，`docs:build` 红（`Element is missing end tag`）；
+  本仓的门表列数门当时是绿的（它只数 `|` 开头的行 ⇒ 数不到续行）。这条不变式的主人是 vitepress
+  构建（已在 CI），所以不新开门，只把话写清。修后 docs rc=0、`composer test:all` rc=0、锚点 OK。

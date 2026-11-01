@@ -2759,3 +2759,21 @@ run `dwfrun-1ebf1186`（被用户停，批1+批2 施工完成门禁全绿，批3
   但它同时要求"所有实际待办有证据"——**#106（hello tree22 连跑间歇红）还开着**：
   今天累计 20 遍链跑只红过 1 次（`gdfrac=0.01555 / worst=0.082`），单跑 24/24 逐字节等基线，
   红帧没抓到（后 12 遍全绿）。真人 HID 清单（testing.md 清单 v2）也仍待人来跑。
+
+### Phase 34 批4（2026-11-02，#106 的取证缺口：红帧自己落盘）
+- [x] 为什么这是 #106 的正题：门只把分数打在终端，`$tmpDir` 每棵树出图前 unlink 那一个文件，
+  红帧在下一遍（或另一跑）就被覆盖——今天 20 遍链跑红 1 次却什么都没留下，就是这个原因。
+  现在 ✗ 行自带 `红帧=<abs path>`，产物落 `tmp/shotdiff-fail/`（目录名带示例/树号/时间戳/md5 前 8 位）。
+- [x] 判别臂双臂实测（可复述）：
+  - 红臂——把 `tests/baseline/hello/tree26.png` 临时换成 tree25 的图（备份在 /tmp，跑完 cp 还原）：
+    rc=1，✗ 行打 `gdfrac=0.01315 超容差（worst=0.961）红帧=.../hello-tree26-20261101-164927-0e53c469.png`，
+    产物 19664 字节存在；再拿它和**真基线**逐像素比 `diffPixels=0/480000` ⇒ 存下的就是那一帧，
+    差异确实来自基线被换掉，不是捕获错。
+  - 绿臂——还原后 `check hello` rc=0、`SHOTDIFF OK`、`tmp/shotdiff-fail/` 里 0 个产物。
+- [x] 自己抓到的一处文档缺陷（当场修）：给 EN 门表那行加说明时把表格行写跨了 5 行，
+  `npm run docs:build` 直接红（`[plugin vite:vue] en/guide/testing.md: Element is missing end tag`）。
+  本仓的门表列数检查（在 `tests/SystemTest.php`）当时是绿的——它数的是"以 `|` 开头的行"的列数，
+  不会把续行当成表格的一部分。这条不变式的**主人是 vitepress 构建本身**，而它已在 CI 里，
+  所以不新开一道门，按"谁拥有谁负责"记在这儿。
+- [x] 复跑：docs build rc=0、`composer test:all` rc=0（pest 140/974）、`check-doc-anchors` OK（71/16）。
+- [ ] #106 仍开：现在缺的只是"红的那一次什么时候再来"，但证据不会再丢。
