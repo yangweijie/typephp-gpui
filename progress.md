@@ -2732,3 +2732,31 @@ bin/gpui、GPUI.lock、tests/baseline/input/tree1.png（两度重录）、compos
   `composer test:all` rc=0（139 passed / 965 assertions）；docs build + 锚点门 rc=0
   （71 链接 / 16 带锚）；两张门表列数零失配（22 行）。像素全域复跑见下条提交前读数。
 
+
+## 2026-11-02 Phase 34：#105 结案——像素吃的是真实指针位置，不是合成
+- 起手是"抓那一帧"：40 遍 `--shot 28` → `--shot 29` 连跑，读数逐字相同（4661 格里非白 3、
+  dark=2），一次异常都没复现；`/tmp/g35-ANOM*` 不存在 ⇒ 上一轮那条"异常帧"没能复用到本轮。
+- 决定性证据在源码：`WindowToggleInspector` 顺带 `picking = on`（`entity.cpp:381`），而 picking
+  开着时 paint 按 `win->mouseX/mouseY`（真实指针最后位置）命中元素、把 `inspectorAccent` 20%
+  铺满命中框（`window_common.cpp:474` 取坐标 → `:626` 画，命中判定 `gpui.cpp:7600`）。
+  两条旧推测（"面板没进合成"、"红＝面板画出来了"）同时死：tree29 那棵树没有 `El::inspector()`，
+  面板根本没地方画（holder 只在 `gpui_shim.cpp:2216` 那颗元素出现时登记）。
+- 分布证据（关掉拾取前）：tree31 单跑 8 次 = 4 张近白 / 3 张带大片强调色 / 1 张介于两者，
+  三张图的**逐色计数一致、只有色相不同** ⇒ 同一几何 + 不同强调色覆盖，与指针命中一致。
+- 落地两条：`App::inspectorEnabled()`（读 `Window::inspector.on`）与
+  `App::setInspectorPicking(bool)`（`WindowInspectorPick`），五层铺满（shim.h / shim.cpp /
+  bridge / stub / FakeBridge / App），无头门 +1 颗（pest 139→140，965→974 断言），
+  hello `--selftest` 加第 26 步（三段读数 `insp=1/1/0`）。关拾取不关面板：`IntoEl` 只看 `on`。
+- 基线只动一张：tree29 连拍 20/20 逐字节相同且 md5 == 旧基线（`ea6653257f1378e887b95a11dd748aae`），
+  逐像素 diff=0 ⇒ 不重录；tree31 连拍 20/20 相同，与旧基线差 998/480000=0.208%，差异全在
+  (489,0)-(520,31) 的 32×32 放大镜按钮（`#d4d4d4` 按下态 → `#f8f8f8` 未按下态）⇒ 只重录 tree31，
+  且用的是同参数当场出的帧（md5 先核 `ba5208a5660322b44b03686bed415174` 再拷）。
+- 门禁：`composer test:all` rc=0、`check-build-inputs` rc=0、`gpui doctor` ✗0、
+  `check-doc-anchors` OK（71/16）、`npm run docs:build` rc=0、hello selftest rc=0。
+  `shotdiff check hello` 重录后 8 遍 = 7 绿 1 红 ⇒ 红在 **tree22**，另立 #106（单跑 24/24
+  逐字节等基线，只在连跑里出现；快照早已做指针归位，不能拿"没归位"解释）。
+- 自己的两处纪律失误，当场记：① 用 `grep -E "✗|OK"` 过滤连跑输出，丢掉了一次 FAIL 的树号
+  ⇒ 那条读数作废，之后改成整份日志落盘；② 第一版 `insp=` 用了 `var_export(数组)`，把单行
+  EXTRA 读数拆成多行、grep 不到 ⇒ 改回 `1/1/0` 紧凑形式。
+- 仍未闭：#106（tree22 连跑抖）、真人 HID 清单（testing.md 清单 v2）、以及全部提交的推送授权
+  （本地未 push）。

@@ -15,7 +15,7 @@ four different claims. Report which one a check actually establishes.
 | PHPStan | `composer analyse` | Level 5 analysis of `src/` | No |
 | C++ shim tests | `composer test:cpp` | Kind lookup, arenas, argument schemas, native service predicates, Dock layout checks | Built `gpui.o` |
 | Native selftest | `php bin/gpui selftest hello` | Compiled PHP/bridge/shim round trips | Native build and window session |
-| Pixel comparison | `php bin/gpui shotdiff check hello` | Per-tree screenshots against baselines. Before capturing tree30's WebView the shot pumps until the region mean colour turns the HTML's blue (`App::regionRgb`, a content predicate sampled on the flat blue area away from the rounded corners): frame budgets are unreliable — 120 and 600 frames both produced fully blank captures; if it never paints, the shot is taken anyway and prints `painted=0` so the red is diagnosable | Built binary and usable display |
+| Pixel comparison | `php bin/gpui shotdiff check hello` | Per-tree screenshots against baselines. Before capturing tree30's WebView the shot pumps until the region mean colour turns the HTML's blue (`App::regionRgb`, a content predicate sampled on the flat blue area away from the rounded corners): frame budgets are unreliable — 120 and 600 frames both produced fully blank captures; if it never paints, the shot is taken anyway and prints `painted=0` so the red is diagnosable. Trees 29/31 capture with `App::setInspectorPicking(false)`: the picking highlight paints over whichever element the real pointer last hovered, so leaving it on makes the whole frame depend on where the mouse happens to be; the toggle itself is asserted by `App::inspectorEnabled()` in selftest step 26 (reading `insp=1/1/0`) | Built binary and usable display |
 | Doctor | `php bin/gpui doctor` | Toolchain, C ABI, and required patch markers | Partial |
 | C++17 parsing | `bash cmd/check-cxx17.sh` | Header parsing under C++17/C++20 and both outcomes of the EmitsEvent trait | Upstream headers |
 | Pure C ABI | `bash cmd/check-c-abi.sh` | C11 compilation and forbidden C++ syntax/header checks | No gpui object |
@@ -420,6 +420,23 @@ A sibling risk is still open (**#90**): hello trees 29 and 31 can alternately re
 `toggleInspector()` and pump three frames before capturing. Do not resolve a 1.0-class
 difference by re-recording or by widening the tolerance; keep the offending frame and
 decide first whether the panel never mounted or the capture grabbed a different surface.
+
+Closed (**#105**, 2026-11-02), and neither candidate was the mechanism: toggling the
+inspector also enters picking mode (`entity.cpp:381`), and while picking is on each frame
+paints a 20% accent fill across whichever element the *real* pointer last hovered
+(`win->mouseX/mouseY`; `window_common.cpp:626` plus `gpui.cpp:7600`). Pointer-inside and
+pointer-outside are therefore two whole-frame-different images. Frame count was never the
+lever: 80 frames still went intermittent, and eight solo captures of tree31 split 4 / 3 / 1
+between near-white, accent-heavy and a mid-animation frame. Two changes: capture with
+`App::setInspectorPicking(false)` (the panel keys off `on`, so it keeps drawing), and assert
+the toggle itself through `App::inspectorEnabled()` (hello selftest step 26, reading
+`insp=1/1/0` — on, still on after picking off, off after the second toggle). Measured: tree29
+captured 20/20 byte-identical with the same md5 as its committed baseline (that baseline
+recorded the pointer-outside state; pixel difference 0), and tree31 captured 20/20 identical
+while differing from its old baseline in 998/480000 = 0.208% of pixels, all inside the 32×32
+magnifier button at (489,0)-(520,31), where the pressed `#d4d4d4` reverts to the unpressed
+`#f8f8f8`. Only tree31's reference pixels were re-recorded. The boundary still holds: name
+the mechanism, then show the delta is one localized box, before touching a baseline.
 
 For any unexpected difference:
 

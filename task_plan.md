@@ -2665,8 +2665,49 @@ run `dwfrun-1ebf1186`（被用户停，批1+批2 施工完成门禁全绿，批3
   两张门表列数零失配（22 行）。
 - [x] 按名字分三批提交（批1 派发链+三门+无头门 / 批2 A8+render_cell 示例 / 批3 可达性
   入口+文案订正+归档+inspector 测量记录）。
-- [ ] **新立 #105（未决，需定夺）**：hello tree29 间歇红 gdfrac=1.00000——泵 3→80 帧不解决
+- [x] **新立 #105（未决，需定夺）**：hello tree29 间歇红 gdfrac=1.00000——泵 3→80 帧不解决
   （3 次 1 红）、单跑 6/6 等基线，而基线粗网格整张 255,255,255 ⇒ 基线记的是"拾取面板没进
   这次合成"的近白态，偶发的"红"很可能是面板真画出来。该断哪一态、要不要用 regionRgb 判据
   泵到面板在再重录、或改前提式——未定夺前不重录、不改判据。
+  **结案于 Phase 34（2026-11-02）**：两条候选解释（"面板没进合成"、"红＝面板画出来了"）
+  都被推翻——tree29 结构上没有面板可画（那棵树没有 `El::inspector()`），红帧是**拾取高亮**
+  跟着真实指针坐标铺满命中元素。见 Phase 34 与 findings.md 的同名小节。
 
+
+### Phase 34（2026-11-02，#105 结案轮）
+- [x] **根因写在源码里，不写在猜测里**：`WindowToggleInspector` 顺带 `picking = on`
+  （`entity.cpp:381`）；picking 开着时 paint 每帧按 `win->mouseX/mouseY`（真实指针最后位置）
+  命中元素并把 `inspectorAccent` 20% 铺满那个框（`window_common.cpp:474` 取坐标、`:626` 画、
+  命中判定 `gpui.cpp:7600`）。⇒ tree29/31 的整帧分歧＝指针在不在窗口内，与合成无关。
+- [x] **推翻本轮两条旧推测**：① "tree29 基线是面板没进合成的缺陷态"——tree29 那棵树里
+  根本没有 `El::inspector()`，面板只由那颗元素画（holder 登记在 `gpui_shim.cpp:2216`），
+  结构上无面板可缺席；② "红＝面板真画出来了"——红帧是强调色铺满，不是面板。
+- [x] 补两层读回（五层铺满：shim.h / shim.cpp / bridge / stub / FakeBridge / App）：
+  `App::inspectorEnabled()` 读 `Window::inspector.on`，`App::setInspectorPicking(bool)`
+  走 `WindowInspectorPick`（`entity.cpp:388`）。关拾取不关面板：`Inspector::IntoEl()` 只看 `on`
+  （`inspector.h:63` 契约 + `inspector.cpp:363`）。
+- [x] 判据归位：像素门与指针脱钩（tree29/31 出图前 `setInspectorPicking(false)`），
+  开合改由状态硬断（hello `--selftest` 第 26 步，三段读数 `insp=1/1/0`＝开→真／关拾取后仍真／
+  再 toggle→假）；无头侧新增一条 Pest（139→140 颗，974 断言）。
+- [x] **基线只动一张**：tree29 连拍 20/20 逐字节相同且 md5 等于旧基线（逐像素 diff=0）⇒ 不重录；
+  tree31 连拍 20/20 相同，与旧基线差 998/480000=0.208%，差异**全部**在 (489,0)-(520,31) 那个
+  32×32 放大镜按钮（拾取按下态 `#d4d4d4` → 未按下态 `#f8f8f8`）⇒ 只重录 tree31（用当场门命令
+  同参数出的帧，md5 先核再拷）。
+- [x] 中英文档：`#90` 那条"仍开着"的段落改为结案（保留原句并标推翻证据）；门表第 5 行补拾取
+  归位与状态硬断；能力表补 `inspectorEnabled` / `setInspectorPicking` 两行并订正
+  `toggleInspector` / `El::inspector` 两行的证据口径。
+- [x] 门禁：`composer test:all` rc=0（pest 140/974 + phpstan + parity + shim cpp）、
+  `check-build-inputs` rc=0、`gpui doctor` ✗0、`shotdiff check hello` 重录后再 8 遍＝
+  **7 绿 1 红**（红在 tree22，见下面的 #106；重录前那两遍的红只有 tree31 一张 0.00208，
+  正是本轮改动应得的那一处；另外一次的 tree23 `size=1.0` 复跑即 0.00000，同时段
+  `/tmp/gpui-shotdiff-hello` 整个目录不见（本门自己从不删目录，只在每棵树出图前 unlink 那一个
+  文件，`cmd/shotdiff.php:152` 起）⇒ 判为读数被另一跑扰动，作废），`check-doc-anchors` OK（71 链接/16 带锚）、
+  `npm run docs:build` rc=0。
+- [ ] **新立 #106（未决）**：`check hello` 8 遍里 1 次红在 **tree22**
+  （`gdfrac=0.01555 / worst=0.082`：~1.5% 像素、每像素最大偏差 8%，形状像悬停/焦点类小面积差，
+  不是 tree29 那种整帧）；而 tree22 **独立单跑 24/24 与基线逐字节相同** ⇒ 只在 18 棵连跑里出现。
+  快照本身已经做指针归位（`gpui_shim.cpp:1738` 起 `ignoresMouseEvents=YES` + 排空 +
+  `WindowDispatchInput` 停到窗口外 `(-40,-40)`），所以不能拿"没归位"当解释。
+  处置边界：没抓到红帧并定位差异区域之前，不重录、不放容差。
+  本轮另记一条自己的测量纪律失误：重录前的 4 次连跑我用 `grep -E "✗|OK"` 过滤，
+  其中一次的 FAIL 没带树号 ⇒ 那条读数作废（不计入 #106 的频次），后续连跑改成整份日志落盘。

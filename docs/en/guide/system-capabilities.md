@@ -26,8 +26,10 @@ that current CI or every platform is green.
 | `clipboardItem(): array` | `ClipboardGetItem`, plus macOS file-URL pasteboard reading | Text/image/path flags and real-data combinations below |
 | `promptForPath(bool $dirs, string $title): ?string` | `PromptForPathTemp` | Manual; call from an event handler |
 | `openUrl(string): bool` | `OpenUrl` and `IsOpenableUrl` | Native predicate table and route rejection; successful opening has an external side effect |
-| `toggleInspector()` | `WindowToggleInspector` | Pixel evidence for picking/highlight mode, not an Inspector panel |
-| `El::inspector($id)` | `component::Inspector` through ChildView | Actual Inspector panel pixels |
+| `toggleInspector()` | `WindowToggleInspector` | Native route (selftest step 26) plus pixels for trees 29/31; toggling also enters picking mode, and this is not the Inspector panel |
+| `inspectorEnabled(): bool` | Reads `Window::inspector.on` | Native route; selftest step 26 prints `insp=1/1/0` (on, still on after picking off, off after the second toggle) |
+| `setInspectorPicking(bool)` | `WindowInspectorPick` | Native route, and what makes trees 29/31 independent of where the real pointer happens to be (see the #90 note in `en/guide/testing.md`) |
+| `El::inspector($id)` | `component::Inspector` through ChildView | Actual Inspector panel pixels; the panel keys off `on` only, so picking can be off while it draws |
 | `El::webview($url, $id)`, `El::webviewHtml($html, $id)` | `WebViewNew` / `WebViewEl` through ChildView | Native creation/bounds and local-page snapshot evidence; not arbitrary network loading |
 | `webviewBack($id)`, `webviewForward($id)` | Page-side history evaluation | Native invocation route, not proof of a particular page history |
 | `webviewProbe($id)` | `WebViewUrlTemp` / `WebViewBounds` | Reads the native control's applied rectangle and URL |

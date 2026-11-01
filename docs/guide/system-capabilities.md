@@ -17,8 +17,10 @@
 | `$app->clipboardItem(): array`<br>`['text'=>?string,'image'=>?string,'paths'=>string[]]` | `gpui::ClipboardGetItem` + mac 侧自读的 `NSPasteboardTypeFileURL` | route（#16 文本通道 + flags 判别）+ **真数据实测**（见下） |
 | `$app->promptForPath(bool $dirs, string $title): ?string` | `gpui::PromptForPathTemp` | **manual**（见下方硬约束） |
 | `$app->openUrl(string): bool` | `gpui::OpenUrl` + `gpui::IsOpenableUrl` | wrap + native（20 条 URL 表）+ route 的**拒绝侧** |
-| `$app->toggleInspector()` | `gpui::WindowToggleInspector` | pixel（tree29）——**这是拾取模式，不是面板** |
-| `El::inspector($id)` | `component::Inspector::New(cx)->IntoEl()` 经 `ChildView` 挂载 | pixel（tree31：面板真画出来了）|
+| `$app->toggleInspector()` | `gpui::WindowToggleInspector`（`entity.cpp:374`） | route（selftest #26）+ pixel（tree29/31）——顺带把拾取打开，且**它不是面板** |
+| `$app->inspectorEnabled(): bool` | 读 `Window::inspector.on`（`gpui.h:6731`） | route（selftest #26 三段读数 `insp=1/1/0`：开→真、关拾取后仍真、再 toggle→假） |
+| `$app->setInspectorPicking(bool)` | `gpui::WindowInspectorPick`（`entity.cpp:388`） | route + 它把 tree29/31 的像素与"真实指针当时停在哪儿"脱钩（见 `guide/testing.md` 的 #90） |
+| `El::inspector($id)` | `component::Inspector::New(cx)->IntoEl()` 经 `ChildView` 挂载 | pixel（tree31：面板真画出来了；面板只看 `on`，与拾取无关）|
 | `El::webview($url, $id)`<br>`El::webviewHtml($html, $id)` | `gpui::WebViewNew` + `WebViewEl` 经 `ChildView` 挂载 | route（selftest #12）+ pixel（tree30，只到"没把布局搞塌"）|
 | `$app->webviewBack($id)` / `webviewForward($id)` | `gpui::WebViewBack/Forward`（页内 eval `history.*`） | route（#12） |
 | `$app->webviewProbe($id)` | `wry::WebViewUrlTemp` + `WebViewBounds` | route（#12，读出 400×300 的应用盒子） |

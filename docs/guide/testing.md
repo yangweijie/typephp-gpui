@@ -9,7 +9,7 @@
 | 2 | PHPStan | `composer analyse` | `src/` 类型/静态（level 5） | 否 |
 | 3 | C++ shim_test | `composer test:cpp` | shim 纯函数：kindFromString / AStr arena 拷贝 / toComponentArg schema / buildComponentArgs / ComponentKind 漂移警报（排除 Registered/ChildView 后未映射值钉在 17） | 是（gpui.o） |
 | 4 | selftest | `php bin/gpui selftest hello` | 21 链路端到端：输入取值 / 点击 / 定时器 / dialog / catalog 回调 / 错误回传 / app 菜单 / 剪贴板 / url 白名单 / HUD / Sheet / WebView / 解压 / dirChange / http / 剪贴板完整一项 / 系统状态 / 通知中心 / mac 集成 / 授权文件系统 / 进程与存储 | 是（二进制） |
-| 5 | shotdiff | `php bin/gpui shotdiff check hello` | 视觉回归：逐树像素比对基线（18 棵）。tree30 的 WebView 出图前先泵到区域平均色变成 HTML 的蓝（`App::regionRgb` 内容判据，采样落在平整蓝区避开圆角）：帧数预算不可靠，120 与 600 帧都曾拍到整块空白；泵不出来照拍并打印 `painted=0`，红得可诊断 | 是（二进制） |
+| 5 | shotdiff | `php bin/gpui shotdiff check hello` | 视觉回归：逐树像素比对基线（18 棵）。tree30 的 WebView 出图前先泵到区域平均色变成 HTML 的蓝（`App::regionRgb` 内容判据，采样落在平整蓝区避开圆角）：帧数预算不可靠，120 与 600 帧都曾拍到整块空白；泵不出来照拍并打印 `painted=0`，红得可诊断。tree29/31 出图前 `App::setInspectorPicking(false)`——拾取高亮画在真实指针最后命中的那个框上，不关它整张图就取决于鼠标当时停在哪儿；inspector 开合本身改由 `--selftest` #26 的 `App::inspectorEnabled()` 硬断（读数 `insp=1/1/0`） | 是（二进制） |
 | 6 | doctor | `php bin/gpui doctor` | 工具链 + 全部补丁 marker 校验（清单见 `GPUI.lock`） | 部分 |
 | 7 | C++17 可解析性 | `bash cmd/check-cxx17.sh` | `cmd/patch-concepts.sh` 的门禁：`gpui.h` 在 `-std=c++17` 与 `-std=c++20` 下都要能解析，且 `EmitsEvent` 降级后判据**双向**正确（有特化为真、无特化为假） | 是（头文件） |
 | 8 | C ABI 纯 C | `bash cmd/check-c-abi.sh` | 防火墙的主张本身：`gpui_shim.h` 用 `clang -x c -std=c11 -Wall -Wextra` 编得过，且文本里没有 `namespace`/`template`/`std::`/非 C 标准头的 `#include <>`。头里漏进 C++ 时，报错原本要晚到几分钟后的链接期 | 否 |
@@ -376,6 +376,18 @@ Inspector 拾取高亮读的是窗口记下的指针坐标——窗口常常就�
   等于拍在动画的 0 上"。撤掉一次顺手误重录的基线后连三遍又全绿，所以它是间歇性的。
   处置边界：1.0 级的差异**不许**用重录或加容差解决，必须先抓到那一帧看过、判定是"面板没挂上"
   还是"拍到了别的表面"。
+  **结案（#105，2026-11-02）**：上面那两个候选都不对，第三条才是机制——**拾取高亮跟着真实指针**。
+  `WindowToggleInspector` 开 inspector 时顺带把 `picking` 打开（`entity.cpp:381`），而 picking
+  开着时每帧按 `win->mouseX/mouseY`（真实指针的最后位置）命中一个元素，把 20% 强调色铺满它的框
+  （`window_common.cpp:626` + `gpui.cpp:7600`）⇒ 指针在不在窗口内就是两张整帧不同的图。
+  帧数也不是杠杆（泵到 80 帧照样间歇红，8 次单跑里 4 张近白、3 张带强调色、1 张介于两者）。
+  收法两条：① 出图前 `App::setInspectorPicking(false)`（面板只看 `inspector.on`，关拾取不关面板）；
+  ② 开合本身改由 `App::inspectorEnabled()` 硬断（hello `--selftest` 第 26 步，三段读数 `insp=1/1/0`：
+  开→真、关拾取后仍真、再 toggle→假）。实测：tree29 连拍 20/20 逐字节相同且 md5 等于旧基线
+  （旧基线记的就是"指针不在窗口内"那一态，逐像素 diff=0）；tree31 连拍 20/20 相同，与旧基线差
+  998/480000=0.208%，差异全部落在 (489,0)-(520,31) 那个 32×32 的放大镜按钮里（`#d4d4d4` 拾取按下态
+  变回 `#f8f8f8` 未按下态），所以只重录 tree31 一张。处置边界照旧：先有机制、再确认差异只在一处，
+  才动基线——不是拿重录把 1.0 咽下去。
 tree 32（通知层）**必须跑够墙钟才拍得到**：通知入场是动画，`Starting` 段的不透明度
 = `elapsedMs / 400`（`ui/notification.cpp:948`），而推它的是 50ms 的墙钟计时器——只泵
 3 帧等于拍在 0 上，图上只有宿主标题、两张卡一片透明，`SHOT OK` 却照样成立。现在跑
