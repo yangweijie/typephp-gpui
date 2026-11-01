@@ -2542,3 +2542,44 @@ hits 同（y 向下）。**未量到的臂**：空白态如今复现不出（会
 - 提交：feat 一笔（补丁+shim+kit 门+coverage 中英）+ docs 一笔（三件套归档）。
 - **A2 专轮结案**。延后清单系列两轮（续集批1-5 + 收尾批1-4）+ A2 专轮全部收官；代码级
   待办清空，剩真人 HID 五项（testing.md 清单 v2）。
+
+## Phase 32 A2 批2 施工（2026-11-01，像素硬门 + 基线 + 文档）
+
+- **根因定位（批2 核心发现）**：`gpuiRenderShimToken` 与 `gpuiBuildShimElement` 中的 `if (root)` 检查
+  把合法的 spec 0（SpecArena 首个 spec，`Push` 返回 `nodes.len - 1` = 0）判为"无元素"，
+  跳过 `ShellMaterializeSpec`——badge 从未被物化，这是像素缺口的根因。批1 的泄漏修复
+  （delete batch/hostBatch）正确但未触及物化路径。
+
+- **修复**：两处 `if (root)` → `if (root != 0 || batch->Structure().value != 0)`
+  （cpp-src/gpui_shim_events.inc:396 与 :452）。`Structure()` 是 SpecArena 公开方法
+  （spec.h:410），`Push` 会更新 structure，有节点则非零。root=0 但 batch 有内容时
+  物化照常进行。
+
+- **判别臂翻转**：`bash cmd/check-token-paint-png.sh` → **"PNG通道=有红@(42,44) rgb(255,0,0)"**
+  （批2 核心验收达成）。tokenDeliveryRender 徽章@=[42,44]（批1 修复后仍为 null，批2
+  root=0 修复后翻转）。
+
+- **tokenDeliveryRender 升硬门**：selftest 源码 `examples/kit/src/main.php:1971` 的 `$tokOk`
+  条件加 `&& $badgeAt !== null`（原 advisory）。注释更新为硬门说明。
+
+- **messageRowRender**：`gpuiBuildShimElement` 的 root=0 修复已生效（调试打印证实
+  root=0 struct=4122538356910008766 非零，物化照常进行），但行像素 `行像素(advisory)=false`
+  仍为 advisory——行被物化了但像素不在探针坐标 (60,90)。这可能是 MessageScroller
+  的行布局位置与探针坐标不匹配（renderCalls=15 但正盒仍是根底色 rgb(246,243,238)）。
+  行像素升硬门待行布局坐标确认后另行处理。
+
+- **确定性**：连跑 3 遍 selftest，tokenDeliveryRender 输出逐字相同（徽章@=[42,44]、
+  renderCalls=288、通道对照 rgb(255,0,0)/rgb(254,0,0)）。
+
+- **pest**：137 passed (959 assertions) 全绿。
+
+- **基线回归**：`git diff tests/baseline/table/tree1.png` 无变更——宿主渲染列表行
+  像素未回归。
+
+- **验收清单**：
+  - `bash cmd/check-token-paint-png.sh` → "PNG通道=有红@(42,44)" ✓（核心验收）
+  - `php bin/gpui selftest kit` → KIT SELFTEST OK ✓（3 遍逐字相同）
+  - tokenDeliveryRender 硬门（$badgeAt !== null）✓
+  - messageRowRender 行像素：gpuiBuildShimElement fix 生效，pixel 位置待查（advisory）
+  - `vendor/bin/pest` → 137 passed (959 assertions) ✓
+  - 基线 tree1.png git diff 无变更 ✓
