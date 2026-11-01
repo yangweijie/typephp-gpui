@@ -2871,3 +2871,7 @@ bin/gpui、GPUI.lock、tests/baseline/input/tree1.png（两度重录）、compos
   testing 第 17 步），历史口径就地改写不删。
 - 修完整跑复验：`all-examples.sh both` = ALL EXAMPLES: OK，28 行全 rc=0（/tmp/g124-allex-final.log）
   ⇒ 批8 那句"机器侧无剩余待办"在今晚的产物上重新成立（那条红正是它当时没抓到的）。
+- 终账（在 9375f9c/81d756c 两枚提交之后复跑，只读门）：`composer test:all` rc=0（pest 141/975、
+  phpstan No errors、UPSTREAM PARITY OK、SHIM CPP TESTS OK）；`task_plan.md` 未勾项计数 0；
+  `examples/showcase` 目录已不存在，examples/docs/tests 里只剩一条历史注释（input/src/main.php:743）
+  提到它，没有可跑的 showcase 目标。工作树干净。
