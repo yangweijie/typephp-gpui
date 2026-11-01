@@ -20,6 +20,10 @@ declare(strict_types=1);
  *    该表一行一个概念，"缺口标记 + 反引号点名"才成立。别处的"没接"句子（如
  *    「端口里有、还没接」里 `**不做**` 那些）不扫：那里的行会把**已接**的方法当对照上下文
  *    写进同一格（例：deflate 那行的"解压侧已经接了（`App::inflate`）"），扫它就是必假红。
+ *    这条窄界是量出来的，不是拍的：2026-11-02 把 A 放宽到两份 coverage + 两份能力页 +
+ *    components + events 的全部表格，多出的命中只有一条 —— `upstream-coverage.md:181`
+ *    `未接 \`move_to\` / … / \`close\` + PathFill/PathStroke`，那里的 `close` 是**路径 op 名**，
+ *    那条 `close` 是**路径 op 名**，恰好等于真方法 `App::close()` ⇒ 放宽一条假红。所以 A 停在概念表。
  *  - B 只看两张"已接"表（zh `## 已接` / en `## Connected APIs`）的**第一列**（PHP API 列）。
  *    第一列是签名，第二列才是 C++ 符号——不扫后面几列，就不会把 `shell::FsRun`
  *    这类上游名字当成 PHP 方法。
