@@ -1726,24 +1726,40 @@ int gpui_shim_snapshot(void* win, const char* path, int dip_w, int dip_h) {
         void* nat = box->window ? gpui::WindowNativeHandle(box->window) : nullptr;
         NSWindow* nswin = nat ? (__bridge NSWindow*)nat : nullptr;
         if (!nswin) return 0;
-        // 指针归位：拍的是在屏窗口的当前绘制结果，而悬停态与 Inspector 拾取高亮读的是
-        // 窗口记下的指针坐标——不归位，基线就取决于物理鼠标那一刻在哪（实测：embedded 整片
-        // 蓝/白翻转、hello tree31 整张不同、Inspector 头偶尔被高亮）。顺序有讲究：
-        //   ① 先让窗口忽略真实鼠标——窗口常常就开在物理光标底下，OS 的 mouseMoved/entered
-        //      会在我们停好之后把坐标改回去（只停不挡时 4 次里仍有 1 次被盖）；
-        //      Deliver 走 sendEvent，不经窗口服务器命中测试，所以合成事件不受这一步影响；
-        //   ② 排空已经入队的真实事件；③ 停到窗口外固定点；④ 泵几帧让它真的画上屏。
-        //   ③ 直接走 WindowDispatchInput（同步写 win->mouseX，那是它唯一的写入点，
-        //      window_common.cpp:1920），不经 NSEvent 路由——经路由的版本实测 6 次出 3 种图。
+        // 指针归位 + "没有元素被悬停"这条内容判据。拍的是在屏窗口的当前绘制结果，而悬停态与
+        // Inspector 拾取高亮读的都是窗口记下的坐标 / hoverId——不归位，基线就取决于物理鼠标
+        // 那一刻在哪（实测：embedded 整片蓝/白翻转、hello tree31 整张不同、Inspector 头偶尔
+        // 被高亮）。顺序：① 排空已经入队的真实事件；② "归位→泵几帧"反复到 hoverId 归零
+        // （判据本身说在下面）；归零之后不再泵，cacheDisplay 这次绘制就吃不到新事件。
+        // 归位直接走 WindowDispatchInput（同步写 win->mouseX，那是它唯一的写入点，
+        // window_common.cpp:1920），不经 NSEvent 路由——经路由的版本实测 6 次出 3 种图。
+        // 订正一条旧说法：这里设的 ignoresMouseEvents **挡不住**坐标被改回去——2026-11-02 在
+        // 这段之后插一行 fprintf 取证跑 6 次，量到的 win->mouseX 全是窗口内的真实坐标
+        // （539.0,331.8 等），而当时 ignores 确实是 1；gpui 从 app 队列里取事件，窗口级
+        // "忽略鼠标"管不到那条路。取证那行没留在树里（要重看就在此处打 box->window->mouseX /
+        // hoverId 一行即可）。真正能定住画面的是下面那条 hover 判据，不是挡。
         BOOL wasIgnoring = nswin.ignoresMouseEvents;
         nswin.ignoresMouseEvents = YES;
         gpui::GpuiAppRunStep(g_app, 0);
-        if (box->window) {
-            gpui::PlatformInput park = gpui::InputMouseMove(
-                -40.f, -40.f, false, gpui::MouseButton::Left, gpui::Modifiers{});
-            gpui::WindowDispatchInput(box->window, &park);
+        for (int round = 0; round < 20; round++) {
+            if (box->window) {
+                gpui::PlatformInput park = gpui::InputMouseMove(
+                    -40.f, -40.f, false, gpui::MouseButton::Left, gpui::Modifiers{});
+                gpui::WindowDispatchInput(box->window, &park);
+            }
+            for (int i = 0; i < 4; i++) gpui::GpuiAppRunStep(g_app, 0.03);
+            // "没有元素被悬停"是内容判据，不是运气：hoverId 就是悬停本身
+            // （paint 直接读它，window_common.cpp:465），而它只由**移动**事件改写
+            // （DispatchMouseMove，window_common.cpp:1975）。泵的那 120ms 里人恰好把光标
+            // **移进**某个可悬停元素，这一帧就带着 hover 态（chrome 的 ghost 按钮就是这么红的：
+            // 89x32 的框从页面底色 #f6f3ee 变成 hover 底色 #f5f5f5）。静止的光标不再产生
+            // mouseMoved，所以反复"归位→泵"会收敛；归零之后不再泵，cacheDisplay 这次绘制
+            // 就吃不到新事件。
+            // **这条判据的 headroom 本轮没量到**：带取证跑 12 次捕获，PRE 行 hoverId 恒为 0
+            // （那段时间没人动鼠标），所以它是"机制推导 + 严格优于旧的一次归位"，不是已验证
+            // 的修复。#106 记着怎么补这一臂（要一个在归位之后才落地的真实 move）。
+            if (!box->window || box->window->hoverId == 0) break;
         }
-        for (int i = 0; i < 4; i++) gpui::GpuiAppRunStep(g_app, 0.03);
         nswin.ignoresMouseEvents = wasIgnoring;
         NSView* view = [nswin contentView];
         if (!view) return 0;
