@@ -4,7 +4,7 @@
 用 TypePHP (AOT) 参考 gpui-kit-cpp（本地源码 `/Volumes/data/git/c/gpui-kit-cpp`）重新实现一套 PHP 原生桌面 GUI 框架，让 PHP 开发者能用声明式 API 构建跨平台 GPU 加速桌面应用。
 
 ## Current Phase
-**当前 = Phase 31 收尾轮已收官（待提交）**：延后清单两轮（续集批1-5 + 收尾批1-4）全部落实，终端 shotdiff 红经全量重建证伪为过期拒比；代码级待办清空，剩真人 HID 五项与 A2 专轮立项。
+**当前 = Phase 32 已结案（待提交）**：A2 专轮（宿主回调像素缺口）修复+两像素硬门全过、判别臂翻转实证；延后清单系列全部收官。剩非代码项：真人 HID 五项（testing.md 清单 v2）。
 真遗留四类：A 代码可落地（三例根底色整型陷阱、TitleBar C 期 El::titleBar、元素级 on_action、语义 token 表暴露、字体装载、http 图片策略）；
 B 像素量化重试（token chip 落位、scrollbarModePaintPair always——机器已恢复）；C 真人 HID 五项汇账为前提式门 + 统一复验清单；D 设计段（i18n、wasm/mobile 结论）。
 **批1 施工轮（2026-10-31）已消化：A 类「三例根底色」实为 41 处 int 色全清 + bg/textColor/borderColor 签名收窄（13 域基线重录，catalog 根像素白→#f6f3ee 亲验）；B 类两项判别已定案——token chip：regionRgb 与 PNG 两通道一致缺席 = 宿主回调 subtree 未进 paint/合成帧（缺口实证，修复另立轮）；scrollbar always：--shot 离屏也不画（applicable=false 未判定），真人 HID 前提式验收（cmd/check-scrollbar-paint.sh）。**
@@ -2624,4 +2624,13 @@ rc=1 且 `routeGreen=false`；kit 裸 rc=0 `KIT SELFTEST OK`（含两条 DataTab
 - [x] 报告 artifact + 读数归档 + 按名字分批提交（run 3137c8a2）
 - outOfScope 7 项（报告卡片全文）：A2 宿主回调像素缺口修复另立专轮（判别臂已落）、A7 字体装载落码（设计段已交）、A8 img 白名单（设计决定）
 - **收尾后的待办**：真人 HID 五项（testing.md 清单 v2）；A2 专轮立项；无代码级待办残留
+
+### Phase 32: A2 专轮——宿主回调像素缺口修复（2026-10-31 → 11-01，结案）
+来源：Phase 31 收尾轮 outOfScope 升格立项；证据已拿齐（亲验）。
+- [x] 判别臂读数：`bash cmd/check-token-paint-png.sh` → **"PNG通道=无红 ⇒ 缺口实证"**——regionRgb 与离屏 PNG 两条色通道一致缺席，token 徽章像素确定性不在 paint/合成帧；与 messageRowRender 同款。非多帧抖动（3 遍读数逐字相同）。
+- [x] 侦察定位 + 施工：批1 泄漏修复（hostBatch 条件 delete + cmd/patch-diag-zero-ops.sh 诊断加固）；**批2 真根因**：gpuiRenderShimToken 的 `if(root)` 把合法 spec 0（SpecArena 首个 spec）判为"无元素"跳过 ShellMaterializeSpec——徽章与消息行从未被物化；改 `if(root!=0 || batch->Structure().value!=0)`（两路径已落）。
+- [x] 门禁：判别臂翻转 PNG通道=有红@(42,44)；kit selftest 两像素硬门过（tokenDeliveryRender 徽章@=[42,44] ON 扫描/OFF 回落；messageRowRender 行@=[60,50] 扫描定位行底色签名、负向滚动器同扫无）——KIT SELFTEST OK；kit shotdiff 全绿（selftest 独立窗，树截图不变，基线不重录）；doc 记录零 ops 告警 10 次但 PushOp 全成功（排除 op 落档假设）。
+- [x] 归档（progress/findings/task_plan）+ 按名字分批提交 + 终报。
+- 教训：判别臂 regionRgb 臂读时点早于物化（探针"通道分歧"是时点伪分歧）；消息行门固定坐标 (60,90) 打进行间间隙——门坐标按几何算。
+- **结案**：延后清单系列（续集批1-5 + 收尾批1-4 + A2 专轮）全部收官；代码级待办清空，剩真人 HID 五项（testing.md 清单 v2）。
 

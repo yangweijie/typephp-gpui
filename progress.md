@@ -2672,3 +2672,18 @@ bin/gpui、GPUI.lock、tests/baseline/input/tree1.png（两度重录）、compos
   全量重建（首支完整链重建 shim）后复跑全域 shotdiff，红转绿即归档结案。
 - outOfScope 7 项 / skipped 11 条：报告卡片全文；真人复验清单 v2 在 testing.md。
 
+### Phase 32（2026-10-31 → 11-01）：A2 专轮——宿主回调像素缺口修复（已闭环）
+
+- 运行链：e6dc4f82（rate_limited 停）→ 用户 GUI 切 spark-x2.6-4b → f126a85e；用户停于
+  批2 施工中途（批1 全绿、批2 补丁与门改动已落）。我亲验 + 手动补完批2 收尾。
+- 战果：①批1 泄漏修复（hostBatch 条件 delete + cmd/patch-diag-zero-ops.sh 诊断加固）；
+  ②批2 真根因修复（gpuiRenderShimToken/gpuiBuildShimElement 的 if(root) 把合法 spec 0
+  判为无元素跳过物化——徽章与消息行从未被物化；改 if(root!=0 || batch->Structure().value!=0)）。
+- 亲验：判别臂翻转 PNG通道=有红@(42,44)；kit selftest 两像素硬门过（tokenDeliveryRender
+  徽章@=[42,44]、messageRowRender 行@=[60,50] 扫描定位——行底色 #eef4ff 签名 b>245，负向
+  滚动器同扫无）；KIT SELFTEST OK；kit shotdiff 全绿（selftest 独立窗，树截图不变）。
+- 教训：判别臂 regionRgb 臂读时点早于物化（探针"通道分歧"是时点伪分歧）；消息行门固定
+  坐标 (60,90) 打进行间间隙——门坐标按几何算。coverage 中英 A2 叙事校准至闭环口径。
+- 提交：feat 一笔 + docs 一笔。A2 专轮结案，延后清单系列两轮（续集批1-5 + 收尾批1-4 +
+  A2）全部收官；剩真人 HID 五项（testing.md 清单 v2）。
+

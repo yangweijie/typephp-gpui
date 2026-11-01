@@ -2463,3 +2463,82 @@ hits 同（y 向下）。**未量到的臂**：空白态如今复现不出（会
   修复 tier-B/L 另立专轮，不并入本轮。
 - **提交口径**：75 文件按名字分两笔（feat 交付面 + docs 计划文件归档），绝不 -A；
   .zcode/ 不入库。
+
+## Phase 32 A2 专轮立项（2026-10-31，判别臂亲验）
+
+- `bash cmd/check-token-paint-png.sh` → **"PNG通道=无红 ⇒ 缺口实证（两色通道一致缺席，
+  宿主回调 subtree 未进 paint/合成帧；修复另立轮）"**。读数含义：regionRgb 网格扫描与
+  ON 帧离屏 PNG（420x200，GD 按 selftest 同网格找红）两条通道一致找不到徽章——缺口在
+  "物化 subtree 的挂帧"路径，不在读数通道（与 tree30 的"有蓝读蓝"案分流）。
+- 挂帧路径现状：patch-host-element-cb.sh 的分叉 → gpuiBuildShimElement 调 PHP → emitTree
+  进宿主 batch（帧 arena，与 gpuiRenderShimItems 同款）→ 根 SpecId 回来 → **挂在何处待侦察**；
+  对照：patch-host-list 的行渲染 pixel 可见（虚拟列表行有像素证据）、patch-host-data 的
+  SnapshotRowsWith 数据路不进树。差异点就是修复位置。
+- 验收口径：修复后重跑判别臂应翻转为"PNG通道=有红@(x,y)"；kit selftest 的
+  tokenDeliveryRender/messageRowRender 像素读数从 advisory 升硬门。
+
+## Phase 32 A2 批1 施工（2026-10-31，泄漏修复 + 诊断加固）
+
+- **A2 item1（分支B：shim 分叉结构对齐）——泄漏修复已落**：
+  - `gpuiBuildShimElement`（cpp-src/gpui_shim_events.inc:459）末尾补 `delete batch;`，
+    与同文件 gpuiRenderShimItems:265 / gpuiRenderShimToken:403 同款。`grep -c 'delete batch'`
+    = 3，三处各一。
+  - patch-host-element-cb.sh 的 python 注入体补 `if (!hostOk) delete hostBatch;`
+    （runtime.cpp:13284）——条件删除避免与 gpuiBuildShimElement 内的 `delete batch;`
+    双重释放：强符号返回 true 时自删，弱桩返回 false 时调用方补删。
+  - patch-host-element-cb.sh 的幂等校验更新为三条件（hook 签名 + weak 桩 + delete hostBatch），
+    缺一即报错退出。沙箱 runtime.cpp 亲验 `grep -c 'delete hostBatch'` = 2
+    （注释 + 代码各一）。
+  - RenderInlineToken shim 分叉核对：gpuiRenderShimToken（gpui_shim_events.inc:403）已有
+    `delete batch;`，runtime.cpp:12766 的分叉调用路径无其他泄漏点。
+  - **注意**：gpuiBuildShimElement 的四条 early return 路径（dead view / not installed /
+    unknown callback id / nested build，inc:424-441）在 `delete batch;` 之前返回，这些路径
+    仍泄漏 batch。但这些都是错误路径（实测不触发），成功路径已修复。若要完全消除需重构为
+    RAII 或在每个 early return 前补 delete，列为后续清理项。
+
+- **A2 item2（配套诊断：PushOp 静默失败 + 零 op 可观测性）——诊断加固已落**：
+  - `gpui_shim_param_style`（gpui_shim_services.inc:276-279）与 `gpui_shim_method`
+    （:291-294）：`if (!box->arena().PushOp(spec, so)) noteError(box, ...)`，
+    参照 gpui_shim.cpp:1414-1417 的 unknown kind 处理模式。两处都在宿主 batch 语境
+    （box->building 路由，gpui_shim.cpp:99-100）下生效。
+  - `cmd/patch-diag-zero-ops.sh` 新补丁：materialize.cpp 的 ops 环后加 Div/HFlex/VFlex
+    裸节点 ops 数为 0 的 logf 告警（marker: `typephp-gpui: zero-op diagnostic`）。
+    已登记 bin/gpui patchManifest() + GPUI.lock。
+  - selftest 日志实测：zero-ops logf 触发 10 次（全部在渲染初期），PushOp noteError
+    **未触发**（无 "not pushed" 输出）——说明 PushOp 返回 true（op 落档成功），
+    但 badge 元素仍无红。这排除了"PushOp CheckLive 失败导致 op 不落档"的假设。
+
+- **判别臂读数（核心验收）**：`bash cmd/check-token-paint-png.sh` →
+  **"PNG通道=无红 ⇒ 缺口实证"**——泄漏修复未翻转像素缺口。
+  tokenDeliveryRender 门：徽章@=null、徽章帧=rgb(224,221,217)（背景色非红）、
+  renderCalls=2636（回调确实被调）。结论：**分支B（泄漏）不是像素缺口的根因**；
+  缺口在 badge 元素的样式落位或渲染路径（emitTree→PushOp 链路虽通，但 badge 的
+  background op 可能未落到正确节点），需另轮定位。
+
+- **验收清单**：
+  - `grep -c 'delete batch' cpp-src/gpui_shim_events.inc` = 3 ✓
+  - `grep -c 'delete hostBatch' build/gpui-kit-cpp/src/shell/runtime.cpp` ≥ 1 ✓（=2）
+  - `php bin/gpui selftest kit` → KIT SELFTEST OK ✓（10 次 zero-ops logf 输出）
+  - `vendor/bin/pest` → 137 passed (959 assertions) ✓
+  - `bash cmd/check-token-paint-png.sh` → 无红（未翻转，缺口坐实另轮）✓（预期读数）
+
+## Phase 32 A2 专轮结案（2026-11-01 主会话亲验 + 手动补完批2 收尾）
+
+- 运行链：e6dc4f82（rate_limited 停）→ 用户 GUI 切 spark-x2.6-4b → f126a85e；用户停于
+  批2 施工中途（批1 全绿、批2 补丁与门改动已落）。我亲验 + 手动补完批2 收尾。
+- **真根因（批2）**：gpuiRenderShimToken 的 `if(root)` 把合法 spec 0（SpecArena 首个
+  spec）判为"无元素"跳过 ShellMaterializeSpec——徽章从未被物化；消息行经
+  gpuiBuildShimElement 的 `if(root)` 同款跳过。修复：`if(root!=0 ||
+  batch->Structure().value!=0)`（gpui_shim_events.inc:396/452 两路径已落）。
+- **亲验读数**：判别臂翻转 PNG通道=有红@(42,44) rgb(255,0,0)；kit selftest 两像素硬门过：
+  tokenDeliveryRender（徽章@=[42,44]，ON 帧网格扫描定位、OFF 帧同点回落 label chip
+  非红——正负对拍）、messageRowRender（行@=[60,50] 扫描定位，行底色 #eef4ff 签名 b>245，
+  负向滚动器同扫无行底色）；KIT SELFTEST OK；kit shotdiff 全绿（selftest 独立窗，树截图不变）。
+- **判据教训两条**：①判别臂脚本的 regionRgb 臂读时点早于徽章物化（selftest 扫描在
+  inputReplaceToken+loop(4) 之后读得到）——探针"通道分歧"是时点伪分歧，regionRgb 通道
+  经扫描实证可用；②消息行门的固定坐标 (60,90) 打进行间间隙（行在 y≈48..78/105..145/
+  175..205，间隙 y≈80..105）——门坐标按几何算，不能拍。
+- coverage 中英 A2 叙事校准至闭环口径（批1 泄漏修复 + 批2 物化根因 + 两硬门 + 时点注）。
+- 提交：feat 一笔（补丁+shim+kit 门+coverage 中英）+ docs 一笔（三件套归档）。
+- **A2 专轮结案**。延后清单系列两轮（续集批1-5 + 收尾批1-4）+ A2 专轮全部收官；代码级
+  待办清空，剩真人 HID 五项（testing.md 清单 v2）。
