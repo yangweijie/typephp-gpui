@@ -2951,3 +2951,41 @@ run `dwfrun-1ebf1186`（被用户停，批1+批2 施工完成门禁全绿，批3
   在当时的产物上成立，但全量电池会抓到新红 ⇒ 本批修完后 `all-examples` 需要整跑复验才算。
 - [x] 修完立刻整跑复验（不沿用批8 那份）：`bash cmd/all-examples.sh both` = **ALL EXAMPLES: OK**，
   28 行全 rc=0（现场 `/tmp/g124-allex-final.log`）⇒ 17-H 的"机器侧无剩余待办"在今晚的产物上重新成立。
+
+### Phase 34 批13（2026-11-02，#109：真人 HID 清单根本没有入口）
+- [x] 触发点：用户照我给的命令跑 `./examples/kit/build/kit` ⇒ `FATAL RuntimeException:
+  No window created.`。我上一轮那句"H2/H4 现在就有可跑的交互入口"是**只读代码没跑**得出的，
+  当场被推翻 ⇒ 交付给人的命令必须自己先跑一遍。
+- [x] 三条实缺陷（都量过）：
+  ① 交互路径在建窗**之前** `wireKit`，而 wireKit 里有 `bindKeys`/`elementCallback` 这类窗口
+     API ⇒ 裸跑必 FATAL（`--shot`/`--automation`/`--selftest` 三条都是 create→createWindow→wireKit，
+     只有交互这条不是）。
+  ② 交互模式把像素树写死 `section 1` ⇒ H1（NativeMenu，树 3）/H3（Accordion，树 2）/H5（token+link，树 3）
+     连开都开不出来；token 还只在 automation 路径预造粒，交互窗口里根本没有那颗 chip。
+  ③ 事件只写进内存 `kitLog`，终端不回声 ⇒ "事件到 PHP"这一栏没有读数（H6 的 hoverId 非零侧同理）。
+- [x] 修法：新增 `kit --section <1..4>`（交互可选树）；交互路径改成与另三条同序；树 3 在
+  `view()` 之后 `loop(4)` 泵到首帧物化**再** `inputReplaceToken`（照 --automation 的顺序）；
+  交互里每个事件打 `KIT-EVENT <键>=<值>`、悬停 id 变化打 `KIT-HOVER hoverId=<n>`；
+  非法值 fail-closed（`--section`／`--section abc`／`--section 9` 各自 rc=2 并给具体消息）。
+- [x] 自己踩到的两条新坑（都记进代码注释）：
+  ① `ctype_digit` 不在 nano 扩展集里，而引用它让产物**在启动阶段**就报
+     "Unable to start PHP Nano extensions" —— 连提前 return 的 `--sections` 都起不来，
+     rc=1 且零行号线索；换成 `(int)` + 表查找后 24/24 起窗正常。
+  ② `flush()` 也不在扩展集里，但它是**调用时**抛 `function 'flush' is undefined`
+     （被 main 的 try/catch 收成 rc=12）——同一个"函数没编进来"有两种失败面，别混为一谈。
+  ③ `--section` 起初被自家"未知开关"扫描拒掉（`未知开关: --section`），与 2026-10-22 的
+     `--automation` 是同一形状；扫描加了白名单后双向一致（那颗 Pest 门比的是"读取集合＝声明集合"，
+     看不见顺序，所以顺序错只能靠真跑）。
+- [x] 一次没归因干净的间歇：修好顺序前，头两次 `--section 3` 打出
+  `component window state is missing; call component::Init before KitOpenWindow` 并 SIGABRT（rc=134，2/6）；
+  改成"首帧后再造粒"之后累计 **40/40 起窗存活、0 次 panic**（12+12 两轮 + 复验 8+8 + 之前 4+4）。
+  归因只是相关性（中间还夹着 flush 那一版），记在此不冒充因果。
+- [x] 读数状态分开说：`KIT-HOVER` 那行真跑里打出过（自然退出的一轮里 `hoverId=0`）；
+  `KIT-EVENT` 的 echo 与它同一段闭包、处理器被 selftest 送达断言覆盖，但"人点一下就有这行"
+  本会话没有被机器亲眼验过（没真人点、automation 侧拿不到行缓冲）⇒ 文档里明写这一点，
+  请第一次手跑的人确认，没出现就按 H1/H3/H5 记新缺陷。
+- [x] 复跑：`bash cmd/all-examples.sh both` = ALL EXAMPLES: OK（28 行 rc=0）；pest 141/975
+  （含开关双向自洽那条门）；`check-doc-claims` rc=0；`docs:build` rc=0；锚点 OK（74 条 / 16 带锚）。
+- [x] 文档同轮：`cli.md`（中英）把 `--section` 写进"人来做的那一步"清单并说明裸二进制优先与
+  块缓冲的坑；顺手修了 zh cli.md 里两条命令挤在同一行的旧缺陷（`--escape` 与 `--dock`）；
+  `testing.md`（中英）HID 清单加了"这六格怎么打开"的命令块与读数说明。

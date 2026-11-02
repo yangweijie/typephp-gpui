@@ -2875,3 +2875,15 @@ bin/gpui、GPUI.lock、tests/baseline/input/tree1.png（两度重录）、compos
   phpstan No errors、UPSTREAM PARITY OK、SHIM CPP TESTS OK）；`task_plan.md` 未勾项计数 0；
   `examples/showcase` 目录已不存在，examples/docs/tests 里只剩一条历史注释（input/src/main.php:743）
   提到它，没有可跑的 showcase 目标。工作树干净。
+
+## 2026-11-02 Phase 34 批13：#109 真人 HID 清单没有入口（我给的命令自己没跑过）
+- 用户照命令跑 ⇒ FATAL。三条缺陷都实测：交互路径建窗前 wireKit（必崩）、树写死 1（H1/H3/H5 开不出来）、
+  事件只进内存（没有读数）。修法：`kit --section <1..4>` + 同序建窗 + 首帧后预造粒 + `KIT-EVENT`/`KIT-HOVER` 回声，
+  非法值 fail-closed（`--section`、`abc`、`9` 各自 rc=2）。
+- 新坑两条：`ctype_digit` 不在 nano 扩展集 ⇒ **启动**就失败（连提前 return 的模式都起不来）；
+  `flush()` 也不在 ⇒ **调用时**抛 Error（rc=12）。`--section` 起初被自家未知开关扫描拒掉，
+  与 2026-10-22 的 `--automation` 同形状 ⇒ 扫描加白名单；Pest 的门比集合不看顺序，所以顺序只能靠真跑。
+- 归因诚实记：改顺序前头两次 `--section 3` 打 "component window state is missing" + SIGABRT（2/6），
+  改后累计 40/40 起窗存活 0 panic —— 相关性，不是证明。
+- `KIT-HOVER` 那行实测打出过；`KIT-EVENT` 的"点一下就有"本会话没有机器实样 ⇒ 中英文档明写这条限制。
+- 复跑：all-examples 28 行 rc=0、pest 141/975、doc-claims rc=0、`docs:build` rc=0、锚点 74 条 OK。

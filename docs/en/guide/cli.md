@@ -115,11 +115,22 @@ verdict, exits 0 only if a real key arrived), `--trace` (appends every event
 that reaches PHP to `/tmp/input-events.log`) and `--automation <dir>` (external
 commands drive the real window — usable on its own, no `--trace` needed; the
 verb table is in [Testing](./testing)). `overlay --escape` and
-`layout --dock` are the other two. Unknown flags are rejected with exit 2 rather
+`layout --dock` are the other two. `kit` adds one more for the human checklist:
+`--section <1..4>` opens the **interactive** window on that pixel tree (tree 2 holds
+the Accordion trigger, tree 3 the NativeMenu trigger plus the token chip and the link),
+and every event prints `KIT-EVENT <key>=<value>` while a hover-id change prints
+`KIT-HOVER hoverId=<n>`. Launch the built binary directly
+(`./examples/kit/build/kit --section 3`) rather than `php bin/gpui run`, which replays
+the whole build chain every time. Output goes to stdout, and a redirected stdout is
+block-buffered — the readings appear when the process exits, so run it in a terminal.
+That flag was added on 2026-11-02 because the interactive path had no way to reach trees
+2-4 at all, and because it registered its callbacks before creating the window, so a bare
+`./examples/kit/build/kit` died with "No window created". Unknown flags are rejected with exit 2 rather
 than falling through to the interactive window, so a mistyped mode fails fast.
 That rejection message is the CLI's only user-facing manual, and a gate now
 insists that it lists exactly the flags the code reads — a flag read only behind
-that guard was rejected by its own CLI (`--automation`, fixed 2026-10-22).
+that guard was rejected by its own CLI (`--automation`, fixed 2026-10-22; `--section`
+hit the same wall on 2026-11-02 and is now whitelisted in that scan).
 There is no `--liveclick`, `--livetyping`, or `--probe-events` any more: what
 they used to read is asserted by `chrome`'s `navRowsReachable` (first frame must
 already be clickable), `input`'s per-box typing, and the per-domain event gates in

@@ -36,6 +36,28 @@
 像素证据与真人验收互不背书（见下文论述）。汇总依据：kit selftest 的 advisory
 读数（2026-10-31 实跑）。
 
+**这六格怎么打开**（裸二进制直起，别走 `php bin/gpui run`——它每次重放整条构建链）：
+
+```bash
+./examples/kit/build/kit               # 或 --section 1：H2 Resizable 把手、H4 hover/always 两盒
+./examples/kit/build/kit --section 2   # H3 Accordion 的 trigger
+./examples/kit/build/kit --section 3   # H1 NativeMenu 触发器、H5 token 徽章 + link 文字
+./examples/kit/build/kit --section 4   # H4 的独立对拍页（两盒同构，只差 scrollbarMode）
+```
+
+交互模式里每收到一个事件打一行 `KIT-EVENT <键>=<值>`（H1 的 `nmCopy=action`、H3 的
+`accI0=open`、H5 的 `tokClick=delivered` / `linkClick=delivered`），悬停 id 变化打一行
+`KIT-HOVER hoverId=<n>`（H6 要看的"非零侧"就是它变成非零）。读数走 stdout：重定向到文件时
+PHP 块缓冲，要等进程退出才落盘，所以人在屏幕前直接跑。
+**这条读数本分的实测状态要分开说**：`KIT-HOVER` 那行在本轮真跑里打出过（一次自然退出的会话里
+读到 `hoverId=0`）；`KIT-EVENT` 的 echo 与它同一段 `$log`，而那段闭包里的处理器由 selftest 的
+送达断言覆盖——但**"人点一下就看到 KIT-EVENT 行"这句还没被机器亲眼验过**（本会话没有真人点击，
+`--automation` 那侧的 stdout 又拿不到行缓冲）。所以第一次手跑请确认这行出现，没出现就是新缺陷，
+按 H1/H3/H5 记回来。这颗开关是 2026-11-02 补的——之前
+交互模式把像素树写死成 1，且在建窗**之前**就 `wireKit`（里面有 `bindKeys`/`elementCallback`
+这类窗口 API），于是裸跑 `./examples/kit/build/kit` 直接 FATAL「No window created」：
+H1/H3/H5/H6 不是"没验"，是**没有入口**。
+
 | # | 项 | selftest 现状（机器半边） | 真人操作 | 期望读数 |
 |---|---|---|---|---|
 | H1 | NativeMenu 行选中送达 | `nativeMenuShape` 只断工厂形状（trigger 硬带 on_effect_error + item(label,action) + children 白名单） | 前提=应用前台；真点触发器弹 OS 菜单（keyed event effect），再真选一行（两次真人交互——NSMenu 行选择是模态会话，合成点击够不到） | `$app->on($action,'action',…)` 的处理器收到一条事件，事件 id = 行声明的 action 名 |

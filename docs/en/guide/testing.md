@@ -326,6 +326,32 @@ H1–H3 (H1=Accordion, H2=scrollbar, H3=token/link) conflict with this. The auto
 (`cmd/check-accordion-toggle.sh` → v2 H3, `cmd/check-scrollbar-click.sh` → v2 H4,
 `cmd/check-token-link-hits.sh` → v2 H5) annotate their v2 numbering in comments.
 
+**Opening each row for a human pass** - launch the built binary directly, since
+`php bin/gpui run` replays the whole build chain on every call:
+
+```bash
+./examples/kit/build/kit               # or --section 1: H2 resize handle, H4 hover/always pair
+./examples/kit/build/kit --section 2   # H3 Accordion trigger
+./examples/kit/build/kit --section 3   # H1 NativeMenu trigger, H5 token chip + link text
+./examples/kit/build/kit --section 4   # H4 standalone pair (identical boxes, only scrollbarMode differs)
+```
+
+Interactive mode prints `KIT-EVENT <key>=<value>` for every event that reaches PHP
+(`nmCopy=action`, `accI0=open`, `tokClick=delivered`, `linkClick=delivered`) and
+`KIT-HOVER hoverId=<n>` when the hover id changes - that line turning non-zero is the H6
+reading. Both go to stdout, and a redirected stdout is block-buffered, so run it in a
+terminal rather than piping to a file. State of the evidence, split honestly: the
+`KIT-HOVER` line was actually observed in a real run this session (a naturally-exiting
+session printed `hoverId=0`), while `KIT-EVENT` shares that same `$log` closure whose
+handlers are covered by selftest delivery assertions - but "one click prints a KIT-EVENT
+line" has **not** been seen by a machine yet (no human click here, and the `--automation`
+side never showed line-buffered stdout). So on the first manual pass, confirm the line
+appears; if it does not, that is a new defect worth filing under H1/H3/H5. The selector and the echo were added on 2026-11-02:
+the interactive path was pinned to tree 1, and it called `wireKit()` before creating the
+window - `wireKit` uses window APIs (`bindKeys`, `elementCallback`) - so a bare
+`./examples/kit/build/kit` died with "No window created". Rows H1, H3, H5 and H6 therefore
+had no entry point at all, which is a different thing from "not yet verified".
+
 ## Pixel comparison
 
 `cmd/shotdiff.php` invokes `--shot`, captures a real window NSView into PNG, and

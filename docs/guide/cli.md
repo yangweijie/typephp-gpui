@@ -41,7 +41,9 @@ php bin/gpui selftest hello             # rc=0 即通过
 `<example>` 是 `examples/` 下的目录名：`hello` 是那条完整链路的样例，其余每一支都是一个
 **功能域**（名字就是域，`ls examples/` 即清单）。它们的开关是同一套：`--sections` 自报像素树号、
 `--shot <path> [tree]` 出图、`--selftest` 跑本域的门。一支只装一域，所以编译只花这一域的源，
-自检也边跑边打（一步一行，崩在哪行停在哪行）。
+自检也边跑边打（一步一行，崩在哪行停在哪行）。`kit` 另有一颗 `--section <1..4>`：把**交互**模式
+开到第 N 棵像素树——真人 HID 清单里 H1/H3/H5 那几颗只存在于树 2/3，没有它就开不出来
+（见[测试与门禁](./testing)的"真人 HID 复验清单"）。
 
 ```bash
 php bin/gpui build input --no-native    # 只跑 tpc，复用已建好的 gpui.o + libgpui_shim.a
@@ -60,7 +62,15 @@ php bin/gpui run input --wait-key 150  # 真人手按验收：按到 → rc=0，
 php bin/gpui run input --automation /tmp/auto  # 外部写命令、真窗口执行、目录里拿回执（单独用即可）
 php bin/gpui run overlay --escape      # 进程里第一个 dialog 的 Escape 探针
 php bin/gpui build layout --no-native && ./examples/layout/build/layout --dock  # Dock 交互
+./examples/kit/build/kit --section 2   # 真人 HID 清单 H3：手风琴 trigger（交互打开树 2）
+./examples/kit/build/kit --section 3   # 真人 HID 清单 H1/H5：NativeMenu 触发器、token 徽章与 link
 ```
+
+真人那一步请**直接起裸二进制**（上面 `./examples/.../build/...` 那种写法），不要走
+`php bin/gpui run`——那条每次都会重放整条构建链，几十秒的噪声盖住事件读数；链子本身没问题时
+它做的和裸跑一样。交互模式下 `kit` 每收到一个事件打一行 `KIT-EVENT <键>=<值>`，悬停 id 变化打
+`KIT-HOVER hoverId=<n>`（清单里"事件到 PHP"那一栏的读数就来自这两行）。注意重定向到文件时
+PHP 是块缓冲的，读数要等进程退出才落盘——坐在屏幕前直接跑才是一行一出。
 
 未知开关一律**当场拒绝**（`未知开关: …` + rc=2）。这条不是洁癖：静默忽略会一路落到交互
 `run()` 去开一扇窗口，于是"跑一下某个模式"变成永久挂住，什么结论都拿不到。
