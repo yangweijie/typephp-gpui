@@ -883,6 +883,12 @@ function wireKit(App $app): void
     $log = static function (string $key, string $val): void {
         ExampleState::$v['kitLog'][$key] = $val;
         ExampleState::$v['kitLog']['last'] = $key . '=' . $val;
+        // 真人验收（交互 / --section）把每次事件同时打一行到终端：HID 清单里"事件到 PHP"
+        // 那一栏需要的是读数，只落内存就只剩肉眼可见。自检与 --automation 不开这个开关，
+        // 那两条的 stdout 一字不变（cmd/check-*.sh 要在上面 grep 自己的判定行）。
+        if (ExampleState::$v['kitEcho'] ?? false) {
+            echo 'KIT-EVENT ' . $key . '=' . $val . "\n";
+        }
     };
     foreach (['kit-steps' => 'step', 'kit-pg' => 'page', 'kit-rate' => 'rate',
               'kit-hrg' => 'hrg'] as $id => $key) {

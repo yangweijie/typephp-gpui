@@ -17,7 +17,13 @@ declare(strict_types=1);
  * 逐棵渲染并断 registeredError/componentFailure 清零。
  *
  * 开关：
- *   （无参）              交互模式，能真点真敲
+ *   （无参）              交互模式，能真点真敲（等价于 --section 1）
+ *   --section <1..4>      交互模式打开第 N 棵像素树——真人 HID 清单 H1/H3/H5 的入口
+ *                         （NativeMenu 触发器在树 3、Accordion 在树 2、token+link 在树 3）。
+ *                         真人模式下每次事件打一行 `KIT-EVENT <键>=<值>`，悬停变化打
+ *                         `KIT-HOVER hoverId=<n>`——清单里"事件到 PHP"那一栏的读数就来自这里。
+ *                         〔2026-11-02 修：交互路径原先在建窗**之前** wireKit，且把 section
+ *                         写死成 1，于是裸跑直接 FATAL「No window created」〕
  *   --sections           打印本示例的像素树清单（shotdiff 按它枚举基线）
  *   --shot <path> [tree] 出一棵树的 PNG
  *   --selftest           跑本域的硬门，rc=0 即通过
@@ -79,17 +85,67 @@ function kitDispatch(array $argv): void
     }
     // 未知开关必须拒绝。静默忽略会一路落到交互 run() 去开一扇窗口，于是"跑一下某个模式"
     // 变成永久挂住（input 域踩过），拿不到任何结论；退出码 2 与"门红"的 1 分开。
+    // 白名单里是**本函数后面真会读**的开关：--section 走交互路径（读取点就在这段之后），
+    // 不在册就会被这里先拒掉——2026-11-02 实测过一次：`--section 3` 得到"未知开关: --section"。
+    $known = ['--sections', '--selftest', '--shot', '--automation', '--section'];
     foreach ($argv as $arg) {
-        if (is_string($arg) && str_starts_with($arg, '--')) {
+        if (is_string($arg) && str_starts_with($arg, '--') && !in_array($arg, $known, true)) {
             echo '未知开关: ' . $arg . "\n"
-                . "可用：--sections / --selftest / --shot <path> [tree] / --automation <dir> [tree] [height]\n";
+                . "可用：--sections / --selftest / --shot <path> [tree] / --automation <dir> [tree] [height] / --section <n>\n";
             exit(2);
         }
     }
-    ExampleState::boot(['section' => 1]);
+    // 真人验收入口（H1 NativeMenu 行选中 / H2 Resizable 把手 / H3 Accordion on_change /
+    // H4 always 滚动条 / H5 token+link 命中 / H6 悬停非零侧都走这里）。
+    //
+    // 顺序是修出来的：wireKit 里有 bindKeys / elementCallback 这类**窗口 API**，建窗之前
+    // 登记就撞 App::handle() 那句 "No window created"——2026-11-02 裸跑
+    // `./examples/kit/build/kit` 直接 FATAL，交互模式其实一直是坏的（--shot/--automation/
+    // --selftest 三条都先 create()+createWindow() 再 wireKit，只有这条没有）。
+    // 现在与那三条同序：建窗 → 登记 → 预造粒 → 每帧重算 → 主循环。
+    $secIdx = array_search('--section', $argv, true);
+    $sectionRaw = $secIdx === false ? '' : (string) ($argv[$secIdx + 1] ?? '');
+    $section = 1;
+    if ($secIdx !== false) {
+        // 不用 ctype_*：nano 的扩展集里没有 ctype，引用未编进的函数会让产物**在启动阶段**就
+        // 报 "Unable to start PHP Nano extensions"（2026-11-02 实测：加一行 ctype_digit 之后
+        // kit 的 --sections/--selftest 全模式起不来，rc=1 且没有任何行号线索）。
+        // 非数字经 (int) 变 0，落在 kitTrees() 的表外 ⇒ 同样 exit(2)。
+        $sectionNum = (int) $sectionRaw;
+        if ($sectionRaw === '' || !isset(kitTrees()[$sectionNum])) {
+            echo '--section 要 1..' . count(kitTrees()) . " 之间的树号（清单见 --sections）\n";
+            exit(2);
+        }
+        $section = $sectionNum;
+    }
+    ExampleState::boot(['section' => $section, 'kitEcho' => true]);
     $app = new App();
+    $app->create();
+    $app->createWindow('Kit · 真人验收 树' . $section, KIT_W, KIT_H);
     wireKit($app);
-    $app->run('Kit · tier-A 工厂批', KIT_W, KIT_H, 'kitTree');
+    $hoverSeen = -1;
+    $app->view(static function () use ($app, $section, &$hoverSeen): El {
+        // 悬停读数：真人清单 H6 要的是"hoverId 非零那一侧"，合成缝喂不出来（selftest 第 27 步
+        // 实测 armed=0），所以这里只在**值变化**时打一行，人眼配终端就能判。
+        $hover = (int) ($app->windowState()['hoverId'] ?? 0);
+        if ($hover !== $hoverSeen) {
+            echo 'KIT-HOVER hoverId=' . $hover . "\n";
+            // 不调 flush()：产物里没有这个函数，调了就抛 "function 'flush' is undefined"
+            // （2026-11-02 实测 rc=12）。真人直接在终端里跑就是行缓冲，一行一出。
+            $hoverSeen = $hover;
+        }
+        return kitTree($section);
+    });
+    // 顺序照 --automation：先泵几帧让 input 真物化，再预造粒。建完窗立刻调
+    // inputReplaceToken 是在 component 层还没就位时打它——2026-11-02 交互模式头两次跑
+    // 就打了 "component window state is missing; call component::Init before KitOpenWindow"
+    // 然后 SIGABRT（rc=134，2/6 命中）；换成"首帧后再造粒"这一句，20/20 起窗存活。
+    $app->loop(4);
+    if ($section === 3) {
+        // token 徽章原先只在 automation 路径预造过粒；真人这一格得看得见那颗 chip 才点得到
+        $app->inputReplaceToken('kit-tok-in', 'kit-tok-g1', '@张三', '张三');
+    }
+    $app->loop();
 }
 
 /** 边跑边打：一步一行。崩溃时最后打出来的那行就是案发现场。 */
