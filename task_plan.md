@@ -3086,3 +3086,28 @@ run `dwfrun-1ebf1186`（被用户停，批1+批2 施工完成门禁全绿，批3
   （60/60 颗全活、致命签名 0、advisory 60 条不判红；树 4 空集按通过计）；doc-claims + self-check
   rc=0；锚点 75/16 OK；`docs:build` rc=0。过程笔误一条记此不讳：电池里把 docs:build 跑成
   `composer docs:build`（它是 docs/package.json 的 npm 脚本）——rc=1 是我的命令错，不是项目缺陷。
+
+### Phase 34 批17（2026-11-03/04，真人 HID 轮：电脑控制 + 真人六步，H1-H6 全格过账）
+- [x] 入口：三棵树交互会话跑在 pty 里（`script -q` 行缓冲），KIT-EVENT/KIT-HOVER 边跑边落盘；
+  判定全部以 pty + 全屏截图为地面真值，不看任何一侧的口头结论。
+- [x] 机器侧新通道实测：a11y press 缝（AXPress → `accessibilityPerformPress`）能把点击类事件
+  送进 PHP——手风琴 6 次事件双向翻转（accI0 open→closed、accI1 open），真鼠标真人真点同一颗
+  也中（accI0=open）。H3 三条缝（fire/真鼠标/a11y）全通。
+- [x] H6 首次实测非零侧：真人光标停「悬停我」→ `hoverId=4`、移出回 0——批7 记账的
+  "合成缝喂不出"那一侧被真人缝补上，#106 headroom 有真人背书。
+- [x] H2/H4 终态过：分隔条 180→≈335（钳制 320 位）松手保持；always 盒真滚动（01→04）+
+  thumb 真画出；hover 盒无人悬停 thumb 常驻 ⇒ **#112 在树 4 复现**（隔 4s 再拍仍在）；
+  连续性/两帧移动未逐帧测，记账不冒充。
+- [x] 三条新缺陷立账：**#115** NativeMenu 行选中 action 0 送达（真人真点复制路径后 stdout 与
+  kitLog=[] 双证；与 actionDeliveryGate 旧读数 dispatchAction=false 同缝）——H1 被它挡着；
+  **#116** link 真鼠标 0 送达 vs `linkRealClick` 合成缝 6/6（缝分叉：原生 mouseUp 进不了
+  DispatchMouseUp 派发链；href 是否被打开未验）；**#117** 交互树 3 预造 token chip 画成
+  「提及」≠ @张三 + 真人报"无法输入"——真鼠标 token 命中仍未验。
+- [x] #113 当场复现（路径绘制三角压「第一节」文字，树 1 截图）。#110 设计题未动（真人没点
+  那三颗弹层触发器，WARN 行照打）。
+- [x] 过程坑（都记进 findings）：CUA 对 gpui canvas 的帧门（坐标动作全拒，授权齐了也没用）、
+  app_ref 只认 `{name,pid}`、menubar 激活 + Hide Others 腾前台（把宿主应用藏了要提醒）、
+  共享机器注入事件与真人打架（菜单 Return 落空）。
+- [x] 文档同轮：中英 testing.md 各加"2026-11-03/04 真人 HID 轮的账"一块 + H1/H2/H4/H5/H6
+  行内补今晚读数；findings 记三条缝判据。
+- [x] 未跑电池（本批只动 .md 台账，无代码/门变更）；提交前锚点门 + doc-claims 照跑。

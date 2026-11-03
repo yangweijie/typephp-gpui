@@ -2922,3 +2922,11 @@ bin/gpui、GPUI.lock、tests/baseline/input/tree1.png（两度重录）、compos
   与"量出来的空集"（树 4 全 click=0）混一档 ⇒ 分两种空，空集通过需同轮他树 >0 前提。
 - 复跑：test:all rc=0、all-examples 28 行 rc=0、kit-gates 3/3（60/60 全活、致命签名 0）、
   doc-claims+self-check rc=0、锚点 75/16、docs:build rc=0（npm——电池里误跑成 composer 记账不讳）。
+
+## 2026-11-03/04 Phase 34 批17：真人 HID 轮（电脑控制 + 真人六步）
+- 三棵树 pty 会话 + 真人手点：H3 ✓（真鼠标+a11y+fire 三缝全通）、H6 ✓（hoverId=4 首次非零实测）、
+  H2/H4 终态 ✓（divider 180→≈335 保持；always 滚动生效 + thumb 真画；#112 在树 4 复现）。
+- 立账 #115（菜单行选中 0 送达，同 actionDeliveryGate 旧缝）、#116（link 真鼠标 vs 合成缝分叉）、
+  #117（token chip 文字「提及」≠ @张三 + 输入框无法输入）。#113 当场复现。#110 设计题未动。
+- CUA 帧门/app_ref 形状/Hide Others 腾前台/共享机器事件打架——过程坑全记 findings。
+- 文档：中英 testing.md 真人轮账 + 五行读数补注；findings 三条缝判据。只动台账，提交前跑锚点+doc-claims。

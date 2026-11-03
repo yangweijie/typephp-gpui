@@ -28,6 +28,41 @@
 | 21 | 能力对照表不许与代码打架（两个方向） | `php cmd/check-doc-claims.php`（`composer check:doc-claims`；CI docs job 里紧跟锚点门，先跑 `--self-check`） | 同一判据的正反两面，共扫四张表。**A 少报**：`upstream-coverage.md`（中英）"上游概念对照"表里带缺口标记（❌/未接/not exposed/not supported）又反引号点名了一个**真实存在的 `El`/`Element`/`App` 公开方法** ⇒ 红，打 file:line 与方法全名。起因是 2026-11-02 实测到的自相矛盾：第 3 节写着动画糖已接（`El::transition()`/`El::spring()` + kit `transitionInterpolation` 门），对照表里却还留着 `Animation ❌ transition/spring 整族未接`。**B 多报**（同日补）：`system-capabilities.md`（中英）「已接」/「Connected APIs」表**第一列**签名的方法在代码里根本不存在 ⇒ 红；带前缀的（`El::x()`、`$app->x()`）按那个类判，裸名按三张表并集判，`App::a/b/c` 这种斜杠清单逐成员判。判据刻意窄：A 不扫"端口里有、还没接"那类表，因为那里把**已接**的方法当对照上下文写进同一格（deflate 那行的"解压侧已经接了（`App::inflate`）"），扫它必假红；B 只扫第一列且只认调用形（名字后紧跟 `(` 或 `/`），所以第二列的 C++ 符号与 `move_to` 一类上游名不误红。窄界是量出来的：把 A 放宽到两份 coverage + 两份能力页 + components + events 的**全部**表格，多出来的命中只有一条——`upstream-coverage.md:181` 里路径 op 名 `close` 恰好等于真方法 `App::close()` ⇒ 放宽就是 1 条假红，所以 A 停在概念表。正向读数 `DOC CLAIMS OK — 扫 4/4 张表（A:21 A:20 B:34 B:34 行），方法并集 587 名`。红臂实测（逐条往真文档插一行再撤销）：插 `El::notARealSurface()` ⇒ `FAIL (1 = 少报 0 / 多报 1)`；插 `El::clipboardText()` 加 `$app->notHere()` ⇒ `多报 2` 且分别打「El 类没有」「App 类没有」（跨类误配判得出）；A 侧插裸名与带前缀两种写法各 ⇒ `少报 1`；负对照插 `shell::ZlibDeflate` 与 `move_to` ⇒ 仍 rc=0；前提臂把 zh 标题改成「接通清单」⇒ rc=2 未判定并打「『已接』表里没读到任何行」，撤销后回 rc=0。`--self-check` 是探测器自检：A、B 各内置一对样本（矛盾必须判红、合法必须不判红） | 否 |
 | 22 | 逐颗点击不许带走宿主（广度门，#111/#110 那一类） | `php cmd/check-click-survival.php`（`composer check:kit-gates` 批量入口的第三道；CI 原生 job 一步；`--tree <1..4>` 只扫一棵，红臂复测用） | 具名门（`accordionRealClick`／`linkRealClick`／`checkboxRealClick`…）各守一颗控件，它们全绿只说明"写过关的那几颗活着"。#111 的根因是上游把 content 实体**裸转**成 `ScriptView` 后读首字段（`Entity<T>::Get` 无类型校验，`gpui.h:6830`），命中范围是 `component_shell` 整个家族——2026-11-03 实测同一棵树 18 颗可点控件 **8 颗 SIGSEGV**，多数没人写过关。本门把四棵树里每颗 `click=1` 的控件**各起一个 automation 会话**点一遍：坐标从当轮 `hits.txt` 现算，只按"宽度≥8"筛、**不看高度**（h=0 的行照样吃得到点击，修前崩的正是那批）。硬判据两条：每颗会话 rc 必须为 0（139=SIGSEGV／134=SIGABRT），且 stdout+stderr 不得出现 `belongs to a superseded render` 或 `window state is missing` 这两条签名；其余 `shell:` 告警只计数不判红——这是本门自己声明的边界。"点了没反应"不归本门（那要先有 PHP 处理器才有读数，由具名门负责）。未判定面（rc=2）：命中表**一行都没有**（探测没量到东西）、全树零可点（本轮没有一棵树证明提取链路通）、产物缺、未知或缺失的 `--tree` 值；命中表**有行但全 click=0**（树 4 本就是纯文本滚动盒）＝量出来的空集，按通过计——前提是同轮他树量到 >0 颗（单树 `--tree 4` 跑给不了这个前提，实测 rc=2）。正向读数（2026-11-03 修复后产物）：`CLICK-SURVIVAL OK（判 60/60 颗可点控件全活着、无致命签名；advisory shell: 告警 60 条不判红；树 4 可点 0 颗（量出的空集，同轮他树已证链路通））`；红臂＝把 `PhpView` 首字段换回 `Box2*` 后同门在树 2 判红（实测该臂下 18 颗里 8 颗 rc=139） | 是（二进制 + 窗口会话） |
 
+**2026-11-03/04 真人 HID 轮的账（电脑控制 + 真人六步，读数全部以 pty 的 KIT-EVENT/KIT-HOVER
+与全屏截图为准；"a11y 缝"= macOS 辅助功能 AXPress → 上游 `accessibilityPerformPress` →
+`WindowAccessibilityPerform`，是 fire 缝、真鼠标缝之外的第三条机器侧通道）**：
+
+- **H3 手风琴：过**。真人真点「第一节（点我翻页）」→ `KIT-EVENT accI0=open`；a11y 缝点同一颗
+  再点「第二节」共 6 次事件双向翻转（`accI0=open→closed→accI1=open`）。真鼠标缝、a11y 缝、
+  fire 缝三条通道都能把 on_change 送进 PHP。
+- **H6 悬停非零侧：过（首次实测）**。真人光标停进「悬停我」→ `KIT-HOVER hoverId=4`（非零），
+  移出回 `hoverId=0`。合成缝喂不出的那一侧（批7 记账）被真人缝补上了，#106 色态判据的
+  headroom 从此有真人实测背书。
+- **H2 Resizable：终态过，连续性未逐帧测**。真人按住把手拖动后分隔条停在
+  面板甲 ≈335px（默认 `panelSize(180)`、range 上限 320——顶到钳制位），松手后保持；
+  "随拖连续变化"只有真人单方陈述 + 终态像素，没有逐帧证据，如实记账。
+- **H4 scrollbar always：主断言过 + #112 复现**。真人悬停 always 盒滚动 → 内容真滚了
+  （首行从 第01 变 第04）且右缘 thumb 真画出（截图）；同一帧里 hover 盒**无人悬停**却
+  挂着 thumb、隔 4 秒再拍仍在 ⇒ **#112（hover 盒滚动条常驻）在树 4 也复现**；
+  "thumb 随滚动移动"未做两帧对比，记边界。
+- **H1 NativeMenu：弹得出、选不达（#115 立账）**。真人真点触发器 → OS 菜单弹出（截图实证；
+  a11y AXPress 触发同一结果）→ 真点「复制路径」→ **PHP 零事件**（stdout 无 KIT-EVENT 行、
+  窗口内 `kitLog=[]` 双证）。与 findings 里 `actionDeliveryGate` 已量到的
+  `dispatchAction(kit::copy)=false` 是同一条缝——真人端到端确认了它。H1 被
+  **#115（行选中 action 到不了 PHP）** 挡着。
+- **H5 link 半边：真鼠标 0 送达（#116 立账）**。真人真点「打开文档」→ PHP 零事件（同上双证）。
+  而 `linkRealClick`（合成 realClick 缝）6/6 绿 ⇒ **两条缝分叉**：真鼠标 mouseUp 进不了
+  link 的派发链（href 是否被 OpenUrl 打开未验，待问第一位手点的人）。
+- **H5 token 半边：预造粒文字不符（#117 立账），真鼠标命中未验**。交互树 3 的
+  `inputReplaceToken('kit-tok-in','kit-tok-g1','@张三','张三')` 之后输入框里那颗蓝 chip
+  画的文字是「**提及**」（截图放大 3x 实读），不是 @张三；真人回报"没看见蓝底、无法输入"。
+  token 的真鼠标命中继续挂在真人清单上。
+- **#113 当场复现**：树 1 的路径绘制红绿三角压住「第一节」文字（截图）。
+- 过程账（不冒充结论）：CUA 对 gpui canvas 的应用内截图与坐标动作被
+  "no usable pixel-to-pointer rectangle" 帧门挡死（授权全给也拿不到像素矩形）⇒ 本轮用的是
+  a11y 元素点击 + 键盘（`{name,pid}` 形状才被解析）+ 宿主 `screencapture` 截屏 + pty 读数
+  的混合法；共享机器上注入事件与真人操作互相打架（发进菜单的 Return 落空）。
+
 ### 真人 HID 复验清单 v2（批4 C1）
 
 门禁表量的是机器可判的部分；下面六项的**期望证据只能真人手做**。每项格式 =
@@ -97,12 +132,12 @@ H1/H3/H5/H6 不是"没验"，是**没有入口**。
 
 | # | 项 | selftest 现状（机器半边） | 真人操作 | 期望读数 |
 |---|---|---|---|---|
-| H1 | NativeMenu 行选中送达 | `nativeMenuShape` 只断工厂形状（trigger 硬带 on_effect_error + item(label,action) + children 白名单） | 前提=应用前台；真点触发器弹 OS 菜单（keyed event effect），再真选一行（两次真人交互——NSMenu 行选择是模态会话，合成点击够不到） | `$app->on($action,'action',…)` 的处理器收到一条事件，事件 id = 行声明的 action 名 |
-| H2 | Resizable 拖拽把手 | `catalogResizableShape` 只断形状（无拖拽） | 前提=窗口前台；真按住面板间把手拖动 | 面板尺寸随拖动连续变化（ResizablePanel 的 resize 读数/视觉宽度），松手后保持 |
+| H1 | NativeMenu 行选中送达 | `nativeMenuShape` 只断工厂形状（trigger 硬带 on_effect_error + item(label,action) + children 白名单） | 前提=应用前台；真点触发器弹 OS 菜单（keyed event effect），再真选一行（两次真人交互——NSMenu 行选择是模态会话，合成点击够不到） | `$app->on($action,'action',…)` 的处理器收到一条事件，事件 id = 行声明的 action 名 || H1 | NativeMenu 行选中送达 | `nativeMenuShape` 只断工厂形状（trigger 硬带 on_effect_error + item(label,action) + children 白名单） | 前提=应用前台；真点触发器弹 OS 菜单（keyed event effect），再真选一行（两次真人交互——NSMenu 行选择是模态会话，合成点击够不到） | `$app->on($action,'action',…)` 的处理器收到一条事件，事件 id = 行声明的 action 名；2026-11-03/04 真人轮：弹菜单两侧实测 ✓（真人真点 + a11y AXPress）；**行选中 0 送达 ⇒ #115** |
+| H2 | Resizable 拖拽把手 | `catalogResizableShape` 只断形状（无拖拽） | 前提=窗口前台；真按住面板间把手拖动 | 面板尺寸随拖动连续变化（ResizablePanel 的 resize 读数/视觉宽度），松手后保持 || H2 | Resizable 拖拽把手 | `catalogResizableShape` 只断形状（无拖拽） | 前提=窗口前台；真按住面板间把手拖动 | 面板尺寸随拖动连续变化（ResizablePanel 的 resize 读数/视觉宽度），松手后保持；2026-11-03/04 真人轮：拖后分隔条停在 ≈335px（默认 180/上限 320 钳制位）松手保持 ✓；连续性未逐帧测 |
 | H3 | Accordion trigger on_change 送达 | `accordionCatalogShape` 断形状（header/panel 槽契约）+ `accordionToggleGate`（独立窗口 regionRgb 面板开/关两态——关态无蓝底、开态有蓝底，依赖批1 open 参数暴露）+ **`accordionRealClick`（2026-11-03 补：独立窗真点 catalog 头部，矩形现算，断 on_toggle 到 PHP；#111 的回归位，红臂实测 5/6 SIGSEGV）** | 前提=窗口前台；真点 trigger 头 | `on_change` 事件到 PHP（open 状态翻转），panel 展开/收起与事件一致 |
-| H4 | scrollbar always 真画 | `scrollbarModePaintPair` regionRgb 两盒同色（advisory，macOS 无头渲染自动隐藏）；`cmd/check-scrollbar-paint.sh` --shot 通道也同色 **applicable=false 亲测**（2026-10-31，rgb(223,223,223)）；`scrollbarHandleProbe` 独立窗口硬门（自绘路径 ApplyBar 画条——非 NSScroller overlay，批1 的自动隐藏结论不适用这条） | 前提=窗口前台；鼠标悬停 always 盒并滚动 | always 盒右缘出现 thumb 且随滚动移动；hover 盒仅悬停时出现——两盒右缘区域色从此可判互异 |
-| H5 | token + link 鼠标命中 | `tokenDeliveryRender`（造粒/事件送达/renderCalls/徽章像素落位全硬门绿——Phase 32 A2 批2 root=0 物化修复后徽章@必有值）+ `linkDelivery`（fire 通道量化）+ **`linkRealClick`（2026-11-03 补：独立窗真点 markdown 链接，断 `link_click` 到 PHP；#114 随 #111 同根因掉，6/6 绿）** | 前提=窗口前台；真点击输入框内的 token 徽章、真点击 link 文字 | onTokenClick / on_link_click 事件到 PHP，事件载荷含 token/link 的 id |
-| H6 | 悬停态非零侧（`hoverId`） | selftest 第 27 步硬断"出图后 `hoverId` 必须为 0"与"命中表里找得到可悬停元素"，并把 `hoverArm=<armed>/<cleared>/hits=<n>` 作例行读数打出（实测 `0/1/hits=2`）；非零侧**断不了**：合成 `mouseMoved` 与 `mouseDown/Up` 打到按钮中心（主窗 `mainKey=1`）后 `hoverId` 仍为 0 | 前提=窗口前台；把真实光标移进那颗 `hover-me` 按钮并停住 | `hoverArm` 的第一位变 1（gpui 记到悬停），且此时出的图带 hover 底色——这一条同时给 #106 色态判据补上真正的 headroom |
+| H4 | scrollbar always 真画 | `scrollbarModePaintPair` regionRgb 两盒同色（advisory，macOS 无头渲染自动隐藏）；`cmd/check-scrollbar-paint.sh` --shot 通道也同色 **applicable=false 亲测**（2026-10-31，rgb(223,223,223)）；`scrollbarHandleProbe` 独立窗口硬门（自绘路径 ApplyBar 画条——非 NSScroller overlay，批1 的自动隐藏结论不适用这条） | 前提=窗口前台；鼠标悬停 always 盒并滚动 | always 盒右缘出现 thumb 且随滚动移动；hover 盒仅悬停时出现——两盒右缘区域色从此可判互异 || H4 | scrollbar always 真画 | `scrollbarModePaintPair` regionRgb 两盒同色（advisory，macOS 无头渲染自动隐藏）；`cmd/check-scrollbar-paint.sh` --shot 通道也同色 **applicable=false 亲测**（2026-10-31，rgb(223,223,223)）；`scrollbarHandleProbe` 独立窗口硬门（自绘路径 ApplyBar 画条——非 NSScroller overlay，批1 的自动隐藏结论不适用这条） | 前提=窗口前台；鼠标悬停 always 盒并滚动 | always 盒右缘出现 thumb 且随滚动移动；hover 盒仅悬停时出现——两盒右缘区域色从此可判互异；2026-11-03/04 真人轮：真滚动生效（首行 01→04）+ always thumb 真画出 ✓；hover 盒无人悬停 thumb 常驻 ⇒ #112 在树 4 复现 |
+| H5 | token + link 鼠标命中 | `tokenDeliveryRender`（造粒/事件送达/renderCalls/徽章像素落位全硬门绿——Phase 32 A2 批2 root=0 物化修复后徽章@必有值）+ `linkDelivery`（fire 通道量化）+ **`linkRealClick`（2026-11-03 补：独立窗真点 markdown 链接，断 `link_click` 到 PHP；#114 随 #111 同根因掉，6/6 绿）** | 前提=窗口前台；真点击输入框内的 token 徽章、真点击 link 文字 | onTokenClick / on_link_click 事件到 PHP，事件载荷含 token/link 的 id || H5 | token + link 鼠标命中 | `tokenDeliveryRender`（造粒/事件送达/renderCalls/徽章像素落位全硬门绿——Phase 32 A2 批2 root=0 物化修复后徽章@必有值）+ `linkDelivery`（fire 通道量化）+ **`linkRealClick`（2026-11-03 补：独立窗真点 markdown 链接，断 `link_click` 到 PHP；#114 随 #111 同根因掉，6/6 绿）** | 前提=窗口前台；真点击输入框内的 token 徽章、真点击 link 文字 | onTokenClick / on_link_click 事件到 PHP，事件载荷含 token/link 的 id；2026-11-03/04 真人轮：link 真点 0 送达 ⇒ **#116（与 linkRealClick 合成缝 6/6 分叉）**；token 预造 chip 画成「提及」≠ @张三 ⇒ **#117**，真鼠标 token 命中仍未验 |
+| H6 | 悬停态非零侧（`hoverId`） | selftest 第 27 步硬断"出图后 `hoverId` 必须为 0"与"命中表里找得到可悬停元素"，并把 `hoverArm=<armed>/<cleared>/hits=<n>` 作例行读数打出（实测 `0/1/hits=2`）；非零侧**断不了**：合成 `mouseMoved` 与 `mouseDown/Up` 打到按钮中心（主窗 `mainKey=1`）后 `hoverId` 仍为 0 | 前提=窗口前台；把真实光标移进那颗 `hover-me` 按钮并停住 | `hoverArm` 的第一位变 1（gpui 记到悬停），且此时出的图带 hover 底色——这一条同时给 #106 色态判据补上真正的 headroom || H6 | 悬停态非零侧（`hoverId`） | selftest 第 27 步硬断"出图后 `hoverId` 必须为 0"与"命中表里找得到可悬停元素"，并把 `hoverArm=<armed>/<cleared>/hits=<n>` 作例行读数打出（实测 `0/1/hits=2`）；非零侧**断不了**：合成 `mouseMoved` 与 `mouseDown/Up` 打到按钮中心（主窗 `mainKey=1`）后 `hoverId` 仍为 0 | 前提=窗口前台；把真实光标移进那颗 `hover-me` 按钮并停住 | `hoverArm` 的第一位变 1（gpui 记到悬停），且此时出的图带 hover 底色——这一条同时给 #106 色态判据补上真正的 headroom；2026-11-03/04 真人轮：**hoverId=4 非零首次实测**（悬停我，移出回 0）⇒ 非零侧不再是断不了的那侧 |
 
 前提不成立的标准记法：会话无 GUI/窗口不在前台/无法人工交互 ⇒ 该项记
 `applicable=false`（未验），**不得**引用 selftest 绿冒充已验，也**不得**因做不到

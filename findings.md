@@ -2951,3 +2951,31 @@ components + events 的**全部**表格行（缺口标记 + 反引号点名 + �
 教训一句：**fail-closed 不等于把所有"零"都当没量到**。零读数要么是探测断了（未判定），
 要么是被测对象真的是零（空集）——分开的凭据必须来自同一轮运行里的别的读数，不能靠记忆里的
 "上次这棵树有 44 颗"。
+
+## 真人 HID 轮（2026-11-03/04 深夜）：三条缝各说各话，真鼠标是唯一的裁判缝
+
+电脑控制（CUA）+ 真人六步把 H1-H6 全格过了一遍。H3/H6 全过、H2/H4 终态过、
+H1/H5 收出三条新缺陷（#115/#116/#117）。可复用的判据：
+
+1. **同一事件两条缝读数矛盾 = 缝分叉，不是谁撒谎**。link 真点 0 送达（stdout + kitLog=[] 双证）
+   而 `linkRealClick` 合成缝 6/6 绿——合成 realClick 走 `DispatchMouseUp` 派发链，真鼠标走
+   NSView 原生 mouseUp，两条缝从入口就不同 ⇒ 修复面在原生 mouseUp 侧，别去改派发链。
+   与 #111 的教训同形：先问"这是哪条缝上的读数"。
+2. **a11y press 是第三条机器侧通道，不是真鼠标的替身**。AXPress → `accessibilityPerformPress`
+   → `WindowAccessibilityPerform`（window_mac.cpp:374）能把点击类事件送进 PHP（手风琴 6 次
+   双向翻转全中），但 hover（mouseMoved）、拖拽、模态菜单行选只有真鼠标能喂——它绿了
+   不能把 H 系列的"真点"划掉。
+3. **CUA 对 gpui canvas 有帧门**：应用内截图报 "no usable pixel-to-pointer rectangle"，
+   一切坐标动作（click/drag/scroll/键盘全局）全被拒——TCC 全授了也没用，是捕获-坐标映射
+   拿不到可用矩形。能用的组合 = a11y 元素点击 + 键盘（app_ref **只认 `{name,pid}`**，
+   `{pid,window_id}` 和裸 pid 都报 "not a unique live application"）+ 宿主 `screencapture`
+   截屏 + pty 读数当地面真值。窗口被压在底下时：点它的 `AXMenuBarItem("kit")` 激活应用、
+   点应用菜单里的 "Hide Others" 给前台腾位（副作用：宿主应用被藏，Dock 点回来）。
+4. **共享机器上注入事件与真人互相打架**：发进弹出菜单的 Return 落了空（kit 进程在模态
+   菜单会话里，键事件到没到没法从外面证）。需要真人手点时就把六步卡交出去，pty 会记账。
+5. **"看见蓝 chip"不等于"画的是那颗 token"**：`inputReplaceToken(…,'@张三','张三')` 之后
+   输入框里确实有一颗蓝 chip，但 3x 放大读出的文字是「提及」（placeholder「输入 @ 提及…」的
+   字在 chip 上？）——断言渲染产物必须读到文字/像素本身，存在性断言在这里是空的。
+6. H1 行选中 0 送达与 findings 上一条 `actionDeliveryGate` 里 `dispatchAction(kit::copy)=false`
+   的旧读数同缝——真人端到端把它坐实成 #115：旧读数（量过一次）+ 新读数（真人整链）同指
+   一处，两条独立证据才立账。

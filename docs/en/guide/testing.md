@@ -413,6 +413,47 @@ and one design question.
   `./examples/kit/build/kit` died with "No window created". Rows H1, H3, H5 and H6 therefore
   had no entry point at all, which is a different thing from "not yet verified".
 
+**The 2026-11-03/04 human HID round (computer control + a six-step human card).** All verdicts
+come from the pty `KIT-EVENT`/`KIT-HOVER` lines and full-screen captures; the "a11y seam" = macOS
+AXPress → upstream `accessibilityPerformPress` → `WindowAccessibilityPerform`, a third machine-side
+channel beside the `fire` seam and the real-mouse seam.
+
+- **H3 Accordion: pass.** A real click on the first header printed `KIT-EVENT accI0=open`; the a11y
+  seam on the same headers flipped both ways across 6 events (`accI0=open→closed→accI1=open`). Real
+  mouse, a11y press and `fire` all deliver `on_change` to PHP.
+- **H6 hover non-zero side: pass, first-ever measurement.** The real cursor resting on the hover
+  trigger printed `KIT-HOVER hoverId=4` (non-zero) and back to `0` on leave. The side no synthetic
+  seam could produce (batch 7) now has a human-seen reading behind #106's color-state headroom.
+- **H2 Resizable: end state holds, continuity not frame-sampled.** After the human drag the divider
+  rests at panel A ≈335px (default `panelSize(180)`, range cap 320 - sitting on the clamp) and stays
+  after release; "changes continuously while dragging" rests on the human's report plus this single
+  end-state frame, recorded as such.
+- **H4 scrollbar always: main assertion passes, #112 reproduces.** Real hover + scroll moved the
+  content (first row 01 → 04) and the right-edge thumb is painted (capture); the same frame shows the
+  hover box's thumb with **nobody hovering**, still there 4s later ⇒ **#112 (permanent hover thumb)
+  reproduces on tree 4**. "Thumb moves with scroll" was not sampled across two frames - noted edge.
+- **H1 NativeMenu: opens, selection never arrives (#115).** A real click on the trigger opens the OS
+  menu (captured; an a11y AXPress opens the same), then a real click on the row produced **zero PHP
+  events** (no stdout line, in-window `kitLog=[]`). This is the same seam `actionDeliveryGate`
+  already measured as `dispatchAction(kit::copy)=false` - the human pass confirms it end to end.
+  H1 stays blocked by **#115**.
+- **H5 link half: real mouse delivers nothing (#116).** A real click on the link produced zero PHP
+  events, while `linkRealClick` (synthetic realClick seam) is 6/6 green ⇒ **the two seams diverge**:
+  the native mouseUp never enters the link dispatch chain (whether the href got OpenUrl-ed is
+  unverified - ask the first human clicker).
+- **H5 token half: pre-granulated chip text mismatch (#117), real-mouse hit still unverified.** After
+  `inputReplaceToken('kit-tok-in','kit-tok-g1','@张三','张三')` the blue chip in the interactive
+  input reads 「提及」 (3x zoom of the capture), not @张三; the human reported "no blue chip, cannot
+  type into the input".
+- **#113 reproduced live**: the path-drawing triangle paints over the first accordion header in
+  tree 1 (capture).
+- Process notes (not conclusions): CUA's in-app screenshot and coordinate actions are gated behind
+  "no usable pixel-to-pointer rectangle" for this gpui canvas even with every TCC grant in place ⇒
+  this round used a11y element presses + keyboard (`{name,pid}` is the only app_ref shape that
+  resolves) + host-side `screencapture` + pty readings as ground truth; on a shared machine injected
+  events and the human's own input fight each other (the Return aimed at the open menu landed
+  nowhere).
+
 ## Pixel comparison
 
 `cmd/shotdiff.php` invokes `--shot`, captures a real window NSView into PNG, and
