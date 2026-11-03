@@ -2930,3 +2930,10 @@ bin/gpui、GPUI.lock、tests/baseline/input/tree1.png（两度重录）、compos
   #117（token chip 文字「提及」≠ @张三 + 输入框无法输入）。#113 当场复现。#110 设计题未动。
 - CUA 帧门/app_ref 形状/Hide Others 腾前台/共享机器事件打架——过程坑全记 findings。
 - 文档：中英 testing.md 真人轮账 + 五行读数补注；findings 三条缝判据。只动台账，提交前跑锚点+doc-claims。
+
+## 2026-11-04 Phase 34 批18：#116 修复（注册长名 vs 队列短名，死在 PHP 查表）+ #117 撤账
+- clickat 机器侧复现 → 五层探针（每层一枚、逐层证实）→ C++ 全绿、死在 handleEvent 查表。
+- kit.php 注册名改短名；tokenlink 门加处理器回声判据（红臂 rc=1/绿臂 rc=0，顺手修门内
+  grep -c || echo 0 bug）。#115 快查=不同层（ShellAction 派发），留独立批次。
+- 电池：kit-gates/all-examples/test:all/doc 门。文档：中英 testing.md #116/#117 对账、findings
+  四条判据（每层绿才许怪下一层；回声才是"到了 PHP"）。

@@ -2979,3 +2979,28 @@ H1/H5 收出三条新缺陷（#115/#116/#117）。可复用的判据：
 6. H1 行选中 0 送达与 findings 上一条 `actionDeliveryGate` 里 `dispatchAction(kit::copy)=false`
    的旧读数同缝——真人端到端把它坐实成 #115：旧读数（量过一次）+ 新读数（真人整链）同指
    一处，两条独立证据才立账。
+
+## #116 的定位课：每层都绿才许怪下一层；"到了 PHP"的唯一地面真值是处理器回声（2026-11-04）
+
+真人 HID 轮把 link 真点 0 送达立成"缝分叉"——**框架错了**。探针逐层下钻五步
+（DispatchMouseUp 的 click 闸 → `OnTextLink` → `DispatchString` → DispatchString 的 shim
+路由 → `Box2::enqueue` 的 `callbacks.find`），每层读数：闸门放行（pending=1、0==0）、
+binding 全有效（href/ctx=29）、entry 命中（shimId=21、view 活）、`found=1` 事件入队——
+**C++ 侧真鼠标与合成是同一条链，层层全绿**，最后死在 PHP 的 `handleEvent` 查表：
+注册键 `on_link_click`（op 长名）vs 事件键 `link_click`（bridge 的 `eventType()` 剥前缀）。
+
+四条可复用判据：
+1. **"两条缝读数矛盾"先别立分叉论**——把一条缝拆到层，逐层对读数；层里出现了共同的死点，
+   分叉论就塌了。这次分叉论多活了一夜，是因为批17 没有 clickat 复现（那是把缝拆层的钥匙）。
+2. **每层绿才许怪下一层**。探针要一层一枚、逐层证实再往下走——up-gate 的
+   `pending=1/0==0` 一枚探针就同时排除了"闸门拒了"和"坐标错了"两个假设。
+3. **fire 返回值只证明 C++ 半路入队**；"到了 PHP"的地面真值是处理器的 KIT-EVENT 回声。
+   TOKENLINK 门原来只断 fire 返回值，所以这条错位在门下活了很多轮——门已加第三判据
+   （回声行），红臂实测还原旧注册名 rc=1。
+4. **长名/短名的错位是系统性的坑**：op 名（on_link_click，materialize 逐字比）与队列名
+   （link_click，PHP on 键）必须分开记——`gpui_shim_callback` 里那段"两个名字必须分开"
+   的注释是同一件事的 C++ 侧。写新事件类型时两边一起查。
+
+顺带的工具教训：`grep -c X f || echo 0` 在零命中时输出两行"0"（grep 自己打了 0，
+`||` 又补一行），`$(( ))`/`[[ -gt ]]` 直接语法错——计数用 `$(grep -c …)` 后
+`${VAR:-0}` 兜底。批18 红臂当场抓的。

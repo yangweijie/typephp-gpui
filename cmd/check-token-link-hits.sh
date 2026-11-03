@@ -64,19 +64,35 @@ if [[ -n "${TOK_ROW:-}" ]]; then
 fi
 
 # ── 判据 2：snapshot 有两次 "fired" 回执 ─────────────────────────────────────
-FIRED_COUNT=$(grep -c 'fired' "$SNAP" 2>/dev/null || echo 0)
+FIRED_COUNT=$(grep -c 'fired' "$SNAP" 2>/dev/null)
+FIRED_COUNT=${FIRED_COUNT:-0}
 FIRED_OK=false
 if [[ "$FIRED_COUNT" -ge 2 ]]; then
     FIRED_OK=true
 fi
 
-echo "TOKENLINK hits有可点元素=$TOK_OK fired次数=$FIRED_COUNT"
+# ── 判据 3：PHP 处理器回声（KIT-EVENT tokClick/linkClick=delivered）──────────
+# 2026-11-04 #116 的教训：fire 返回 true 只证明 C++ 半路把事件入了队——那一次
+# 事件在 C++ 侧全链路（click 闸→OnTextLink→DispatchString→shim 路由→box 入队）
+# 都是绿的，死在 PHP 侧 handlers 查表（注册长名 on_link_click vs 队列短名
+# link_click）。所以"到了 PHP"必须看处理器的 KIT-EVENT 回声行，不能只看 fire
+# 返回值。这一条同时把注册名错位这类缺陷钉死在门里。
+ECHO_TOK=$(grep -c 'KIT-EVENT tokClick=delivered' /tmp/gpui-kit-tl-auto.log 2>/dev/null)
+ECHO_LINK=$(grep -c 'KIT-EVENT linkClick=delivered' /tmp/gpui-kit-tl-auto.log 2>/dev/null)
+ECHO_TOK=${ECHO_TOK:-0}
+ECHO_LINK=${ECHO_LINK:-0}
+ECHO_OK=false
+if [[ "$ECHO_TOK" -ge 1 && "$ECHO_LINK" -ge 1 ]]; then
+    ECHO_OK=true
+fi
+
+echo "TOKENLINK hits有可点元素=$TOK_OK fired次数=$FIRED_COUNT 处理器回声 tok=$ECHO_TOK link=$ECHO_LINK"
 echo "  hits click=1 行: ${TOK_ROW:-（无）}"
 echo "  snapshot fired 行:"
 grep 'fired' "$SNAP" 2>/dev/null || echo "    （无）"
 
-if $TOK_OK && $FIRED_OK; then
-    echo "TOKENLINK OK ⇒ token/link 在命中表 + fire 派发链送达（token_click/link_click）"
+if $TOK_OK && $FIRED_OK && $ECHO_OK; then
+    echo "TOKENLINK OK ⇒ token/link 在命中表 + fire 派发链送达 + PHP 处理器回声（token_click/link_click）"
     exit 0
 fi
 echo "TOKENLINK FAIL ⇒ 见上读数"

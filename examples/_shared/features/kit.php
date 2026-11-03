@@ -971,9 +971,16 @@ function wireKit(App $app): void
             : El::hFlex([El::text('提及')->font(11.0)])->px(6.0)->py(2.0)
                 ->bg('#2f6fed')->rounded(4.0);
     });
-    foreach (['on_token_click' => 'tokClick', 'on_token_hover' => 'tokHover',
-              'on_link_click' => 'linkClick'] as $type => $key) {
-        $id = $type === 'on_link_click' ? 'kit-link' : 'kit-tok-in';
+    // 事件名用**队列短名**（token_click/token_hover/link_click），不是 op 长名
+    // （on_link_click）：bridge 的 eventType() 把 op 的 on_ 前缀剥掉才进队列
+    // （gpui_bridge.cc:54），而 App::on 原样存键、drainEvents→handleEvent 逐字查
+    // handlers[$id][$type]——2026-11-04 真人 HID 轮 #116 的根因：C++ 侧全链路
+    // （click 闸→OnTextLink→DispatchString→shim 路由→box 入队）都通，死在
+    // PHP 查表这一步。selftest 的 linkDelivery 门没照出来，因为它注册时写的就是
+    // 短名，且 fire 门只断返回值、不断处理器回声。
+    foreach (['token_click' => 'tokClick', 'token_hover' => 'tokHover',
+              'link_click' => 'linkClick'] as $type => $key) {
+        $id = $type === 'link_click' ? 'kit-link' : 'kit-tok-in';
         $app->on($id, $type, static function () use ($log, $key): void {
             $log($key, 'delivered');
         });

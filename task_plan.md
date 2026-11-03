@@ -3111,3 +3111,26 @@ run `dwfrun-1ebf1186`（被用户停，批1+批2 施工完成门禁全绿，批3
 - [x] 文档同轮：中英 testing.md 各加"2026-11-03/04 真人 HID 轮的账"一块 + H1/H2/H4/H5/H6
   行内补今晚读数；findings 记三条缝判据。
 - [x] 未跑电池（本批只动 .md 台账，无代码/门变更）；提交前锚点门 + doc-claims 照跑。
+
+### Phase 34 批18（2026-11-04，#116 修复：事件死在 PHP 查表——注册长名 vs 队列短名）
+- [x] 起点错误先认：批17 立的"两条缝分叉"框架是错的。clickat 在交互布局（h=680，link 命中
+  矩形 (261,657) 63x22 存在且 click=1）复现 0 送达后，探针逐层下钻五层（click 闸 →
+  OnTextLink → DispatchString → shim 路由 → Box2::enqueue `found=1`）——C++ 侧真鼠标与
+  合成**同一条链**且层层全绿，事件死在 PHP `handleEvent` 查表：wireKit 注册 op 长名
+  `on_link_click`，队列事件是剥了前缀的短名 `link_click`。
+- [x] 修复一处：kit.php wireKit 三件套注册名改短名（token_click/token_hover/link_click），
+  注释把 op 名与队列名"必须分开记"的坑写死。修复后 clickat 两次 `KIT-EVENT
+  linkClick=delivered`。顺带核过 wireKit 其余注册全是短名，trio 是唯一漏网。
+- [x] 门加强（#116 的回归位）：`check-token-link-hits.sh` 加第三判据——PHP 处理器回声
+  `KIT-EVENT tokClick/linkClick=delivered`；红臂实测还原旧注册名 rc=1、修复后 rc=0。
+  红臂当场抓出门自己的 bug（`grep -c … || echo 0` 零命中输出两行"0"炸算术比较），已修。
+- [x] #117 撤账：批17 把「提及」chip 记成缺陷是误判——它是 token 渲染回调的标记物
+  （`El::text('提及')`，kit.php:971，`tokenRenderNull` 对拍才回落 label chip），文字本来
+  就不是 @张三。真正剩下的：h=680 命中表里 token 输入框/chip 行 **click=0 down=0**
+  （鼠标惰性），真鼠标点 chip 进不了命中链 ⇒ token 真鼠标命中挂真人清单（#96 边界）；
+  "无法输入"未复现未归因，另记。
+- [x] #115 快查结论：不是同名病。菜单行的 action 链（OnScriptAction → DispatchAction →
+  DispatchArgs shim 路由）事件类型 'action' 与注册一致，堵点在上游 ShellAction 派发到不了
+  元素（actionDeliveryGate 旧读数 dispatchAction=false 同位置）——留独立批次。
+- [x] 电池（今晚产物）：kit-gates 3/3（tokenlink 新判据绿）、all-examples both、test:all、
+  doc-claims、锚点、docs:build。

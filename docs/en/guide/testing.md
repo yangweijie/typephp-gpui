@@ -437,14 +437,24 @@ channel beside the `fire` seam and the real-mouse seam.
   events** (no stdout line, in-window `kitLog=[]`). This is the same seam `actionDeliveryGate`
   already measured as `dispatchAction(kit::copy)=false` - the human pass confirms it end to end.
   H1 stays blocked by **#115**.
-- **H5 link half: real mouse delivers nothing (#116).** A real click on the link produced zero PHP
-  events, while `linkRealClick` (synthetic realClick seam) is 6/6 green ⇒ **the two seams diverge**:
-  the native mouseUp never enters the link dispatch chain (whether the href got OpenUrl-ed is
-  unverified - ask the first human clicker).
-- **H5 token half: pre-granulated chip text mismatch (#117), real-mouse hit still unverified.** After
-  `inputReplaceToken('kit-tok-in','kit-tok-g1','@张三','张三')` the blue chip in the interactive
-  input reads 「提及」 (3x zoom of the capture), not @张三; the human reported "no blue chip, cannot
-  type into the input".
+- **H5 link half: #116 fixed (2026-11-04 batch 18).** Batch 17's "seam divergence" framing was
+  **wrong**: probing layer by layer (up-gate → OnTextLink → DispatchString → shim route → box
+  enqueue `found=1`) showed the C++ chain is **the same chain for real and synthetic clicks**; the
+  event died in the last centimetre - wireKit registered the handler under the op long-name
+  `on_link_click`, while the bridge's `eventType()` strips the `on_` prefix so the queue event is
+  `link_click`, and `handleEvent`'s `handlers[$id][$type]` lookup silently missed. Fix: wireKit
+  registers short names (one place in kit.php); `cmd/check-token-link-hits.sh` gained a third
+  verdict - the **PHP handler echo** (`KIT-EVENT tokClick/linkClick=delivered`; red arm measured:
+  old registration rc=1, fixed rc=0). A `fire` return value only proves the C++ side enqueued; the
+  handler echo is what proves "reached PHP".
+- **H5 token half: #117 retracted; the real-mouse hit stays on the human list.** Batch 17's
+  "chip text mismatch" was a **misreading**: the 「提及」 chip is the token render callback's
+  **marker** (`El::text('提及')` - the host-render callback's identifiable mark; the
+  `tokenRenderNull` A/B falls back to the label chip), never meant to show @张三. What actually
+  remains: in the h=680 hit table the token input and chip rows are **click=0 down=0**
+  (mouse-inert), so a real chip click cannot even enter the hit chain ⇒ token real-mouse hit stays
+  on the human list (#96 boundary); the reported "cannot type into the input" is unreproduced and
+  unattributed, filed separately.
 - **#113 reproduced live**: the path-drawing triangle paints over the first accordion header in
   tree 1 (capture).
 - Process notes (not conclusions): CUA's in-app screenshot and coordinate actions are gated behind

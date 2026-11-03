@@ -26,7 +26,7 @@
 | 19 | always 滚动条真画探针（前提式） | `bash cmd/check-scrollbar-paint.sh` | "scrollbarMode always 的 thumb 真画出来"的 `--shot` 通道验收：kit tree4（`sectionKitScrollbarPair`，hover/always 两盒同构 w220/h120/gap40/p40，探针 (244,48)/(504,48) 右缘 16x60 竖条——**builder 必须带 `p(40)`**，首版漏了盒从 (0,0) 起、探针读到根底色）。断两盒区域均色互异；同色 ⇒ **applicable=false rc=2 未判定**（2026-10-31 实测同色 rgb(223,223,223)：离屏合成也不画 always thumb——"无真人鼠标事件 NSScroller overlay 自动隐藏"对 --shot 同样成立）。不设 rc=1：没画出滚动条不是回归红，是前提不成立；出不了图/PNG≠900x680 也 rc=2。"always 真画"目前只能真人 HID 前提式验收 | 是（二进制 + 窗口会话） |
 | 20 | kit 门批量入口（可达性收口） | `composer check:kit-gates`（= `bash cmd/check-kit-gates.sh`；CI 原生 job 一步）／`composer check:kit-arms` | 五道 kit 域门此前**只有文档没有入口**（composer / CI / tests 都不点名它们），写好的门没人跑等于没有门。按 rc 语义分两把：`check:kit-gates` 收有"红=回归"这一档的**三道**（`cmd/check-accordion-toggle.sh` = v2 H3、`cmd/check-token-link-hits.sh` = v2 H5、`cmd/check-click-survival.php` = 广度逐颗点击，2026-11-03 补），任一 rc=1 总 rc=1，否则有 rc=2 总 rc=2；`check:kit-arms` 收只有"实证(0)/前提不成立(2)"两档的三条（`check-scrollbar-click.sh`、`check-scrollbar-paint.sh`、`check-token-paint-png.sh`），**不进 CI**，免得把"CI 没给条件"读成回归。两把都逐道打自己的判定行再打 `GATE/ARM <名> rc=`——**包装器 rc 不是门判定**，结论读每道门那一行；kit 二进制缺、未知开关都 rc=2 未判定 | 是（二进制 + 窗口会话） |
 | 21 | 能力对照表不许与代码打架（两个方向） | `php cmd/check-doc-claims.php`（`composer check:doc-claims`；CI docs job 里紧跟锚点门，先跑 `--self-check`） | 同一判据的正反两面，共扫四张表。**A 少报**：`upstream-coverage.md`（中英）"上游概念对照"表里带缺口标记（❌/未接/not exposed/not supported）又反引号点名了一个**真实存在的 `El`/`Element`/`App` 公开方法** ⇒ 红，打 file:line 与方法全名。起因是 2026-11-02 实测到的自相矛盾：第 3 节写着动画糖已接（`El::transition()`/`El::spring()` + kit `transitionInterpolation` 门），对照表里却还留着 `Animation ❌ transition/spring 整族未接`。**B 多报**（同日补）：`system-capabilities.md`（中英）「已接」/「Connected APIs」表**第一列**签名的方法在代码里根本不存在 ⇒ 红；带前缀的（`El::x()`、`$app->x()`）按那个类判，裸名按三张表并集判，`App::a/b/c` 这种斜杠清单逐成员判。判据刻意窄：A 不扫"端口里有、还没接"那类表，因为那里把**已接**的方法当对照上下文写进同一格（deflate 那行的"解压侧已经接了（`App::inflate`）"），扫它必假红；B 只扫第一列且只认调用形（名字后紧跟 `(` 或 `/`），所以第二列的 C++ 符号与 `move_to` 一类上游名不误红。窄界是量出来的：把 A 放宽到两份 coverage + 两份能力页 + components + events 的**全部**表格，多出来的命中只有一条——`upstream-coverage.md:181` 里路径 op 名 `close` 恰好等于真方法 `App::close()` ⇒ 放宽就是 1 条假红，所以 A 停在概念表。正向读数 `DOC CLAIMS OK — 扫 4/4 张表（A:21 A:20 B:34 B:34 行），方法并集 587 名`。红臂实测（逐条往真文档插一行再撤销）：插 `El::notARealSurface()` ⇒ `FAIL (1 = 少报 0 / 多报 1)`；插 `El::clipboardText()` 加 `$app->notHere()` ⇒ `多报 2` 且分别打「El 类没有」「App 类没有」（跨类误配判得出）；A 侧插裸名与带前缀两种写法各 ⇒ `少报 1`；负对照插 `shell::ZlibDeflate` 与 `move_to` ⇒ 仍 rc=0；前提臂把 zh 标题改成「接通清单」⇒ rc=2 未判定并打「『已接』表里没读到任何行」，撤销后回 rc=0。`--self-check` 是探测器自检：A、B 各内置一对样本（矛盾必须判红、合法必须不判红） | 否 |
-| 22 | 逐颗点击不许带走宿主（广度门，#111/#110 那一类） | `php cmd/check-click-survival.php`（`composer check:kit-gates` 批量入口的第三道；CI 原生 job 一步；`--tree <1..4>` 只扫一棵，红臂复测用） | 具名门（`accordionRealClick`／`linkRealClick`／`checkboxRealClick`…）各守一颗控件，它们全绿只说明"写过关的那几颗活着"。#111 的根因是上游把 content 实体**裸转**成 `ScriptView` 后读首字段（`Entity<T>::Get` 无类型校验，`gpui.h:6830`），命中范围是 `component_shell` 整个家族——2026-11-03 实测同一棵树 18 颗可点控件 **8 颗 SIGSEGV**，多数没人写过关。本门把四棵树里每颗 `click=1` 的控件**各起一个 automation 会话**点一遍：坐标从当轮 `hits.txt` 现算，只按"宽度≥8"筛、**不看高度**（h=0 的行照样吃得到点击，修前崩的正是那批）。硬判据两条：每颗会话 rc 必须为 0（139=SIGSEGV／134=SIGABRT），且 stdout+stderr 不得出现 `belongs to a superseded render` 或 `window state is missing` 这两条签名；其余 `shell:` 告警只计数不判红——这是本门自己声明的边界。"点了没反应"不归本门（那要先有 PHP 处理器才有读数，由具名门负责）。未判定面（rc=2）：命中表**一行都没有**（探测没量到东西）、全树零可点（本轮没有一棵树证明提取链路通）、产物缺、未知或缺失的 `--tree` 值；命中表**有行但全 click=0**（树 4 本就是纯文本滚动盒）＝量出来的空集，按通过计——前提是同轮他树量到 >0 颗（单树 `--tree 4` 跑给不了这个前提，实测 rc=2）。正向读数（2026-11-03 修复后产物）：`CLICK-SURVIVAL OK（判 60/60 颗可点控件全活着、无致命签名；advisory shell: 告警 60 条不判红；树 4 可点 0 颗（量出的空集，同轮他树已证链路通））`；红臂＝把 `PhpView` 首字段换回 `Box2*` 后同门在树 2 判红（实测该臂下 18 颗里 8 颗 rc=139） | 是（二进制 + 窗口会话） |
+| 22 | 逐颗点击不许带走宿主（广度门，#111/#110 那一类） | `php cmd/check-click-survival.php`（`composer check:kit-gates` 批量入口的第三道；CI 原生 job 一步；`--tree <1..4>` 只扫一棵，红臂复测用） | 具名门（`accordionRealClick`／`linkRealClick`／`checkboxRealClick`…）各守一颗控件，它们全绿只说明"写过关的那几颗活着"。#111 的根因是上游把 content 实体**裸转**成 `ScriptView` 后读首字段（`Entity<T>::Get` 无类型校验，`gpui.h:6830`），命中范围是 `component_shell` 整个家族——2026-11-03 实测同一棵树 18 颗可点控件 **8 颗 SIGSEGV**，多数没人写过关。本门把四棵树里每颗 `click=1` 的控件**各起一个 automation 会话**点一遍：坐标从当轮 `hits.txt` 现算，只按"宽度≥8"筛、**不看高度**（h=0 的行照样吃得到点击，修前崩的正是那批）。硬判据两条：每颗会话 rc 必须为 0（139=SIGSEGV／134=SIGABRT），且 stdout+stderr 不得出现 `belongs to a superseded render` 或 `window state is missing` 这两条签名；其余 `shell:` 告警只计数不判红——这是本门自己声明的边界。"点了没反应"不归本门（那要先有 PHP 处理器才有读数，由具名门负责）。未判定面（rc=2）：命中表**一行都没有**（探测没量到东西）、全树零可点（本轮没有一棵树证明提取链路通）、产物缺、未知或缺失的 `--tree` 值；**模态等待会浮动**（2026-11-04：树 3 的 NativeMenu 触发器行同一天一次堵成 rc=2、单树复跑 11/11 rc=0——模态与否随会话状态浮动，rc=2 的正确用法是"重跑一次并如实记两头"，不许无声重跑到绿）；命中表**有行但全 click=0**（树 4 本就是纯文本滚动盒）＝量出来的空集，按通过计——前提是同轮他树量到 >0 颗（单树 `--tree 4` 跑给不了这个前提，实测 rc=2）。正向读数（2026-11-03 修复后产物）：`CLICK-SURVIVAL OK（判 60/60 颗可点控件全活着、无致命签名；advisory shell: 告警 60 条不判红；树 4 可点 0 颗（量出的空集，同轮他树已证链路通））`；红臂＝把 `PhpView` 首字段换回 `Box2*` 后同门在树 2 判红（实测该臂下 18 颗里 8 颗 rc=139） | 是（二进制 + 窗口会话） |
 
 **2026-11-03/04 真人 HID 轮的账（电脑控制 + 真人六步，读数全部以 pty 的 KIT-EVENT/KIT-HOVER
 与全屏截图为准；"a11y 缝"= macOS 辅助功能 AXPress → 上游 `accessibilityPerformPress` →
@@ -50,13 +50,20 @@
   窗口内 `kitLog=[]` 双证）。与 findings 里 `actionDeliveryGate` 已量到的
   `dispatchAction(kit::copy)=false` 是同一条缝——真人端到端确认了它。H1 被
   **#115（行选中 action 到不了 PHP）** 挡着。
-- **H5 link 半边：真鼠标 0 送达（#116 立账）**。真人真点「打开文档」→ PHP 零事件（同上双证）。
-  而 `linkRealClick`（合成 realClick 缝）6/6 绿 ⇒ **两条缝分叉**：真鼠标 mouseUp 进不了
-  link 的派发链（href 是否被 OpenUrl 打开未验，待问第一位手点的人）。
-- **H5 token 半边：预造粒文字不符（#117 立账），真鼠标命中未验**。交互树 3 的
-  `inputReplaceToken('kit-tok-in','kit-tok-g1','@张三','张三')` 之后输入框里那颗蓝 chip
-  画的文字是「**提及**」（截图放大 3x 实读），不是 @张三；真人回报"没看见蓝底、无法输入"。
-  token 的真鼠标命中继续挂在真人清单上。
+- **H5 link 半边：#116 已修（2026-11-04 批18）**。批17 的"两条缝分叉"框架是**错的**：
+  探针逐层下钻（up-gate→OnTextLink→DispatchString→shim 路由→box 入队 `found=1`）发现
+  C++ 侧整条链**真鼠标与合成完全同一条**，事件死在最后一厘米——wireKit 用 op 长名
+  `on_link_click` 注册处理器，而 bridge 的 `eventType()` 剥掉 `on_` 前缀、队列事件叫
+  `link_click`，`handleEvent` 查 `handlers[$id][$type]` 落空即静默丢。修复：wireKit
+  注册名改短名（kit.php，一处）；`cmd/check-token-link-hits.sh` 加第三判据
+  （**PHP 处理器回声** `KIT-EVENT tokClick/linkClick=delivered`，红臂实测：还原旧注册名
+  rc=1、修复后 rc=0）——fire 返回值只证明 C++ 半路入队，处理器回声才是"到了 PHP"。
+- **H5 token 半边：#117 撤账，真鼠标命中仍挂真人清单**。批17 把「提及」chip 记成缺陷是
+  **误判**：那颗 chip 是 token 渲染回调的**标记物**（`El::text('提及')`，宿主渲染正路的
+  可辨读标记，kit.php 的 `tokenRenderNull` 对拍才回落 label），文字本来就不该是 @张三。
+  真正剩下的实测障碍：h=680 命中表里 token 输入框与 chip 的行 **click=0 down=0**（鼠标
+  惰性），真鼠标点 chip 走不进命中链 ⇒ token 真鼠标命中继续挂真人清单（#96 边界）；
+  真人回报的"无法输入"未复现未归因，另记。
 - **#113 当场复现**：树 1 的路径绘制红绿三角压住「第一节」文字（截图）。
 - 过程账（不冒充结论）：CUA 对 gpui canvas 的应用内截图与坐标动作被
   "no usable pixel-to-pointer rectangle" 帧门挡死（授权全给也拿不到像素矩形）⇒ 本轮用的是
