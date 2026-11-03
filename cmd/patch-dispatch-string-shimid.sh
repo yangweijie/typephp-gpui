@@ -50,13 +50,23 @@ static void WarnNoJsContext(shell::CallbackId callback) {
     std::fprintf(stderr,
                  "kit: callback %llu is not in the runtime callback table, so building "
                  "its JS argument would enter QuickJS with nothing to call - dropped "
-                 "instead of crashing (TextView links reach PHP only through the "
-                 "dispatch seam; see task #114)\\n",
+                 "instead of crashing (safety net for an unknown id; the TextView link "
+                 "path resolves its entry since the 2026-11-03 ScriptView-cast fix and "
+                 "no longer reaches here)\\n",
                  (unsigned long long)callback);
 }
 
-void gpuiEnqueueShimString(App* app, EntityId view, uint64_t shimId,
-                           const char* value);
+// typephp-gpui: weak seam overridden by the shim's strong symbol (which knows
+// Box2/g_views). It has to be a *definition*, not a bare declaration: the
+// amalgam links into upstream's own story binary, where nothing but the shim
+// provides this, and a declaration-only seam turns that link into
+// "Undefined symbols: gpui::gpuiEnqueueShimString" — which is exactly how the
+// 2026-11-03 re-sync caught this patch. Same shape as gpuiEnqueueShimCallback.
+__attribute__((weak)) void gpuiEnqueueShimString(App* app, EntityId view,
+                                                 uint64_t shimId,
+                                                 const char* value) {
+    (void)app; (void)view; (void)shimId; (void)value;
+}
 
 """
 

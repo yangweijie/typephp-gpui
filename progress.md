@@ -2909,3 +2909,16 @@ bin/gpui、GPUI.lock、tests/baseline/input/tree1.png（两度重录）、compos
 - 文档订正：components.md（中英）加"第四条硬约束"；coverage 那句"两条路都在"补边界。
 - 复跑：all-examples 28 行 rc=0、test:all rc=0、kit-gates 2/2、cxx17 OK、doctor rc=0、
   doc-claims rc=0、docs:build rc=0、锚点 75 条 OK。
+
+## 2026-11-03 Phase 34 批16：#111/#114 一个根因（ScriptView 裸转读假表），两种崩溃读数同天收掉
+- 根因：`Entity<T>::Get` 无校验裸转 + component_shell 15 处 `view->runtime` 读 `ScriptView` 首字段
+  （偏移 0）；宿主里那是 `PhpView`（只有 8 字节 `Box2*`）⇒ 拿 Box2 字节当回调表头。SIGSEGV 与
+  "belongs to a superseded render" 是同一越界读踩在不同堆残留上的两种读数，"回调过期"诊断本身误导。
+- 修法：`PhpView` 首字段 `scriptViewRuntime` 别名 → `g_runtime`，两条 static_assert 钉偏移；
+  窄修依据 = `dirty` 越界写在本宿主不可达（ShellRootOpenDialogView 硬编 isScript=false）。
+- 回归位：`accordionRealClick` 6/6 绿、红臂 5/6 SIGSEGV；`linkRealClick` 6/6 ⇒ #114 随 #111 收掉，
+  shimid 守卫降级为未知 id 兜底网（0 次触发）+ weak seam 改定义（re-sync 抓的链接错）。
+- 广度门 `check-click-survival.php` 进 `check:kit-gates` 第三道；复跑抓到门把"命中表一行都没有"
+  与"量出来的空集"（树 4 全 click=0）混一档 ⇒ 分两种空，空集通过需同轮他树 >0 前提。
+- 复跑：test:all rc=0、all-examples 28 行 rc=0、kit-gates 3/3（60/60 全活、致命签名 0）、
+  doc-claims+self-check rc=0、锚点 75/16、docs:build rc=0（npm——电池里误跑成 composer 记账不讳）。

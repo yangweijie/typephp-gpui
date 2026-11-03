@@ -18,6 +18,7 @@
 #undef Nil
 
 #include <cstdlib>
+#include <cstddef>
 #include <cstring>
 #include <deque>
 #include <memory>
@@ -768,6 +769,23 @@ static void WebViewFrameVisibility(gpui::Ctx* cx, Box2* box, bool beforeMaterial
 
 // Root content 实体：帧渲染时把 box->specs materialize 成原生 El 树。
 struct PhpView {
+    // #111：上游把窗口/层的 content 实体按 ScriptView 解释，而 `Entity<T>::Get` 是
+    // 无校验裸转（gpui/gpui.h 的 `T* Get(...) { return (T*)EntityGet(...); }`）。
+    // 部件事件回调体读的正是它的首字段——component_shell 里 15 处 `view->runtime`
+    // （Accordion/Stepper/Pagination/Rating/Carousel…都在这条缝上）。PhpView 原本
+    // 只有 8 字节的 box，那颗"runtime"其实是 Box2*：LiveComponentCallback 拿 Box2
+    // 的字节当回调表头读，读到什么全看堆上残留——2026-11-03 实测同一棵树里
+    // 18 颗可点控件 **8 颗 SIGSEGV、3 颗报"belongs to a superseded render"**，
+    // 两者是同一根因的两种读数，不是"回调真的过期了"。
+    // 这个别名字段让那次裸转在偏移 0 上读到真的 ShellRuntime（下面两条 static_assert
+    // 把偏移钉死，改布局当场编译不过）。
+    //
+    // 只覆盖 runtime 是有依据的：ScriptView 其余会被碰的字段里，`dirty` 只在
+    // isScript=true 的覆盖层重建中被写（shell/root.cpp:174），而我们开层走
+    // ShellRootOpenDialogView/OpenSheetView——那里硬编 isScript=false（root.cpp:340），
+    // 所以那条越界写在本宿主不可达。`object`/`snapshot`/`type` 为 null 时上游各路径
+    // 自己就退回（例如 plugin.cpp:1222 的 `view && view->object`）。
+    gpui::ShellRuntime* scriptViewRuntime = nullptr;
     Box2* box;
 
     static gpui::El* Render(void* self, gpui::Ctx* cx) {
@@ -777,12 +795,21 @@ struct PhpView {
             return gpui::Div(cx->a);
         }
         WebViewFrameVisibility(cx, view->box, true);
+        // 别名与本帧真正交给 materialize 的 runtime 必须同源：上游裸转后读的就是它。
+        view->scriptViewRuntime = g_runtime;
         gpui::El* el = gpui::ShellMaterializeSpec(cx, g_runtime, &view->box->specs,
                                                   view->box->rootId);
         WebViewFrameVisibility(cx, view->box, false);
         return el;
     }
 };
+
+// 裸转的两端都得钉住：上游读的首字段偏移、和本侧的别名字段偏移。任一边改布局，
+// 这里编译不过——而不是等到某颗控件被点下去。
+static_assert(offsetof(gpui::ScriptView, runtime) == 0,
+              "上游把 content 实体裸转成 ScriptView 后读 ->runtime；偏移变了要同步改 PhpView");
+static_assert(offsetof(PhpView, scriptViewRuntime) == 0,
+              "PhpView 的首字段必须是那个别名");
 
 // WebView 的包装 view。`gpui::WebView` 自己**不是** view：webview.cpp:95 用
 // EntityNewState 建它，注释写明 "a WebView has no Render of its own here, since
@@ -1117,7 +1144,8 @@ void* gpui_shim_open_window(const char* title, int width, int height,
     ensureApp();
     auto* box = new Box2();
 
-    auto* view = new PhpView{box};
+    // 首字段是 ScriptView 裸转的落点（见 struct PhpView 的注释），所以建的时候就得给对。
+    auto* view = new PhpView{g_runtime, box};
     box->viewPtr = view;
     box->viewEntity =
         gpui::EntityNewRaw(g_app, view, (gpui::RenderFn)&PhpView::Render,
@@ -1914,7 +1942,7 @@ void* gpui_shim_dialog_begin(void* win) {
     auto* box = static_cast<Box2*>(win);
     if (!box) return nullptr;
     auto* dlg = new Box2();
-    auto* view = new PhpView{dlg};
+    auto* view = new PhpView{g_runtime, dlg};
     dlg->viewPtr = view;
     dlg->viewEntity = gpui::EntityNewRaw(
         g_app, view, (gpui::RenderFn)&PhpView::Render,

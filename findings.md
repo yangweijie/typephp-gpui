@@ -2897,3 +2897,57 @@ components + events 的**全部**表格行（缺口标记 + 反引号点名 + �
 3. 顺带把一条老规矩又验一遍：**同步源本身就是打过补丁的树**（`upstream/gpui-kit-cpp`），
    所以"回到未打补丁"只能靠 `cmd/sync-upstream.sh` + `php bin/gpui patch`，手抄备份会留下半补丁状态，
    编出来的东西与补丁清单对不上（`check-build-inputs` 会立刻报"清单点名但未跟踪"）。
+
+## 一个假 `ScriptView` 解释，同时解释了"崩溃"和"回调过期"两种读数（#111+#114，2026-11-03）
+
+真人回报的三条里，两条（手风琴段错误、链接间歇段错误）看着是两个部件、两种栈、两种签名
+（一条 SIGSEGV、一条 `belongs to a superseded render`）。它们是一个根因：
+
+- `Entity<T>::Get` 是 `(T*)EntityGet(...)`，**没有类型校验**（`gpui/gpui.h:6830`）。
+- 部件事件回调体读 `view->runtime`（`component_shell` 里 15 处，别的事件正文一个字段都不读）；
+  `ShellComponentValueRelay` 存的 `view` 就是物化时的 `cx->self`——在我们宿主里那是 `PhpView` 实体。
+- `PhpView` 原本只有一个成员 `Box2* box`，而 `ScriptView` 的首字段是 `ShellRuntime* runtime`
+  （`shell/view.h:74`）⇒ **`view->runtime` 读到的就是那个 `Box2*`**。
+  `LiveComponentCallback` 于是拿 Box2 的字节当回调表头遍历 entries：槽位垃圾大就 SIGSEGV，
+  刚好"看着是空的"就走 not-found 分支打一句"belongs to a superseded render"。
+- 所以那条"回调过期"的诊断本身就是误导：**被查的那张表压根不是 `g_runtime` 的表**。
+  批15 量到的"id 29 两张表都不认"同一回事——查表的一方是假的。
+
+三条可复用的判据：
+1. **两种读数先当一种根因试**。"有时崩有时只打日志"不是两个 bug，通常是同一个越界读踩在
+   不同堆残留上。（本仓老规矩：拿签名相同/部件相同当线索，不当结论。）
+2. **拿布局证猜测，别拿运气证**。`ScriptView::runtime` 在偏移 0 + `PhpView` 首字段是 8 字节指针，
+   这两条静态可查；再改一个字段（偏移 0 塞 `g_runtime`）做 A/B，6 次红臂里 5 次 SIGSEGV、
+   1 次两门 FAIL——把"两种读数"当场重放出来说明了根因覆盖两侧。
+3. **守卫的判据不能建在假表上**。批15 那条 `!impl->callbacks.Get(id)` 守卫看着是"实测的失败条件"，
+   其实它测的是被裸转污染的那个 `impl`；别名修好后它在链接路径上 0 次触发——
+   "实测拦住过 3 次"不是它长期正确的证据，只是当时根因还在的证据。
+
+顺带两条边界的实测：
+- `ScriptView::dirty` 那处**越界写**（`shell/root.cpp:175` 拿 content 实体当 ScriptView 写 dirty）
+  在本宿主不可达：唯一入口 `ShellRootOpenDialogView` 硬编 `isScript=false`（`root.cpp:340`），
+  而 `RebuildScriptOverlay` 第一句就 `if (!isScript) return`。所以别名只补 `runtime` 是有依据的窄修，
+  不是"先修一半"。
+- 反面教训（写完当场被自己的核对推翻，所以留在这）：这一段原来写的是
+  "`ui::SelectDown/SelectUp` 经 `SelectableManager::SelectAdjacent`，宿主没装那颗 manager ⇒
+  dispatch 返回 false"。`grep -rn SelectableManager src/` **零命中**，而 `ui::SelectDown` 的真实
+  接收方是 `ui/carousel.cpp:1077`、`ui/command.cpp:1051`、`ui/menu.cpp:345` 的 `OnAction` 监听器
+  ⇒ 机制那句整体作废。测量到的只有 `actionDeliveryGate` 里 `dispatchAction(kit::copy)=false`
+  这个读数；读数不等于机制，别把没 grep 过的名字写进结论。
+
+## 广度门的"没有可点行"分两种，判据不同（2026-11-03 复跑抓的）
+
+`check-click-survival.php` 首版把这两件事合成一档 rc=2：①命中表**一行都没有**（hits 没落盘/
+物化全坏——探测没量到东西）；②有行但全 `click=0`（树 4 本就是两个纯文本滚动盒，没有 click=1
+的控件——**量出来的空集**）。全扫在树 1-3 量到 60 颗、唯独树 4 触发②，门整把 rc=2"未判定"，
+把一个量好的事实读成了"没量到"。
+
+定版判据：②按通过计，但前提是**同轮至少一棵树量到 >0 颗**——同一次运行里树 1-3 的 60 颗已经
+证明 click 标记与坐标换算链路是通的，树 4 的 0 才可信；单树 `--tree 4` 跑给不了这个前提
+（实测 rc=2），全树皆 0 也未判定（否则 click 标记整条断掉时四棵树全"空集通过"，门就空转绿了
+——#108 那类"判据不看被操纵的量"的同形陷阱）。红臂顺手白捡：`--tree 4` 本身就是"前提不成立"
+臂的活样本，不用改产物。
+
+教训一句：**fail-closed 不等于把所有"零"都当没量到**。零读数要么是探测断了（未判定），
+要么是被测对象真的是零（空集）——分开的凭据必须来自同一轮运行里的别的读数，不能靠记忆里的
+"上次这棵树有 44 颗"。

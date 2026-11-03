@@ -3048,3 +3048,41 @@ run `dwfrun-1ebf1186`（被用户停，批1+批2 施工完成门禁全绿，批3
 - [x] 复跑读数：`all-examples both` = ALL EXAMPLES: OK（28 行 rc=0）、`composer test:all` rc=0
   （pest 141/975 / phpstan No errors / PARITY OK / SHIM CPP TESTS OK）、`check:kit-gates` 2/2 rc=0、
   cxx17 OK、doctor rc=0、doc-claims rc=0、`docs:build` rc=0、锚点 OK（75 条 / 16 带锚）。
+
+### Phase 34 批16（2026-11-03，#111/#114 一个根因：上游把 content 实体裸转成 ScriptView 后读首字段）
+- [x] 触发点：批14 真人回报的两条崩溃（手风琴段错误、链接间歇段错误）看着是两个部件、两种栈、
+  两种签名（SIGSEGV / `belongs to a superseded render`），批15 又量到"id 29 两张表都不认"。
+  2026-11-03 读出**同一个根因**：`Entity<T>::Get` 是无校验裸转（`gpui.h:6830`），而
+  `component_shell` 的 15 处事件回调体读 `view->runtime`——上游以为那是 `ScriptView`，我们
+  宿主里那个实体是 `PhpView`，原本只有一个 8 字节 `Box2* box` ⇒ 拿 Box2 的字节当回调表头遍历。
+  槽位垃圾大就 SIGSEGV，刚好"看着是空的"就打"回调过期"——**那条诊断本身就是误导**，
+  被查的表压根不是 `g_runtime` 的表。
+- [x] 修法（窄修，有依据）：`PhpView` 首字段加 `scriptViewRuntime` 别名并在 Render 里指向真的
+  `g_runtime`（`cpp-src/gpui_shim.cpp`），两条 `static_assert` 把 `ScriptView::runtime` 偏移 0
+  与别名偏移 0 钉死——改布局当场编译不过，而不是等某颗控件被点下去。只补 `runtime` 的依据：
+  `ScriptView` 其余会被碰的字段里 `dirty` 只在 `isScript=true` 覆盖层重建被写（`root.cpp:174`），
+  而本宿主开层走 `ShellRootOpenDialogView` 硬编 `isScript=false`（`root.cpp:340`），那条越界写不可达。
+- [x] 两个具名回归位（独立窗、矩形从当轮 hitProbe 现算、`realClick` 走
+  `DispatchMouseUp → ShellComponentValueRelay::OnValue → InvokeWith → LiveComponentCallback`
+  整条真链——`gpui_selftest_fire` 绕开这条缝，所以旧门全绿也照不出来）：
+  `accordionRealClick` 绿侧 6/6 到 PHP；红臂（别名换回 `Box2*`）6 次里 5 次 SIGSEGV + 1 次两门 FAIL
+  ⇒ 把"两种读数"当场重放出来说明根因覆盖两侧。`linkRealClick` 6/6 送达 `link_click`
+  ⇒ **#114 随 #111 一起掉**：批15 的"3 崩 3 拦"不是 id 丢了，是查表查到了假表上；
+  `patch-dispatch-string-shimid.sh` 的守卫在本路径 0 次触发，降级为"未知 id"兜底网。
+- [x] 广度门 `cmd/check-click-survival.php`（`check-kit-gates` 收编第三道）：四棵树每颗
+  `click=1` 控件各起一个 automation 会话，坐标现算、只按宽≥8 筛不看高度。**复跑抓到自家门一条
+  判据缺陷**：树 4 命中表有行但全 `click=0`（它本就是纯文本滚动盒），首版把它当"命中表空"判
+  未判定 ⇒ 把"探测没量到东西"和"量出来的空集"混成一档。定版分两种空：一行都没有 ⇒ 未判定；
+  空集按通过计但前提是**同轮他树量到 >0 颗**（单树 `--tree 4` 实测 rc=2；全树皆 0 ⇒ 未判定，
+  防"click 标记整条断掉时空集通过"的空转绿）。教训记进 findings。
+- [x] `patch-dispatch-string-shimid.sh` 顺带一条：`gpuiEnqueueShimString` 从裸声明改成 weak
+  **定义**——amalgam 链进上游自己的 story 二进制时只有 shim 提供这个符号，声明式接缝把那次
+  链接变成 Undefined symbols（2026-11-03 re-sync 当场抓的），与 `gpuiEnqueueShimCallback` 同形。
+- [x] 文档同轮：中英 testing.md 的 HID 账改写（三条缺陷一条根因、H3/H5 从"等真人"改为已有机器
+  断言）、门表第 22 行订正为今晚产物读数（含两种空规则）、KIT-EVENT 经 automation 侧实证、
+  "h=0 就点不到"与"link 只能 fire 验"两句旧口径就地作废；findings 记根因三条判据 + 两种空教训。
+- [x] 复跑（全部今晚产物）：`composer test:all` rc=0（pest 141/975 / phpstan No errors /
+  PARITY OK / SHIM CPP TESTS OK）；`all-examples both` 28 行 rc=0；`check:kit-gates` 3 道全判定
+  （60/60 颗全活、致命签名 0、advisory 60 条不判红；树 4 空集按通过计）；doc-claims + self-check
+  rc=0；锚点 75/16 OK；`docs:build` rc=0。过程笔误一条记此不讳：电池里把 docs:build 跑成
+  `composer docs:build`（它是 docs/package.json 的 npm 脚本）——rc=1 是我的命令错，不是项目缺陷。

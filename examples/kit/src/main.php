@@ -210,7 +210,11 @@ function runKitAutomation(string $dir, int $tree, int $h): void
 {
     $tree = isset(kitTrees()[$tree]) ? $tree : 1;
     $h = $h > 0 ? $h : KIT_H;
-    ExampleState::boot(['section' => $tree]);
+    // kitEcho=true：每次 PHP 事件同时打一行 KIT-EVENT 到 stdout。automation 的判定读的是
+    // snapshot.txt（三道消费它的门都只在失败时引用这份日志），所以多打行不影响判据，
+    // 而"事件到底进没进 PHP"这条只有 stdout 能自证——崩溃归零不等于送达。
+    // 不用 getenv()：nano 产物里没有它（调用即抛），而 argv 已经在传 dir/tree/h。
+    ExampleState::boot(['section' => $tree, 'kitEcho' => true]);
     $app = new App();
     $app->create();
     $app->createWindow('Kit · tier-A 工厂批', KIT_W, $h);
@@ -2049,6 +2053,55 @@ function runKitSelfTest(): void
         . 'down/up 帧界悬垂在当前机器态下必崩，不作断言）');
     $ok = $ok && $linkOk;
     $lkApp->close();
+    // 9a-2) linkRealClick（#114 的真鼠标半边，独立窗，与上面 fire 臂零串扰）
+    //     修前实测：同坐标 6 连跑 = 3 次 SIGSEGV + 3 次被 cmd/patch-dispatch-string-shimid.sh
+    //     的守卫拦住并打出原因；而那个 id 在 runtime 表和 box 表里都不在册——
+    //     当时以为是"两张表都不认"，#111 的别名查出来后重读：查表的 impl 本身就是
+    //     Box2* 冒充 ShellRuntime*，所以"不认"是查错了表，不是 id 丢了。
+    //     候选矩形从当轮 hitProbe 现算，不硬编码坐标（同 accordionRealClick）。
+    ExampleState::$v['gateLinkReal'] = '';
+    $lrApp = new App();
+    $lrApp->create();
+    $lrApp->createWindow('Kit Link RealClick', 300, 160);
+    $lrApp->on('kit-lr-link', 'link_click', static function (): void {
+        ExampleState::$v['gateLinkReal'] = 'link_click';
+    });
+    $lrApp->on('kit-lr-link', 'click', static function (): void {
+        if ((string) (ExampleState::$v['gateLinkReal'] ?? '') === '') {
+            ExampleState::$v['gateLinkReal'] = 'click';
+        }
+    });
+    $lrApp->render(El::vFlex([
+        El::textView('[打开文档](https://example.com)', 'kit-lr-link')->onLinkClick(),
+    ])->sizeFull()->p(40.0)->bg('#f6f3ee')->itemsStart());
+    $lrApp->loop(4);
+    $lrCands = [];
+    $lrN = (int) ($lrApp->hitProbe()['n'] ?? 0);
+    for ($i = 0; $i < $lrN; $i++) {
+        $h = $lrApp->hitProbe($i);
+        if ((int) $h['click'] === 1 && (int) $h['w'] >= 20) {
+            $lrCands[] = [(int) $h['x'], (int) $h['y'], (int) $h['w'], (int) $h['h'], $i];
+        }
+    }
+    $lrRects = '';
+    foreach ($lrCands as $r) {
+        $lrRects .= ($lrRects === '' ? '' : ';') . $r[0] . ',' . $r[1]
+            . 'x' . $r[2] . 'x' . $r[3] . '#' . $r[4];
+    }
+    foreach ($lrCands as $r) {
+        $lrApp->realClick($r[0] + (int) ($r[2] / 2), $r[1] + (int) ($r[3] / 2));
+        $lrApp->loop(3);
+    }
+    $lrGot = (string) (ExampleState::$v['gateLinkReal'] ?? '');
+    $lrOk = count($lrCands) >= 1 && $lrGot !== '';
+    step('linkRealClick', $lrOk,
+        '命中表 ' . $lrN . ' 行，候选 ' . count($lrCands) . ' 条[' . $lrRects . ']'
+        . ' 送达=' . ($lrGot === '' ? '无' : $lrGot)
+        . ($lrOk ? '' : '（候选 0：textView 没出链接矩形；候选≥1 而送达=无：'
+            . 'OnTextLink→DispatchString 那条链仍没接上——查 patch-dispatch-string-shimid.sh '
+            . '的守卫是否把已能命中的 entry 也拦了）'));
+    $ok = $ok && $lrOk;
+    $lrApp->close();
     // 7e→9b) token 造粒 + 事件送达 + 渲染回调正/负对拍（批4）。造粒走
     //     App::inputReplaceToken（InputReplaceWithToken，选区 0..0 = 文本起点）；
     //     事件送达走 gpui_selftest_fire_registered（InvokeWith → shimId 旁路 → 队列
@@ -2349,6 +2402,63 @@ function runKitSelfTest(): void
             . '与 drainEvents count() 修复）'));
     $ok = $ok && $accOk;
     $accApp->close();
+    // ── 批16：accordionRealClick（#111 的机器侧复现位）───────────────────────
+    // 真人回报的形状是"点 catalog Accordion 头部 → 先打 Accordion.on_toggle callback
+    // failed: component callback N belongs to a superseded render，再段错误"。
+    // 上面那道 accordionToggleGate 走 gpui_selftest_fire——它按 cbid 直接入队，绕开了
+    // 部件 relay，所以全绿也照不出这条链。本门走真鼠标那一跳：
+    // realClick → DispatchMouseUp → ShellComponentValueRelay::OnValue →
+    // ComponentCallback::InvokeWith → LiveComponentCallback，正是崩溃栈里的那五级。
+    // 判据只数"到没到 PHP"：on_toggle 的载荷是"当前展开的下标数组"，shim 通道把值
+    // 发成空串（与 step/page/rate 同读数），所以拿 handler 触发次数当读数，不拿值内容。
+    ExampleState::$v['accRtHits'] = 0;
+    $rtApp = new App();
+    $rtApp->create();
+    $rtApp->createWindow('Kit Accordion RealClick', 420, 260);
+    $rtApp->on('acc-rt-tog', 'click', static function (): void {
+        ExampleState::$v['accRtHits'] = (int) (ExampleState::$v['accRtHits'] ?? 0) + 1;
+    });
+    $rtApp->view(static function (): El {
+        // multiple=true：每颗头部各自翻，不会互相关上，读数才只反映"到达"。
+        return El::vFlex([El::catalogAccordion('acc-rt', 2, true, true, 'medium', 'acc-rt-tog')])
+            ->sizeFull()->p(16.0);
+    });
+    $rtApp->loop(4);
+    $rtCands = [];
+    $rtN = (int) ($rtApp->hitProbe()['n'] ?? 0);
+    for ($i = 0; $i < $rtN; $i++) {
+        $h = $rtApp->hitProbe($i);
+        if ((int) $h['click'] === 1 && (int) $h['w'] >= 40) {
+            $rtCands[] = [(int) $h['x'], (int) $h['y'], (int) $h['w'], (int) $h['h'], $i];
+        }
+    }
+    $rtRects = '';
+    foreach ($rtCands as $r) {
+        $rtRects .= ($rtRects === '' ? '' : ';') . $r[0] . ',' . $r[1]
+            . 'x' . $r[2] . 'x' . $r[3] . '#' . $r[4];
+    }
+    $rtTried = 0;
+    foreach ($rtCands as $r) {
+        $rtApp->realClick($r[0] + (int) ($r[2] / 2), $r[1] + (int) ($r[3] / 2));
+        $rtApp->loop(3);
+        $rtTried++;
+    }
+    $rtHits = (int) (ExampleState::$v['accRtHits'] ?? 0);
+    $rtOk = count($rtCands) >= 1 && $rtHits >= 1;
+    $rtWhy = '';
+    if (count($rtCands) === 0) {
+        $rtWhy = '（候选 0：catalog AccordionItem 没出触发器矩形——查 mod.cpp 的 '
+            . 'MaterializeAccordion 是否给空 title 挂了 trigger）';
+    } elseif ($rtHits === 0) {
+        $rtWhy = '（候选≥1 而到 PHP=0：relay 查表仍不命中——查 #111 的 '
+            . 'PhpView::scriptViewRuntime 别名，它就是上游那次 ScriptView 裸转的落点。'
+            . '同一条链也可能直接段错误，两种读数是同一个根因）';
+    }
+    step('accordionRealClick', $rtOk,
+        '命中表 ' . $rtN . ' 行，候选 ' . count($rtCands) . ' 条[' . $rtRects . ']'
+        . ' 点过=' . $rtTried . ' 到 PHP=' . $rtHits . $rtWhy);
+    $ok = $ok && $rtOk;
+    $rtApp->close();
     echo ($ok ? 'KIT SELFTEST OK' : 'KIT SELFTEST FAIL') . "\n";
     exit($ok ? 0 : 1);
 }

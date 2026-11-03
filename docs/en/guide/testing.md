@@ -262,7 +262,7 @@ sleep 2 && cat /tmp/auto/snapshot.txt
 | `clickat <x> <y>` | one synthetic real click at coordinates (same seam as the selftest's `realClick`) | widgets the id seam cannot reach (slot buttons, the catalog date trigger) can only be clicked by rect; this is the discriminating arm for #103. input's `--automation <dir> [height]` takes an optional third argument to raise the window so below-the-fold targets become reachable |
 | `hits` | dump this frame's whole hit table to `<dir>/hits.txt` | rows are `i id x y w h click down drag` (tab-separated, gpui view coordinates); comparing against a same-frame `screenshot` separates "product hit-testing is wrong" from "the synthetic seam's coordinate conversion is wrong" |
 | `screenshot <label>` | force one frame, then emit a PNG | the label is sanitized, so artifacts cannot escape the directory |
-| `fire <id> <event>` | generic event dispatch seam: element seam first (`gpui_selftest_fire` only accepts click/change/hover), then registered seam (`gpui_selftest_fire_registered` looks up `(id,type)` in the shimCallbacks table, any event name goes through `ComponentCallback::InvokeWith` → queue → PHP handler) | widget-click's event name is fixed at 'click'; token_click/link_click and other distinct event names had no reachable verb — `fire` is the only delivery path for H3 |
+| `fire <id> <event>` | generic event dispatch seam: element seam first (`gpui_selftest_fire` only accepts click/change/hover), then registered seam (`gpui_selftest_fire_registered` looks up `(id,type)` in the shimCallbacks table, any event name goes through `ComponentCallback::InvokeWith` → queue → PHP handler) | widget-click's event name is fixed at 'click'; token_click/link_click and other distinct event names have no other **verb** - `fire` is the only automation-side delivery seam. Since 2026-11-03 a real click delivers them too (`accordionRealClick` / `linkRealClick` walk the same `InvokeWith` chain), so "fire is the only way to verify H3" is no longer true |
 | `rgb <x> <y> <w> <h>` | region average-color read (via `regionRgb` window paint buffer) | screenshot only captures the visible area (content viewport height); below-the-fold targets are invisible in the PNG. This verb can read any coordinate — but the display buffer does not sync-update in the automation path (handler runs, ExampleState updates, kitTree rebuilds with new state are all confirmed, yet the pixel does not change). This is a rendering timing limitation, not a dispatch-chain problem |
 | `scroll <x> <y> <deltaY>` | send one scroll-wheel event (`realScroll` → `gpui_mac_send_scroll`) | targets in an overflowYScroll viewport below the fold have h=0 in the hits table and clickat returns 0. The scroll event is processed in the next frame's pump. **Does not call automationForceFrame** — that rebuilds the tree and resets the ScrollView scroll position |
 | `poll` | diagnostic: poll one event from the queue and print it raw | distinguishes "event was never enqueued" from "event was enqueued but the handler never received it" |
@@ -308,14 +308,22 @@ has no drag verb. This is the in-#96-boundary half (scroll semantics unreachable
 NSScroller overlay path auto-hides without a real mouse (`cmd/check-scrollbar-paint.sh`
 measured two boxes the same color, applicable=false, rc=0/rc=2 premise-style).
 `cmd/check-scrollbar-click.sh` verifies the scrollbar is in the hit table (click=1); the
-clickat result is recorded as a reading (h=0 means below-the-fold, not clickable).
+clickat result is recorded as a reading. **h=0 does not mean "unclickable"**: the 2026-11-03
+per-control sweep measured h=0 rows in the full-height page receiving the click (the rows that
+crashed under #110/#111 were h=0 rows), so `cmd/check-click-survival.php` filters candidates by
+width >= 8 and ignores height - the earlier "h=0 therefore below the fold, not clickable"
+inference is retracted.
 
 **Token/link hit-reading** (Phase 33 batch 1 H3): `widget-click` only fires 'click', and
-token_click/link_click are distinct event names — the `fire` verb is the only delivery path.
+token_click/link_click are distinct event names — among the automation **verbs** only `fire` can
+emit them. Since 2026-11-03 the **link's real-mouse half is machine-asserted too**
+(`linkRealClick`: dedicated window, rect derived from that run's hitProbe, `realClick`, 6/6 runs
+delivering `link_click`), so "fire is the only way to verify a link click" is retired.
+**The token half is still not covered by a real click** - real-mouse hits on a token chip belong
+to the human pass (#96 boundary); the agent verifies the in-process dispatch chain only
+(fire delivery + hits geometry).
 The tree-3 `El::link` has been replaced with `El::textView` (base kind Link's click semantics
-open the href and do not consume on_link_click). Real-mouse hits on token/link belong to real
-HID (#96 boundary); the agent verifies only the in-process dispatch chain (fire seam delivery +
-hits).
+open the href and do not consume on_link_click).
 
 **Numbering note**: the zh guide's v2 checklist uses H1–H5 (H1=NativeMenu, H2=Resizable,
 H3=Accordion, H4=scrollbar, H5=token+link), matching `findings.md`, plus H6 added on
@@ -345,43 +353,65 @@ from "the selector was silently ignored" (a pty run printed a distinct n/title f
 trees). Readings go to stdout and are prompt only on a tty; a redirected stdout is
 block-buffered, so run it in a terminal rather than piping to a file.
 
-**Status of the three defects the first human pass reported (2026-11-02)** - all three now
-have a deterministic reproduction, so they are no longer "unverified":
+**The three defects the first human pass reported (2026-11-02), as of 2026-11-03.** The two that
+crashed turned out to share one root cause, which is now fixed; what is left is two visual defects
+and one design question.
 
-- In tree 3, clicking the "open dialog / alert / sheet" triggers **aborted** the process
-  (`component window state is missing; call component::Init before KitOpenWindow`, rc=134;
-  6 of 11 clickable rows in the automation sweep). Root cause: our shim opens windows through
-  `WindowOpenView(ShellRoot)` (`cpp-src/gpui_shim.cpp:1128`) instead of `KitOpenWindow`, and
-  only the latter runs `RootCapturePlugins`, which attaches the component layer's `WindowState`
-  plugin to the window. Without that plugin `LayersOf()` panicked. **Fixed**: `cmd/patch-window-layers.sh`
-  warns once and returns null instead (all 14 call sites in that file already treat null as
-  "do nothing"), and the same sweep now survives **11 of 11** clicks. Opening a layer still does
-  not happen - use `App::openDialog()/openSheet()/notify()` - so **task #110** stays open as the
-  design question "should ShellRoot windows carry that plugin", no longer as a crash.
-- The link half is separately still broken: a real mouse click on
-  `El::textView('[打开文档](https://…)', id)->onLinkClick()` segfaulted in 3 of 6 runs at the
-  same coordinate (`JS_NewStringLen ← DispatchString ← DispatchMouseUp`; the guard in
-  `cmd/patch-dispatch-string-shimid.sh` caught the other 3 and printed why), and it **does not
-  reach PHP** - measured, that callback id (29 in tree 3) is in neither the runtime table nor
-  Box2's `callbacks` map. **Task #114**: do not click the link during a human pass until it lands.
-- Clicking the Accordion header in tree 1/2 prints `Accordion.on_toggle callback failed: component
-  callback 9 belongs to a superseded render` and then segfaults - **task #111** (per-frame
-  re-render versus component callback ids). H3 is blocked on it; my sweep cannot reproduce it
-  because all five `click=1` rows in tree 1 are zero-height rects, so the header is never hit.
+- One root cause: upstream **reinterprets the window/overlay content entity as a `ScriptView`** before
+  using it - `Entity<T>::Get` is an unchecked `(T*)EntityGet(...)` (`gpui.h:6830`) - and the component
+  event bodies read exactly its first field (15 sites of `view->runtime` in `component_shell`). Our
+  `PhpView` used to be a single 8-byte `Box2*`, so that "runtime" *was* the `Box2*`:
+  `LiveComponentCallback` was reading a callback-table header out of Box2's bytes. Whatever it finds
+  decides the reading - in one tree, **8 of 18 clickable controls SIGSEGV and 3 printed
+  `belongs to a superseded render`**; both readings are the same defect, and the "superseded"
+  diagnosis itself is misleading, because the table being consulted was never the right table.
+  Fix: `PhpView`'s first field is now the `scriptViewRuntime` alias pointing at the real `g_runtime`
+  (`cpp-src/gpui_shim.cpp`), with two `static_assert`s pinning both offsets. Covering only `runtime`
+  is justified, not lucky: the one other field upstream writes, `dirty`, is touched solely in the
+  overlay rebuild guarded by `isScript` (`shell/root.cpp:174`), and our layers open through
+  `ShellRootOpenDialogView`, which hard-codes `isScript=false` (`root.cpp:340`) - that out-of-bounds
+  write is unreachable in this host.
+- **Accordion (#111, fixed, with a regression slot)**: new kit selftest step `accordionRealClick` -
+  a dedicated window with the catalog Accordion, header rect derived from that run's `hitProbe`, and
+  `realClick` walking the whole real chain `DispatchMouseUp → ShellComponentValueRelay::OnValue →
+  InvokeWith → LiveComponentCallback` (`gpui_selftest_fire` bypasses that seam, which is why the old
+  `accordionToggleGate` stayed green over this). Green side: 6/6 runs, "3 candidates → 3 reached PHP".
+  Red arm (alias put back to `Box2*`): 6 runs = **5 SIGSEGV, 1 with both new steps FAILing**.
+- **TextView link (#114, same root cause, closed with it)**: new `linkRealClick` step really clicks the
+  markdown link in its own window and asserts `link_click` reaches PHP - 6/6. The batch-15 reading
+  ("6 runs at one coordinate: 3 crash, 3 blocked") was not a lost id; the lookup was hitting a fake
+  table. The guard in `cmd/patch-dispatch-string-shimid.sh` therefore no longer fires on this path
+  (measured: 0 warnings) and stays as the net for a genuinely unknown id.
+- **Breadth gate**: `cmd/check-click-survival.php` clicks every `click=1` control in all four trees,
+  each in its own automation session. Hard verdicts: process rc must be 0, plus the two fatal
+  signatures (`superseded render` / `window state is missing`). Other `shell:` warnings are counted,
+  not judged - that is this gate's own declared limit. "No clickable rows" splits into two verdicts:
+  a hits table with **zero rows at all** means the probe measured nothing (undetermined); rows that
+  exist but are all click=0 (tree 4 is two plain text scroll boxes) is a **measured empty set** and
+  counts as a pass - on the premise that another tree in the same run measured >0 candidates (a
+  lone `--tree 4` run cannot provide that premise; measured rc=2), and an all-trees-zero sweep is
+  undetermined too, so the gate cannot go green by vacuity alone. Reading on the 2026-11-03 post-fix
+  build: **CLICK-SURVIVAL OK (60/60 controls alive, 0 fatal signatures; 60 advisory `shell:` warnings
+  counted, not judged; tree 4 clickable 0 - measured empty set, other trees proved the pipeline in
+  the same run)**.
+- The tree 3 "open dialog / alert / sheet" triggers: **#110 is still a design question**.
+  `cmd/patch-window-layers.sh` replaced `LayersOf()`'s panic with "warn once and return null" (all 14
+  call sites already treated null as "do nothing"), and the sweep survives 11 of 11 clicks; but a real
+  click still opens no layer - use `App::openDialog()/openSheet()/notify()`. The open question is
+  whether ShellRoot windows should carry the component layer's `WindowState` plugin.
 - In tree 1 the `hover` box shows its scrollbar **permanently** (both boxes had a thumb in the
   screenshot), contradicting "hover only while hovering" - **task #112**. On the same page the
   path-drawing block paints over the text below it - **task #113**. Neither is visible to
   shotdiff: the recorded baseline only covers the top 900x680 of the page, and both blocks sit
-  below the viewport. State of the evidence, split honestly: `KIT-TREE` and `KIT-HOVER` were
-observed printing live in a pty run (all four trees, before any exit), so the live-readout
-claim is measured; `KIT-EVENT` has still **not** been seen by a machine - the human pass
-crashed before reporting whether it appeared, and the `--automation` side never showed
-line-buffered stdout. So the next manual pass on a control that does not crash is what
-closes that gap; if the line does not appear, file it under H1/H3/H5. The selector and the echo were added on 2026-11-02:
-the interactive path was pinned to tree 1, and it called `wireKit()` before creating the
-window - `wireKit` uses window APIs (`bindKeys`, `elementCallback`) - so a bare
-`./examples/kit/build/kit` died with "No window created". Rows H1, H3, H5 and H6 therefore
-had no entry point at all, which is a different thing from "not yet verified".
+  below the viewport. State of the readout evidence: `KIT-EVENT <key>=<value>` **is** now machine-seen -
+  `--automation` enables the echo too (the three gates that consume automation stdout read
+  `snapshot.txt`, so extra lines move no verdict), and the per-control sweep printed `step=`, `page=`
+  and `rate=` lines; `KIT-HOVER hoverId=0` was observed in a natural exit. From 2026-11-03 the human
+  half of H3/H5 is no longer blocked by a defect. The selector and the echo were added on 2026-11-02:
+  the interactive path was pinned to tree 1, and it called `wireKit()` before creating the
+  window - `wireKit` uses window APIs (`bindKeys`, `elementCallback`) - so a bare
+  `./examples/kit/build/kit` died with "No window created". Rows H1, H3, H5 and H6 therefore
+  had no entry point at all, which is a different thing from "not yet verified".
 
 ## Pixel comparison
 

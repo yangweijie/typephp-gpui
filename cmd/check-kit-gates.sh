@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
-# cmd/check-kit-gates.sh — kit 域四道确定性门的批量入口（可达性收口）。
+# cmd/check-kit-gates.sh — kit 域确定性门的批量入口（可达性收口）。
 #
-# 为什么要它：这四道门各自能跑，但**没有任何入口点名它们**（composer / CI / tests 全无）——
+# 现在收三道：check-accordion-toggle.sh、check-token-link-hits.sh（各守一条具体链），
+# 加 check-click-survival.php（广度：树上每颗可点控件都点一遍，断言没有一个带走宿主）。
+#
+# 为什么要它：这些门各自能跑，但**没有任何入口点名它们**（composer / CI / tests 全无）——
 # 于是"写好的门"等于"没人跑的门"，下一轮漂移不会有人发现。这条给它们一个入口，
 # 另两条"要人/前提式"的臂走 cmd/check-kit-arms.sh（rc 语义不同，不并到同一判定里）。
 #
@@ -30,9 +33,12 @@ fi
 
 fails=0
 undetermined=0
-for g in check-accordion-toggle.sh check-token-link-hits.sh; do
+for g in check-accordion-toggle.sh check-token-link-hits.sh check-click-survival.php; do
     echo "--- $g"
-    bash "cmd/$g"
+    case "$g" in
+        *.sh) bash "cmd/$g" ;;
+        *.php) php "cmd/$g" ;;
+    esac
     rc=$?
     printf 'GATE %s rc=%s\n' "$g" "$rc"
     case "$rc" in
@@ -50,5 +56,5 @@ if [[ $undetermined -ne 0 ]]; then
     echo "KIT-GATES 未判定（$undetermined 道没拿到判定，别当通过）"
     exit 2
 fi
-echo "KIT-GATES OK（2 道全判定通过）"
+echo "KIT-GATES OK（3 道全判定通过）"
 exit 0
