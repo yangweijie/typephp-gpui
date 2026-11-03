@@ -348,17 +348,26 @@ block-buffered, so run it in a terminal rather than piping to a file.
 **Status of the three defects the first human pass reported (2026-11-02)** - all three now
 have a deterministic reproduction, so they are no longer "unverified":
 
-- In tree 3, clicking the "open dialog / alert / sheet" triggers **aborts** the process
+- In tree 3, clicking the "open dialog / alert / sheet" triggers **aborted** the process
   (`component window state is missing; call component::Init before KitOpenWindow`, rc=134;
   6 of 11 clickable rows in the automation sweep). Root cause: our shim opens windows through
   `WindowOpenView(ShellRoot)` (`cpp-src/gpui_shim.cpp:1128`) instead of `KitOpenWindow`, and
   only the latter runs `RootCapturePlugins`, which attaches the component layer's `WindowState`
-  plugin to the window. Without that plugin `LayersOf()` panics. Tracked as **task #110**;
-  H1 and H5 cannot be human-verified until it lands.
-- Another tree-3 control **segfaults** (rc=11, the `id=0` row of the hit table), and clicking
-  the Accordion header in tree 1/2 prints `Accordion.on_toggle callback failed: component
+  plugin to the window. Without that plugin `LayersOf()` panicked. **Fixed**: `cmd/patch-window-layers.sh`
+  warns once and returns null instead (all 14 call sites in that file already treat null as
+  "do nothing"), and the same sweep now survives **11 of 11** clicks. Opening a layer still does
+  not happen - use `App::openDialog()/openSheet()/notify()` - so **task #110** stays open as the
+  design question "should ShellRoot windows carry that plugin", no longer as a crash.
+- The link half is separately still broken: a real mouse click on
+  `El::textView('[打开文档](https://…)', id)->onLinkClick()` segfaulted in 3 of 6 runs at the
+  same coordinate (`JS_NewStringLen ← DispatchString ← DispatchMouseUp`; the guard in
+  `cmd/patch-dispatch-string-shimid.sh` caught the other 3 and printed why), and it **does not
+  reach PHP** - measured, that callback id (29 in tree 3) is in neither the runtime table nor
+  Box2's `callbacks` map. **Task #114**: do not click the link during a human pass until it lands.
+- Clicking the Accordion header in tree 1/2 prints `Accordion.on_toggle callback failed: component
   callback 9 belongs to a superseded render` and then segfaults - **task #111** (per-frame
-  re-render versus component callback ids). H3 is blocked on it.
+  re-render versus component callback ids). H3 is blocked on it; my sweep cannot reproduce it
+  because all five `click=1` rows in tree 1 are zero-height rects, so the header is never hit.
 - In tree 1 the `hover` box shows its scrollbar **permanently** (both boxes had a thumb in the
   screenshot), contradicting "hover only while hovering" - **task #112**. On the same page the
   path-drawing block paints over the text below it - **task #113**. Neither is visible to

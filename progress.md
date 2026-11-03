@@ -2898,3 +2898,14 @@ bin/gpui、GPUI.lock、tests/baseline/input/tree1.png（两度重录）、compos
   手风琴 `component callback 9 belongs to a superseded render` 后段错误 ⇒ #111（还欠机器侧确定性复现）。
 - 视觉两条：hover 盒滚动条常驻 ⇒ #112；路径绘制压住下面文字 ⇒ #113。都在 shotdiff 视口外，基线从没拍到。
 - 复跑：all-examples 28 行 rc=0、pest 141/975、doc-claims rc=0、docs:build rc=0、锚点 OK。
+
+## 2026-11-02 Phase 34 批15：#110 从崩溃降级为设计题，量出并立账 #114
+- 扫点击装置（每颗单独起进程、坐标现算）：树 3 基线 6 颗 SIGABRT + 1 颗 SIGSEGV。
+- `cmd/patch-window-layers.sh`：`LayersOf()` 的 Panic 换成"告警一次 + 返回 null"（14 个调用点本来
+  就 `if (!l) return`）⇒ 复测 11/11 活着；开层仍不生效，要弹层走 `App::openDialog/openSheet/notify`。
+- TextView 链接那颗 SIGSEGV：第一版修法（改投 gpuiEnqueueString）被探针否掉（inBox=0 ⇒ 静默丢事件），
+  撤销；第二版按"runtime 表里没这个 entry"守卫（`cmd/patch-dispatch-string-shimid.sh`），
+  同坐标 6 连跑 = 3 崩 / 3 被拦住并告警 ⇒ 没修完，立 **#114**，文档写明 H5 的 link 半边别真人点。
+- 文档订正：components.md（中英）加"第四条硬约束"；coverage 那句"两条路都在"补边界。
+- 复跑：all-examples 28 行 rc=0、test:all rc=0、kit-gates 2/2、cxx17 OK、doctor rc=0、
+  doc-claims rc=0、docs:build rc=0、锚点 75 条 OK。

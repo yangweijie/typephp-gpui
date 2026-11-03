@@ -277,6 +277,19 @@ void gpuiEnqueueShimCallback(App* app, EntityId view, uint64_t shimId) {
     NotifyApp(app);
 }
 
+// cmd/patch-dispatch-string-shimid.sh：同一条 shim 路由，但带字符串载荷。
+// TextView 的链接点击（OnTextLink → DispatchString）要把 href 交给 PHP 的
+// on_link_click 处理器——无载荷版本只能报"点了"，报不出"点了哪个链接"。
+void gpuiEnqueueShimString(App* app, EntityId view, uint64_t shimId,
+                           const char* value) {
+    auto* pv = (PhpView*)EntityGet(app, view);
+    if (!pv) return;
+    Box2* box = boxForView((void*)pv);
+    if (!box) return;
+    box->enqueue(shimId, GPUI_ARG_STR, 0, 0, value);
+    NotifyApp(app);
+}
+
 // 批6 宿主数据回路：runtime 的 CallInLayout 命中 shimId 时调此（覆盖 runtime.cpp
 // 的弱符号）。view 是注册回调时的 EntityId，EntityGet 取回 PhpView* 再经 g_views
 // 反查 Box2；shimId 即 box 侧 callbackId，callbacks 表给出 (elemId,type)——

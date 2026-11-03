@@ -810,6 +810,16 @@ El::sheet('kit-sheet', '打开抽屉',
 `on_ok`/`on_cancel`/`on_close` 的回调 id 由参数给入，事件以 `(该id, 'click')` 路由；
 送达由 `kitClickRoutes` 门用合成 fire 验到 PHP。
 
+**第四条硬约束（2026-11-02 实测，之前这句是错的）**：真鼠标点这三颗触发器**在本宿主开不出层**。
+我们的窗口根是 `ShellRoot`（`cpp-src/gpui_shim.cpp:1128` 写明不能改用 `KitOpenWindow`——多包一层
+Base Root 会让 `ShellRootOf` 的 `window->root == state->root` 判定失败），而 component 层的
+`WindowLayers` 挂在 Base Root 的插件上；缺那层插件时 `LayersOf()` 原来直接 `Panic` ⇒
+**点一下就 SIGABRT**（真人验收实测：树 3 的 11 颗可点控件里 6 颗打死进程）。现在
+`cmd/patch-window-layers.sh` 把它改成"告警一次 + 返回 null"，本文件 14 个调用点本来就都写了
+`if (!l) return`，所以行为从"崩"变成"什么都不做，stderr 说得出原因"。
+要真的弹出层，走 shell 那条路：`App::openDialog()` / `openSheet()` / `notify()`
+（selftest 第 5/11/18 步就是它们的 route-green 证据）。工厂形状、槽约束与 fire 缝送达都不受影响。
+
 ### 描述列表 DescriptionList
 
 ```php

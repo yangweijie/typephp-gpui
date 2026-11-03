@@ -42,6 +42,7 @@ void gpuiEnqueueTimer(ScriptView*, Ctx*, const void*, int64_t);
 // catalog 组件回调旁路（cmd/patch-registered-cb.sh 在 runtime.cpp 放的弱符号强实现）：
 // 把 ComponentCallback::InvokeWith 命中 shimId 的事件塞进窗口队列。
 void gpuiEnqueueShimCallback(App*, EntityId, uint64_t);
+void gpuiEnqueueShimString(App*, EntityId, uint64_t, const char*);
 }
 
 namespace {

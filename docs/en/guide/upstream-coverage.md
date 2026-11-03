@@ -59,7 +59,10 @@ component), Skeleton, Empty (assembled from the quintet), Badge/Tag (with
 `->variant()`/`->pill()`), Stepper/StepperItem, Tree/TreeItem, Pagination, Rating
 (read-only goes through the disabled behavior), Kbd/KbdCombo, ShimmerText,
 Dialog/AlertDialog/Sheet (real button-triggered native window effects; Dialog/Sheet
-require the `content` named slot), DescriptionList/Item, DataTable (**structure only —
+require the `content` named slot - but a real mouse click opens nothing here: our window
+root is ShellRoot without the component `WindowState` plugin, so these now warn once and
+no-op instead of aborting; use `App::openDialog()/openSheet()/notify()` for an actual
+layer, see [Components](./components)), DescriptionList/Item, DataTable (**structure only —
 the data channel is not connected**), Settings, and Carousel (assembled eight-piece set).
 Signatures, snippets and pitfalls:
 [Components · Kit factories](./components#kit-factories-dedicated-factories-for-tier-a-families).

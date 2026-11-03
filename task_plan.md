@@ -3017,3 +3017,34 @@ run `dwfrun-1ebf1186`（被用户停，批1+批2 施工完成门禁全绿，批3
   "等 #110/#111 修完才能验"；`KIT-TREE`/`KIT-WARN` 与 tty 缓冲的实测状态写清。
 - [x] 复跑：`all-examples both` = OK（28 行 rc=0）、pest 141/975、doc-claims rc=0、
   `docs:build` rc=0、锚点 OK（74/16）。
+
+### Phase 34 批15（2026-11-02，#110 的崩溃改成"看得见的不生效"，并量出 #114）
+- [x] 扫点击装置先立起来：`/tmp/g160-sweep.py`——每颗可点控件单独起一个 automation 会话点它，
+  坐标一律从当轮 `hits.txt` 现算（不硬编码）。基线读数：树 3 的 11 颗里 **6 颗 SIGABRT + 1 颗 SIGSEGV**。
+- [x] #110 的机制读到底：`WindowLayersOf()` 取的是 Base Root 上的 `component::kWindowStatePlugin`，
+  而我们开窗走 `WindowOpenView(ShellRoot)`（`cpp-src/gpui_shim.cpp:1128` 写明不能改用
+  `KitOpenWindow`——多包一层 Base Root 会让 `ShellRootOf` 的 `window->root == state->root` 判定失败）。
+  缺插件时 `LayersOf()` 直接 `Panic` ⇒ 点一下打死进程。
+- [x] 新补丁 `cmd/patch-window-layers.sh`：Panic 换成"告警一次 + 返回 null"。**这不是新增兜底**——
+  `window_ext.cpp` 里 14 个调用点本来就全写了 `if (!l) return`，改的只是"要不要把宿主带走"。
+  复测：同一扫点击 **11/11 颗都活着**；行为从"崩"变成"什么都不做 + stderr 说得出原因"。
+  #110 因此从崩溃题降级为设计题（要不要给 ShellRoot 窗口补这层插件）。
+- [x] 剩下那颗 SIGSEGV 查到栈（`kit-2026-11-03-085702.ips`）：`JS_NewStringLen ← DispatchString ←
+  DispatchMouseUp ← -[GpuiView release:button:]`。第一版修法（在 `OnTextLink` 里改投
+  `gpuiEnqueueString`）被**自己的读数否掉**：探针打出 `inBox=0`，等于把崩溃换成静默丢事件——
+  正是本仓最恨的"第三条哑路"，遂撤销。第二版（`cmd/patch-dispatch-string-shimid.sh`）先按
+  `!impl->context` 拦，实测**拦不住**（context 非空仍崩）；改成按"runtime 表里没这个 entry"拦
+  （`Dispatch()` 自己那句 `!live` 判据，只是值已经先造好了），才有读数。
+- [x] 但这条链**没修完**，如实记账：同坐标 6 连跑 = 3 次 rc=139 + 3 次 rc=0（后者守卫有告警）；
+  且实测那条回调 id（树 3 上是 29）`impl->callbacks.Get`=空、`box->callbacks.count`=0，
+  两张表都不认 ⇒ 真鼠标点链接**到不了 PHP**。⇒ 立 **task #114**，文档写明"H5 的 link 半边别真人点"。
+- [x] 文档同轮订正（活文档里的错句就地改）：`components.md`（中英）弹层触发器一节加"第四条硬约束"
+  （真点击在本宿主开不出层 + 为什么 + 该走哪条）；`upstream-coverage.md` 那句"两条路都在"补上边界
+  （形状与送达两条都在，真鼠标点击那一条不生效）。
+- [x] 过程坑两条：①`bin/gpui patch` 的清单 marker 必须与补丁脚本里的 MARK 字符串**同步**，
+  改了脚本没改清单 ⇒ 门报"清单点名但未跟踪/未落"；②沙箱树 `build/gpui-kit-cpp` 的同步源
+  `upstream/gpui-kit-cpp` 本身是已打补丁状态（老规矩），所以"还原到未打补丁"要走
+  `cmd/sync-upstream.sh` 再 `php bin/gpui patch`，不能靠手抄备份。
+- [x] 复跑读数：`all-examples both` = ALL EXAMPLES: OK（28 行 rc=0）、`composer test:all` rc=0
+  （pest 141/975 / phpstan No errors / PARITY OK / SHIM CPP TESTS OK）、`check:kit-gates` 2/2 rc=0、
+  cxx17 OK、doctor rc=0、doc-claims rc=0、`docs:build` rc=0、锚点 OK（75 条 / 16 带锚）。

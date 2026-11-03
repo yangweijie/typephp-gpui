@@ -770,6 +770,18 @@ gate):
 The `on_ok`/`on_cancel`/`on_close` callback ids come from parameters and route as
 `(that id, 'click')`; the `kitClickRoutes` gate proves delivery to PHP with synthetic fires.
 
+**A fourth hard constraint (measured 2026-11-02; the earlier wording was wrong)**: a real mouse
+click on these three triggers **opens no layer in this host**. Our window root is `ShellRoot`
+(`cpp-src/gpui_shim.cpp:1128` explains why `KitOpenWindow` cannot be used - the extra Base Root
+wrapper breaks `ShellRootOf`'s `window->root == state->root` test), while the component layer's
+`WindowLayers` hangs off a Base Root plugin. Without that plugin `LayersOf()` used to `Panic`, so
+**clicking one killed the process** (the human pass measured 6 of 11 clickable controls in tree 3).
+`cmd/patch-window-layers.sh` now warns once and returns null; this file's 14 call sites already
+treat null as "do nothing", so the behaviour is "nothing happens, with the reason on stderr"
+instead of an abort. To actually show a layer, use the shell route: `App::openDialog()`,
+`openSheet()`, `notify()` (selftest steps 5/11/18 are their route-green evidence). Factory shapes,
+slot constraints and fire-seam delivery are unchanged.
+
 ### Description list
 
 ```php

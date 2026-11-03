@@ -56,10 +56,19 @@
   missing; call component::Init before KitOpenWindow`，rc=134；automation 扫点击 6/11 命中）。
   根因是我们开窗走 `WindowOpenView(ShellRoot)`（`cpp-src/gpui_shim.cpp:1128`）而不是
   `KitOpenWindow`——后者会用 `RootCapturePlugins` 把 component 层的 `WindowState` 插件装到窗口上，
-  我们这条根没有那层插件，于是 `LayersOf()` 直接 Panic。⇒ 归 **task #110**，H1/H5 在它修好前无法真人验。
-- 树 3 另有一颗点下去是 **SIGSEGV**（rc=11，命中表 id=0 那行）；树 1/2 点手风琴头先打
-  `Accordion.on_toggle callback failed: component callback 9 belongs to a superseded render`
-  再段错误 ⇒ 归 **task #111**（每帧重算与 component 回调 id 的失配），H3 在它修好前无法真人验。
+  我们这条根没有那层插件，于是 `LayersOf()` 直接 Panic。**已改**：`cmd/patch-window-layers.sh`
+  把 Panic 换成"告警一次 + 返回 null"（本文件 14 个调用点本来就都 `if (!l) return`），
+  复测同一扫点击 **11/11 颗都活着**；但**开层本身仍不生效**（要弹层走 `App::openDialog/openSheet/notify`）
+  ⇒ **task #110** 留作"要不要给 ShellRoot 窗口补上这层插件"的设计题，不再是崩溃题。
+- 链接那一半单独还坏着：真鼠标点 `El::textView('[打开文档](https://…)', id)->onLinkClick()`
+  在同坐标 6 连跑里 **3 次仍 SIGSEGV**（`JS_NewStringLen ← DispatchString ← DispatchMouseUp`；
+  `cmd/patch-dispatch-string-shimid.sh` 的守卫拦住了其中 3 次并打出原因），且**送达不到 PHP**
+  ——实测那条回调 id（树 3 上是 29）既不在 runtime 回调表也不在 Box2 的 callbacks 表。
+  ⇒ **task #114**：H5 的 link 半边在修好前**不要真人点**。
+- 手风琴：真人点树 1/2 的头部先打 `Accordion.on_toggle callback failed: component callback 9
+  belongs to a superseded render` 再段错误 ⇒ 归 **task #111**（每帧重算与 component 回调 id 的失配），
+  H3 在它修好前无法真人验。我这边扫点击的树 1 五行 click=1 全是 `h=0` 的矩形，点不到真头部，
+  所以这条还欠一个机器侧确定性复现。
 - 树 1 的 `hover` 盒**滚动条常驻**（真人截图里左右两盒都有 thumb），与清单期望"hover 仅悬停时出现"相反
   ⇒ 归 **task #112**；同页"路径绘制"那块的图形压住了下面的文字 ⇒ **task #113**。
   这两条 shotdiff 看不见：基线只拍到 900x680 的上半屏，那两块都在视口之外。

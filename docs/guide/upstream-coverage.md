@@ -139,7 +139,11 @@ inputReplaceToken+loop(4) 之后读得到），其"通道分歧"判据是探针�
 **看起来缺、其实走了别的路**：Dialog / AlertDialog / Sheet —— 2026-10-28 起**两条路都在**：
 `App::openDialog()`/`openSheet()` 的保留态弹窗，与真按钮触发的 catalog 工厂
 `El::dialog()`/`alertDialog()`/`sheet()`（窗口效果族，见
-[组件 · kit 工厂批](./components#kit-工厂批-tier-a-组件的专用工厂)）；Notification 也是
+[组件 · kit 工厂批](./components#kit-工厂批-tier-a-组件的专用工厂)）；
+〔2026-11-02 订正这句的边界：**"两条路都在"说的是形状与送达，不是真鼠标**。我们的窗口根是
+ShellRoot、没有 component 层的 `WindowState` 插件，所以点这三颗触发器开不出层——
+`cmd/patch-window-layers.sh` 之前更是直接 SIGABRT（真人验收实测树 3 的 11 颗可点里 6 颗崩）。
+现在它们是"告警一次 + 什么都不做"，要弹层请走 `App::openDialog()/openSheet()/notify()`。〕Notification 也是
 两条路——`App::notify()` 与批 3 的 catalog 工厂 `El::catalogNotification()`
 （2026-10-30 订正：括号里那句"导出名尚未出工厂"是失真旧句，工厂在
 src/Element.php，message/type/on_click/on_close/autohide 走方法糖）；Tooltip 同样两条路——
