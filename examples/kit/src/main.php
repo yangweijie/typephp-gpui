@@ -124,14 +124,25 @@ function kitDispatch(array $argv): void
     $app->createWindow('Kit · 真人验收 树' . $section, KIT_W, KIT_H);
     wireKit($app);
     $hoverSeen = -1;
+    // 自证这条开关真的移动了被测量的量：新开关不打印"我打开了哪棵树"就没法区分
+    // "--section 2 生效"与"它被静默忽略、还是树 1"（2026-11-02 真人回报里两张截图的内容
+    // 都属树 1，正是靠这行来判定）。
+    // 读数走 stdout：nano 里没有 STDERR 常量（实测 "Undefined constant STDERR"），
+    // 而真人在终端里跑时 stdout 就是行缓冲——下面那条 pty 实测把这一点变成了读数。
+    echo 'KIT-TREE n=' . $section . ' title=' . kitTrees()[$section][0]
+        . ' window=' . KIT_W . 'x' . KIT_H . "\n";
+    if ($section === 3) {
+        echo "KIT-WARN 树 3 的『打开确认框 / 警告框 / Sheet』那几颗点了会 abort"
+            . "（component 层窗口状态缺失，见 task #110）；NativeMenu 触发器、token 徽章与 link 不受影响\n";
+    }
     $app->view(static function () use ($app, $section, &$hoverSeen): El {
         // 悬停读数：真人清单 H6 要的是"hoverId 非零那一侧"，合成缝喂不出来（selftest 第 27 步
         // 实测 armed=0），所以这里只在**值变化**时打一行，人眼配终端就能判。
         $hover = (int) ($app->windowState()['hoverId'] ?? 0);
         if ($hover !== $hoverSeen) {
             echo 'KIT-HOVER hoverId=' . $hover . "\n";
-            // 不调 flush()：产物里没有这个函数，调了就抛 "function 'flush' is undefined"
-            // （2026-11-02 实测 rc=12）。真人直接在终端里跑就是行缓冲，一行一出。
+            // 不 flush()：产物里没有 flush，调了就抛 "function 'flush' is undefined"
+            // （2026-11-02 实测 rc=12）。真人在终端里跑就是行缓冲，一行一出。
             $hoverSeen = $hover;
         }
         return kitTree($section);

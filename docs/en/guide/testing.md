@@ -339,14 +339,36 @@ H1–H3 (H1=Accordion, H2=scrollbar, H3=token/link) conflict with this. The auto
 Interactive mode prints `KIT-EVENT <key>=<value>` for every event that reaches PHP
 (`nmCopy=action`, `accI0=open`, `tokClick=delivered`, `linkClick=delivered`) and
 `KIT-HOVER hoverId=<n>` when the hover id changes - that line turning non-zero is the H6
-reading. Both go to stdout, and a redirected stdout is block-buffered, so run it in a
-terminal rather than piping to a file. State of the evidence, split honestly: the
-`KIT-HOVER` line was actually observed in a real run this session (a naturally-exiting
-session printed `hoverId=0`), while `KIT-EVENT` shares that same `$log` closure whose
-handlers are covered by selftest delivery assertions - but "one click prints a KIT-EVENT
-line" has **not** been seen by a machine yet (no human click here, and the `--automation`
-side never showed line-buffered stdout). So on the first manual pass, confirm the line
-appears; if it does not, that is a new defect worth filing under H1/H3/H5. The selector and the echo were added on 2026-11-02:
+reading. On launch it prints `KIT-TREE n=<tree> title=<title>`, which is the self-proof that
+the new flag actually moved something: without it there is no way to tell "the selector works"
+from "the selector was silently ignored" (a pty run printed a distinct n/title for all four
+trees). Readings go to stdout and are prompt only on a tty; a redirected stdout is
+block-buffered, so run it in a terminal rather than piping to a file.
+
+**Status of the three defects the first human pass reported (2026-11-02)** - all three now
+have a deterministic reproduction, so they are no longer "unverified":
+
+- In tree 3, clicking the "open dialog / alert / sheet" triggers **aborts** the process
+  (`component window state is missing; call component::Init before KitOpenWindow`, rc=134;
+  6 of 11 clickable rows in the automation sweep). Root cause: our shim opens windows through
+  `WindowOpenView(ShellRoot)` (`cpp-src/gpui_shim.cpp:1128`) instead of `KitOpenWindow`, and
+  only the latter runs `RootCapturePlugins`, which attaches the component layer's `WindowState`
+  plugin to the window. Without that plugin `LayersOf()` panics. Tracked as **task #110**;
+  H1 and H5 cannot be human-verified until it lands.
+- Another tree-3 control **segfaults** (rc=11, the `id=0` row of the hit table), and clicking
+  the Accordion header in tree 1/2 prints `Accordion.on_toggle callback failed: component
+  callback 9 belongs to a superseded render` and then segfaults - **task #111** (per-frame
+  re-render versus component callback ids). H3 is blocked on it.
+- In tree 1 the `hover` box shows its scrollbar **permanently** (both boxes had a thumb in the
+  screenshot), contradicting "hover only while hovering" - **task #112**. On the same page the
+  path-drawing block paints over the text below it - **task #113**. Neither is visible to
+  shotdiff: the recorded baseline only covers the top 900x680 of the page, and both blocks sit
+  below the viewport. State of the evidence, split honestly: `KIT-TREE` and `KIT-HOVER` were
+observed printing live in a pty run (all four trees, before any exit), so the live-readout
+claim is measured; `KIT-EVENT` has still **not** been seen by a machine - the human pass
+crashed before reporting whether it appeared, and the `--automation` side never showed
+line-buffered stdout. So the next manual pass on a control that does not crash is what
+closes that gap; if the line does not appear, file it under H1/H3/H5. The selector and the echo were added on 2026-11-02:
 the interactive path was pinned to tree 1, and it called `wireKit()` before creating the
 window - `wireKit` uses window APIs (`bindKeys`, `elementCallback`) - so a bare
 `./examples/kit/build/kit` died with "No window created". Rows H1, H3, H5 and H6 therefore

@@ -2989,3 +2989,31 @@ run `dwfrun-1ebf1186`（被用户停，批1+批2 施工完成门禁全绿，批3
 - [x] 文档同轮：`cli.md`（中英）把 `--section` 写进"人来做的那一步"清单并说明裸二进制优先与
   块缓冲的坑；顺手修了 zh cli.md 里两条命令挤在同一行的旧缺陷（`--escape` 与 `--dock`）；
   `testing.md`（中英）HID 清单加了"这六格怎么打开"的命令块与读数说明。
+
+### Phase 34 批14（2026-11-02，真人第一轮回报：交互入口能开了，但一点就崩）
+- [x] 先认一条我自己的错：上一轮"40/40 起窗存活"只测了"2 秒内没退"，**没测点下去会不会崩**；
+  真人一点就露出三条缺陷。测量口径不够就是结论不够。
+- [x] 补的自证读数：交互开窗打 `KIT-TREE n=<树号> title=<标题>`，树 3 额外打 `KIT-WARN`。
+  pty 实测（`/tmp/g164-pty.py`）四棵树各打各的 n/title ⇒ `--section` 不是静默无效；
+  同一轮里 `KIT-HOVER hoverId=0` 在退出前就出现在 tty ⇒ "终端里一行一出"这条从推测变成读数。
+- [x] 又踩两条 nano 坑：`STDERR` 常量在产物里**未定义**（"Undefined constant \"STDERR\""，
+  连 `--sections` 都起不来）⇒ 读数只能走 echo/stdout；改回 echo 时三处替换各留了一个野 `)`，
+  `php -l` 全抓到（教训：批量替换后逐文件 lint，别只 lint 第一个）。
+- [x] 崩溃定位（automation 扫点击，`/tmp/g160-sweep.py`，每颗单独起进程）：
+  - 树 3：11 颗可点里 **6 颗 SIGABRT**，消息 `component window state is missing; call
+    component::Init before KitOpenWindow`；另有 1 颗 **SIGSEGV**（命中表 id=0 那行）。
+    机制读出来了：我们开窗走 `WindowOpenView(ShellRoot)`（`cpp-src/gpui_shim.cpp:1128`），
+    而 `KitOpenWindow` 会 `RootCapturePlugins` 把 component 层的 `WindowState` 插件装到窗口；
+    ShellRoot 这条根没那层插件 ⇒ `LayersOf()`（`src/ui/window_ext.cpp:37-45`）直接 Panic。
+    ⇒ 立 **task #110**（H1/H5 被它挡着）。
+  - 手风琴：真人点树 1/2 的头部先打 `Accordion.on_toggle callback failed: component callback 9
+    belongs to a superseded render`（`src/shell/runtime.cpp:12981` 的 `LiveComponentCallback`
+    ——回调 id 在上一帧的表里，本帧已没有）再段错误 ⇒ 立 **task #111**。我这边扫点击的树 1
+    五行 click=1 全是 `h=0` 的矩形，点不到真头部，所以这条还欠一个机器侧确定性复现。
+- [x] 两条视觉缺陷立账：树 1 的 `hover` 盒滚动条**常驻**（真人截图两盒都有 thumb）⇒ **#112**；
+  "路径绘制"那块图形压住下面文字 ⇒ **#113**。这两块都在 900x680 视口之外，shotdiff 基线根本没拍到，
+  所以"像素全绿"从来没覆盖过它们——这条盲区记进 testing.md。
+- [x] 文档同轮：中英 HID 清单各加"这六格现在被哪条缺陷挡着"，并把 H1/H3/H5 从"等人验"改成
+  "等 #110/#111 修完才能验"；`KIT-TREE`/`KIT-WARN` 与 tty 缓冲的实测状态写清。
+- [x] 复跑：`all-examples both` = OK（28 行 rc=0）、pest 141/975、doc-claims rc=0、
+  `docs:build` rc=0、锚点 OK（74/16）。

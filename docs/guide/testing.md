@@ -47,8 +47,22 @@
 
 交互模式里每收到一个事件打一行 `KIT-EVENT <键>=<值>`（H1 的 `nmCopy=action`、H3 的
 `accI0=open`、H5 的 `tokClick=delivered` / `linkClick=delivered`），悬停 id 变化打一行
-`KIT-HOVER hoverId=<n>`（H6 要看的"非零侧"就是它变成非零）。读数走 stdout：重定向到文件时
-PHP 块缓冲，要等进程退出才落盘，所以人在屏幕前直接跑。
+`KIT-HOVER hoverId=<n>`（H6 要看的"非零侧"就是它变成非零）。开窗先打一行
+`KIT-TREE n=<树号> title=<标题>`——这条是自证：新开关不报自己打开了哪棵树，就没法区分
+"生效"与"被静默忽略"（pty 实测四棵树各打各的 n/title）。读数走 stdout 且只在 tty 里即时：
+重定向到文件时 PHP 块缓冲，要等进程退出才落盘，所以人在屏幕前直接跑。
+**2026-11-02 真人第一轮回报的三条缺陷，现在的状态**（都已有确定性复现，不是"没验"）：
+- 树 3 的『打开确认框 / 警告框 / Sheet』那几颗一点就 **abort**（`component window state is
+  missing; call component::Init before KitOpenWindow`，rc=134；automation 扫点击 6/11 命中）。
+  根因是我们开窗走 `WindowOpenView(ShellRoot)`（`cpp-src/gpui_shim.cpp:1128`）而不是
+  `KitOpenWindow`——后者会用 `RootCapturePlugins` 把 component 层的 `WindowState` 插件装到窗口上，
+  我们这条根没有那层插件，于是 `LayersOf()` 直接 Panic。⇒ 归 **task #110**，H1/H5 在它修好前无法真人验。
+- 树 3 另有一颗点下去是 **SIGSEGV**（rc=11，命中表 id=0 那行）；树 1/2 点手风琴头先打
+  `Accordion.on_toggle callback failed: component callback 9 belongs to a superseded render`
+  再段错误 ⇒ 归 **task #111**（每帧重算与 component 回调 id 的失配），H3 在它修好前无法真人验。
+- 树 1 的 `hover` 盒**滚动条常驻**（真人截图里左右两盒都有 thumb），与清单期望"hover 仅悬停时出现"相反
+  ⇒ 归 **task #112**；同页"路径绘制"那块的图形压住了下面的文字 ⇒ **task #113**。
+  这两条 shotdiff 看不见：基线只拍到 900x680 的上半屏，那两块都在视口之外。
 **这条读数本分的实测状态要分开说**：`KIT-HOVER` 那行在本轮真跑里打出过（一次自然退出的会话里
 读到 `hoverId=0`）；`KIT-EVENT` 的 echo 与它同一段 `$log`，而那段闭包里的处理器由 selftest 的
 送达断言覆盖——但**"人点一下就看到 KIT-EVENT 行"这句还没被机器亲眼验过**（本会话没有真人点击，

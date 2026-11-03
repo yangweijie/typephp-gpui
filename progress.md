@@ -2887,3 +2887,14 @@ bin/gpui、GPUI.lock、tests/baseline/input/tree1.png（两度重录）、compos
   改后累计 40/40 起窗存活 0 panic —— 相关性，不是证明。
 - `KIT-HOVER` 那行实测打出过；`KIT-EVENT` 的"点一下就有"本会话没有机器实样 ⇒ 中英文档明写这条限制。
 - 复跑：all-examples 28 行 rc=0、pest 141/975、doc-claims rc=0、`docs:build` rc=0、锚点 74 条 OK。
+
+## 2026-11-02 Phase 34 批14：真人回报三条崩溃，测量口径补上"点下去会不会崩"
+- 上一轮"40/40 起窗存活"只测 2 秒不退，没测点击 ⇒ 真人一点就崩。这条结论口径的漏洞由用户报告暴露。
+- 加 `KIT-TREE n=/title=` 与树 3 的 `KIT-WARN` 自证；pty 实测四棵树各报各的、读数 tty 即时 ⇒
+  `--section` 不是静默无效。
+- nano 又两条：`STDERR` 常量未定义（整个产物起不来）；改回 echo 时三处野 `)` 被 `php -l` 抓到。
+- 扫点击定位：树 3 有 6/11 颗 SIGABRT（component WindowState 插件缺失，我们走 WindowOpenView(ShellRoot)
+  而非 KitOpenWindow+RootCapturePlugins）⇒ #110；另有 1 颗 SIGSEGV ⇒ #110/#111；
+  手风琴 `component callback 9 belongs to a superseded render` 后段错误 ⇒ #111（还欠机器侧确定性复现）。
+- 视觉两条：hover 盒滚动条常驻 ⇒ #112；路径绘制压住下面文字 ⇒ #113。都在 shotdiff 视口外，基线从没拍到。
+- 复跑：all-examples 28 行 rc=0、pest 141/975、doc-claims rc=0、docs:build rc=0、锚点 OK。
