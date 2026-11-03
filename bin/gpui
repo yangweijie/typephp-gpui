@@ -122,6 +122,9 @@ function patchManifest(): array {
         ['patch-host-action-cb.sh', "$root/cpp-src/gpui_shim_services.inc", 'typephp-gpui: host action callback'],
         ['patch-host-action-cb.sh', "$root/cpp-src/gpui_shim.h", 'typephp-gpui: host action callback'],
         ['patch-diag-zero-ops.sh', "$gpui/src/shell/materialize.cpp", 'typephp-gpui: zero-op diagnostic'],
+        ['patch-native-menu-action-reg.sh', "$gpui/src/shell/runtime.cpp", 'typephp-gpui: menu-action registration seam'],
+        ['patch-native-menu-action-reg.sh', "$gpui/src/component_shell/command/native_menu.cpp", 'typephp-gpui: register trigger rows into the app action table'],
+        ['patch-native-menu-action-reg.sh', "$root/cpp-src/gpui_shim.cpp", 'typephp-gpui: strong override — trigger rows register into the app action table'],
         ['patch-selftest-fire-direct.sh', "$root/cpp-src/gpui_shim.cpp", 'box->enqueue(cbid, GPUI_ARG_NUM, 1.0'],
     ];
 }

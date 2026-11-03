@@ -2937,3 +2937,9 @@ bin/gpui、GPUI.lock、tests/baseline/input/tree1.png（两度重录）、compos
   grep -c || echo 0 bug）。#115 快查=不同层（ShellAction 派发），留独立批次。
 - 电池：kit-gates/all-examples/test:all/doc 门。文档：中英 testing.md #116/#117 对账、findings
   四条判据（每层绿才许怪下一层；回声才是"到了 PHP"）。
+
+## 2026-11-04 Phase 34 批19：#115 修复（触发器行登记 app 级动作表）
+- 死点 = 两处查表都不中（行是 carried Entry；app 表没人登记）。weak-seam 补丁三处落；
+  extern "C" 吃掉强符号 + 命名空间遮蔽两坑现场抓（nm 对名的判据进 findings）。
+- 回归位 nativeMenuActionDelivery 红臂/绿臂双向实测。真人最后一跳（模态菜单里点行）待真人轮。
+- 电池：kit-gates 3/3、test:all rc=0、doc 门 rc=0、all-examples 两红一绿（layout-tree1 抖动记两头）。

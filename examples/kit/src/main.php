@@ -2102,6 +2102,48 @@ function runKitSelfTest(): void
             . '的守卫是否把已能命中的 entry 也拦了）'));
     $ok = $ok && $lrOk;
     $lrApp->close();
+    // 9a-3) nativeMenuActionDelivery（#115 的回归位，2026-11-04）：触发器行派发的
+    //     ShellAction 必须进 app 级动作表（patch-native-menu-action-reg.sh）。
+    //     真人菜单行选中走同一条派发链：NSMenu 行 → onSelect → OnDispatchAction
+    //     → WindowDispatchAction → ①元素 OnAction（行是 carried Entry，没有）→
+    //     ②app 表（此前从未登记触发器的行 ⇒ 两处都不中，return false 静默丢）。
+    //     修复后 dispatchAction 应返回 true 且事件入队到 PHP。机器断言这后半段；
+    //     NSMenu 模态会话里的真人那一跳仍归真人 HID。
+    $nmApp = new App();
+    $nmApp->create();
+    $nmApp->createWindow('Kit NativeMenu Action', 360, 160);
+    ExampleState::$v['gateNmCopy'] = '';
+    $nmApp->on('kit-nm2-copy', 'action', static function (): void {
+        ExampleState::$v['gateNmCopy'] = 'delivered';
+    });
+    $nmApp->render(El::vFlex([
+        El::nativeMenuTrigger('kit-nm2', '动作菜单', 'kit-nm2-err', [
+            El::nativeMenuItem('复制路径', 'kit-nm2-copy'),
+            El::nativeMenuSeparator(),
+        ]),
+    ])->sizeFull()->p(40.0)->itemsStart());
+    $nmApp->loop(4);
+    $nmErr = '';
+    $nmDispatch = false;
+    try {
+        $nmDispatch = $nmApp->dispatchAction('kit-nm2-copy');
+    } catch (\Throwable $e) {
+        $nmErr = $e->getMessage();
+    }
+    $nmApp->loop(3);
+    $ev3 = \gpui_poll_event($nmApp->handle());
+    if (!empty($ev3)) { $nmApp->dispatch($ev3); }
+    $nmOk = $nmDispatch && ExampleState::$v['gateNmCopy'] === 'delivered'
+        && $nmApp->registeredError() === '';
+    step('nativeMenuActionDelivery', $nmOk,
+        'dispatchAction(kit-nm2-copy)=' . var_export($nmDispatch, true)
+        . ' 送达=' . var_export(ExampleState::$v['gateNmCopy'], true)
+        . ' registeredError=' . ($nmApp->registeredError() === '' ? '空' : $nmApp->registeredError())
+        . ($nmErr !== '' ? ' 异常=' . $nmErr : '')
+        . ($nmOk ? '' : '（false/无送达：触发器行的 action 没进 app 级动作表——查 '
+            . 'patch-native-menu-action-reg.sh 三处是否都落，预算是否被占满）'));
+    $ok = $ok && $nmOk;
+    $nmApp->close();
     // 7e→9b) token 造粒 + 事件送达 + 渲染回调正/负对拍（批4）。造粒走
     //     App::inputReplaceToken（InputReplaceWithToken，选区 0..0 = 文本起点）；
     //     事件送达走 gpui_selftest_fire_registered（InvokeWith → shimId 旁路 → 队列

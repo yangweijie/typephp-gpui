@@ -45,11 +45,13 @@
   （首行从 第01 变 第04）且右缘 thumb 真画出（截图）；同一帧里 hover 盒**无人悬停**却
   挂着 thumb、隔 4 秒再拍仍在 ⇒ **#112（hover 盒滚动条常驻）在树 4 也复现**；
   "thumb 随滚动移动"未做两帧对比，记边界。
-- **H1 NativeMenu：弹得出、选不达（#115 立账）**。真人真点触发器 → OS 菜单弹出（截图实证；
-  a11y AXPress 触发同一结果）→ 真点「复制路径」→ **PHP 零事件**（stdout 无 KIT-EVENT 行、
-  窗口内 `kitLog=[]` 双证）。与 findings 里 `actionDeliveryGate` 已量到的
-  `dispatchAction(kit::copy)=false` 是同一条缝——真人端到端确认了它。H1 被
-  **#115（行选中 action 到不了 PHP）** 挡着。
+- **H1 NativeMenu：#115 已修（2026-11-04 批19），真人最后一跳待验**。批17 立账后读出的
+  死点：行选中派发 `OnDispatchAction → WindowDispatchAction` 只查两处——元素级 OnAction
+  （触发器的行是 carried Entry，不是活元素，没有监听）与 app 级动作表（登记入口
+  `registerMenuAction` 只服务 app 菜单条，触发器路径从不登记）⇒ 两处都不中即静默丢。
+  `patch-native-menu-action-reg.sh` 走 weak-seam 惯例把每行 action 登记进 app 表；
+  回归位 = selftest 步 `nativeMenuActionDelivery`（红臂关登记 false/无送达，绿臂
+  true/delivered）。NSMenu 模态会话里的真人那一跳（点行）待下一次真人轮确认。
 - **H5 link 半边：#116 已修（2026-11-04 批18）**。批17 的"两条缝分叉"框架是**错的**：
   探针逐层下钻（up-gate→OnTextLink→DispatchString→shim 路由→box 入队 `found=1`）发现
   C++ 侧整条链**真鼠标与合成完全同一条**，事件死在最后一厘米——wireKit 用 op 长名
@@ -139,7 +141,7 @@ H1/H3/H5/H6 不是"没验"，是**没有入口**。
 
 | # | 项 | selftest 现状（机器半边） | 真人操作 | 期望读数 |
 |---|---|---|---|---|
-| H1 | NativeMenu 行选中送达 | `nativeMenuShape` 只断工厂形状（trigger 硬带 on_effect_error + item(label,action) + children 白名单） | 前提=应用前台；真点触发器弹 OS 菜单（keyed event effect），再真选一行（两次真人交互——NSMenu 行选择是模态会话，合成点击够不到） | `$app->on($action,'action',…)` 的处理器收到一条事件，事件 id = 行声明的 action 名 || H1 | NativeMenu 行选中送达 | `nativeMenuShape` 只断工厂形状（trigger 硬带 on_effect_error + item(label,action) + children 白名单） | 前提=应用前台；真点触发器弹 OS 菜单（keyed event effect），再真选一行（两次真人交互——NSMenu 行选择是模态会话，合成点击够不到） | `$app->on($action,'action',…)` 的处理器收到一条事件，事件 id = 行声明的 action 名；2026-11-03/04 真人轮：弹菜单两侧实测 ✓（真人真点 + a11y AXPress）；**行选中 0 送达 ⇒ #115** |
+| H1 | NativeMenu 行选中送达 | `nativeMenuShape` 只断工厂形状（trigger 硬带 on_effect_error + item(label,action) + children 白名单） | 前提=应用前台；真点触发器弹 OS 菜单（keyed event effect），再真选一行（两次真人交互——NSMenu 行选择是模态会话，合成点击够不到） | `$app->on($action,'action',…)` 的处理器收到一条事件，事件 id = 行声明的 action 名 || H1 | NativeMenu 行选中送达 | `nativeMenuShape` 只断工厂形状（trigger 硬带 on_effect_error + item(label,action) + children 白名单） | 前提=应用前台；真点触发器弹 OS 菜单（keyed event effect），再真选一行（两次真人交互——NSMenu 行选择是模态会话，合成点击够不到） | `$app->on($action,'action',…)` 的处理器收到一条事件，事件 id = 行声明的 action 名；2026-11-03/04 真人轮：弹菜单两侧实测 ✓；行选中 0 送达 ⇒ **#115 已修（2026-11-04 批19）**：触发器行的 action 此前从不登记 app 级动作表（登记入口只服务 app 菜单条），行派发两处都不中即静默丢；patch-native-menu-action-reg.sh 走 weak-seam 补上，回归位 selftest 步 nativeMenuActionDelivery（dispatchAction 红臂 false→绿臂 true+送达），NSMenu 模态会话里的真人最后一跳仍归真人 HID |
 | H2 | Resizable 拖拽把手 | `catalogResizableShape` 只断形状（无拖拽） | 前提=窗口前台；真按住面板间把手拖动 | 面板尺寸随拖动连续变化（ResizablePanel 的 resize 读数/视觉宽度），松手后保持 || H2 | Resizable 拖拽把手 | `catalogResizableShape` 只断形状（无拖拽） | 前提=窗口前台；真按住面板间把手拖动 | 面板尺寸随拖动连续变化（ResizablePanel 的 resize 读数/视觉宽度），松手后保持；2026-11-03/04 真人轮：拖后分隔条停在 ≈335px（默认 180/上限 320 钳制位）松手保持 ✓；连续性未逐帧测 |
 | H3 | Accordion trigger on_change 送达 | `accordionCatalogShape` 断形状（header/panel 槽契约）+ `accordionToggleGate`（独立窗口 regionRgb 面板开/关两态——关态无蓝底、开态有蓝底，依赖批1 open 参数暴露）+ **`accordionRealClick`（2026-11-03 补：独立窗真点 catalog 头部，矩形现算，断 on_toggle 到 PHP；#111 的回归位，红臂实测 5/6 SIGSEGV）** | 前提=窗口前台；真点 trigger 头 | `on_change` 事件到 PHP（open 状态翻转），panel 展开/收起与事件一致 |
 | H4 | scrollbar always 真画 | `scrollbarModePaintPair` regionRgb 两盒同色（advisory，macOS 无头渲染自动隐藏）；`cmd/check-scrollbar-paint.sh` --shot 通道也同色 **applicable=false 亲测**（2026-10-31，rgb(223,223,223)）；`scrollbarHandleProbe` 独立窗口硬门（自绘路径 ApplyBar 画条——非 NSScroller overlay，批1 的自动隐藏结论不适用这条） | 前提=窗口前台；鼠标悬停 always 盒并滚动 | always 盒右缘出现 thumb 且随滚动移动；hover 盒仅悬停时出现——两盒右缘区域色从此可判互异 || H4 | scrollbar always 真画 | `scrollbarModePaintPair` regionRgb 两盒同色（advisory，macOS 无头渲染自动隐藏）；`cmd/check-scrollbar-paint.sh` --shot 通道也同色 **applicable=false 亲测**（2026-10-31，rgb(223,223,223)）；`scrollbarHandleProbe` 独立窗口硬门（自绘路径 ApplyBar 画条——非 NSScroller overlay，批1 的自动隐藏结论不适用这条） | 前提=窗口前台；鼠标悬停 always 盒并滚动 | always 盒右缘出现 thumb 且随滚动移动；hover 盒仅悬停时出现——两盒右缘区域色从此可判互异；2026-11-03/04 真人轮：真滚动生效（首行 01→04）+ always thumb 真画出 ✓；hover 盒无人悬停 thumb 常驻 ⇒ #112 在树 4 复现 |

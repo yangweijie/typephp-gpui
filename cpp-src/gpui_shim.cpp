@@ -2042,6 +2042,26 @@ int gpui_shim_app_menu_count(void* win) {
 // 为什么单独量这一跳：真点原生菜单行的最后一跳在系统菜单条那个窗口里，进程内注入的
 // NSEvent 到不了（`gpui_mac_send_mouse` 只 Deliver 给自己的窗口），所以"行里装的确实是
 // 那个 id"必须单独取证，不能靠 dispatchAction 顺带代表。
+// typephp-gpui: strong override — trigger rows register into the app action table (task #115). Overrides the weak seam in shell/runtime.cpp.
+// Same registration path as the app menu bar (registerMenuAction: dedup +
+// budget, lastError lands on the box when the table is full). The box lookup
+// is only for that error message — AppOnAction itself does not need it.
+// MUST be C++-mangled: this file's extern "C" block would give the namespace
+// definition C linkage and the weak symbol (gpui::gpuiShellRegisterMenuAction)
+// never sees the override — so close and reopen extern "C" around it
+// (2026-11-04 首跑实测：_gpuiShellRegisterMenuAction vs
+// __ZN4gpui27gpuiShellRegisterMenuActionEPKcPv，弱 no-op 独活)。
+} // extern "C"
+namespace gpui {
+void gpuiShellRegisterMenuAction(const char* action, void* win) {
+    if (!action || !*action) return;
+    auto it = g_windowBoxes.find((Window*)win);
+    registerMenuAction(it != g_windowBoxes.end() ? it->second : nullptr,
+                       gpui::Str(action));
+}
+} // namespace gpui
+extern "C" {
+
 int gpui_shim_menu_row_action(int row, char* out, int outlen) {
     if (row < 1 || !out || outlen <= 1) return -1;
     uint32_t action = 0;
@@ -2341,4 +2361,3 @@ int gpui_shim_hotkey_fire(int) { return 0; }
 void gpui_shim_dock_badge(const char*) {}
 int gpui_shim_os_notify(const char*, const char*) { return 0; }
 #endif
-

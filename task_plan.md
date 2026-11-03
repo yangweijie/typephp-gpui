@@ -3134,3 +3134,21 @@ run `dwfrun-1ebf1186`（被用户停，批1+批2 施工完成门禁全绿，批3
   元素（actionDeliveryGate 旧读数 dispatchAction=false 同位置）——留独立批次。
 - [x] 电池（今晚产物）：kit-gates 3/3（tokenlink 新判据绿）、all-examples both、test:all、
   doc-claims、锚点、docs:build。
+
+### Phase 34 批19（2026-11-04，#115 修复：触发器行登记进 app 级动作表）
+- [x] 死点：行选中派发 `OnDispatchAction → WindowDispatchAction` 只查两处——①元素级
+  OnAction（触发器的行是 carried Entry 不是活元素，没有监听）②app 级动作表（登记入口
+  `registerMenuAction` 只服务 app 菜单条，触发器路径从不登记）⇒ 两处都不中，return false
+  静默丢。与 #116 同族：链路两端健康，中间缺一环（没人登记）。
+- [x] 修法：`cmd/patch-native-menu-action-reg.sh`（weak-seam 惯例，清单三处）——
+  shell/runtime.cpp 弱定义、native_menu.cpp 声明+MaterializeTrigger 逐行登记、
+  gpui_shim.cpp 强符号走同一条 registerMenuAction（去重 + 28 条预算护栏沿用）。
+- [x] 两坑现场抓（记 findings）：①强符号首版落在 gpui_shim.cpp 的 extern "C" 区里，
+  C 改名 `_gpuiShellRegisterMenuAction` vs 弱符号 `__ZN4gpui27…`，弱 no-op 独活——
+  判据 = `nm` 对同名，不能拿"代码在文件里"当接通；②声明嵌进文件自己的命名空间被
+  遮蔽，须放 namespace 打开之前。两处都在 patch 脚本里写死防复发。
+- [x] 回归位：selftest 步 `nativeMenuActionDelivery`（专用窗 + 触发器 + 行，断
+  dispatchAction 红臂 false/无送达 → 绿臂 true/delivered，红臂实测命中）。
+- [x] 电池：kit-gates 3/3、test:all 141/975 rc=0、doc-claims/锚点/docs:build rc=0；
+  all-examples 三跑 = 两红一绿（layout-tree1 shotdiff 抖动：红帧目测正常、harness 内部
+  复跑绿、layout 不含触发器路径无因果、疑为真实光标悬停 overlay——如实记两头）。

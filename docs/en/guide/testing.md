@@ -432,11 +432,16 @@ channel beside the `fire` seam and the real-mouse seam.
   content (first row 01 → 04) and the right-edge thumb is painted (capture); the same frame shows the
   hover box's thumb with **nobody hovering**, still there 4s later ⇒ **#112 (permanent hover thumb)
   reproduces on tree 4**. "Thumb moves with scroll" was not sampled across two frames - noted edge.
-- **H1 NativeMenu: opens, selection never arrives (#115).** A real click on the trigger opens the OS
-  menu (captured; an a11y AXPress opens the same), then a real click on the row produced **zero PHP
-  events** (no stdout line, in-window `kitLog=[]`). This is the same seam `actionDeliveryGate`
-  already measured as `dispatchAction(kit::copy)=false` - the human pass confirms it end to end.
-  H1 stays blocked by **#115**.
+- **H1 NativeMenu: #115 fixed (2026-11-04 batch 19), the human hop still pending.** The dead point
+  read after batch 17: the row dispatch (`OnDispatchAction → WindowDispatchAction`) consults
+  exactly two places - element-level OnAction listeners (the trigger's rows are carried data, not
+  live elements - no listeners) and the app-level action table (whose only registrar served the app
+  menu bar, so the trigger path never registered) ⇒ neither knows the action and the selection is
+  dropped silently. `patch-native-menu-action-reg.sh` registers every row's action through the
+  established weak-seam convention; the regression slot is the new selftest step
+  `nativeMenuActionDelivery` (red arm: registration off → false/no delivery; green arm:
+  true/delivered). The last hop inside the NSMenu modal session (a human clicking the row) stays on
+  the human list.
 - **H5 link half: #116 fixed (2026-11-04 batch 18).** Batch 17's "seam divergence" framing was
   **wrong**: probing layer by layer (up-gate → OnTextLink → DispatchString → shim route → box
   enqueue `found=1`) showed the C++ chain is **the same chain for real and synthetic clicks**; the

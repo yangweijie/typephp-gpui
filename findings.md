@@ -3004,3 +3004,29 @@ binding 全有效（href/ctx=29）、entry 命中（shimId=21、view 活）、`f
 顺带的工具教训：`grep -c X f || echo 0` 在零命中时输出两行"0"（grep 自己打了 0，
 `||` 又补一行），`$(( ))`/`[[ -gt ]]` 直接语法错——计数用 `$(grep -c …)` 后
 `${VAR:-0}` 兜底。批18 红臂当场抓的。
+
+## #115 的死点与两个教训：carried Entry 不是活元素；extern "C" 会吃掉命名空间强符号（2026-11-04）
+
+菜单行选中 0 送达（#115）读到底：`OnDispatchAction → WindowDispatchAction` 只查两处——
+①元素级 `win->dispatch[]` 的 OnAction 监听：触发器的行是 **carried Entry**
+（`MaterializeItem` 只带数据，物化成 payload 而非活元素），天生没有监听；
+②app 级动作表（`gAppActions`）：往里登记的唯一入口 `registerMenuAction` 只被 app 菜单条
+路径（`gpui_shim_set_app_menus`）调用，触发器路径从不登记 ⇒ 两处都不中，`return false`。
+与 #116 同族：**不是"派发链坏了"，是"没有任何人登记"**——链路查表的两端都健康，中间缺一环。
+
+修复走 weak-seam 惯例（cmd/patch-native-menu-action-reg.sh，清单三处：
+shell/runtime.cpp 弱定义 + native_menu.cpp 声明与逐行登记 + gpui_shim.cpp 强符号），
+回归位 = selftest 步 `nativeMenuActionDelivery`（红臂关登记 → false/无送达）。
+
+两条硬教训：
+1. **extern "C" 块里的 `namespace gpui` 定义拿 C 改名**。强符号首版写在
+   gpui_shim.cpp 的 extern "C" 区内，链接名变成 `_gpuiShellRegisterMenuAction`，
+   而弱符号是 `__ZN4gpui27gpuiShellRegisterMenuActionEPKcPv`——弱 no-op 独活，
+   一切看起来接好了（三处 grep 都在、编译过、不报 Undefined），运行时静默走空。
+   判据：**weak/strong 配对必须 `nm` 对出同名**（`_ZN` 前缀对 `_ZN`），不能拿
+   "文件里有这段代码"当接通。修法 = 强符号移出 extern "C"（块内闭合再重开）。
+2. **声明嵌进错误命名空间会被遮蔽**：native_menu.cpp 自己在
+   `gpui::component_shell::command::native_menu` 里，声明块若插在 namespace 打开
+   之后，`namespace gpui { ... }` 变成嵌套的
+   `...::native_menu::gpui`，调用点解析到自己的嵌套声明而非 gpui 外层的那个
+   （clang 的 "did you mean" 指路了才看见）。声明放 namespace 打开**之前**。
