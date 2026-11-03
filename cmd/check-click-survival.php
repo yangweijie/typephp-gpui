@@ -18,11 +18,12 @@
  *       "belongs to a superseded render"（查表拿 Box2* 当 ShellRuntime*，表是假的，
  *        所以"回调过期"这个诊断本身误导）、
  *       "window state is missing"（#110：ShellRoot 窗口没有 component 层插件）。
- *   · 未判定：会话超时但 CPU≈0 —— 进程是 block 在 OS 模态会话里。实测树 3 的
- *     NativeMenu 触发器：`sample` 的栈是 NativeMenu::Show → PlatShowMenu →
- *     -[NSMenu popUpMenuPositioningItem:] → -[NSMenuTrackingSession
- *     startRunningMenuEventLoop:] → _BlockUntilNextEventMatchingListInMode，
- *     等的是"没人来关这个菜单"，不是产品缺陷。该行被点名的同时**不计入通过数**。
+ *   · 模态等待（2026-11-04 语义演进，批19 之后必现）：会话超时但 CPU≈0 —— 进程
+ *     block 在 OS 模态会话里（树 3 的 NativeMenu 触发器：NativeMenu::Show →
+ *     PlatShowMenu → -[NSMenuTrackingSession startRunningMenuEventLoop:]）。批19
+ *     给触发器行登记了真 action 之后 NativeMenu::Show 必然成功，automation 没人
+ *     关菜单 ⇒ 这一行每轮必堵。它对"有没有一颗把宿主带走"的答案是"活着"——点名
+ *     另计、按存活计 rc=0；崩与致命签名仍各判各的红。rc=2 只留给命中表空。
  *   · 计数不判红：其余 `shell:` 告警（例如 Div/HFlex/VFlex zero-ops 那条诊断）。
  *     这是本门自己的边界，不是漏判。
  *   · "没有可点行"分两种，判据不同：命中表**一行都没有**＝探测没量到东西（未判定）；
@@ -36,7 +37,7 @@
  * 用法：php cmd/check-click-survival.php [--tree <1..4>] [--wait <秒>]
  *   不带参数 = 四棵全扫（每颗一个会话，数分钟）；--tree 只扫一棵（红臂复测用）；
  *   --wait 改单会话上限（默认 90s，含基线会话）。
- * 退出码：0 全部判绿 / 1 有红 / 2 未判定（有挂住行、命中表一行都没有、全树零可点、或前置缺失）。
+ * 退出码：0 全部判绿（模态等待点名另计）/ 1 有红 / 2 未判定（命中表一行都没有、全树零可点、或前置缺失）。
  */
 
 $root = dirname(__DIR__);
@@ -281,11 +282,23 @@ if ($dead !== [] || $signatures !== []) {
         . $advisory . " 条不判红）\n";
     exit(1);
 }
-if ($blocked !== [] || $emptyTrees !== []) {
-    echo 'CLICK-SURVIVAL 未判定（' . count($blocked) . ' 颗模态等待没拿到判定'
-        . ($emptyTrees !== [] ? '，树 ' . implode(',', $emptyTrees) . ' 命中表一行都没有' : '')
+if ($emptyTrees !== []) {
+    echo 'CLICK-SURVIVAL 未判定（树 ' . implode(',', $emptyTrees) . ' 命中表一行都没有'
         . '，共扫 ' . $scanned . " 颗——别当通过）\n";
     exit(2);
+}
+if ($blocked !== []) {
+    // 模态等待（CPU≈0 的 block）是"进程活着，在 OS 菜单跟踪里"——2026-11-04 批19
+    // 之后这行**必然**出现：patch-native-menu-action-reg.sh 让触发器的菜单有了真
+    // action，NativeMenu::Show 必然成功进入模态跟踪，automation 没人来关它。这对
+    // 本门的问题（"有没有一颗把宿主带走"）答案是"活着"——计存活、点名另计；
+    // 崩溃与致命签名仍在上面各判各的红。批18 的"重跑一次记两头"在必现面前失效，
+    // 语义随之演进：rc=2 只留给命中表空这类"没量到"。
+    echo 'CLICK-SURVIVAL OK（判 ' . $verdictCount . '/' . $scanned . ' 颗全活着、无致命签名；'
+        . count($blocked) . ' 颗模态等待点名另计——进程在 OS 菜单跟踪里活着，非缺陷：'
+        . implode('；', array_map('trim', array_map(static fn ($b) => preg_replace('/^\? 未判定（模态等待）：/', '', $b), $blocked)))
+        . '；advisory shell: 告警 ' . $advisory . " 条不判红）\n";
+    exit(0);
 }
 if ($scanned === 0) {
     // 全树零可点：空集通过的前提（本轮至少一棵树量到 >0 颗）没成立——

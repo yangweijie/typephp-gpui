@@ -2943,3 +2943,12 @@ bin/gpui、GPUI.lock、tests/baseline/input/tree1.png（两度重录）、compos
   extern "C" 吃掉强符号 + 命名空间遮蔽两坑现场抓（nm 对名的判据进 findings）。
 - 回归位 nativeMenuActionDelivery 红臂/绿臂双向实测。真人最后一跳（模态菜单里点行）待真人轮。
 - 电池：kit-gates 3/3、test:all rc=0、doc 门 rc=0、all-examples 两红一绿（layout-tree1 抖动记两头）。
+
+## 2026-11-04 Phase 34 批20：#112 修复（未命名元素路径坍缩 → scrollId 碰撞 → fade 互踢）
+- 机器复现（scroll→移出→垫帧→截图）→ 四层探针（want=0 但 α=1 → 逐帧同 id 双 mode →
+  IdCollect 未命名零贡献）。patch-scroll-id-ordinal.sh：未命名路径使用者折兄弟序数，
+  顺带修未命名 click/focus 同源碰撞。
+- 回归门 check-scrollbar-hover-hide.php 入 kit-gates 第四道（红臂 rc=1）。
+- click-survival 模态语义演进：批19 后触发器行必堵（菜单有真 action 必弹）——点名计存活
+  rc=0，rc=2 只留给命中表空。kit-gates 4/4 绿。
+- 电池：all-examples OK、test:all 141/975、doc 门 rc=0。文档中英对账。

@@ -3152,3 +3152,27 @@ run `dwfrun-1ebf1186`（被用户停，批1+批2 施工完成门禁全绿，批3
 - [x] 电池：kit-gates 3/3、test:all 141/975 rc=0、doc-claims/锚点/docs:build rc=0；
   all-examples 三跑 = 两红一绿（layout-tree1 shotdiff 抖动：红帧目测正常、harness 内部
   复跑绿、layout 不含触发器路径无因果、疑为真实光标悬停 overlay——如实记两头）。
+
+### Phase 34 批20（2026-11-04，#112 修复：未命名元素路径坍缩 → scrollId 碰撞 → fade 条目互踢）
+- [x] 机器复现：automation 树 4 = scroll 进 hover 盒 → scroll 移出 → 垫帧 3s → screenshot
+  ——hover thumb 仍悬（真人轮"常驻"的确定性复现，不再依赖真人截图）。
+- [x] 探针下钻四层（可见性块 → ScrollFade 结构 → ScrollFadeFor 键 → IdCollect）：
+  `want=0` 但 painted α=1；逐帧读数实锤两盒**同 scrollId=1 共享一条 fade 条目**——
+  always 盒（want=1）每帧 settle 到 1，hover 盒（want=0）每帧启动 1→0 退出，永不完结。
+  根因在 IdCollect：**未命名元素对路径零贡献**（here = parent 原样继承），结构相同的
+  未命名兄弟坍缩到同一路径。--shot 两盒同色与此一致（无滚动事件 want 全 0，互踢无从发生）。
+- [x] 修法：`cmd/patch-scroll-id-ordinal.sh`——IdCollect 加 ordinal 形参，未命名的路径
+  使用者（scroll/click/focusFromPath）把兄弟序数折进路径（IdFoldInt，FNV 同族确定性）。
+  顺带修掉未命名 click/focus 兄弟的同源碰撞（click 闸 pressedId/upId 匹配的潜在污染）。
+  命名元素路径一字不变。
+- [x] 回归门：新第四道 `cmd/check-scrollbar-hover-hide.php`（滚 always 盒 → 垫 3s →
+  GD 判读：hover 带区最暗 ≥240 无 thumb + always 带区最暗 ≤172 有 thumb，两判据分开，
+  always 不亮=序列没跑起来判未判定）。红臂实测：关掉序数折叠 rc=1（hover 带最暗 172=thumb 回归）。
+- [x] click-survival 模态语义演进（批19 的因果后果）：触发器行登记真 action 后
+  NativeMenu::Show 必然成功，automation 无人关菜单 ⇒ 该行**每轮必堵**（批18"重跑一次记
+  两头"在必现面前失效）。它对"有没有把宿主带走"的答案是"活着"——点名另计、按存活计
+  rc=0；rc=2 只留给命中表空。门头三档说明同步改写。
+- [x] 电池（今晚产物）：kit-gates 4/4（新门 + 语义演进后全判定）、all-examples both
+  ALL EXAMPLES: OK、test:all 141/975 rc=0、doc-claims/锚点 75-16/docs:build rc=0。
+- [x] 文档：中英 testing.md（#112 叙事改写、门表四道、H4 行、模态语义）、findings
+  教训（未命名元素零路径贡献；互踢读数的形状）。
