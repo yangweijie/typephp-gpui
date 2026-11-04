@@ -465,13 +465,20 @@ channel beside the `fire` seam and the real-mouse seam.
   remains: in the h=680 hit table the token input and chip rows are **click=0 down=0**
   (mouse-inert), so a real chip click cannot even enter the hit chain ⇒ token real-mouse hit stays
   on the human list (#96 boundary); the reported "cannot type into the input" is now
-  characterized (2026-11-04 batch 22): **the typing chain works** (clickat focuses the field,
-  focus id -1001 lands, key a/b/c, `value` reads "@张三abc" - the text really enters), the
-  defect is that **nothing renders**: the text run is emitted (slice grows), laid out ('abc'
-  20.7x20 right after the chip), but **never enters the paint walk** (PaintEl probe: zero hits,
-  while the chip paints fine) ⇒ filed as **#118** (token input text runs never painted -
-  mechanism pending a scene-graph/WriteBackChildren pass). The same batch fixed the `value`
-  verb's guaranteed crash (the `$ev` type-inference trap, see the verb table).
+  characterized (2026-11-04 batches 22/23): **the typing chain works** (clickat focuses the
+  field, focus id -1001 lands, key a/b/c, `value` reads "@张三abc"); **the rendering works
+  too** - batch 23's probes walked the text run's whole draw chain: emitted (slice grows),
+  laid out ('abc' 20.7x20 right after the chip), **draw call really executes**
+  (TextLayoutDraw: x=49.9, line0w=20.7, color 10/10/10/255, recording=0, clip = full window),
+  and the **selftest live loop's regionRgb reads dark glyphs in the text area** (average
+  246→198) ⇒ **#118's premise is refuted** (the text run IS painted) - the automation
+  screenshot/rgb "nothing renders" was the display buffer's post-event staleness (a known,
+  documented limitation). Regression slot: selftest step `tokenTypingPaint` (real click +
+  real keys in the live loop, regionRgb asserts the text area's average < 200; red arm
+  without keys ⇒ background 246 ⇒ FAIL). What remains of the human "cannot type" report is
+  a **weak visual affordance** (the chip dominates; the field's border is subtle), not a
+  rendering defect. The same round fixed the `value` verb's guaranteed crash (the `$ev`
+  type-inference trap, see the verb table).
 - **#113 fixed (2026-11-04 batch 21)**: the path-drawing triangle used to paint over the first
   accordion header in tree 1. True mechanism: the bridge's path branch (gpui_bridge.cc) appended
   only `method` ops from its rest list, silently dropping `param_style` (w/h) - path elements laid

@@ -2964,3 +2964,9 @@ bin/gpui、GPUI.lock、tests/baseline/input/tree1.png（两度重录）、compos
 - 「无法输入」反转：键入是通的（value 读到 @张三abc）；缺陷是文本 run 从不进入绘制行走
   （发射/布局都正常，PaintEl 零命中；chip 正常画）⇒ #118 立账，机制待续查。
 - 电池：all-examples OK、test:all rc=0、kit-gates 4/4、doc 门 rc=0。
+
+## 2026-11-04 Phase 34 批23：#118 推翻（automation 显示缓冲陈旧伪装成渲染缺陷）
+- 绘制链走全（TextLayoutDraw 真执行、参数全对）+ 实时循环 regionRgb 有字（246→198）
+  ⇒ #118 前提推翻；回归位 tokenTypingPaint（红臂 246 必 FAIL）。
+- 教训：没画先分清哪个缓冲（automation 显示缓冲陈旧）；探针打 PaintElNode 不打 PaintEl。
+- 电池：selftest OK、all-examples OK、test:all rc=0、kit-gates 4/4、doc 门 rc=0。

@@ -3205,3 +3205,17 @@ run `dwfrun-1ebf1186`（被用户停，批1+批2 施工完成门禁全绿，批3
   run 不绘制），机制待 scene-graph/WriteBackChildren 层续查；chip 显式尺寸实验无效已撤。
 - [x] 电池（今晚产物）：all-examples both ALL EXAMPLES: OK、test:all 141/975 rc=0、
   kit-gates 4/4 全判定、doc-claims/锚点/docs:build rc=0。
+
+### Phase 34 批23（2026-11-04，#118 推翻：automation"没画"是显示缓冲陈旧；tokenTypingPaint 回归位）
+- [x] 批22 的 #118 前提被机器证据推翻：绘制链走全（发射→布局→TextLayoutDraw 真执行，
+  参数全对：line0w=20.7、色 10/10/10/255、recording=0、裁剪全窗）；selftest 实时循环
+  的 regionRgb 在文字区读到深色字形（246→198）。automation 截图/rgb 看不见字 =
+  显示缓冲事件后不同步的老假象。
+- [x] 回归位：selftest 步 `tokenTypingPaint`（$tkApp 专用窗：真点进输入框 →
+  realKey a/b/c → regionRgb 文字区断均色 <200；红臂不键入 ⇒ 246 底色 ⇒ FAIL，
+  实测判别力在）。
+- [x] 教训入 findings：「没画」先分清哪个缓冲（automation 显示缓冲会伪装成渲染缺陷）；
+  探针别打错门（绘制行走的自递归入口是 PaintElNode，PaintEl 只是外包装）。
+- [x] 电池（今晚产物）：KIT SELFTEST OK、all-examples both ALL EXAMPLES: OK、
+  test:all 141/975 rc=0、kit-gates 4/4 全判定、doc-claims/锚点/docs:build rc=0。
+- [x] 真人"无法输入"的剩余解释 = 视觉可供性弱（chip 主导、框线不显眼），非渲染缺陷。

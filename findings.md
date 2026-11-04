@@ -3099,3 +3099,23 @@ checkArray 运行时崩。任何 automation `value` 调用都会炸——input �
 elementValue() 不崩，因为那条调用链的变量没有被 array 先占名。**判据：同一函数里
 跨 case 复用变量名，先被 array 返回值占名的变量不能再接 Str**——编译器按函数推断，
 不按分支。
+
+## #118 的推翻：automation 的"没画"是显示缓冲陈旧；探针别打错门（PaintEl vs PaintElNode）
+
+批22 立了 #118（token 输入框文本 run 不绘制），依据是 automation 截图/rgb 里文字区
+没有字。批23 用实时循环把它推翻了：
+1. **绘制链走全**：run 发射正常（slice 渐长）→ 布局正常（'abc' 20.7x20 @ 49.9,660.6
+   紧跟 chip）→ **TextLayoutDraw 真执行**（line0w=20.7、c=10/10/10/255、recording=0、
+   裁剪全窗）——参数全对。
+2. **实时 paint 缓冲有字**：selftest 步 `tokenTypingPaint` 在实时循环里真点真键后，
+   regionRgb 文字区均色 246→198（深色字形落进缓冲）。红臂不键入 ⇒ 246 底色 ⇒ FAIL。
+3. automation 截图/rgb 看不见字 = **显示缓冲事件后不同步**的老假象（该限制早已在册，
+   这次它伪装成了一个"渲染缺陷"）。
+
+两条硬教训：
+- **"没画"先分清是哪个缓冲**：automation 路径的截图/rgb 读的是事件后不更新的显示
+  缓冲；渲染通没通要问**实时循环**的 regionRgb（selftest）。拿陈旧缓冲当渲染证据，
+  会立出假缺陷（#118 活了一夜）。
+- **探针别打错门**：绘制行走的递归入口是 `PaintElNode`（8235 行处自递归），`PaintEl`
+  只是最外层包装——探针打在 PaintEl 上只见到根元素（10 次调用），让我一度以为整页
+  都没走绘制。打探针前先确认被测循环的**自递归入口**。

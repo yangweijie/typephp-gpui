@@ -65,12 +65,17 @@
   可辨读标记，kit.php 的 `tokenRenderNull` 对拍才回落 label），文字本来就不该是 @张三。
   真正剩下的实测障碍：h=680 命中表里 token 输入框与 chip 的行 **click=0 down=0**（鼠标
   惰性），真鼠标点 chip 走不进命中链 ⇒ token 真鼠标命中继续挂真人清单（#96 边界）；
-  "无法输入"已定性（2026-11-04 批22）：**键入链路是通的**（clickat 进输入框 → 焦点 -1001
-  落对 → key a/b/c → `value` 读到 "@张三abc"——值真进了），缺陷是**屏上不渲染**：
-  文本 run 发射正常（slice 渐长）、布局正常（'abc' 20.7x20 紧跟 chip），但**从不进入
-  绘制行走**（PaintEl 探针零命中，chip 却画得好好的）⇒ 立 **#118**（token 输入框文本
-  run 不绘制——机制待 scene-graph/WriteBackChildren 层续查）。批22 同轮修掉 `value`
-  动词必崩（`$ev` 类型推断陷阱，见动词表）。
+  "无法输入"已定性（2026-11-04 批22/23）：**键入链路是通的**（clickat 进输入框 →
+  焦点 -1001 落对 → key a/b/c → `value` 读到 "@张三abc"）；**渲染也是通的**——
+  批23 的探针把文本 run 的绘制链走全了：发射正常（slice 渐长）→ 布局正常
+  （'abc' 20.7x20 紧跟 chip）→ **绘制调用真执行**（TextLayoutDraw：x=49.9、
+  line0w=20.7、色 10/10/10/255、recording=0、裁剪全窗），且 **selftest 实时循环的
+  regionRgb 在文字区读到深色字形**（均色 246→198）⇒ **#118 前提被推翻**（文本 run
+  不绘制）——automation 截图/rgb 的"字没画"是**显示缓冲事件后不同步**的老假象
+  （该限制早已在册）。回归位 = selftest 步 `tokenTypingPaint`（实时循环里真点真键，
+  regionRgb 断文字区均色 <200；红臂不键入 ⇒ 底色 246 ⇒ FAIL）。真人"无法输入"的
+  剩下的解释是**视觉可供性弱**（chip 主导、输入框边框不显眼），不是渲染缺陷。
+  批22 同轮修掉 `value` 动词必崩（`$ev` 类型推断陷阱，见动词表）。
 - **#113 已修（2026-11-04 批21）**：树 1 的路径绘制红绿三角压住「第一节」文字。真机制：
   bridge 的 path 分支（gpui_bridge.cc）追加 rest ops 时**只放行 method 类**，`param_style`
   （w/h）被静默丢弃 ⇒ path 元素恒 0x0 布局（`element->Bounds()` 宽高为 0），绘制命令相对

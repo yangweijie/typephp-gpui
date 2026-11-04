@@ -2254,6 +2254,27 @@ function runKitSelfTest(): void
         . ($tokOk ? '' : '（徽章帧不红：先查 token 是否真进文本与探针坐标；'
             . 'fire=0：查 (kit-gate-tok,on_token_click) 是否进了 shim 回调表）'));
     $ok = $ok && $tokOk;
+    // 批23（#118 定性步）：键入真链在**实时循环**里的像素证据。automation 的截图与
+    // rgb 读的是事件后不同步的显示缓冲（"字没画"是那条缓冲的假象）；这里在 selftest
+    // 的实时循环里点进输入框、真键入 abc，再 regionRgb 读窗口 paint 缓冲——
+    // 字进没进这个缓冲，是"渲染到底通没通"的地面真值。
+    $tkApp->realClick(150, 50);
+    $tkApp->loop(2);
+    $tkApp->realKey(0, 'a');
+    $tkApp->realKey(1, 'b');
+    $tkApp->realKey(2, 'c');
+    $tkApp->loop(4);
+    $typedAvg = $tkApp->regionRgb(106, 42, 24, 16);
+    $typedR = (int) ($typedAvg['r'] ?? 255);
+    $typedG = (int) ($typedAvg['g'] ?? 255);
+    $typedB = (int) ($typedAvg['b'] ?? 255);
+    $typedOk = $typedR < 200 && $typedG < 200;
+    step('tokenTypingPaint', $typedOk,
+        '键入abc后文字区均色=' . json_encode($typedAvg)
+        . '（<200 = 有深色字形落进 paint 缓冲；≥200 = 字没进缓冲）'
+        . ($typedOk ? '' : '（字没进 paint 缓冲：查 TextLayoutDraw 的上下文/缓冲归属——'
+            . '绘制调用参数全对但落点缓冲不对）'));
+    $ok = $ok && $typedOk;
     $tkApp->close();
     // 7f→9c) MessageScroller render_item 正/负两门（批4）：宿主渲染行（蓝底）只该
     //     出现在登记了处理器的左盒；右盒无处理器 → 上游回落错误行（非蓝）。
