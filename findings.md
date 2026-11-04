@@ -3149,3 +3149,17 @@ elementValue() 不崩，因为那条调用链的变量没有被 array 先占名�
 3. 恢复顺序：upstream 回 HEAD → `cmd/sync-upstream.sh` → `php bin/gpui patch` →
    清 `.work/` 与 `cpp-src/build/` 重建。干净态一次通过——**noinline 是红鲱鱼**，
    已还原不入库（编译器没有本地化，localization 理论是污染期的误诊）。
+
+## H1 模态跳的机器边界：CUA 捕获整机坏掉，坐标通道不可用（2026-11-04）
+
+「真点原生菜单行」这一跳试了所有机器路径都不通，边界就此定死：
+- 菜单模态会话只吃**会话级事件**（NSMenuTrackingSession 从 app 队列取）；
+- CUA 坐标点击/拖拽需要"actionable frame"——帧来自 CUA 自己的截图捕获，这台
+  机器上** gpui 窗口和 Finder 都 capture 失败**（"no usable pixel-to-pointer
+  rectangle"，has_image:false）⇒ 一切坐标动作被帧门挡住；
+- 全局键（strategy=event）要目标 app 前台且落点跟随光标；a11y 键（后台可用）
+  送达聚焦元素、进不了模态跟踪队列；
+- automation 的 key 命令要帧循环，而帧循环被模态阻塞（死锁）。
+⇒ 结论：**行选中→PHP 归真人**（机器侧钉到：触发器弹菜单✓、行 action 登记✓、
+dispatchAction 送达✓）。判据：模态跳之前先问"事件怎么进会话"——进不了就别在
+机器侧硬试，把边界写清楚交回真人清单。

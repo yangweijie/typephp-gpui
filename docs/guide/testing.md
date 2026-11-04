@@ -53,7 +53,11 @@
   登记进 app 表；批25 补自测步 `menuActionDelivery`（独立窗另一套 id，与
   `nativeMenuActionDelivery` 双向钉死；红臂实测 dispatchAction=false ⇒ FAIL）；
   回归位 = selftest 步 `nativeMenuActionDelivery`（红臂关登记 false/无送达，绿臂
-  true/delivered）。NSMenu 模态会话里的真人那一跳（点行）待下一次真人轮确认。
+  true/delivered）。**真人最后一跳的边界（2026-11-04 实测到底）**：模态会话只吃
+  会话级事件——CUA 的坐标点击在这台机器拿不到帧（gpui 窗口与 Finder 都 capture
+  失败，帧门挡住一切坐标动作），全局键 event 策略要前台且落点跟随光标，a11y 键
+  进不了模态跟踪队列 ⇒「真点行选中→PHP」这一跳**归真人**（机器侧已钉到：触发器
+  弹菜单 ✓ 两轮截图、行 action 登记 ✓ 双向自测、dispatchAction 送达 ✓）
 - **H5 link 半边：#116 已修（2026-11-04 批18）**。批17 的"两条缝分叉"框架是**错的**：
   探针逐层下钻（up-gate→OnTextLink→DispatchString→shim 路由→box 入队 `found=1`）发现
   C++ 侧整条链**真鼠标与合成完全同一条**，事件死在最后一厘米——wireKit 用 op 长名
