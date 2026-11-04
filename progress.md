@@ -2986,3 +2986,9 @@ bin/gpui、GPUI.lock、tests/baseline/input/tree1.png（两度重录）、compos
   upstream（runtime.cpp 带 marker）；彻底恢复后干净态一次过——noinline 是红鲱鱼。
   判据：cp 前看 git diff HEAD 有无 marker；marker 文件只走补丁脚本。
 - 电池：selftest OK、all-examples OK、test:all rc=0、kit-gates 5/5、doc 门 rc=0。
+
+## 2026-11-04 Phase 34 批26：token 输入框可供性（白底+灰框）——最后一项开放账收口
+- kit.php token 输入框补显式框（演示层；宿主单行裸框契约不动）；像素实证左/上边
+  #c8c8c8、内部纯白。基线重录 kit tree3/4 + hello tree27（`shotdiff record [example]`
+  的 example 是位置参数，默认 hello——裸跑只录 hello 的坑记档）。
+- 电池：selftest OK、all-examples OK、test:all rc=0、kit-gates 5/5、doc 门 rc=0。

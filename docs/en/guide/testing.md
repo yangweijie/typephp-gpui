@@ -486,10 +486,13 @@ channel beside the `fire` seam and the real-mouse seam.
   screenshot/rgb "nothing renders" was the display buffer's post-event staleness (a known,
   documented limitation). Regression slot: selftest step `tokenTypingPaint` (real click +
   real keys in the live loop, regionRgb asserts the text area's average < 200; red arm
-  without keys ⇒ background 246 ⇒ FAIL). What remains of the human "cannot type" report is
-  a **weak visual affordance** (the chip dominates; the field's border is subtle), not a
-  rendering defect. The same round fixed the `value` verb's guaranteed crash (the `$ev`
-  type-inference trap, see the verb table).
+  without keys ⇒ background 246 ⇒ FAIL). What remains of the human "cannot type" report - the **weak visual affordance** - is
+  also handled (batch 26): the kit token input gained a white background + gray border
+  (`bg('#ffffff') + borderColor('#c8c8c8') + borderWidth(1)`; the demo may dress its own
+  field - the single-line input's bare frame is the inputs.php pixel contract, the host
+  default is untouched). Baselines re-recorded for kit trees 3/4 and hello tree 27. The
+  same round fixed the `value` verb's guaranteed crash (the `$ev` type-inference trap,
+  see the verb table).
 - **#113 fixed (2026-11-04 batch 21)**: the path-drawing triangle used to paint over the first
   accordion header in tree 1. True mechanism: the bridge's path branch (gpui_bridge.cc) appended
   only `method` ops from its rest list, silently dropping `param_style` (w/h) - path elements laid

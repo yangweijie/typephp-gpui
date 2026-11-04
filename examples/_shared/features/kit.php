@@ -849,8 +849,13 @@ function sectionKitOverlays(array $s): El
         El::text('TokenInput：造 token + on_token_click/hover + token 渲染回调；'
             . 'link 的 on_link_click（realClick 全原生路径）')->font(13.0)->semibold(),
         El::hFlex([
+            // 批26：单行 input 的裸框是 inputs.php 的像素契约（宿主默认无框，
+            // 见 materialize.cpp textarea 分支注释），但演示层可以给自己的字段
+            // 打扮——白底 + 灰框让"这是可输入的框"一眼可读（真人 HID 轮回报过
+            // "没看见输入框、无法输入"；键入与渲染其实都是通的，缺的是观感）。
             El::input('kit-tok-in')->placeholder('输入 @ 提及…')
-                ->tokenRenderer()->onTokenClick()->onTokenHover()->w(320.0),
+                ->tokenRenderer()->onTokenClick()->onTokenHover()->w(320.0)
+                ->bg('#ffffff')->borderColor('#c8c8c8')->borderWidth(1.0),
             // Phase 33 批1 H3：base kind Link 的 click 语义是打开 href
             // （OpenUrlCallback），不消费 on_link_click——首版用错载体，实测点击
             // 零送达后改 textView（materialize.cpp:1728 OnLinkWithContext 才是

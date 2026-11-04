@@ -3254,3 +3254,16 @@ run `dwfrun-1ebf1186`（被用户停，批1+批2 施工完成门禁全绿，批3
   有 marker 的文件只能走补丁脚本。
 - [x] 电池（今晚产物）：KIT SELFTEST OK、all-examples both ALL EXAMPLES: OK、
   test:all 141/975 rc=0、kit-gates 5/5 全判定、doc-claims/锚点/docs:build rc=0。
+
+### Phase 34 批26（2026-11-04，token 输入框可供性：白底 + 灰框，最后一项开放账收口）
+- [x] 真人「无法输入」的最后一段解释（视觉可供性弱）落地：kit 的 token 输入框补
+  `bg('#ffffff') + borderColor('#c8c8c8') + borderWidth(1)`——演示层自由打扮自己的
+  字段；单行 input 的裸框是 inputs.php 的像素契约（materialize.cpp textarea 分支注释
+  明说"本轮不动它"），宿主默认不动。
+- [x] 像素实证：框左/上边 #c8c8c8（200,200,200）、内部纯白（255,255,255）——字段
+  一眼可读。基线重录：kit tree3（114311/114362）、tree4（抖动级 71 字节）、hello
+  tree27（早前裸 `shotdiff record` 记的，与 kit 无关的另一例）。
+- [x] 教训：`shotdiff record [example]` 的 example 是位置参数（默认 hello）——裸跑
+  只录 hello，kit 的基线要 `record kit`。
+- [x] 电池（今晚产物）：KIT SELFTEST OK、all-examples both ALL EXAMPLES: OK、
+  test:all 141/975 rc=0、kit-gates 5/5 全判定、doc-claims/锚点/docs:build rc=0。

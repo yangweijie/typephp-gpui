@@ -79,8 +79,10 @@
   regionRgb 在文字区读到深色字形**（均色 246→198）⇒ **#118 前提被推翻**（文本 run
   不绘制）——automation 截图/rgb 的"字没画"是**显示缓冲事件后不同步**的老假象
   （该限制早已在册）。回归位 = selftest 步 `tokenTypingPaint`（实时循环里真点真键，
-  regionRgb 断文字区均色 <200；红臂不键入 ⇒ 底色 246 ⇒ FAIL）。真人"无法输入"的
-  剩下的解释是**视觉可供性弱**（chip 主导、输入框边框不显眼），不是渲染缺陷。
+  regionRgb 断文字区均色 <200；红臂不键入 ⇒ 底色 246 ⇒ FAIL）。真人"无法输入"的最后一段解释——**视觉可供性弱**——也已处理（批26）：kit 的
+  token 输入框补上白底 + 灰框（`bg('#ffffff') + borderColor('#c8c8c8') +
+  borderWidth(1)`，演示层自由打扮自己的字段；单行 input 的裸框是 inputs.php
+  的像素契约，宿主默认不动）。kit 树 3/4 与 hello 树 27 的基线已重录。
   批22 同轮修掉 `value` 动词必崩（`$ev` 类型推断陷阱，见动词表）。
 - **#113 已修（2026-11-04 批21）**：树 1 的路径绘制红绿三角压住「第一节」文字。真机制：
   bridge 的 path 分支（gpui_bridge.cc）追加 rest ops 时**只放行 method 类**，`param_style`
