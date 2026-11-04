@@ -3196,3 +3196,24 @@ dispatchAction 送达✓）。判据：模态跳之前先问"事件怎么进会�
 「命中靠什么」——别让模态命中依赖光标位置，走键盘高亮。启动身份（bundle vs 裸）决定
 观察通道（捕获+帧门），启动会话（agent shell vs 登录会话）决定投递（#96 旧账不变）。
 H1「行选中→PHP」自机器清单销账，真人清单不再背这一跳。
+
+## 批27 的三层突破与读数编排：CUA 模态实操的完整配方（2026-11-04 深夜）
+
+批23 的「CUA 捕获整机坏掉」被推翻——三层对照读出真因：
+1. **捕获失败只欠 bundle id**：裸二进制没有 CFBundleIdentifier，CUA helper 的 PiP
+   捕获绑定直接跳过 ⇒ has_image:false。bundle 启动（kit.app 直启）即修复
+   （has_image:true、actionable:true、900x712 可用帧）。
+2. **坐标点击直通模态**：帧可用后 CUA 坐标点击落在模态菜单上（点复制路径行，菜单
+   关闭=模态收到点击）。
+3. **event 全局键（前台）进模态跟踪队列**：Down 高亮首行（截图实证）。
+
+未竟的一环：**行选中→PHP 的读数编排**。菜单关了但 KIT-EVENT 未及读出——三通道
+全错过时点：`open` 启动丢 stdout（重定向空文件，quit 后也不 flush——LaunchServices
+启动的进程 stdout 不归 shell）；kitLog 行贴窗口底缘（h=680 布局 y~830 超出 712
+窗口）；a11y 树不暴露 kitLog 静态文本。**下轮配方**：读数在点之前布好——窗口
+h≥900 让 kitLog 行在屏内；或 pty 启动（script -q）让 stdout 可读；或 value/probe
+动词扩一个 kitLog 读数。
+
+clickat 回执 0 = queue.size() 判据假阴（弹层触发器开层是原生效果不入 PHP 队列；
+探针实测 send_mouse w=yes 事件投递成功）——判据要看被测的量（投递计数），不是
+队列增量。

@@ -3267,3 +3267,20 @@ run `dwfrun-1ebf1186`（被用户停，批1+批2 施工完成门禁全绿，批3
   只录 hello，kit 的基线要 `record kit`。
 - [x] 电池（今晚产物）：KIT SELFTEST OK、all-examples both ALL EXAMPLES: OK、
   test:all 141/975 rc=0、kit-gates 5/5 全判定、doc-claims/锚点/docs:build rc=0。
+
+### Phase 34 批27（2026-11-04 深夜，H1 模态跳的 CUA 实操：三层突破 + 读数编排未竟）
+- [x] 三层突破（推翻批23"CUA 捕获整机坏掉"的误判）：① bundle 启动（appBundle 有
+  CFBundleIdentifier）后 CUA 捕获**成功**（has_image:true、actionable:true、900x712
+  可用帧）——此前失败是裸二进制缺 bundle id；② 帧可用后**坐标点击直通模态菜单**
+  （(525,653) 点复制路径行，菜单关闭=模态收到点击）；③ kit 前台时 event 策略全局键
+  可发（Down 高亮 ✓ 截图）。
+- [x] 未竟：行选中→PHP 的**读数编排**——菜单关了（点击被模态收取）但 KIT-EVENT
+  未及读出：`open` 启动丢 stdout（重定向空文件）、kitLog 行贴窗口底缘（h=680 布局
+  y~830 超出 712 窗口）、a11y 树不暴露 kitLog 静态文本。读数通道全部错过时点。
+  b6bb8a0 之前会话的 Down+Return 配方已实测 KIT-EVENT nmCopy=action ×2（findings
+  在册）——H1 的机器证据已闭环，本轮是编排复演未果，不是缺陷 reopen。
+- [x] 配方要点（下轮直接用）：bundle 启动 → open -a 前台 → dropbox clickat 开菜单
+  → CUA 坐标点行（帧 actionable）→ **读数在点之前布好**（kitLog 行要在 h≥900 的
+  窗口里才在屏内；或 quit 后靠 stdout flush——但 open 启动丢 stdout，得 pty）。
+- [x] 顺带修档：clickat 回执 0 = queue.size() 判据假阴（弹层触发器不入 PHP 队列），
+  投递以探针 w=yes 为准。

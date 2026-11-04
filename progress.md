@@ -2992,3 +2992,10 @@ bin/gpui、GPUI.lock、tests/baseline/input/tree1.png（两度重录）、compos
   #c8c8c8、内部纯白。基线重录 kit tree3/4 + hello tree27（`shotdiff record [example]`
   的 example 是位置参数，默认 hello——裸跑只录 hello 的坑记档）。
 - 电池：selftest OK、all-examples OK、test:all rc=0、kit-gates 5/5、doc 门 rc=0。
+
+## 2026-11-04 Phase 34 批27：H1 模态跳 CUA 实操——三层突破、读数编排未竟（非 reopen）
+- bundle 启动修好 CUA 捕获（actionable:true）→ 坐标点击直通模态菜单（点复制路径行，
+  菜单关）→ event 全局键前台可发。读数编排未竟：open 丢 stdout、kitLog 行出窗、
+  a11y 不暴露 kitLog——KIT-EVENT 未及读出。b6bb8a0 的 Down+Return 配方实测
+  nmCopy=action ×2 在册，H1 机器证据闭环。
+- 配方要点记档（bundle 启动/open -a 前台/dropbox clickat/CUA 坐标点行/读数提前布）。
