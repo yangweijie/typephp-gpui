@@ -2970,3 +2970,11 @@ bin/gpui、GPUI.lock、tests/baseline/input/tree1.png（两度重录）、compos
   ⇒ #118 前提推翻；回归位 tokenTypingPaint（红臂 246 必 FAIL）。
 - 教训：没画先分清哪个缓冲（automation 显示缓冲陈旧）；探针打 PaintElNode 不打 PaintEl。
 - 电池：selftest OK、all-examples OK、test:all rc=0、kit-gates 4/4、doc 门 rc=0。
+
+## 2026-11-04 Phase 34 批24：#110 修复（ShellRoot 继承 Root + 开窗后挂根插件）+ token 命中打通
+- ShellRoot : public gpui::Root；RootCapturePlugins/RootMount 导出；shim 开窗后
+  capture+mount ⇒ Root::Read 找得到 ⇒ WindowLayersOf 不再 null。真机弹确认框 + Sheet。
+- 回归门 check-dialog-open.php（kit-gates 第五道）：stderr 告警判据（红臂 rc=1）。
+- clickat 回执 0 是假阴（queue.size() 判据）+ 截图双坑（缓冲陈旧/拍错窗口）——
+  教训入 findings。token clickat ⇒ tokClick=delivered ×2。
+- 电池：selftest OK、all-examples OK、test:all rc=0、kit-gates 5/5、doc 门 rc=0。

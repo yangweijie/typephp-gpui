@@ -1171,6 +1171,18 @@ void* gpui_shim_open_window(const char* title, int width, int height,
     gpui_mac_become_foreground();
     box->window = gpui::WindowOpenView(g_app, cppStr(title ? title : ""), width, height,
                                        box->shellRoot, opts);
+    // typephp-gpui (#110): 把 ShellRoot 挂成窗口的 base root 并捕获 app 级根插件
+    // （含 component::kWindowStatePlugin——component::Init 已登记）。没有这一步，
+    // Root::Read 对这个窗口永远空，WindowLayersOf 返回 null，Dialog/AlertDialog/
+    // Sheet/PopupMenu/Notification 触发器全部空转（LayersOf 的告警）。
+    // ShellRoot 现在继承 gpui::Root（shell/root.h），插件表与 Plugin() 都在。
+    if (box->window) {
+        if (gpui::ShellRoot* sr =
+                (gpui::ShellRoot*)gpui::EntityGet(g_app, box->shellRoot)) {
+            gpui::RootCapturePlugins(sr, box->window);
+            gpui::RootMount(box->window, box->shellRoot);
+        }
+    }
     if (!box->window) {
         g_views.erase(view);
         // 只 drop 根，一条链自己走完：ShellRoot 的析构会 EntityDrop(content)

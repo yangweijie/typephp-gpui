@@ -116,8 +116,12 @@ struct ShellDialogEntry {
 // ShellRoot is always the first view of a shell window — or the content of
 // the Root a catalog's window opener wraps it in. It owns the script content
 // and every overlay a script opens through it.
-struct ShellRoot {
-    App* app = nullptr;
+// typephp-gpui (#110): ShellRoot 现在继承 gpui::Root——组件层的 WindowState
+// 插件（kWindowStatePlugin）挂在 Root 的插件表上，而 Root::Read 只认
+// "gpui-base-root" 键的 BaseRootWindowState。继承之后 ShellRoot 自带
+// plugins/captured/Plugin()，shim 开窗后 RootCapturePlugins + RootMount
+// 就能让 WindowLayersOf 找到它，弹层触发器不再空转。
+struct ShellRoot : public gpui::Root {
     EntityId content = {};
     // Open dialogs, oldest first. The last is the topmost and the only
     // interactive one.

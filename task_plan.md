@@ -3219,3 +3219,23 @@ run `dwfrun-1ebf1186`（被用户停，批1+批2 施工完成门禁全绿，批3
 - [x] 电池（今晚产物）：KIT SELFTEST OK、all-examples both ALL EXAMPLES: OK、
   test:all 141/975 rc=0、kit-gates 4/4 全判定、doc-claims/锚点/docs:build rc=0。
 - [x] 真人"无法输入"的剩余解释 = 视觉可供性弱（chip 主导、框线不显眼），非渲染缺陷。
+
+### Phase 34 批24（2026-11-04，#110 修复：ShellRoot 继承 Root + 开窗后 capture/mount 根插件）
+- [x] 机制：Root::Read 只认 "gpui-base-root" 键的 BaseRootWindowState 且要求
+  state->root == window->root；ShellRoot 窗口的根视图是 ShellRoot 实体、没有 base Root
+  ⇒ Root::Read 永远空 ⇒ WindowLayersOf null ⇒ 弹层触发器全空转（fail-soft 告警）。
+- [x] 修法：① ShellRoot 继承 gpui::Root（shell/root.h，自带 plugins/captured/Plugin()）；
+  ② base/root.{h,cpp} 导出 RootCapturePlugins/RootMount（从匿名命名空间移出）；
+  ③ shim 开窗成功后 `RootCapturePlugins(shellRoot, win)` + `RootMount(win, shellRoot)`
+  ——component::Init 登记的 kWindowStatePlugin 捕获进 ShellRoot，Root::Read 从此找得到。
+- [x] 真机实证：点「打开确认框」弹确认框（操作已记录/取消/删除 + scrim）、点「打开抽屉」
+  弹 Sheet（选择模板四卡）——截图两轮都拍到（弹层位置随会话，加告警判据后不依赖截图）。
+- [x] 回归门 `cmd/check-dialog-open.php`（第五道）：**stderr 告警判据**——触发器点击后
+  run.log 无 "component window state unavailable" = 插件在册（rc=0）；红臂撤
+  capture+mount ⇒ 告警必现 ⇒ rc=1（实测判别力在）。门演进史：截图差分判据被
+  ①显示缓冲事件后不同步（diff=0 假阴）②多会话同屏拍到别人窗口 ③clickat 回执 0 的
+  假阴（queue.size() 判据不认原生效果部件）连坑三轮，最终落在 stderr 地面真值。
+- [x] token 真鼠标命中机器侧打通：clickat chip ⇒ `KIT-EVENT tokClick=delivered` ×2
+  （#96 边界的 token 命中从此有机器证据）。
+- [x] 电池（今晚产物）：KIT SELFTEST OK、all-examples both ALL EXAMPLES: OK、
+  test:all 141/975 rc=0、kit-gates 5/5 全判定、doc-claims/锚点/docs:build rc=0。

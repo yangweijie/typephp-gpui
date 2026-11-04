@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # cmd/check-kit-gates.sh — kit 域确定性门的批量入口（可达性收口）。
 #
-# 现在收四道：check-accordion-toggle.sh、check-token-link-hits.sh（各守一条具体链），
+# 现在收五道：check-accordion-toggle.sh、check-token-link-hits.sh（各守一条具体链），
 # check-click-survival.php（广度：树上每颗可点控件都点一遍，断言没有一个带走宿主），
-# check-scrollbar-hover-hide.php（#112 回归位：hover 模式 thumb 必须能隐藏）。
+# check-scrollbar-hover-hide.php（#112 回归位：hover 模式 thumb 必须能隐藏），
+# check-dialog-open.php（#110 回归位：弹层触发器的 WindowState 插件在册——stderr 告警判据）。
 #
 # 为什么要它：这些门各自能跑，但**没有任何入口点名它们**（composer / CI / tests 全无）——
 # 于是"写好的门"等于"没人跑的门"，下一轮漂移不会有人发现。这条给它们一个入口，
@@ -34,7 +35,7 @@ fi
 
 fails=0
 undetermined=0
-for g in check-accordion-toggle.sh check-token-link-hits.sh check-click-survival.php check-scrollbar-hover-hide.php; do
+for g in check-accordion-toggle.sh check-token-link-hits.sh check-click-survival.php check-scrollbar-hover-hide.php check-dialog-open.php; do
     echo "--- $g"
     case "$g" in
         *.sh) bash "cmd/$g" ;;
@@ -57,5 +58,5 @@ if [[ $undetermined -ne 0 ]]; then
     echo "KIT-GATES 未判定（$undetermined 道没拿到判定，别当通过）"
     exit 2
 fi
-echo "KIT-GATES OK（4 道全判定通过）"
+echo "KIT-GATES OK（5 道全判定通过）"
 exit 0

@@ -397,8 +397,13 @@ and one design question.
 - The tree 3 "open dialog / alert / sheet" triggers: **#110 is still a design question**.
   `cmd/patch-window-layers.sh` replaced `LayersOf()`'s panic with "warn once and return null" (all 14
   call sites already treated null as "do nothing"), and the sweep survives 11 of 11 clicks; but a real
-  click still opens no layer - use `App::openDialog()/openSheet()/notify()`. The open question is
-  whether ShellRoot windows should carry the component layer's `WindowState` plugin.
+  click still opens no layer - use `App::openDialog()/openSheet()/notify()`. **Fixed 2026-11-04 batch 24**: ShellRoot now inherits gpui::Root and the shim calls
+  `RootCapturePlugins` + `RootMount` after opening, mounting the app-registered root
+  plugins (incl. component::kWindowStatePlugin) onto the ShellRoot — `Root::Read` finds
+  it and `WindowLayersOf` stops returning null; a real click opens the confirm dialog
+  and the sheet (captures). Regression slot: `cmd/check-dialog-open.php` (stderr-warn
+  verdict; red arm measured rc=1). The fail-soft in `cmd/patch-window-layers.sh`
+  stays as the backstop. The original design-question record follows.
 - In tree 1 the `hover` box shows its scrollbar **permanently** (both boxes had a thumb in the
   screenshot), contradicting "hover only while hovering" - **task #112, fixed 2026-11-04 batch 20**:
   the root cause was `IdCollect` giving unnamed elements zero path contribution, so the structurally

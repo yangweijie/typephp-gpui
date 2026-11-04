@@ -12,6 +12,10 @@ struct BaseRootPluginRegistry {
     ~BaseRootPluginRegistry() { VecReset(plugins); }
 };
 
+} // namespace
+
+namespace {
+
 // window.root::<Root>(): which entity is this window's Base Root, kept on
 // the window so a Root can be told from any other root view.
 struct BaseRootWindowState {
@@ -27,6 +31,8 @@ BaseRootWindowState* BaseRootWindowStateOf(Window* window) {
         window, key, new BaseRootWindowState(),
         &EntityDropT<BaseRootWindowState>);
 }
+
+} // namespace
 
 // Root::new's `factories.map(|build| build(window, cx))`: factories are
 // captured when the window's Root is made, so a registration after that
@@ -53,8 +59,6 @@ void RootMount(Window* window, EntityId root) {
         state->root = root;
     }
 }
-
-} // namespace
 
 Root::~Root() {
     for (int i = 0; i < plugins.len; i++) {

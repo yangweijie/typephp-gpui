@@ -95,6 +95,13 @@ struct Root {
 // refinement, then each plugin's decoration.
 El* RootSurface(Ctx* cx, Root* root, El* content);
 
+// typephp-gpui (#110): exported so the host can give a non-base root view
+// (ShellRoot) the same plugin treatment KitOpenWindow gives a Base Root —
+// capture the app-registered plugins for this window, and mount the root as
+// the window's base root so Root::Read finds it.
+void RootCapturePlugins(Root* root, Window* window);
+void RootMount(Window* window, EntityId root);
+
 // gpui_kit::open_window: open a window whose root view is a Base Root around
 // `content`, the application content the caller built. The kit crate has no
 // file of its own here; this is its one function. Call component::Init (or
