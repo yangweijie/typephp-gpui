@@ -3239,3 +3239,18 @@ run `dwfrun-1ebf1186`（被用户停，批1+批2 施工完成门禁全绿，批3
   （#96 边界的 token 命中从此有机器证据）。
 - [x] 电池（今晚产物）：KIT SELFTEST OK、all-examples both ALL EXAMPLES: OK、
   test:all 141/975 rc=0、kit-gates 5/5 全判定、doc-claims/锚点/docs:build rc=0。
+
+### Phase 34 批25（2026-11-04，#115 菜单行 action 登记链的回归位 + 一次污染态大排查）
+- [x] 背景：b6bb8a0 已修触发器行 action 的登记（patch-native-menu-action-reg.sh：物化时经
+  weak-seam 逐行登记进 app 级动作表）并落了自测步 nativeMenuActionDelivery；本批补上
+  同一条链的第二个自测步 menuActionDelivery（独立窗、另一套 id），双向钉死。
+- [x] 过程大排查（值得记的教训）：验证时连续遇到"登记侧零调用/dispatchAction=false"——
+  先怀疑 weak/strong 被编译器本地化（加 noinline 试），又遇 bin/gpui patch 半补丁态拦
+  截——根因其实是我自己两次把**沙箱的补丁态文件 cp 进 upstream**（runtime.cpp 带
+  marker），污染了同步源；upstream 只该收直接编辑（ShellRoot 继承那类），marker 补丁
+  永远归补丁脚本所有。彻底恢复（upstream 回 HEAD + sync + patch + 清 .work/cpp-src
+  重建）后，干净态一次通过——**noinline 是红鲱鱼**，已还原不入库。
+- [x] 判据固化：cp 沙箱→upstream 之前先看 `git diff HEAD -- <file>` 有没有 marker；
+  有 marker 的文件只能走补丁脚本。
+- [x] 电池（今晚产物）：KIT SELFTEST OK、all-examples both ALL EXAMPLES: OK、
+  test:all 141/975 rc=0、kit-gates 5/5 全判定、doc-claims/锚点/docs:build rc=0。

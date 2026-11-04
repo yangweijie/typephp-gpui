@@ -2978,3 +2978,11 @@ bin/gpui、GPUI.lock、tests/baseline/input/tree1.png（两度重录）、compos
 - clickat 回执 0 是假阴（queue.size() 判据）+ 截图双坑（缓冲陈旧/拍错窗口）——
   教训入 findings。token clickat ⇒ tokClick=delivered ×2。
 - 电池：selftest OK、all-examples OK、test:all rc=0、kit-gates 5/5、doc 门 rc=0。
+
+## 2026-11-04 Phase 34 批25：菜单行登记链第二自测步 + 污染态大排查（noinline 红鲱鱼）
+- menuActionDelivery（独立窗另一套 id）与 nativeMenuActionDelivery 双向钉死
+  b6bb8a0 的登记链。
+- 大排查：登记侧零调用/dispatchAction=false 的根因是我两次把沙箱补丁态 cp 进
+  upstream（runtime.cpp 带 marker）；彻底恢复后干净态一次过——noinline 是红鲱鱼。
+  判据：cp 前看 git diff HEAD 有无 marker；marker 文件只走补丁脚本。
+- 电池：selftest OK、all-examples OK、test:all rc=0、kit-gates 5/5、doc 门 rc=0。

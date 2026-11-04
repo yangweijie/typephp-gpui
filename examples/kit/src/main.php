@@ -2007,6 +2007,36 @@ function runKitSelfTest(): void
     $ok = $ok && $adOk;
 
     $app->close();
+    // 11) menuActionDelivery（#115 续，2026-11-04）：触发器物化 ⇒ 每行 action 经
+    //     weak-seam（gpuiShellRegisterMenuAction）登记进 app 级动作表 ⇒
+    //     dispatchAction('kit-nm3-copy') 送达 PHP。真人点菜单行走同一条派发链
+    //     （OnDispatchAction → WindowDispatchAction → app 表），此前触发器的行
+    //     从不登记（只有 app 菜单条路径登记）⇒ 行选中必丢。
+    $maApp = new App();
+    $maApp->create();
+    $maApp->createWindow('Kit Menu Action', 360, 160);
+    ExampleState::$v['gateMenuAction'] = '';
+    $maApp->on('kit-nm3-copy', 'action', static function (): void {
+        ExampleState::$v['gateMenuAction'] = 'delivered';
+    });
+    $maApp->render(El::vFlex([
+        El::nativeMenuTrigger('kit-nm3', '动作菜单', 'kit-nm3-err', [
+            El::nativeMenuItem('复制路径', 'kit-nm3-copy'),
+        ]),
+    ])->sizeFull()->p(40.0)->itemsStart());
+    $maApp->loop(4);
+    $maDispatch = $maApp->dispatchAction('kit-nm3-copy');
+    $maApp->loop(3);
+    $maEv = \gpui_poll_event($maApp->handle());
+    if (!empty($maEv)) { $maApp->dispatch($maEv); }
+    $maOk = $maDispatch && ExampleState::$v['gateMenuAction'] === 'delivered';
+    step('menuActionDelivery', $maOk,
+        'dispatchAction(kit-nm3-copy)=' . var_export($maDispatch, true)
+        . ' 送达=' . var_export(ExampleState::$v['gateMenuAction'], true)
+        . ($maOk ? '' : '（false/无送达：触发器行的 action 没进 app 级动作表——查 '
+            . 'gpuiShellRegisterMenuAction 弱定义/强覆盖是否都落）'));
+    $ok = $ok && $maOk;
+    $maApp->close();
     // 9) 批4 的事件/渲染三门——放在主窗关闭**之后**：GpuiWindow() 返回
     //    [NSApp windows] 里第一个可见窗，主窗活着时 realClick 会点到主窗上
     //    （2026-10-31 实测 realClick=false 的根因）。此时每扇门窗各自唯一可见。

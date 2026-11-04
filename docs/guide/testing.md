@@ -45,11 +45,13 @@
   （首行从 第01 变 第04）且右缘 thumb 真画出（截图）；同一帧里 hover 盒**无人悬停**却
   挂着 thumb、隔 4 秒再拍仍在 ⇒ **#112（hover 盒滚动条常驻）在树 4 也复现**；
   "thumb 随滚动移动"未做两帧对比，记边界。
-- **H1 NativeMenu：#115 已修（2026-11-04 批19），真人最后一跳待验**。批17 立账后读出的
-  死点：行选中派发 `OnDispatchAction → WindowDispatchAction` 只查两处——元素级 OnAction
-  （触发器的行是 carried Entry，不是活元素，没有监听）与 app 级动作表（登记入口
-  `registerMenuAction` 只服务 app 菜单条，触发器路径从不登记）⇒ 两处都不中即静默丢。
-  `patch-native-menu-action-reg.sh` 走 weak-seam 惯例把每行 action 登记进 app 表；
+- **H1 NativeMenu：#115 已修（2026-11-04 批19，批25 补第二回归位），真人最后一跳待验**。
+  批17 立账后读出的死点：行选中派发 `OnDispatchAction → WindowDispatchAction` 只查两处
+  ——元素级 OnAction（触发器的行是 carried Entry，不是活元素，没有监听）与 app 级动作表
+  （登记入口 `registerMenuAction` 只服务 app 菜单条，触发器路径从不登记）⇒ 两处都不中
+  即静默丢。`patch-native-menu-action-reg.sh` 走 weak-seam 惯例把每行 action 在物化时
+  登记进 app 表；批25 补自测步 `menuActionDelivery`（独立窗另一套 id，与
+  `nativeMenuActionDelivery` 双向钉死；红臂实测 dispatchAction=false ⇒ FAIL）；
   回归位 = selftest 步 `nativeMenuActionDelivery`（红臂关登记 false/无送达，绿臂
   true/delivered）。NSMenu 模态会话里的真人那一跳（点行）待下一次真人轮确认。
 - **H5 link 半边：#116 已修（2026-11-04 批18）**。批17 的"两条缝分叉"框架是**错的**：

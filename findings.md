@@ -3133,3 +3133,19 @@ elementValue() 不崩，因为那条调用链的变量没有被 array 先占名�
   （GpuiWindow() 取第一个可见窗——两轮"弹层哪来的"的悬案都是它）。
 - 门因此改用 **stderr 告警判据**（LayersOf 的 warn 走 stderr，不进显示缓冲）：
   插件在册 ⇒ 无告警；不在册 ⇒ 首点必告警。红臂实测 rc=1/绿臂 rc=0。
+
+## 同步源污染：沙箱的补丁态文件不能 cp 回 upstream（2026-11-04 批25，栽了两次）
+
+批25 验证菜单行登记链时，连续遇到"登记侧零调用 / dispatchAction=false"。排查中我先
+怀疑 weak/strong 被编译器本地化（给弱定义加 noinline 试），又遇 `bin/gpui patch` 的
+半补丁态拦截——**根因其实是我自己**：两次把**沙箱的补丁态文件 cp 进 upstream**
+（runtime.cpp 带着 marker 补丁的内容进了同步源）。之后的重建里，stale 的 amalgam
+（.work/gpui.cpp 是污染期编的）与半补丁态互相掩护，让"弱符号独活"的假象一直成立。
+
+判据（固化）：
+1. **upstream 只收直接编辑**（ShellRoot 继承 Root 那类结构性改动）；marker 补丁
+   （patch-*.sh 管的）永远归补丁脚本，build 时才落沙箱。
+2. **cp 沙箱→upstream 之前先 `git diff HEAD -- <file>`**：有 marker 的文件不能抄。
+3. 恢复顺序：upstream 回 HEAD → `cmd/sync-upstream.sh` → `php bin/gpui patch` →
+   清 `.work/` 与 `cpp-src/build/` 重建。干净态一次通过——**noinline 是红鲱鱼**，
+   已还原不入库（编译器没有本地化，localization 理论是污染期的误诊）。
