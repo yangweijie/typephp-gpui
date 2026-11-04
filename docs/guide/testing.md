@@ -65,7 +65,12 @@
   可辨读标记，kit.php 的 `tokenRenderNull` 对拍才回落 label），文字本来就不该是 @张三。
   真正剩下的实测障碍：h=680 命中表里 token 输入框与 chip 的行 **click=0 down=0**（鼠标
   惰性），真鼠标点 chip 走不进命中链 ⇒ token 真鼠标命中继续挂真人清单（#96 边界）；
-  真人回报的"无法输入"未复现未归因，另记。
+  "无法输入"已定性（2026-11-04 批22）：**键入链路是通的**（clickat 进输入框 → 焦点 -1001
+  落对 → key a/b/c → `value` 读到 "@张三abc"——值真进了），缺陷是**屏上不渲染**：
+  文本 run 发射正常（slice 渐长）、布局正常（'abc' 20.7x20 紧跟 chip），但**从不进入
+  绘制行走**（PaintEl 探针零命中，chip 却画得好好的）⇒ 立 **#118**（token 输入框文本
+  run 不绘制——机制待 scene-graph/WriteBackChildren 层续查）。批22 同轮修掉 `value`
+  动词必崩（`$ev` 类型推断陷阱，见动词表）。
 - **#113 已修（2026-11-04 批21）**：树 1 的路径绘制红绿三角压住「第一节」文字。真机制：
   bridge 的 path 分支（gpui_bridge.cc）追加 rest ops 时**只放行 method 类**，`param_style`
   （w/h）被静默丢弃 ⇒ path 元素恒 0x0 布局（`element->Bounds()` 宽高为 0），绘制命令相对
@@ -350,7 +355,7 @@ sleep 2 && cat /tmp/auto/snapshot.txt
 | `key <键名> [字符]` | 走**真键盘路径**发一键 | `a`/`tab`/`enter`/`esc`/`left`…或直接给键码；这条会产出真 `change` 事件 |
 | `input <id> <文本>` | 直接往 retained 控件里设值 | **不发 change 事件**——只设值，状态驱动的界面不会因此更新 |
 | `change <id> [文本]` | 设值（给了文本时）+ 合成一条 change 事件 | 补 #93 与"无会话环境"的空缺：这一路在 agent/CI 里只能靠它验 |
-| `value <id>` | 把输入框/部件当前值读进回执 | 断言"写进去了没有"用这句 |
+| `value <id>` | 把输入框/部件当前值读进回执（2026-11-04 批22 修：原实现复用 `$ev`——poll 动词已把它在函数级类型推断里钉成 `php::Array`，再赋 `gpui_element_value` 的 Str 结果触发编译器插的 checkArray 运行时崩，任何 `value` 调用必 rc=134；改用独立变量名） | 断言"写进去了没有"用这句 |
 | `focus <id>` | 把焦点放到部件上 | 真侧目前返回 `-1001`、`focused` 仍为 `-`，焦点这一层仍是缺口（见 #62/#56）；作诊断用 |
 | `clickat <x> <y>` | 按坐标合成一次真点击（与 selftest 的 `realClick` 同源） | id 缝够不着的部件（slot 按钮、catalog 日期触发器）只能按矩形点；#103 的判别臂用它。input 的 `--automation <dir> [height]` 第三参可加高窗，够到折线外的目标 |
 | `hits` | 把这一帧命中表整张落盘 `<dir>/hits.txt` | 行格式 `i id x y w h click down drag`（tab 分隔，gpui 视图系坐标）；与同帧 `screenshot` 对照可分「产品命中错」与「合成缝坐标换算错」 |

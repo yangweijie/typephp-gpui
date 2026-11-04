@@ -3191,3 +3191,17 @@ run `dwfrun-1ebf1186`（被用户停，批1+批2 施工完成门禁全绿，批3
   harness 复跑绿、catalog 无 path 元素与修复无因果——如实记两头）；test:all 141/975 rc=0；
   kit-gates 4/4 全判定；doc-claims/锚点 75-16/docs:build rc=0。shotdiff 基线无需重录
   （path 段在 680 折叠线下，批17 已记此盲区）。
+
+### Phase 34 批22（2026-11-04，value 动词必崩修复 + 「无法输入」定性反转 + #118 立账）
+- [x] 修 shipped bug：`value` 动词任何调用必崩（rc=134 "parameter 1 must be array, got
+  string"）。根因 = AOT 编译器函数级类型推断：`$ev` 被 poll 动词（返回 array）钉成
+  php::Array，value 动词赋 Str 结果触发 checkArray 运行时崩。修法 = 独立变量名。
+  input 例的 valuePull 门不崩（其调用链变量没被 array 先占名）——同函数跨 case 复用
+  变量名是判据。
+- [x] 「无法输入」机器定性反转：键入链路**是通的**（clickat → 焦点 -1001 → key a/b/c →
+  `value` 读到 "@张三abc"）；缺陷是**屏上不渲染**。
+- [x] 探针三层特征：run 发射正常（slice 渐长）→ 布局正常（'abc' 20.7x20 紧跟 chip）→
+  **绘制行走零命中**（PaintEl 从未见到；chip 正常画）。立 **#118**（token 输入框文本
+  run 不绘制），机制待 scene-graph/WriteBackChildren 层续查；chip 显式尺寸实验无效已撤。
+- [x] 电池（今晚产物）：all-examples both ALL EXAMPLES: OK、test:all 141/975 rc=0、
+  kit-gates 4/4 全判定、doc-claims/锚点/docs:build rc=0。

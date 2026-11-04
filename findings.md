@@ -3078,3 +3078,24 @@ hover 盒（want=0）每帧启动 1→0 的退出——**互踢永不完结**，
 3. **"零裁剪"类静态怀疑要等读数**：PaintMaterialPath 确实没 clip，但本次致害路径是
    尺寸 op 被吞；clip 只是同类隐患的另一张面孔。先复现、再读码、后归因——顺序反了
    （先归因再找证据）会把"机制"写错进台账。
+
+## 「无法输入」的真相：键入链路是通的，文本 run 从不进入绘制行走（2026-11-04 批22）
+
+真人回报"树 3 输入框无法输入"，机器复现后定性反转：
+1. **键入是通的**：clickat 进输入框 → 焦点 -1001 落对（patch-input-focus 的窗口通用路径）
+   → key a/b/c → `value` 动词读到 `@张三abc`——值真进了（change 语义、 retained 状态都正常）。
+2. **缺陷是屏上不渲染**：像素扫描（y=665 输入行）在 chip 之后找不到任何文字像素。
+3. 探针三层：文本 run **发射正常**（EmitTokenTextRun slice='a'/'ab'/'abc' 渐长、fg 深色、
+   font 12）；**布局正常**（'abc' 20.7x20 @ (49.9,660.6)，紧跟 chip）；**绘制行走零命中**
+   （PaintEl 入口探针在整个会话里从未见到该 run）——chip 画、字不画。
+4. 立 **#118**（token 输入框文本 run 不绘制）。机制续查方向：scene-graph/WriteBackChildren
+   层——chip（宿主渲染回调元素）与文本 run 的绘制路径不同，run 可能在 prePaint 重建行树
+   之后没有进入绘制树。给 chip 显式尺寸实验无效（已撤）。
+
+同轮修掉一个 shipped bug：**`value` 动词必崩**（rc=134 "parameter 1 must be array, got
+string"）。根因是 AOT 编译器的函数级类型推断：`$ev` 被 poll 动词（gpui_poll_event 返回
+array）钉成 `php::Array`，value 动词再赋 `gpui_element_value` 的 Str 结果 → 编译器插的
+checkArray 运行时崩。任何 automation `value` 调用都会炸——input 例的 valuePull 门用
+elementValue() 不崩，因为那条调用链的变量没有被 array 先占名。**判据：同一函数里
+跨 case 复用变量名，先被 array 返回值占名的变量不能再接 Str**——编译器按函数推断，
+不按分支。

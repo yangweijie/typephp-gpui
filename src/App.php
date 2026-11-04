@@ -1657,8 +1657,13 @@ final class App
                     return 'err missing id';
                 }
                 $v = \gpui_input_value($this->handle(), $id);
-                $ev = \gpui_element_value($this->handle(), $id);
-                return $id . ' input="' . $v . '" element=' . (is_scalar($ev) ? (string) $ev : gettype($ev));
+                // typephp-gpui: 别复用 $ev——poll 动词（case 'poll'）已把它在函数级
+                // 类型推断里钉成 php::Array（gpui_poll_event 返回 array），这里再赋
+                // Str 会触发编译器插的 checkArray 运行时崩（"parameter 1 must be
+                // array, got string"，kit 的 value 动词必崩，2026-11-04 批22）。
+                $elVal = \gpui_element_value($this->handle(), $id);
+                return $id . ' input="' . $v . '" element='
+                    . (is_scalar($elVal) ? (string) $elVal : gettype($elVal));
 
             case 'change':
                 // 为什么要有它：`input` 只设值、不发事件（#93），而 `key` 走 OS 路径，

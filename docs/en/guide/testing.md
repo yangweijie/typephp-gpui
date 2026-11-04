@@ -464,8 +464,14 @@ channel beside the `fire` seam and the real-mouse seam.
   `tokenRenderNull` A/B falls back to the label chip), never meant to show @张三. What actually
   remains: in the h=680 hit table the token input and chip rows are **click=0 down=0**
   (mouse-inert), so a real chip click cannot even enter the hit chain ⇒ token real-mouse hit stays
-  on the human list (#96 boundary); the reported "cannot type into the input" is unreproduced and
-  unattributed, filed separately.
+  on the human list (#96 boundary); the reported "cannot type into the input" is now
+  characterized (2026-11-04 batch 22): **the typing chain works** (clickat focuses the field,
+  focus id -1001 lands, key a/b/c, `value` reads "@张三abc" - the text really enters), the
+  defect is that **nothing renders**: the text run is emitted (slice grows), laid out ('abc'
+  20.7x20 right after the chip), but **never enters the paint walk** (PaintEl probe: zero hits,
+  while the chip paints fine) ⇒ filed as **#118** (token input text runs never painted -
+  mechanism pending a scene-graph/WriteBackChildren pass). The same batch fixed the `value`
+  verb's guaranteed crash (the `$ev` type-inference trap, see the verb table).
 - **#113 fixed (2026-11-04 batch 21)**: the path-drawing triangle used to paint over the first
   accordion header in tree 1. True mechanism: the bridge's path branch (gpui_bridge.cc) appended
   only `method` ops from its rest list, silently dropping `param_style` (w/h) - path elements laid

@@ -2958,3 +2958,9 @@ bin/gpui、GPUI.lock、tests/baseline/input/tree1.png（两度重录）、compos
 - 修 gpui_bridge.cc path 分支补 param_style；回归位 pathOverlapGate（红底块双点，
   红臂 (204,2,2) 必红）+ pathScrollGate（path 随容器滚动）。
 - 电池：all-examples 一红一绿（catalog-tree2 抖动记两头）、test:all rc=0、kit-gates 4/4、doc 门 rc=0。
+
+## 2026-11-04 Phase 34 批22：value 动词必崩修复 + 「无法输入」定性反转（#118）
+- value 动词必崩（$ev 被 poll case 钉成 Array 的编译器类型推断陷阱）→ 独立变量名修复。
+- 「无法输入」反转：键入是通的（value 读到 @张三abc）；缺陷是文本 run 从不进入绘制行走
+  （发射/布局都正常，PaintEl 零命中；chip 正常画）⇒ #118 立账，机制待续查。
+- 电池：all-examples OK、test:all rc=0、kit-gates 4/4、doc 门 rc=0。
