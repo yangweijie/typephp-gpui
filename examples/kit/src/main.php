@@ -2339,6 +2339,91 @@ function runKitSelfTest(): void
         . ($ppOk ? '' : '（质心不蓝：查 six op 是否到 node->ops、push_path 的 background 是否填全）'));
     $ok = $ok && $ppOk;
     $ppApp->close();
+    // 10a-3) pathScrollGate（#113 回归位，2026-11-04）：滚动容器里的 path 必须
+    //     **随内容一起滚**——真人轮树 1 报过"路径三角压住下方手风琴头"（滚动后
+    //     场景），当时的假设是 paint 期 bounds 与滚动偏移错位。本步用实循环 +
+    //     regionRgb 断正确语义：滚前质心蓝 → realScroll 滚动 → 滚后原位不再蓝、
+    //     新位蓝。若红：path 的 paint bounds 没跟上滚动（错位坐实，修 paint 侧）。
+    $psApp = new App();
+    $psApp->create();
+    $psApp->createWindow('Kit Path Scroll', 320, 420);
+    $psApp->render(El::vFlex([
+        El::pathFill('kit-ps-tri', '#2f6fed')
+            ->moveTo(10, 90)->lineTo(50, 10)->lineTo(90, 90)->closePath()
+            ->w(100.0)->h(100.0),
+        El::text('占位行 01'),
+        El::text('占位行 02'),
+        El::text('占位行 03'),
+        El::text('占位行 04'),
+        El::text('占位行 05'),
+        El::text('占位行 06'),
+        El::text('占位行 07'),
+        El::text('占位行 08'),
+        El::text('占位行 09'),
+        El::text('占位行 10'),
+        El::text('占位行 11'),
+        El::text('占位行 12'),
+        El::text('占位行 13'),
+        El::text('占位行 14'),
+        El::text('占位行 15'),
+    ])->sizeFull()->p(40.0)->overflowYScroll()->itemsStart()->gap(6.0));
+    $psApp->loop(6);
+    // 三角质心：元素 (10,90)/(50,10)/(90,90) → 窗内 (50,130)/(90,50)/(130,130)
+    // （p40），形心 ≈ (90,103)。
+    $psPre = $psApp->regionRgb(88, 100, 8, 8);
+    $psScroll = $psApp->realScroll(160, 200, -60);
+    $psApp->loop(8);
+    // 内容上移 60px：质心新位 ≈ (90,43)，原位 (88,100) 应不再是填充蓝。
+    $psPostOld = $psApp->regionRgb(88, 100, 8, 8);
+    $psPostNew = $psApp->regionRgb(88, 40, 8, 8);
+    $isBlue = static function (array $c): bool {
+        return isset($c['r']) && $c['r'] < 150 && $c['b'] > 150;
+    };
+    $psOk = $psScroll && $isBlue($psPre) && !$isBlue($psPostOld)
+        && $isBlue($psPostNew) && $psApp->registeredError() === '';
+    step('pathScrollGate', $psOk,
+        '滚前质心=' . json_encode($psPre) . ' 滚动=' . var_export($psScroll, true)
+        . ' 滚后原位=' . json_encode($psPostOld) . ' 滚后新位=' . json_encode($psPostNew)
+        . ' registeredError=' . ($psApp->registeredError() === '' ? '空' : $psApp->registeredError())
+        . ($psOk ? '' : '（红 = path 的 paint bounds 没跟上滚动：原位仍蓝/新位不蓝——'
+            . '错位坐实，查 PaintMaterialPath 的 bounds 在滚动 paint 里的时点）'));
+    $ok = $ok && $psOk;
+    $psApp->close();
+    // 10a-4) pathOverlapGate（#113 的判别位，2026-11-04）：真根因是 bridge 的 path
+    //     分支只放行 method 类 op，param_style（w/h）被静默丢弃 ⇒ path 元素恒 0x0
+    //     布局，命令相对锚点画 90px 直接压住下一行内容（树 1 三角压手风琴头）。
+    //     判别采样 (70,54)：修复前 = 蓝三角盖在文字上（蓝）；修复后 = w/h 落地、
+    //     元素真 100 高、文字行退到 y≈144，(70,54) 落在盒内三角外（底色）。
+    //     正控 (90,103) = 有尺寸三角的形心必须蓝（两态都蓝，防"整棵没画"假绿）。
+    $poApp = new App();
+    $poApp->create();
+    $poApp->createWindow('Kit Path Overlap', 320, 300);
+    $poApp->render(El::vFlex([
+        El::pathFill('kit-po-tri', '#2f6fed')
+            ->moveTo(10, 90)->lineTo(50, 10)->lineTo(90, 90)->closePath()
+            ->w(100.0)->h(100.0),
+        El::text('下方文本')->bg('#ff0000')->w(120.0)->h(22.0),
+    ])->sizeFull()->p(40.0)->itemsStart()->gap(4.0));
+    $poApp->loop(6);
+    // 几何（p40 + gap4）：w/h 落地（修复后）红块在 y 144-166、path 盒 40-140；
+    // w/h 被吞（回归臂）path 恒 0x0、红块顶到 y 44-66、三角 (50,50)-(130,130)。
+    // 双点判别：修复后 (60,55)=盒内三角外的底色（不得红）、(60,155)=红块（必须红）；
+    // 回归臂 (60,55)=红块本身（红）⇒ 门红。
+    $poTop = $poApp->regionRgb(56, 51, 10, 10);
+    $poBottom = $poApp->regionRgb(56, 150, 10, 10);
+    $isRed = static function (array $c): bool {
+        return isset($c['r']) && $c['r'] > 150 && $c['g'] < 110 && $c['b'] < 110;
+    };
+    $poOk = !$isRed($poTop) && $isRed($poBottom)
+        && $poApp->registeredError() === '';
+    step('pathOverlapGate', $poOk,
+        '上点(60,55)=' . json_encode($poTop) . '（不得红） 下点(60,155)='
+        . json_encode($poBottom) . '（必须红） registeredError='
+        . ($poApp->registeredError() === '' ? '空' : $poApp->registeredError())
+        . ($poOk ? '' : '（上点红 = w/h op 被吞、path 恒 0x0、红块顶到了三角区——查 '
+            . 'gpui_bridge.cc path 分支的 param_style 放行）'));
+    $ok = $ok && $poOk;
+    $poApp->close();
     // 10c) titlebarWindowGate：无边框 + clientTitleBar 窗口（TitleBar B 期最小面）。
     //     断言：窗口带选项开出、windowAction 三动词可用；close 动词后 isOpen=false
     //     是硬证据。双击最大化的 caption 通道（window_common.cpp:2526）与系统红绿灯

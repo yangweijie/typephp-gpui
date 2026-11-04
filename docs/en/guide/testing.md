@@ -466,8 +466,15 @@ channel beside the `fire` seam and the real-mouse seam.
   (mouse-inert), so a real chip click cannot even enter the hit chain ⇒ token real-mouse hit stays
   on the human list (#96 boundary); the reported "cannot type into the input" is unreproduced and
   unattributed, filed separately.
-- **#113 reproduced live**: the path-drawing triangle paints over the first accordion header in
-  tree 1 (capture).
+- **#113 fixed (2026-11-04 batch 21)**: the path-drawing triangle used to paint over the first
+  accordion header in tree 1. True mechanism: the bridge's path branch (gpui_bridge.cc) appended
+  only `method` ops from its rest list, silently dropping `param_style` (w/h) - path elements laid
+  out 0x0 (element->Bounds() w/h = 0) and the drawing commands painted 90px from the anchor right
+  over the next row. Fix: the path branch passes param_style through (same gpui_shim_param_style
+  as ordinary elements). Regression slots: selftest step `pathOverlapGate` (sized path + red block
+  below: top point must not be red / bottom must be red; red arm with the drop restored reads
+  (204,2,2) at the top => FAIL) and `pathScrollGate` (the path scrolls with its container: old spot
+  clean, new spot blue). shotdiff baselines unchanged - the path section sits below the 680 fold.
 - Process notes (not conclusions): CUA's in-app screenshot and coordinate actions are gated behind
   "no usable pixel-to-pointer rectangle" for this gpui canvas even with every TCC grant in place ⇒
   this round used a11y element presses + keyboard (`{name,pid}` is the only app_ref shape that

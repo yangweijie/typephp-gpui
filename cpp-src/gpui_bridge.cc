@@ -250,6 +250,19 @@ uint32_t emitTree(void* win, Array node) {
                 }
                 gpui_shim_method(win, spec, opName.c_str(), margs.data(),
                                  (int)margs.size());
+            } else if (opKind == "param_style") {
+                // typephp-gpui (#113)：w/h 等 param_style op 此前在这里被静默
+                // 丢弃——path 元素恒 0x0 布局，命令相对锚点画 90px 直接压住下方
+                // 内容（树 1 三角压手风琴头）。与普通元素的 param_style 路同款。
+                std::vector<GpuiArg> margs;
+                std::deque<std::string> strPool;
+                std::deque<std::vector<GpuiArg>> subPool;
+                Array args = argsV.isArray() ? argsV.toArray() : Array();
+                for (size_t ai = 0; ai < args.count(); ++ai) {
+                    margs.push_back(toArgOne(args.get(ai), win, id, strPool, subPool));
+                }
+                gpui_shim_param_style(win, spec, opName.c_str(), margs.data(),
+                                      (int)margs.size());
             }
             // 路径节点不支持 children/slot/callback——upstream childrenConsumed。
         }

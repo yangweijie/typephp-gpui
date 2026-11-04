@@ -2952,3 +2952,9 @@ bin/gpui、GPUI.lock、tests/baseline/input/tree1.png（两度重录）、compos
 - click-survival 模态语义演进：批19 后触发器行必堵（菜单有真 action 必弹）——点名计存活
   rc=0，rc=2 只留给命中表空。kit-gates 4/4 绿。
 - 电池：all-examples OK、test:all 141/975、doc 门 rc=0。文档中英对账。
+
+## 2026-11-04 Phase 34 批21：#113 修复（bridge 吞 param_style → path 恒 0x0）
+- 弯路账：先猜"零裁剪"错；探针打 shell 侧 node->ops 见底（只有绘制命令、w/h 被吞）。
+- 修 gpui_bridge.cc path 分支补 param_style；回归位 pathOverlapGate（红底块双点，
+  红臂 (204,2,2) 必红）+ pathScrollGate（path 随容器滚动）。
+- 电池：all-examples 一红一绿（catalog-tree2 抖动记两头）、test:all rc=0、kit-gates 4/4、doc 门 rc=0。

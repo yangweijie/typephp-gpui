@@ -66,7 +66,13 @@
   真正剩下的实测障碍：h=680 命中表里 token 输入框与 chip 的行 **click=0 down=0**（鼠标
   惰性），真鼠标点 chip 走不进命中链 ⇒ token 真鼠标命中继续挂真人清单（#96 边界）；
   真人回报的"无法输入"未复现未归因，另记。
-- **#113 当场复现**：树 1 的路径绘制红绿三角压住「第一节」文字（截图）。
+- **#113 已修（2026-11-04 批21）**：树 1 的路径绘制红绿三角压住「第一节」文字。真机制：
+  bridge 的 path 分支（gpui_bridge.cc）追加 rest ops 时**只放行 method 类**，`param_style`
+  （w/h）被静默丢弃 ⇒ path 元素恒 0x0 布局（`element->Bounds()` 宽高为 0），绘制命令相对
+  锚点画 90px 直接压住下一行内容。修复 = path 分支补 param_style 放行（与普通元素同一条
+  gpui_shim_param_style）。回归位 = selftest 步 `pathOverlapGate`（带尺寸 path + 红底块
+  下方：修复后上点不得红/下点必须红；红臂实测吞 op 后上点 (204,2,2) 红 ⇒ FAIL）+ `pathScrollGate`
+  （path 随容器滚动，滚后原位净/新位蓝）。shotdiff 基线不变（path 段在 680 折叠线下）。
 - 过程账（不冒充结论）：CUA 对 gpui canvas 的应用内截图与坐标动作被
   "no usable pixel-to-pointer rectangle" 帧门挡死（授权全给也拿不到像素矩形）⇒ 本轮用的是
   a11y 元素点击 + 键盘（`{name,pid}` 形状才被解析）+ 宿主 `screencapture` 截屏 + pty 读数
@@ -134,7 +140,8 @@
   hover 盒启动退出）永不完结。机器复现（scroll→移光标→垫 3 秒→截图，hover thumb 仍悬）；
   `cmd/patch-scroll-id-ordinal.sh` 把兄弟序数折进未命名路径使用者，回归门
   `cmd/check-scrollbar-hover-hide.php`（红臂实测：关掉折叠 rc=1）。同页"路径绘制"那块的图形压住了
-  下面的文字 ⇒ **task #113**。这两条 shotdiff 看不见：基线只拍到 900x680 的上半屏，那两块都在视口之外。
+  下面的文字 ⇒ **task #113 已修（2026-11-04 批21，机制见上：bridge 吞 param_style）**。
+  这两块 shotdiff 看不见：基线只拍到 900x680 的上半屏，那两块都在视口之外。
 **读数本分的实测状态**：`KIT-EVENT <键>=<值>` 这一行现在**已被机器亲眼验过**——`--automation` 也开了
 kitEcho（三道消费 automation stdout 的门都只读 `snapshot.txt`，所以多打行不动判据），逐颗点击的扫描里
 读到过 `step=` / `page=` / `rate=`；`KIT-HOVER` 在一次自然退出的会话里读到过 `hoverId=0`。

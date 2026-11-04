@@ -3176,3 +3176,18 @@ run `dwfrun-1ebf1186`（被用户停，批1+批2 施工完成门禁全绿，批3
   ALL EXAMPLES: OK、test:all 141/975 rc=0、doc-claims/锚点 75-16/docs:build rc=0。
 - [x] 文档：中英 testing.md（#112 叙事改写、门表四道、H4 行、模态语义）、findings
   教训（未命名元素零路径贡献；互踢读数的形状）。
+
+### Phase 34 批21（2026-11-04，#113 修复：bridge path 分支吞 param_style，path 恒 0x0）
+- [x] 机器复现路径：先怀疑 PaintMaterialPath 零裁剪（机制猜错）→ 用 selftest 复现（无尺寸
+  path + 红底块门）+ 探针（shell 侧 node->ops 只有绘制命令、style.width=-1、bounds 0x0）
+  读出真根因：**bridge 的 path 分支追加 rest ops 时只放行 method 类，param_style（w/h）
+  静默丢弃** ⇒ path 元素恒 0x0 布局，命令相对锚点画 90px 压住下一行（树 1 三角压手风琴头）。
+- [x] 修复一处：gpui_bridge.cc path 分支补 param_style 放行（gpui_shim_param_style，
+  与普通元素同一条路）。命名元素的既有路径不受影响（op 投递面只增不减）。
+- [x] 回归位两道：`pathOverlapGate`（带尺寸 path + 红底块：上点不得红/下点必须红，
+  红臂实测吞 op 后上点 (204,2,2) ⇒ FAIL）+ `pathScrollGate`（path 随容器滚动：
+  滚后原位净/新位蓝；首版容器没溢出假红、二版采样点选错红臂不红——门的问题当场修）。
+- [x] 电池（今晚产物）：all-examples 一红一绿（catalog-tree2 shotdiff 抖动：红帧目测正常、
+  harness 复跑绿、catalog 无 path 元素与修复无因果——如实记两头）；test:all 141/975 rc=0；
+  kit-gates 4/4 全判定；doc-claims/锚点 75-16/docs:build rc=0。shotdiff 基线无需重录
+  （path 段在 680 折叠线下，批17 已记此盲区）。

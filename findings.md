@@ -3055,3 +3055,26 @@ hover 盒（want=0）每帧启动 1→0 的退出——**互踢永不完结**，
 
 工具坑同场加映：可见性探针第一版打在 `barAlpha` 赋值**前**，读到的是初始值 1——
 探针必须放在被测值诞生之后（#116 的 DispatchArgs 探针同款教训的镜像面）。
+
+## #113 的死因：bridge 的 path 分支只放行 method 类 op，param_style 被静默丢弃（2026-11-04）
+
+"路径三角压住下方文字"（#113）读了两轮弯路才到底：
+1. 第一现场（批17 截图）→ 先怀疑"PaintMaterialPath 零裁剪"（命令越界）——**机制猜错**。
+2. 用 selftest 复现 + 探针：path 节点 ops 只有 move_to/line_to/close（**没有 w/h**），
+   元素 `style.width = -1`（kAuto）、bounds 恒 0x0 —— 根因在 **bridge 的 path 分支**：
+   追加 rest ops 的循环只处理 `opKind == "method"`，`param_style`（w/h）连注释都没提就掉了。
+   元素恒 0x0 布局，命令相对锚点画 90px，直接压住下一行内容（树 1 三角压手风琴头）。
+   修复 = path 分支补 param_style 放行（gpui_shim_param_style，与普通元素同一条路）。
+
+三条可复用判据：
+1. **"元素画出来了但位置/尺寸不对"先查 op 投递链，再查 paint 链**。w/h 这类 param_style op
+   与 method op 在 bridge 里走不同的 kind 分支——任何"特判 kind"的循环（path/其他专用分支）
+   都可能漏掉非 method 类。判据：探针直接打 shell 侧收到的 `node->ops` 列表，
+   与 PHP 侧声明的 op 对账（这次一打就见底）。
+2. **回归门要能区分两态才立得住**：pathScrollGate 首版被"没溢出容器"坑成假红；
+   pathOverlapGate 首版采样点选在三角外，红臂也没红（文字灰≠蓝）。定版用
+   **红底块 + 双点采样**（上点不得红/下点必须红），红臂实测 (204,2,2) 必红。
+   门立好之前，红臂不红就是门自己的问题，不是修复的问题。
+3. **"零裁剪"类静态怀疑要等读数**：PaintMaterialPath 确实没 clip，但本次致害路径是
+   尺寸 op 被吞；clip 只是同类隐患的另一张面孔。先复现、再读码、后归因——顺序反了
+   （先归因再找证据）会把"机制"写错进台账。
