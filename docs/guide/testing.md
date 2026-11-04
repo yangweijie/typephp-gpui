@@ -53,11 +53,13 @@
   登记进 app 表；批25 补自测步 `menuActionDelivery`（独立窗另一套 id，与
   `nativeMenuActionDelivery` 双向钉死；红臂实测 dispatchAction=false ⇒ FAIL）；
   回归位 = selftest 步 `nativeMenuActionDelivery`（红臂关登记 false/无送达，绿臂
-  true/delivered）。**真人最后一跳的边界（2026-11-04 实测到底）**：模态会话只吃
-  会话级事件——CUA 的坐标点击在这台机器拿不到帧（gpui 窗口与 Finder 都 capture
-  失败，帧门挡住一切坐标动作），全局键 event 策略要前台且落点跟随光标，a11y 键
-  进不了模态跟踪队列 ⇒「真点行选中→PHP」这一跳**归真人**（机器侧已钉到：触发器
-  弹菜单 ✓ 两轮截图、行 action 登记 ✓ 双向自测、dispatchAction 送达 ✓）
+  true/delivered）。**「归真人」判词已推翻（2026-11-04 深夜，见 findings）**：捕获失败
+  的真因是裸二进制没有 bundle id，CUA 的 PiP 捕获绑定被跳过（helper 日志 "PiP session
+  capture binding skipped (missing bundle id)"）——bundle 启动后帧门即开。坐标点击仍
+  不可靠（合成点击不动真实光标，模态命中按光标位置），但 **event 策略全局键在前台能进
+  模态跟踪队列**：a11y 点触发器 → `Down` 高亮首行（截图）→ `Return` 激活 ⇒
+  `KIT-EVENT nmCopy=action` 送达（pty 读数两次复现）。「行选中→PHP」这一跳**机器可达**；
+  机器配方：bundle 启动 + `open` 激活前台 + **每步之间观察一次**（直连三连发会竞态丢步）
 - **H5 link 半边：#116 已修（2026-11-04 批18）**。批17 的"两条缝分叉"框架是**错的**：
   探针逐层下钻（up-gate→OnTextLink→DispatchString→shim 路由→box 入队 `found=1`）发现
   C++ 侧整条链**真鼠标与合成完全同一条**，事件死在最后一厘米——wireKit 用 op 长名
@@ -112,6 +114,16 @@
 ./examples/kit/build/kit --section 2   # H3 Accordion 的 trigger
 ./examples/kit/build/kit --section 3   # H1 NativeMenu 触发器、H5 token 徽章 + link 文字
 ./examples/kit/build/kit --section 4   # H4 的独立对拍页（两盒同构，只差 scrollbarMode）
+```
+
+**CUA/机器轮必须走 bundle**（真人手跑不受影响）：裸二进制没有 bundle id，电脑控制的
+截图捕获绑定会被跳过（`has_image:false`，一切坐标动作被帧门挡住，见 findings 2026-11-04
+深夜条）。
+
+```bash
+./examples/kit/build/kit.app/Contents/MacOS/kit --section 3   # 直启 bundle 内二进制
+php bin/gpui run kit --bundle --section 3                     # 或经 run 的 --bundle 路径
+open examples/kit/build/kit.app                               # 激活前台（event 策略键要前台）
 ```
 
 交互模式里每收到一个事件打一行 `KIT-EVENT <键>=<值>`（H1 的 `nmCopy=action`、H3 的

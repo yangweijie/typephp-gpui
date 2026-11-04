@@ -344,6 +344,17 @@ H1–H3 (H1=Accordion, H2=scrollbar, H3=token/link) conflict with this. The auto
 ./examples/kit/build/kit --section 4   # H4 standalone pair (identical boxes, only scrollbarMode differs)
 ```
 
+**CUA/machine rounds must go through the bundle** (human hands are unaffected): the bare
+binary has no bundle id, so the computer-use screenshot capture binding is skipped
+(`has_image:false`, every coordinate action blocked by the frame gate - see the findings
+entry of late 2026-11-04).
+
+```bash
+./examples/kit/build/kit.app/Contents/MacOS/kit --section 3   # exec the bundled binary directly
+php bin/gpui run kit --bundle --section 3                     # or via run's --bundle path
+open examples/kit/build/kit.app                               # bring to front (event keys need frontmost)
+```
+
 Interactive mode prints `KIT-EVENT <key>=<value>` for every event that reaches PHP
 (`nmCopy=action`, `accI0=open`, `tokClick=delivered`, `linkClick=delivered`) and
 `KIT-HOVER hoverId=<n>` when the hover id changes - that line turning non-zero is the H6
@@ -451,14 +462,17 @@ channel beside the `fire` seam and the real-mouse seam.
   dropped silently. `patch-native-menu-action-reg.sh` registers every row's action through the
   established weak-seam convention; the regression slot is the new selftest step
   `nativeMenuActionDelivery` (red arm: registration off → false/no delivery; green arm:
-  true/delivered). **The modal hop's machine boundary (measured to the end, 2026-11-04)**: the
-  modal session only consumes session-level events - CUA's coordinate clicks cannot get a frame on
-  this machine (both the gpui window and Finder fail capture; the frame gate blocks every
-  coordinate action), the global-key event strategy needs the target frontmost and lands wherever
-  the cursor sits, and a11y keys never enter the modal tracking queue ⇒ "a human clicking the row
-  reaches PHP" **stays on the human list** (the machine side is pinned to: the trigger opens the
-  menu - two capture rounds; the row actions are registered - dual selftest steps; dispatchAction
-  delivers).
+  true/delivered). **The "human-only" verdict is overturned (late 2026-11-04, see
+  findings)**: the capture failure came down to the bare binary having no bundle id, so CUA's
+  PiP capture binding was skipped (helper log "PiP session capture binding skipped (missing
+  bundle id)") - once launched from the bundle, the frame gate opens. Coordinate clicks remain
+  unreliable (synthetic clicks never move the real cursor; the modal session hit-tests by the
+  cursor position), but **event-strategy global keys DO enter the modal tracking queue while
+  the app is frontmost**: a11y-click the trigger → `Down` highlights the first row (captured) →
+  `Return` activates it ⇒ `KIT-EVENT nmCopy=action` delivered (pty reading, reproduced twice).
+  "Row selection → PHP" is **machine-reachable**; the machine recipe: bundle launch + `open`
+  to bring frontmost + **observe once between every step** (back-to-back keystrokes race and
+  drop steps)
 - **H5 link half: #116 fixed (2026-11-04 batch 18).** Batch 17's "seam divergence" framing was
   **wrong**: probing layer by layer (up-gate → OnTextLink → DispatchString → shim route → box
   enqueue `found=1`) showed the C++ chain is **the same chain for real and synthetic clicks**; the

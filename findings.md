@@ -3163,3 +3163,36 @@ elementValue() 不崩，因为那条调用链的变量没有被 array 先占名�
 ⇒ 结论：**行选中→PHP 归真人**（机器侧钉到：触发器弹菜单✓、行 action 登记✓、
 dispatchAction 送达✓）。判据：模态跳之前先问"事件怎么进会话"——进不了就别在
 机器侧硬试，把边界写清楚交回真人清单。
+
+## 上一节两个判词的翻案：欠的是 bundle id，行选中键盘可达（2026-11-04 深夜）
+
+「CUA 捕获整机坏掉」「行选中归真人」都被实测推翻。三层探针定因，一层配方翻案：
+
+1. **捕获失败只欠 bundle id，机器没坏**。裸二进制（`./build/kit`）没有
+   CFBundleIdentifier，CUA helper 的 PiP 捕获绑定直接跳过（日志实锤：
+   `PiP session capture binding skipped (missing bundle id)`）⇒ `has_image:false`
+   ⇒ 帧门挡住一切坐标动作。三层对照：宿主 `screencapture -l <id>` 能截（CGWindow 层
+   正常：sharing=1、onscreen=true、与 Finder 窗口字段一模一样）；
+   `SCShareableContent` 看得到进程与窗口（SCApp name='kit' bundleID=''——**只缺这一
+   属性**）；直用 `SCScreenshotManager.captureImage` 也能截出 900x712。SC 全通，问题
+   只在 helper 的绑定层。**bundle 启动即修复**（`kit.app/Contents/MacOS/kit` 直启或
+   `open` 均可；`bin/gpui build` 本就自动刷新 bundle）⇒ 捕获直通
+   `has_image:true, actionable:true`。当天连 Finder 也失败是另一桩（次日复测即好，
+   未深追——怀疑 helper 会话态）。
+2. **坐标点击的真实缺陷：合成事件不动真实光标**。菜单窗口（layer=101）几何与
+   raster 推算一致（点击坐标没错），但模态会话收了点击、按**真实光标位置**命中——
+   光标不动 ⇒ 按外点收层。非模态对拍同样零送达（event 点击「删除数据」按钮，
+   UI kitLog 不变）⇒ 不是模态特有，是 event 策略**落点跟随光标、helper 不为坐标
+   动作搬光标**（与上一节键读数同一条）。拖拽光标落点也不可靠（请求 (658,277)，
+   实测 (997,825)）。a11y 路不通：菜单项 `actions=[] / pressable:false`，helper
+   拒按未声明的动作。
+3. **event 策略全局键能进模态跟踪队列**（前台时；helper 对 not-frontmost 硬拒，先
+   `open` 激活）：a11y 点触发器（弹菜单 ✓）→ `Down`（首行高亮 ✓ 截图）→ `Return`
+   （激活 → **`KIT-EVENT nmCopy=action`**，pty 读数两次复现）。铁则：**每步之间观察
+   一次**——直连三连发会竞态丢步；stdout 判据必须走 pty（块缓冲坑已在 testing.md
+   写明）。a11y 键进不了模态队列、automation key 死锁不变。
+
+判据改写：模态跳先问「事件怎么进会话」——**event 全局键（前台）就是答案**；再问
+「命中靠什么」——别让模态命中依赖光标位置，走键盘高亮。启动身份（bundle vs 裸）决定
+观察通道（捕获+帧门），启动会话（agent shell vs 登录会话）决定投递（#96 旧账不变）。
+H1「行选中→PHP」自机器清单销账，真人清单不再背这一跳。
